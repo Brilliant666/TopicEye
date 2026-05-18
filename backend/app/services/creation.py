@@ -1,0 +1,172 @@
+"""
+Content creation assistant — generate platform-specific content plans.
+
+Given a content item (already analyzed), produce a structured creation
+blueprint for a specific platform (小红书/短视频/公众号).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Optional, List
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.content import ContentItem
+from app.models.analysis import AiAnalysis
+from app.services.llm import call_llm_json  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+PLATFORM_PROMPTS = {
+    "xiaohongshu": {
+        "name": "小红书图文",
+        "instruction": """你是一个小红书爆款内容策划师。基于以下素材，生成小红书图文创作方案。
+
+要求：
+- 标题：3个备选，用数字/对比/悬念吸引点击，≤20字
+- 封面文案：1句核心slogan，≤15字
+- 正文结构：开头hook(1句话抓注意力) + 3-5个要点(每个要点含emoji+一句话) + 结尾互动引导
+- 话题标签：5-8个热门标签
+- 风格要求：口语化、有情绪共鸣、适当用emoji但不过度
+
+输出JSON格式：
+{
+  "titles": ["标题1", "标题2", "标题3"],
+  "cover_slogan": "封面文案",
+  "structure": {
+    "hook": "开头hook",
+    "points": ["要点1", "要点2", "要点3"],
+    "cta": "结尾互动引导"
+  },
+  "tags": ["标签1", "标签2"],
+  "tone": "建议语气/风格"
+}""",
+    },
+    "short_video": {
+        "name": "短视频脚本",
+        "instruction": """你是一个短视频脚本策划师。基于以下素材，生成60秒短视频脚本。
+
+要求：
+- 标题：3个备选，适合抖音/B站，≤25字
+- 开头3秒hook：用冲突/悬念/数据一句话留住观众
+- 正文：分3-4个镜头，每个镜头包含画面描述+旁白文案
+- 结尾：互动引导(点赞/关注/评论)
+- 时长分配：每个镜头标注建议秒数
+
+输出JSON格式：
+{
+  "titles": ["标题1", "标题2", "标题3"],
+  "total_seconds": 60,
+  "scenes": [
+    {
+      "seq": 1,
+      "seconds": 3,
+      "visual": "画面描述",
+      "narration": "旁白文案"
+    }
+  ],
+  "hook": "开头3秒hook文案",
+  "cta": "结尾互动引导",
+  "bgm_suggestion": "背景音乐建议"
+}""",
+    },
+    "wechat": {
+        "name": "公众号长文",
+        "instruction": """你是一个公众号爆款文章策划师。基于以下素材，生成公众号长文大纲。
+
+要求：
+- 标题：3个备选，适合公众号，可适当长一点但≤30字
+- 结构：5-7个小节，每节含标题+核心论点+支撑素材(数据/案例/引用)
+- 开头：用故事/数据/痛点引入
+- 结尾：金句总结+行动号召
+- 适合插入的配图位置标注
+
+输出JSON格式：
+{
+  "titles": ["标题1", "标题2", "标题3"],
+  "outline": [
+    {
+      "section": 1,
+      "heading": "小节标题",
+      "points": ["论点1", "论点2"],
+      "evidence": "支撑素材建议",
+      "image_hint": "配图建议(如需要)"
+    }
+  ],
+  "opening": "开头引入方式",
+  "closing": "结尾金句",
+  "word_count_estimate": 2000,
+  "key_quote": "文内可引用的金句"
+}""",
+    },
+}
+
+
+async def generate_creation_plan(
+    db: AsyncSession,
+    content_id: int,
+    platform: str,
+) -> dict:
+    """
+    Generate a platform-specific content creation plan for a content item.
+
+    Returns the parsed plan dict from LLM.
+    """
+    # 1. Fetch content + analysis
+    from sqlalchemy import select
+    result = await db.execute(
+        select(ContentItem, AiAnalysis)
+        .join(AiAnalysis, AiAnalysis.content_id == ContentItem.id)
+        .where(ContentItem.id == content_id)
+    )
+    row = result.first()
+    if not row:
+        return {"error": "内容不存在或未分析"}
+
+    content, analysis = row
+
+    # 2. Build prompt
+    platform_config = PLATFORM_PROMPTS.get(platform)
+    if not platform_config:
+        return {"error": f"不支持的平台: {platform}"}
+
+    source_info = []
+    if analysis.summary:
+        source_info.append(f"摘要: {analysis.summary}")
+    if analysis.key_points:
+        source_info.append(f"核心观点: {'; '.join(analysis.key_points)}")
+    if analysis.tags:
+        tags = analysis.tags if isinstance(analysis.tags, list) else json.loads(analysis.tags or "[]")
+        source_info.append(f"标签: {', '.join(tags)}")
+    if analysis.creator_angles:
+        source_info.append(f"创作角度: {'; '.join(analysis.creator_angles)}")
+    if analysis.recommendation:
+        source_info.append(f"推荐理由: {analysis.recommendation}")
+
+    user_msg = f"""素材标题: {content.title}
+素材来源: {content.source_name}
+
+{chr(10).join(source_info)}
+
+请基于以上素材，生成{platform_config['name']}创作方案。"""
+
+    messages = [
+        {"role": "system", "content": platform_config["instruction"]},
+        {"role": "user", "content": user_msg},
+    ]
+
+    # 3. Call LLM
+    try:
+        plan = await call_llm_json(messages)
+        if isinstance(plan, dict) and "error" not in plan:
+            plan["_meta"] = {
+                "content_id": content_id,
+                "platform": platform,
+                "platform_name": platform_config["name"],
+            }
+        return plan
+    except Exception as e:
+        logger.exception("Failed to generate creation plan for content %s", content_id)
+        return {"error": str(e)}

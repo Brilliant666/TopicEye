@@ -1,0 +1,238 @@
+/**
+ * TopicEye TypeScript Type Definitions
+ * Aligned with backend API models (snake_case)
+ */
+
+// ─── Source (信源) ───
+
+export type SourceType = 'RSS' | '公众号' | '网站';
+export type SourceStatus = 'active' | 'error' | 'paused';
+
+export interface Source {
+  id: number;
+  name: string;
+  source_type: SourceType;
+  url: string;
+  keyword?: string | null;
+  platform?: string | null;
+  category: string;
+  weight: number; // 1-5
+  status: SourceStatus;
+  last_sync_at: string;
+  sync_error?: string | null;
+  enabled: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CreateSourceRequest {
+  name: string;
+  source_type: SourceType;
+  url: string;
+  category: string;
+  enabled?: boolean;
+}
+
+export interface UpdateSourceRequest {
+  name?: string;
+  url?: string;
+  category?: string;
+  weight?: number;
+  status?: SourceStatus;
+  enabled?: boolean;
+}
+
+// ─── Content (内容) ───
+
+export interface ContentItem {
+  id: number;
+  title: string;
+  url?: string;
+  source_id: number;
+  source_name: string;
+  source_type: SourceType;
+  platform?: string | null;
+  author?: string;
+  published_at: string;
+  crawled_at: string;
+  content_hash?: string;
+  summary?: string;
+  raw_content?: string | null;
+  cover_url?: string | null;
+  category: string;
+  tags?: string[];
+  language?: string | null;
+  status?: string;
+  is_favorited?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  // Joined analysis data (from backend)
+  analysis?: ContentAnalysis | null;
+}
+
+export interface ContentMetrics {
+  hotScore: number;
+  creatorScore: number;
+  riskScore: number;
+}
+
+// ─── AI Analysis (后端实际模型) ───
+
+export interface ContentAnalysis {
+  id: number;
+  content_id: number;
+  quality_score: number;
+  hot_score: number;
+  freshness_score: number;
+  creator_score: number;
+  viral_score: number;
+  risk_score: number;
+  platform_fit?: Record<string, unknown> | null;
+  recommended_reason?: string | null;
+  summary?: string | null;
+  key_points?: string[] | null;
+  audience_emotion?: string | null;
+  creator_angles?: string[] | null;
+  title_suggestions?: string[] | null;
+  outline_suggestions?: Record<string, unknown> | null;
+  xiaohongshu_plan?: Record<string, unknown> | null;
+  short_video_plan?: Record<string, unknown> | null;
+  risk_notes?: Record<string, unknown> | null;
+  // Curation fields
+  curation_score?: number | null;
+  tags?: string[] | null;
+  recommendation?: string | null;
+  info_density?: number | null;
+  actionability?: number | null;
+  source_weight?: number | null;
+  // Round-2 enrichment fields
+  enrichment_status?: string | null;
+  enrichment?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+// ─── Recommend Level ───
+
+export type RecommendLevel = '强烈建议写' | '值得观察' | '适合深挖' | '可蹭但谨慎' | '不建议追';
+
+export function getRecommendLevel(analysis: ContentAnalysis): RecommendLevel {
+  const { creator_score, hot_score, quality_score, freshness_score, risk_score } = analysis;
+  if (creator_score >= 85 && risk_score <= 40) return '强烈建议写';
+  if (creator_score >= 70 && hot_score >= 70) return '值得观察';
+  if (quality_score >= 85 && freshness_score < 50) return '适合深挖';
+  if (hot_score >= 80 && risk_score > 40) return '可蹭但谨慎';
+  if (creator_score < 50) return '不建议追';
+  return '值得观察';
+}
+
+// ─── Topic (选题) ───
+
+export interface Topic {
+  id: number;
+  title: string;
+  source: string;
+  sourceType: SourceType;
+  publishedAt: string;
+  categories: string[];
+  hotScore: number;
+  creatorScore: number;
+  riskScore: number;
+  recommendLevel: RecommendLevel;
+  reason: string;
+  platforms: string[];
+  aiSummary: string;
+  angles: string[];
+  platformFit: PlatformFit[];
+  riskNotes: string[];
+  similarArticles: SimilarArticle[];
+}
+
+export interface PlatformFit {
+  platform: string;
+  suggestion: string;
+}
+
+export interface SimilarArticle {
+  title: string;
+  source: string;
+  metrics: string;
+}
+
+// ─── Topic Asset ───
+
+export interface TopicAsset {
+  id: number;
+  contentId?: number;
+  title: string;
+  source: string;
+  sourceType: SourceType;
+  publishedAt: string;
+  fetchedAt?: string;
+  categories: string[];
+  metrics: ContentMetrics;
+  analysis: ContentAnalysis;
+  platforms: string[];
+  similarArticles: SimilarArticle[];
+  isFavorite: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// ─── Daily Report ───
+
+export interface DailyReport {
+  date: string;
+  weekday: string;
+  topicCount: number;
+  isToday: boolean;
+  overview: string;
+  keywords: string[];
+  trends: DailyTrend[];
+  topPicks: DailyTopPick[];
+  platformTips: Record<string, string[]>;
+  takeaway: string;
+}
+
+export interface DailyTrend {
+  title: string;
+  desc: string;
+  color: string;
+}
+
+export interface DailyTopPick {
+  title: string;
+  reason: string;
+  score: number;
+  platforms: string[];
+}
+
+// ─── API Response Wrappers ───
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface SyncResult {
+  fetched: number;
+  new: number;
+  duplicates: number;
+}
+
+// ─── Filter Params ───
+
+export interface TopicFilterParams {
+  category?: string;
+  recommendLevel?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface ContentFilterParams {
+  sourceId?: number;
+  category?: string;
+  page?: number;
+  pageSize?: number;
+}

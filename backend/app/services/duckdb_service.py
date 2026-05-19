@@ -289,6 +289,83 @@ class DuckDBAnalytics:
             "dup_count": row[5] or 0,
         }
 
+    def query_dashboard_stats(self, days: int = 7) -> Dict[str, Any]:
+        """Dashboard statistics: KPI cards + source breakdown + daily volume trend."""
+        conn = self._get_conn()
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+        # ── KPI row ────────────────────────────────────────────────────────
+        kpi_row = conn.execute(f"""
+            SELECT
+                COUNT(DISTINCT c.id) AS total_crawled,
+                COUNT(DISTINCT CASE WHEN a.curation_score >= 60 THEN c.id END) AS total_curated,
+                ROUND(AVG(a.curation_score), 1) AS avg_curation,
+                COUNT(DISTINCT c.source_id) AS active_sources
+            FROM sqlite_db.content_items c
+            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            WHERE c.crawled_at >= '{cutoff}'
+        """).fetchone()
+
+        # ── Source breakdown (curated count per source) ───────────────────
+        source_rows = conn.execute(f"""
+            SELECT
+                s.name,
+                s.source_type,
+                COUNT(DISTINCT c.id) AS content_count,
+                COUNT(DISTINCT CASE WHEN a.curation_score >= 60 THEN c.id END) AS curated_count,
+                ROUND(AVG(a.curation_score), 1) AS avg_score
+            FROM sqlite_db.content_items c
+            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN sqlite_db.sources s ON s.id = c.source_id
+            WHERE c.crawled_at >= '{cutoff}'
+            GROUP BY s.id, s.name, s.source_type
+            HAVING COUNT(DISTINCT c.id) > 0
+            ORDER BY content_count DESC
+            LIMIT 20
+        """).fetchall()
+
+        # ── Daily volume trend ─────────────────────────────────────────────
+        trend_rows = conn.execute(f"""
+            SELECT
+                DATE(c.crawled_at) AS crawl_date,
+                COUNT(DISTINCT c.id) AS content_count,
+                COUNT(DISTINCT CASE WHEN a.curation_score >= 60 THEN c.id END) AS curated_count,
+                ROUND(AVG(a.curation_score), 1) AS avg_curation
+            FROM sqlite_db.content_items c
+            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            WHERE c.crawled_at >= '{cutoff}'
+            GROUP BY DATE(c.crawled_at)
+            ORDER BY crawl_date ASC
+        """).fetchall()
+
+        return {
+            "kpi": {
+                "total_crawled": kpi_row[0] or 0,
+                "total_curated": kpi_row[1] or 0,
+                "avg_curation": round(float(kpi_row[2] or 0), 1),
+                "active_sources": kpi_row[3] or 0,
+            },
+            "source_breakdown": [
+                {
+                    "source_name": row[0] or "未知",
+                    "source_type": row[1] or "rss",
+                    "content_count": row[2] or 0,
+                    "curated_count": row[3] or 0,
+                    "avg_score": round(float(row[4] or 0), 1),
+                }
+                for row in source_rows
+            ],
+            "daily_trend": [
+                {
+                    "date": row[0].isoformat() if hasattr(row[0], 'isoformat') else str(row[0]),
+                    "content_count": row[1] or 0,
+                    "curated_count": row[2] or 0,
+                    "avg_curation": round(float(row[3] or 0), 1),
+                }
+                for row in trend_rows
+            ],
+        }
+
     def query_content_for_report(self, hours: int = 48) -> List[Dict[str, Any]]:
         """Fetch recently analyzed content for daily report generation."""
         conn = self._get_conn()
@@ -365,6 +442,9 @@ def query_keyword_cloud(days: int = 7, limit: int = 50) -> List[Dict[str, Any]]:
 
 def query_daily_stats() -> Dict[str, Any]:
     return get_analytics().query_daily_stats()
+
+def query_dashboard_stats(days: int = 7) -> Dict[str, Any]:
+    return get_analytics().query_dashboard_stats(days=days)
 
 def query_content_for_report(hours: int = 48) -> List[Dict[str, Any]]:
     return get_analytics().query_content_for_report(hours=hours)

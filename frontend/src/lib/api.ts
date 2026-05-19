@@ -307,3 +307,16 @@ export const settingsApi = {
     });
   },
 };
+
+// ─── Stats / Dashboard API ───
+
+export const statsApi = {
+  /** 数据统计仪表盘 */
+  getDashboard(days = 7): Promise<{
+    kpi: { total_crawled: number; total_curated: number; avg_curation: number; active_sources: number };
+    source_breakdown: Array<{ source_name: string; source_type: string; content_count: number; curated_count: number; avg_score: number }>;
+    daily_trend: Array<{ date: string; content_count: number; curated_count: number; avg_curation: number }>;
+  }> {
+    return request(`/stats/dashboard?days=${days}`);
+  },
+};

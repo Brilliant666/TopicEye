@@ -141,6 +141,16 @@ export const contentsApi = {
       : '';
     return request(`/contents/today-picks${query}`);
   },
+
+  /** 忽略/不感兴趣 */
+  ignore(id: number, reason: string = 'not_interested'): Promise<{ content_id: number; ignored: boolean; reason: string }> {
+    return request(`/contents/${id}/ignore?reason=${encodeURIComponent(reason)}`, { method: 'POST' });
+  },
+
+  /** 取消忽略 */
+  unignore(id: number): Promise<{ content_id: number; ignored: boolean; removed: boolean }> {
+    return request(`/contents/${id}/ignore`, { method: 'DELETE' });
+  },
 };
 
 // ─── Topics API ───

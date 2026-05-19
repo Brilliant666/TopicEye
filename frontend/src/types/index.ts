@@ -108,7 +108,23 @@ export interface ContentAnalysis {
   // Round-2 enrichment fields
   enrichment_status?: string | null;
   enrichment?: Record<string, unknown> | null;
+  // Scoring engine fields (from today-picks API)
+  adjusted_curation_score?: number | null;
+  score_breakdown?: ScoreBreakdown | null;
   created_at: string;
+}
+
+// ─── Score Breakdown ───
+
+export interface ScoreBreakdown {
+  content_id: number;
+  base_score: number;
+  source_bonus: number;
+  time_decay: number;
+  diversity_factor: number;
+  final_score: number;
+  dimension_scores: Record<string, number>;
+  selected: boolean;
 }
 
 // ─── Recommend Level ───
@@ -232,7 +248,13 @@ export interface TopicFilterParams {
 
 export interface ContentFilterParams {
   sourceId?: number;
+  source_id?: number;
   category?: string;
   page?: number;
+  page_size?: number;
   pageSize?: number;
+  hours?: number;
+  source_type?: string;
+  keyword?: string;
+  [key: string]: unknown; // allow any extra params for URLSearchParams
 }

@@ -12,9 +12,15 @@ import ContentAnalysisPanel from '@/components/ContentAnalysisPanel';
 
 // ── Helpers ──
 
+/** Parse a datetime string from backend (UTC, no 'Z' suffix) into a correct Date */
+function parseUTC(s: string): Date {
+  const normalized = s.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(s) ? s : s + 'Z';
+  return new Date(normalized);
+}
+
 function formatTime(dateStr: string): string {
   try {
-    const d = new Date(dateStr);
+    const d = parseUTC(dateStr);
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
     return `${hh}:${mm}`;
@@ -26,13 +32,13 @@ function formatTime(dateStr: string): string {
 function timeAgo(dateStr: string): string {
   try {
     const now = Date.now();
-    const then = new Date(dateStr).getTime();
+    const then = parseUTC(dateStr).getTime();
     const diffSec = Math.floor((now - then) / 1000);
     if (diffSec < 60) return '刚刚';
     if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
     if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} 小时前`;
     if (diffSec < 604800) return `${Math.floor(diffSec / 86400)} 天前`;
-    return new Date(dateStr).toLocaleDateString('zh-CN');
+    return parseUTC(dateStr).toLocaleDateString('zh-CN');
   } catch {
     return '';
   }
@@ -40,7 +46,7 @@ function timeAgo(dateStr: string): string {
 
 function isToday(dateStr: string): boolean {
   try {
-    const d = new Date(dateStr);
+    const d = parseUTC(dateStr);
     const now = new Date();
     return (
       d.getFullYear() === now.getFullYear() &&
@@ -55,12 +61,14 @@ function isToday(dateStr: string): boolean {
 // ── Page Component ──
 
 export default function HomePage() {
-  const { favorites, toggleFavorite } = useAppContext();
+  const { favorites, toggleFavorite, refreshCounts } = useAppContext();
   const [items, setItems] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState('全部');
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeTimeRange, setActiveTimeRange] = useState('48h');
+  const [activeSourceType, setActiveSourceType] = useState('全部');
   const [selectedAnalysis, setSelectedAnalysis] = useState<ContentAnalysis | null>(null);
 
   // Fetch data
@@ -70,7 +78,11 @@ export default function HomePage() {
     setError(null);
 
     contentsApi
-      .list({ page_size: 50 })
+      .list({
+        page_size: 50,
+        hours: activeTimeRange === '全部' ? undefined : parseInt(activeTimeRange),
+        source_type: activeSourceType === '全部' ? undefined : activeSourceType,
+      })
       .then((res) => {
         if (!cancelled) {
           setItems(res.items || []);
@@ -88,7 +100,17 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeTimeRange, activeSourceType]);
+
+  const handleIgnore = useCallback(async (id: number) => {
+    try {
+      await contentsApi.ignore(id);
+      setItems((prev) => prev.filter((item) => item.id !== id));
+      refreshCounts?.();
+    } catch (err) {
+      console.error('Ignore failed:', err);
+    }
+  }, [refreshCounts]);
 
   // Dynamic categories derived from data
   const categories = useMemo(() => {
@@ -164,6 +186,60 @@ export default function HomePage() {
         />
       </div>
 
+      {/* Filter row: time range + source type */}
+      <div style={{ maxWidth: 820, marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          {/* Time range */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, color: T.gray500, fontWeight: 500 }}>时间</span>
+            {['24h', '48h', '7d', '全部'].map((range) => (
+              <button
+                key={range}
+                onClick={() => setActiveTimeRange(range)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  fontWeight: activeTimeRange === range ? 600 : 400,
+                  color: activeTimeRange === range ? T.primary : T.gray500,
+                  background: activeTimeRange === range ? T.primaryLight : T.gray50,
+                  border: 'none',
+                  borderRadius: T.radiusXs,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {range === '全部' ? '全部' : range === '24h' ? '24小时' : range === '48h' ? '48小时' : '近7天'}
+              </button>
+            ))}
+          </div>
+          {/* Divider */}
+          <div style={{ width: 1, height: 20, background: T.gray200 }} />
+          {/* Source type */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, color: T.gray500, fontWeight: 500 }}>来源</span>
+            {['全部', 'RSS', '公众号', '网站'].map((type) => (
+              <button
+                key={type}
+                onClick={() => setActiveSourceType(type)}
+                style={{
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  fontWeight: activeSourceType === type ? 600 : 400,
+                  color: activeSourceType === type ? T.primary : T.gray500,
+                  background: activeSourceType === type ? T.primaryLight : T.gray50,
+                  border: 'none',
+                  borderRadius: T.radiusXs,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Filters - Category */}
       <div style={{ maxWidth: 820, marginBottom: 28 }}>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -213,6 +289,7 @@ export default function HomePage() {
               item={item}
               isFav={favorites.has(item.id)}
               onToggleFav={toggleFavorite}
+              onIgnore={handleIgnore}
               isLast={idx === filtered.length - 1}
               time={formatTime(item.published_at)}
               timeLabel={timeAgo(item.published_at)}
@@ -276,6 +353,7 @@ function TimelineItem({
   item,
   isFav,
   onToggleFav,
+  onIgnore,
   isLast,
   time,
   timeLabel,
@@ -284,6 +362,7 @@ function TimelineItem({
   item: ContentItem;
   isFav: boolean;
   onToggleFav: (id: number) => void;
+  onIgnore: (id: number) => void;
   isLast: boolean;
   time: string;
   timeLabel: string;
@@ -497,6 +576,7 @@ function TimelineItem({
             {/* AI Score badges */}
             {item.analysis && (
               <>
+                <CurationScoreBadge score={item.analysis.adjusted_curation_score ?? item.analysis.curation_score} />
                 <ScoreBadge label="创作" score={item.analysis.creator_score} color={T.primary} />
                 <ScoreBadge label="爆文" score={item.analysis.viral_score} color="#e74c3c" />
                 <ScoreBadge label="质量" score={item.analysis.quality_score} color="#3498db" />
@@ -540,6 +620,27 @@ function TimelineItem({
               title={isFav ? '取消收藏' : '收藏'}
             >
               {isFav ? '★' : '☆'}
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onIgnore(item.id);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 14,
+                lineHeight: 1,
+                padding: 2,
+                color: T.gray300,
+                transition: 'color 0.15s',
+              }}
+              title="不感兴趣"
+              onMouseEnter={(e) => (e.currentTarget.style.color = T.gray500)}
+              onMouseLeave={(e) => (e.currentTarget.style.color = T.gray300)}
+            >
+              ✕
             </button>
           </div>
         </div>
@@ -592,6 +693,34 @@ function RecommendBadge({ level }: { level: RecommendLevel }) {
       }}
     >
       {level}
+    </span>
+  );
+}
+
+// ── Curation Score Badge ──
+
+function CurationScoreBadge({ score }: { score: number | null | undefined }) {
+  if (score == null || score === 0) return null;
+  const rounded = Math.round(score);
+  let color = T.gray400;
+  let bg = T.gray100;
+  if (rounded >= 85) { color = '#16a34a'; bg = '#dcfce7'; }
+  else if (rounded >= 70) { color = '#2563eb'; bg = '#dbeafe'; }
+  else if (rounded >= 55) { color = '#d97706'; bg = '#fef3c7'; }
+  return (
+    <span
+      style={{
+        fontSize: 11,
+        fontWeight: 700,
+        color,
+        background: bg,
+        padding: '2px 7px',
+        borderRadius: 4,
+        fontFamily: T.mono,
+        letterSpacing: '-0.3px',
+      }}
+    >
+      ★{rounded}
     </span>
   );
 }

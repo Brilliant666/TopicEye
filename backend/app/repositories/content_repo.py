@@ -192,6 +192,8 @@ class ContentRepo(BaseRepository[ContentItem]):
         filters: Optional[dict] = None,
         sort_by: str = "created_at",
         sort_order: str = "desc",
+        exclude_ids: Optional[set] = None,
+        time_cutoff: Optional[datetime] = None,
     ) -> tuple[Sequence[ContentItem], int]:
         """Like list_paginated but eager-loads analyses relation."""
         stmt = select(self.model).options(selectinload(self.model.analyses))
@@ -210,6 +212,16 @@ class ContentRepo(BaseRepository[ContentItem]):
                 else:
                     stmt = stmt.where(col == value)
                     count_stmt = count_stmt.where(col == value)
+
+        # Exclude ignored item IDs
+        if exclude_ids:
+            stmt = stmt.where(self.model.id.notin_(exclude_ids))
+            count_stmt = count_stmt.where(self.model.id.notin_(exclude_ids))
+
+        # Time range filter
+        if time_cutoff:
+            stmt = stmt.where(self.model.crawled_at >= time_cutoff)
+            count_stmt = count_stmt.where(self.model.crawled_at >= time_cutoff)
 
         total_result = await self.db.execute(count_stmt)
         total = total_result.scalar() or 0

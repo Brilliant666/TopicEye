@@ -27,20 +27,35 @@ async def list_contents(
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     source_type: Optional[str] = None, platform: Optional[str] = None,
     status: Optional[str] = None, category: Optional[str] = None,
-    keyword: Optional[str] = None,
+    keyword: Optional[str] = None, source_id: Optional[int] = None,
+    hours: Optional[int] = Query(None, description="Time range in hours, e.g. 24, 48, 168"),
     sort_by: str = Query("created_at", pattern=r"^(created_at|published_at|crawled_at)$"),
     sort_order: str = Query("desc", pattern=r"^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.repositories.ignored_repo import IgnoredRepo
+    from datetime import timedelta
+
     repo = ContentRepo(db)
     filters = {k: v for k, v in {
         "source_type": source_type, "platform": platform,
         "status": status, "category": category,
+        "source_id": source_id,
         "title": f"%{keyword}%" if keyword else None,
     }.items() if v is not None}
+
+    # Time range filter: exclude items older than `hours`
+    time_cutoff = None
+    if hours:
+        time_cutoff = datetime.utcnow() - timedelta(hours=hours)
+
+    # Exclude ignored items
+    ignored_ids = await IgnoredRepo(db).list_ignored_ids()
+
     items, total = await repo.list_paginated_with_analyses(
         page=page, page_size=page_size,
-        filters=filters or None, sort_by=sort_by, sort_order=sort_order)
+        filters=filters or None, sort_by=sort_by, sort_order=sort_order,
+        exclude_ids=ignored_ids, time_cutoff=time_cutoff)
     return {"items": [_with_analysis(i) for i in items],
             "total": total, "page": page, "page_size": page_size}
 
@@ -101,16 +116,30 @@ async def enrich_top_items(
     return {"processed": await enrich_batch(ids, db)}
 
 
-@router.get("/{content_id}", response_model=ContentDetailResponse)
+@router.get("/{content_id}")
 async def get_content(content_id: int, db: AsyncSession = Depends(get_db)):
     content = await ContentRepo(db).get_detail(content_id)
     if not content:
         raise HTTPException(404, "Content not found")
-    resp = ContentDetailResponse.model_validate(content)
+    d = ContentResponse.model_validate(content).model_dump()
     if content.analyses:
-        resp = resp.model_copy(update={
-            "analysis": AiAnalysisResponse.model_validate(content.analyses[-1])})
-    return content
+        a = content.analyses[-1]
+        a_dict = AiAnalysisResponse.model_validate(a).model_dump()
+        # Include curation detail fields
+        a_dict["info_density"] = a.info_density
+        a_dict["actionability"] = a.actionability
+        a_dict["source_weight"] = a.source_weight
+        a_dict["curation_score"] = a.curation_score
+        a_dict["recommendation"] = a.recommendation
+        # Include enrichment if available
+        if a.enrichment_status == "completed" and a.enrichment:
+            a_dict["enrichment"] = a.enrichment
+            a_dict["enrichment_status"] = a.enrichment_status
+        d["analysis"] = a_dict
+    if content.metrics:
+        from app.schemas.content import ContentMetricsResponse
+        d["metrics"] = [ContentMetricsResponse.model_validate(m).model_dump() for m in content.metrics]
+    return d
 
 
 @router.post("/{content_id}/favorite")
@@ -124,3 +153,26 @@ async def toggle_favorite(content_id: int, db: AsyncSession = Depends(get_db)):
     content.updated_at = datetime.utcnow()
     await db.flush()
     return {"is_favorited": content.is_favorited}
+
+
+@router.post("/{content_id}/ignore")
+async def ignore_content(
+    content_id: int,
+    reason: str = Query("not_interested", description="Ignore reason: not_interested, seen, irrelevant"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark a content item as ignored (won't appear in feeds)."""
+    from app.repositories.ignored_repo import IgnoredRepo
+    content = await ContentRepo(db).get_by_id(content_id)
+    if not content:
+        raise HTTPException(404, "Content not found")
+    ignored = await IgnoredRepo(db).ignore(content_id, reason=reason)
+    return {"content_id": content_id, "ignored": True, "reason": ignored.reason}
+
+
+@router.delete("/{content_id}/ignore")
+async def unignore_content(content_id: int, db: AsyncSession = Depends(get_db)):
+    """Remove ignore flag from a content item."""
+    from app.repositories.ignored_repo import IgnoredRepo
+    removed = await IgnoredRepo(db).unignore(content_id)
+    return {"content_id": content_id, "ignored": False, "removed": removed}

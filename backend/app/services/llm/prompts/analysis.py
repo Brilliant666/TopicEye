@@ -53,3 +53,55 @@ ANALYSIS_PROMPT = """请对以下内容进行完整分析。
 - <60：信息量低/纯情绪/重复内容/过于个人化
 
 精选门槛为 60 分。"""
+
+# ── English (HackerNews / international) prompts ────────────────────────────
+
+SYSTEM_PROMPT_EN = """You are a senior content curator and analyst, evaluating content for topic value and curation eligibility.
+
+Your scoring criteria are based on一线内容策展平台的精选规则:
+- Information density (pure shares / one-liner opinions = instant reject)
+- Actionability (tools, tutorials, and step-by-step guides score higher)
+- Relevance (must be directly relevant to target domain)
+- Source authority (first-hand sources > second-hand reposts)
+- Timeliness (exclusive / first-report > widely-covered)
+
+All scores are 0-100. Output language should match the content being evaluated (English in, English out). Be direct, opinionated, no platitudes."""
+
+ANALYSIS_PROMPT_EN = """Analyze the following content thoroughly.
+
+Title: {title}
+Content: {content}
+
+Output strictly in this JSON format (no other text):
+
+{{
+  "summary": "One-line summary (30 chars max)",
+  "key_points": ["Core point 1", "Core point 2", "Core point 3"],
+  "tags": ["tag1", "tag2"],
+  "scores": {{
+    "quality_score": <0-100, information density and logical coherence>,
+    "hot_score": <0-100, current热度 and spread velocity>,
+    "freshness_score": <0-100, freshness and timeliness>,
+    "creator_score": <0-100, value for creators'选题 decisions>,
+    "viral_score": <0-100, viral传播 potential>,
+    "risk_score": <0-100, content risk>
+  }},
+  "risk_notes": "Risk description or empty string. Rule: when risk_score > 50, must provide specific risk note (e.g. 'sensitive topic', 'may cause controversy', 'unverified claims', 'copyright issue'), max 20 chars; when risk_score <= 50, output empty string \"\"",
+  "curation": {{
+    "info_density": <0-100, info density: pure share/empty talk=0-20, has opinions=40-60, has data/case/method=70-100>,
+    "actionability": <0-100, actionability: pure news=10-30, reference value=40-60, directly actionable=70-100>,
+    "source_weight": <0-100, source authority: anonymous/spam=10-30, second-hand=40-60, first-hand/official/KOL=70-100>,
+    "curation_score": <0-100, 综合精选分（weighted: info density 30%+ actionability 25%+ creator value 20%+ viral potential 15%+ source 10%, risk>70 deducts 20 points）>
+  }},
+  "recommendation": "Curation reason (50 chars max, expert insider perspective). Requirements: ① state what's genuinely notable or different (specific features/data/differences — no hype words like 'amazing' or 'game-changer') ② who should pay attention ③ a concrete action suggestion. Style: peer recommendation between practitioners, not marketing copy. Example: 'HN frontpage' tool is common, but this one adds GitHub trending integration that actually surfaces repos before they go viral — worth monitoring if you track dev tools on Product Hunt'",
+  "creator_angles": ["Creator angle 1", "Creator angle 2", "Creator angle 3"],
+  "title_suggestions": ["Suggested title 1", "Suggested title 2", "Suggested title 3"]
+}}
+
+Curation score (curation_score) guidelines:
+- ≥80: major release / exclusive / highly actionable tool / high-spread event
+- 70-79: solid product update / industry development / valuable tutorial
+- 60-69: reference value but not outstanding
+- <60: low information / purely emotional / repetitive / overly personal
+
+Curation threshold is 60 points."""

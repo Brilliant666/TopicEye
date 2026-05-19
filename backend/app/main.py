@@ -8,6 +8,7 @@ from app.api.v1.router import router as v1_router
 from app.scheduler import start_scheduler, shutdown_scheduler
 # Ensure all models are imported for table creation
 import app.models.daily_report  # noqa: F401
+import app.models.category  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,6 +19,16 @@ async def lifespan(app: FastAPI):
     # Startup: create all SQLite tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Seed categories from hardcoded defaults (no-op if already seeded)
+    try:
+        from app.database import async_session
+        from app.services.classifier import seed_categories
+        async with async_session() as seed_db:
+            await seed_categories(seed_db)
+            await seed_db.commit()
+    except Exception as e:
+        logger.warning("Category seed skipped: %s", e)
 
     # Initialize DuckDB analytical layer (in-memory + ATTACH SQLite)
     try:

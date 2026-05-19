@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.source import Source, SourceType, SourceStatus
 from app.models.content import ContentItem, ContentStatus
 from app.services.dedup import build_hash
-from app.services.classifier import classify, extract_tags
+from app.services.classifier import classify, extract_tags, classify_async
 from app.services.scrapers import get_scraper_cls
 
 logger = logging.getLogger(__name__)
@@ -98,6 +98,9 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
         existing_hashes = {row[0] for row in result.all()}
 
         # ── Step 4+5: Classify, tag and persist ──────────────────────
+        from app.repositories.category_repo import CategoryRepository
+        cat_repo = CategoryRepository(db)
+
         for entry in entries:
             ch = entry["_content_hash"]
             if ch in existing_hashes:
@@ -106,10 +109,11 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
 
             title = entry.get("title", "")
             summary = entry.get("summary", "")
-            classify_text = f"{title} {summary}"
 
-            category = classify(classify_text)
-            tags = extract_tags(classify_text, max_tags=5)
+            # LLM-driven classification with keyword fallback
+            class_result = await classify_async(title, summary, db)
+            category = class_result["category"]
+            tags = class_result["tags"]
 
             item = ContentItem(
                 title=title,
@@ -131,6 +135,12 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
             db.add(item)
             new_count += 1
             existing_hashes.add(ch)
+
+            # Update category content count
+            try:
+                await cat_repo.increment_count(category)
+            except Exception:
+                pass  # Non-critical
 
         # ── Step 6: Update source ────────────────────────────────────
         _update_source_status(source, SourceStatus.ACTIVE)

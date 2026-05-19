@@ -1,16 +1,29 @@
 """
 Content classification and tag extraction service.
 
-Uses keyword matching to classify content into predefined categories
-and extract relevant tags from text.
+Dual-mode classifier:
+- **Async (LLM)**: Uses AI to dynamically classify content into existing
+  or new categories. New categories are auto-registered in the database.
+- **Sync (keyword fallback)**: Pure keyword matching for when LLM is
+  unavailable (startup, rate-limit, offline).
+
+The sync path is unchanged from the original implementation and serves as
+a zero-dependency fallback.
 """
 
 from __future__ import annotations
 
-import re
+import json
+import logging
 from collections import Counter
+from typing import Any, Optional
 
-# ── Category definitions ──────────────────────────────────────────────
+from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
+
+# ── Keyword-based fallback (unchanged) ─────────────────────────────────
+
 CATEGORIES: list[str] = [
     "AI", "职场", "商业", "教育", "自媒体", "科技", "生活", "产品", "情感", "其他",
 ]
@@ -65,7 +78,7 @@ for _cat, _kws in CATEGORY_KEYWORDS.items():
 
 def classify(text: str) -> str:
     """
-    Classify *text* (title + summary) into one of the predefined categories.
+    Sync keyword-based classification (fallback).
 
     Returns the category with the most keyword hits; falls back to "其他".
     """
@@ -73,11 +86,8 @@ def classify(text: str) -> str:
         return "其他"
 
     text_lower = text.lower()
-
-    # Count keyword hits per category
     scores: Counter[str] = Counter()
     for keyword, category in _KEYWORD_MAP.items():
-        # Use word-boundary-aware search where possible; simple `in` for Chinese
         if keyword in text_lower:
             scores[category] += 1
 
@@ -89,24 +99,158 @@ def classify(text: str) -> str:
 
 def extract_tags(text: str, max_tags: int = 5) -> list[str]:
     """
-    Extract relevant keyword tags from *text*.
-
-    Scans the text against all known keywords and returns the ones that appear,
-    ranked by frequency of occurrence.  Up to *max_tags* are returned.
+    Extract relevant keyword tags from *text* (sync fallback).
     """
     if not text:
         return []
 
     text_lower = text.lower()
-
-    # Find all matching keywords
     matched: Counter[str] = Counter()
     for keyword in _KEYWORD_MAP:
-        # Count occurrences
         count = text_lower.count(keyword)
         if count > 0:
             matched[keyword] = count
 
-    # Sort by count descending, then alphabetically for stability
     sorted_tags = sorted(matched.keys(), key=lambda k: (-matched[k], k))
     return sorted_tags[:max_tags]
+
+
+# ── LLM-powered async classification ────────────────────────────────────
+
+async def classify_async(
+    title: str,
+    summary: str,
+    db: AsyncSession,
+) -> dict[str, Any]:
+    """
+    Classify content using LLM with dynamic category discovery.
+
+    Returns:
+        {
+            "category": str,          # 分类名称
+            "tags": list[str],        # 关键词标签
+            "is_new_category": bool,  # 是否为新发现的分类
+            "confidence": float,      # 置信度
+        }
+
+    Falls back to keyword-based classification on any error.
+    """
+    from app.repositories.category_repo import CategoryRepository
+    from app.services.llm import call_llm_json
+    from app.services.llm.prompts.classification import (
+        SYSTEM_PROMPT,
+        CLASSIFICATION_PROMPT,
+    )
+
+    cat_repo = CategoryRepository(db)
+
+    # Get current category list for the prompt
+    category_names = await cat_repo.get_active_names()
+
+    # If no categories in DB yet, use the hardcoded list as seed
+    if not category_names:
+        category_names = CATEGORIES.copy()
+
+    categories_str = "、".join(category_names)
+    text_input = f"{title} {summary}".strip()
+
+    try:
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": CLASSIFICATION_PROMPT.format(
+                    categories=categories_str,
+                    title=title,
+                    summary=summary or "无摘要",
+                ),
+            },
+        ]
+
+        result = await call_llm_json(
+            messages,
+            temperature=0.1,
+            max_tokens=300,
+        )
+
+        category = result.get("category", "").strip()
+        tags = result.get("tags", [])
+        is_new = result.get("is_new_category", False)
+        confidence = result.get("confidence", 0.5)
+
+        if not category:
+            raise ValueError("Empty category from LLM")
+
+        # Auto-register new category
+        if is_new:
+            try:
+                await cat_repo.get_or_create(
+                    name=category,
+                    description=f"LLM自动发现的分类",
+                    is_auto_created=True,
+                )
+            except Exception as e:
+                logger.warning("Failed to auto-create category '%s': %s", category, e)
+
+        return {
+            "category": category,
+            "tags": tags if isinstance(tags, list) else [],
+            "is_new_category": is_new,
+            "confidence": confidence,
+        }
+
+    except Exception as exc:
+        logger.warning(
+            "LLM classification failed, falling back to keywords: %s", exc
+        )
+        category = classify(text_input)
+        tags = extract_tags(text_input)
+        return {
+            "category": category,
+            "tags": tags,
+            "is_new_category": False,
+            "confidence": 0.3,
+        }
+
+
+async def seed_categories(db: AsyncSession) -> int:
+    """
+    Initialize the categories table with seed data from the hardcoded list.
+
+    Run once on first startup (or when DB is fresh).
+    Returns the number of categories created.
+    """
+    from app.repositories.category_repo import CategoryRepository
+
+    cat_repo = CategoryRepository(db)
+    created = 0
+
+    for name, keywords in CATEGORY_KEYWORDS.items():
+        existing = await cat_repo.get_by_name(name)
+        if not existing:
+            await cat_repo.create(
+                name=name,
+                description=f"{name}相关内容",
+                keywords=",".join(keywords),
+                is_auto_created=False,
+                is_active=True,
+                content_count=0,
+            )
+            created += 1
+
+    # Also add "其他" if missing
+    other = await cat_repo.get_by_name("其他")
+    if not other:
+        await cat_repo.create(
+            name="其他",
+            description="未匹配到具体分类的内容",
+            is_auto_created=False,
+            is_active=True,
+            content_count=0,
+        )
+        created += 1
+
+    if created > 0:
+        logger.info("Seeded %d categories", created)
+
+    return created

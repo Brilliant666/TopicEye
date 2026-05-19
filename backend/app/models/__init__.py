@@ -5,5 +5,6 @@ from app.models.analysis import AiAnalysis
 from app.models.topic import TopicGroup
 from app.models.trend import TopicTrend
 from app.models.category import Category
+from app.models.ignored import IgnoredItem
 
-__all__ = ["Source", "ContentItem", "ContentMetrics", "AiAnalysis", "TopicGroup", "Category"]
+__all__ = ["Source", "ContentItem", "ContentMetrics", "AiAnalysis", "TopicGroup", "Category", "IgnoredItem"]

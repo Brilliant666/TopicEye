@@ -86,7 +86,7 @@ export const sourcesApi = {
   importOPML(file: File): Promise<{ created: number; skipped: number; total: number; message: string }> {
     const formData = new FormData();
     formData.append('file', file);
-    return fetch(`${API_BASE}/api/v1/sources/import-opml`, {
+    return fetch(`${BASE_URL}/sources/import-opml`, {
       method: 'POST',
       body: formData,
     }).then(r => r.json());

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { T } from '@/lib/design-tokens';
+import { T, LEVEL_CONFIG } from '@/lib/design-tokens';
 import { contentsApi } from '@/lib/api';
 import { useAppContext } from '@/components/ClientLayout';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
@@ -76,7 +76,8 @@ export default function FavoritesPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 40 }}>
           {items.map((item) => {
             const analysis = item.analysis as ContentAnalysis | null;
-            const recommend = analysis ? getRecommendLevel(analysis.creator_score, analysis.viral_score, analysis.risk_score) : null;
+            const level = analysis ? getRecommendLevel(analysis) : null;
+            const levelCfg = level ? LEVEL_CONFIG[level] : null;
             return (
               <div
                 key={item.id}
@@ -129,16 +130,16 @@ export default function FavoritesPage() {
                     <ScoreBadge label="创作" value={analysis.creator_score} color={T.primary} />
                     <ScoreBadge label="爆文" value={analysis.viral_score} color="#F59E0B" />
                     <ScoreBadge label="质量" value={analysis.quality_score} color="#10B981" />
-                    {recommend && (
+                    {levelCfg && (
                       <span style={{
                         fontSize: 11,
                         fontWeight: 500,
                         padding: '2px 8px',
                         borderRadius: 4,
-                        background: recommend.bg,
-                        color: recommend.color,
+                        background: levelCfg.bg,
+                        color: levelCfg.color,
                       }}>
-                        {recommend.label}
+                        {level}
                       </span>
                     )}
                   </div>
@@ -208,7 +209,7 @@ export default function FavoritesPage() {
             )}
 
             {/* Key Points */}
-            {selectedAnalysis.key_points?.length > 0 && (
+            {Array.isArray(selectedAnalysis.key_points) && selectedAnalysis.key_points.length > 0 && (
               <div style={{ marginBottom: 24 }}>
                 <h3 style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginBottom: 8 }}>核心观点</h3>
                 {selectedAnalysis.key_points.map((point, i) => (
@@ -220,7 +221,7 @@ export default function FavoritesPage() {
             )}
 
             {/* Creator Angles */}
-            {selectedAnalysis.creator_angles?.length > 0 && (
+            {Array.isArray(selectedAnalysis.creator_angles) && selectedAnalysis.creator_angles.length > 0 && (
               <div style={{ marginBottom: 24 }}>
                 <h3 style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginBottom: 8 }}>创作角度</h3>
                 {selectedAnalysis.creator_angles.map((angle, i) => (
@@ -232,7 +233,7 @@ export default function FavoritesPage() {
             )}
 
             {/* Title Suggestions */}
-            {selectedAnalysis.title_suggestions?.length > 0 && (
+            {Array.isArray(selectedAnalysis.title_suggestions) && selectedAnalysis.title_suggestions.length > 0 && (
               <div style={{ marginBottom: 24 }}>
                 <h3 style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginBottom: 8 }}>建议标题</h3>
                 {selectedAnalysis.title_suggestions.map((title, i) => (

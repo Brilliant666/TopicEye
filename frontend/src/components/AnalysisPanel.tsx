@@ -88,7 +88,7 @@ export default function AnalysisPanel({ analysis, onClose }: AnalysisPanelProps)
             <p style={{ fontSize: 13, color: T.gray600, lineHeight: 1.7 }}>{analysis.summary}</p>
           </div>
         )}
-        {analysis.key_points?.length > 0 && (
+        {analysis.key_points != null && analysis.key_points.length > 0 && (
           <div style={{ marginBottom: 24 }}>
             <h3 style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginBottom: 8 }}>核心观点</h3>
             {analysis.key_points.map((point, i) => (
@@ -98,7 +98,7 @@ export default function AnalysisPanel({ analysis, onClose }: AnalysisPanelProps)
             ))}
           </div>
         )}
-        {analysis.creator_angles?.length > 0 && (
+        {analysis.creator_angles != null && analysis.creator_angles.length > 0 && (
           <div style={{ marginBottom: 24 }}>
             <h3 style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginBottom: 8 }}>创作角度</h3>
             {analysis.creator_angles.map((angle, i) => (
@@ -108,7 +108,7 @@ export default function AnalysisPanel({ analysis, onClose }: AnalysisPanelProps)
             ))}
           </div>
         )}
-        {analysis.title_suggestions?.length > 0 && (
+        {analysis.title_suggestions != null && analysis.title_suggestions.length > 0 && (
           <div style={{ marginBottom: 24 }}>
             <h3 style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginBottom: 8 }}>建议标题</h3>
             {analysis.title_suggestions.map((title, i) => (

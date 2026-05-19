@@ -702,8 +702,8 @@ function RecommendBadge({ level }: { level: RecommendLevel }) {
 function CurationScoreBadge({ score }: { score: number | null | undefined }) {
   if (score == null || score === 0) return null;
   const rounded = Math.round(score);
-  let color = T.gray400;
-  let bg = T.gray100;
+  let color: string = T.gray400;
+  let bg: string = T.gray100;
   if (rounded >= 85) { color = '#16a34a'; bg = '#dcfce7'; }
   else if (rounded >= 70) { color = '#2563eb'; bg = '#dbeafe'; }
   else if (rounded >= 55) { color = '#d97706'; bg = '#fef3c7'; }

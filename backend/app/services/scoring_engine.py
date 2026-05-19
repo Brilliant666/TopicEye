@@ -234,3 +234,78 @@ def score_items(items: list[ScoringInput]) -> list[tuple[ScoreBreakdown, Scoring
     results.sort(key=lambda x: x[0].final_score, reverse=True)
 
     return results
+
+
+def score_low_follower_viral(
+    items: list[ScoringInput],
+) -> list[tuple[ScoreBreakdown, ScoringInput]]:
+    """
+    Low-Follower Viral (LFV) discovery — find content that broke through
+    despite being posted by low-reach sources.
+
+    Algorithm:
+        lfv_score = (
+            viral_score * 0.45        # raw viral potential
+            + creator_score * 0.30    #选题 value for creators
+            + quality_score * 0.25    # content quality
+        ) * obscure_factor * freshness_boost
+
+    obscure_factor  = max(0.05, 1 - source_weight_normalized)
+                   (0.05 = minimum, to never fully zero out authoritative sources)
+    source_weight_normalized = source_weight / 100  (0-1, high = authoritative)
+
+    freshness_boost = 1 + freshness_score / 200  (1.0-1.5)
+
+    High LFV = high virality/quality + low source authority (obscure creator)
+    """
+    now = datetime.utcnow()
+    cfg = CONFIG
+    results: list[tuple[ScoreBreakdown, ScoringInput]] = []
+
+    # Filter high-risk items
+    safe_items = [it for it in items if (it.risk_score or 0) <= cfg["risk_threshold"]]
+
+    for item in safe_items:
+        vs = item.viral_score or 0
+        cs = item.creator_score or 0
+        qs = item.quality_score or 0
+        fs = item.freshness_score or 0
+        sw = item.source_weight or 50  # analysis source_weight (0-100)
+
+        # Weighted content score
+        content_score = vs * 0.45 + cs * 0.30 + qs * 0.25
+
+        # Obscure factor: low source_weight → high obscure factor
+        obscure_factor = max(0.05, 1 - sw / 100)
+
+        # Freshness boost
+        freshness_boost = 1 + fs / 200
+
+        lfv_score = round(content_score * obscure_factor * freshness_boost, 2)
+
+        # Time decay (same as main pipeline)
+        time_decay = _compute_time_decay(item, now)
+
+        final_score = round(lfv_score * time_decay, 2)
+
+        bd = ScoreBreakdown(
+            content_id=item.content_id,
+            base_score=round(content_score, 2),
+            source_bonus=round(obscure_factor, 4),
+            time_decay=round(time_decay, 4),
+            diversity_factor=1.0,
+            final_score=final_score,
+            dimension_scores={
+                "viral_score": vs,
+                "creator_score": cs,
+                "quality_score": qs,
+                "source_weight": sw,
+                "obscure_factor": round(obscure_factor, 4),
+                "freshness_boost": round(freshness_boost, 4),
+            },
+            selected=final_score >= 30,  # permissive threshold for discovery
+        )
+        results.append((bd, item))
+
+    results.sort(key=lambda x: x[0].final_score, reverse=True)
+    return results

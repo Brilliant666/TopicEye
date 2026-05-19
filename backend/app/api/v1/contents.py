@@ -34,7 +34,7 @@ async def list_contents(
     keyword: Optional[str] = None, source_id: Optional[int] = None,
     hours: Optional[int] = Query(None, description="Time range in hours, e.g. 24, 48, 168"),
     sort_by: str = Query("created_at",
-                          pattern=r"^(created_at|published_at|crawled_at|curation_score)$"),
+                          pattern=r"^(created_at|published_at|crawled_at|curation_score|low_follower_viral)$"),
     sort_order: str = Query("desc", pattern=r"^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -125,6 +125,77 @@ async def list_contents(
         # sort_order desc is already guaranteed by score_items (descending)
         if sort_order == "asc" and result_items:
             result_items.reverse()
+
+        return {
+            "items": result_items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    # ── Low-follower viral discovery path ────────────────────────────────
+    if sort_by == "low_follower_viral":
+        from app.services.scoring_engine import score_low_follower_viral
+
+        repo = ContentRepo(db)
+        scored_items, total = await repo.list_for_scoring(
+            filters=filters,
+            exclude_ids=ignored_ids,
+            time_cutoff=time_cutoff,
+            limit=_SCORING_BATCH_SIZE,
+        )
+
+        if not scored_items:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+
+        scoring_inputs: list[ScoringInput] = []
+        item_map: dict[int, ContentItem] = {}
+        for item in scored_items:
+            if not item.analyses:
+                continue
+            a = item.analyses[-1]
+            src_w = item.source.weight if item.source else 3
+            si = ScoringInput(
+                content_id=item.id,
+                title=item.title,
+                source_id=item.source_id,
+                source_name=item.source_name,
+                published_at=item.published_at,
+                crawled_at=item.crawled_at,
+                curation_score=a.curation_score or 0,
+                info_density=a.info_density or 50,
+                actionability=a.actionability or 50,
+                source_weight=a.source_weight or 50,
+                creator_score=a.creator_score or 0,
+                viral_score=a.viral_score or 0,
+                freshness_score=a.freshness_score or 0,
+                quality_score=a.quality_score or 0,
+                hot_score=a.hot_score or 0,
+                risk_score=a.risk_score or 0,
+                source_weight_db=src_w,
+            )
+            scoring_inputs.append(si)
+            item_map[item.id] = item
+
+        if not scoring_inputs:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+
+        # Run LFV scoring pipeline
+        scored = score_low_follower_viral(scoring_inputs)
+
+        page_offset = (page - 1) * page_size
+        page_items = scored[page_offset:page_offset + page_size]
+
+        result_items = []
+        for breakdown, si in page_items:
+            item = item_map.get(si.content_id)
+            if not item:
+                continue
+            d = _with_analysis(item)
+            if "analysis" in d and d["analysis"]:
+                d["analysis"]["adjusted_curation_score"] = breakdown.final_score
+                d["analysis"]["score_breakdown"] = breakdown.to_dict()
+            result_items.append(d)
 
         return {
             "items": result_items,

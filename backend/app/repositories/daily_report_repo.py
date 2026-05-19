@@ -5,7 +5,7 @@ Repository for DailyReport — daily briefing queries.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 from sqlalchemy import select
 
@@ -35,3 +35,26 @@ class DailyReportRepository(BaseRepository[DailyReport]):
         )
         result = await self.db.execute(stmt)
         return result.scalars().all()
+
+    async def get_dates_with_reports(self) -> List[Dict[str, Optional[str]]]:
+        """Return list of {report_date, weekday, takeaway, status} for all reports, newest first."""
+        stmt = (
+            select(
+                self.model.report_date,
+                self.model.weekday,
+                self.model.takeaway,
+                self.model.status,
+            )
+            .order_by(self.model.report_date.desc())
+        )
+        result = await self.db.execute(stmt)
+        rows = result.all()
+        return [
+            {
+                "report_date": row[0],
+                "weekday": row[1],
+                "takeaway": row[2][:60] if row[2] else None,
+                "status": row[3],
+            }
+            for row in rows
+        ]

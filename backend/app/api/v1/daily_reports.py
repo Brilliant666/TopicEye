@@ -3,13 +3,18 @@ Daily Report API endpoints.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.daily_report import DailyReport
-from app.schemas.daily_report import DailyReportResponse, DailyReportListResponse
+from app.repositories.daily_report_repo import DailyReportRepository
+from app.schemas.daily_report import (
+    DailyReportResponse,
+    DailyReportListResponse,
+    DailyReportDatesResponse,
+)
 from app.services.daily_report import generate_daily_report
 
 router = APIRouter(prefix="/daily-reports", tags=["daily-reports"])
@@ -20,6 +25,27 @@ async def get_today_report(db: AsyncSession = Depends(get_db)):
     """Get or generate today's daily report."""
     report = await generate_daily_report(db)
     return report
+
+
+@router.get("/by-date", response_model=DailyReportResponse)
+async def get_report_by_date(
+    date: str = Query(..., description="Report date in YYYY-MM-DD format"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Fetch a single report by its date string."""
+    repo = DailyReportRepository(db)
+    report = await repo.get_by_date(date)
+    if report is None:
+        raise HTTPException(status_code=404, detail=f"No report found for {date}")
+    return report
+
+
+@router.get("/dates", response_model=DailyReportDatesResponse)
+async def list_report_dates(db: AsyncSession = Depends(get_db)):
+    """List all dates that have reports, newest first."""
+    repo = DailyReportRepository(db)
+    dates = await repo.get_dates_with_reports()
+    return {"dates": dates}
 
 
 @router.get("", response_model=DailyReportListResponse)

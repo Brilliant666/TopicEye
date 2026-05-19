@@ -30,3 +30,16 @@ class DailyReportResponse(BaseModel):
 class DailyReportListResponse(BaseModel):
     items: list[DailyReportResponse]
     total: int
+
+
+class DailyReportDateSummary(BaseModel):
+    """Lightweight summary for the date sidebar."""
+    report_date: str
+    weekday: str
+    takeaway: Optional[str] = None
+    status: str = "PENDING"
+
+
+class DailyReportDatesResponse(BaseModel):
+    """Response for the dates-list endpoint."""
+    dates: list[DailyReportDateSummary]

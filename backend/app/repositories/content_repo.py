@@ -291,6 +291,69 @@ class ContentRepo(BaseRepository[ContentItem]):
         result = await self.db.execute(stmt)
         return result.scalars().unique().all()
 
+    # ── Scoring candidates (generic, reusable) ─────────────────────────
+
+    async def list_for_scoring(
+        self,
+        *,
+        filters: Optional[dict] = None,
+        exclude_ids: Optional[set] = None,
+        time_cutoff: Optional[datetime] = None,
+        limit: int = 500,
+    ) -> tuple[Sequence[ContentItem], int]:
+        """
+        Fetch ANALYZED items with analyses + source for scoring pipeline.
+        Applies all standard filters (source_type, platform, category, keyword, etc.).
+        Returns (items, total_count) where total is the count of all ANALYZED items
+        matching filters (for correct pagination total).
+        """
+        from sqlalchemy import func, select
+        from app.models.analysis import AiAnalysis
+
+        # Count query — all ANALYZED matching filters
+        count_stmt = select(func.count(self.model.id)).join(
+            AiAnalysis, AiAnalysis.content_id == self.model.id
+        ).where(self.model.status == "ANALYZED")
+
+        # Data query — eager-load analyses + source
+        data_stmt = (
+            select(self.model)
+            .options(
+                selectinload(self.model.analyses),
+                selectinload(self.model.source),
+            )
+            .join(AiAnalysis, AiAnalysis.content_id == self.model.id)
+            .where(self.model.status == "ANALYZED")
+        )
+
+        for field, value in (filters or {}).items():
+            if value is None:
+                continue
+            col = getattr(self.model, field, None)
+            if col is None:
+                continue
+            if isinstance(value, str) and ("%" in value or "_" in value):
+                count_stmt = count_stmt.where(col.ilike(value))
+                data_stmt = data_stmt.where(col.ilike(value))
+            else:
+                count_stmt = count_stmt.where(col == value)
+                data_stmt = data_stmt.where(col == value)
+
+        if exclude_ids:
+            count_stmt = count_stmt.where(self.model.id.notin_(exclude_ids))
+            data_stmt = data_stmt.where(self.model.id.notin_(exclude_ids))
+        if time_cutoff:
+            count_stmt = count_stmt.where(self.model.crawled_at >= time_cutoff)
+            data_stmt = data_stmt.where(self.model.crawled_at >= time_cutoff)
+
+        total_result = await self.db.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        data_stmt = data_stmt.order_by(self.model.crawled_at.desc()).limit(limit)
+        result = await self.db.execute(data_stmt)
+        items = result.scalars().unique().all()
+        return items, total
+
     # ── Recent items ───────────────────────────────────────────────
 
     async def get_recent(

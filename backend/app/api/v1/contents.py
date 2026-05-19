@@ -5,6 +5,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.repositories.content_repo import ContentRepo
@@ -14,6 +15,9 @@ from app.schemas.analysis import AiAnalysisResponse
 
 router = APIRouter(prefix="/contents", tags=["contents"])
 
+# Large batch size for scoring — enough for diversity penalty to work well
+_SCORING_BATCH_SIZE = 500
+
 
 def _with_analysis(item) -> dict:
     d = ContentResponse.model_validate(item).model_dump()
@@ -22,21 +26,24 @@ def _with_analysis(item) -> dict:
     return d
 
 
-@router.get("", response_model=ContentListResponse)
+@router.get("")
 async def list_contents(
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     source_type: Optional[str] = None, platform: Optional[str] = None,
     status: Optional[str] = None, category: Optional[str] = None,
     keyword: Optional[str] = None, source_id: Optional[int] = None,
     hours: Optional[int] = Query(None, description="Time range in hours, e.g. 24, 48, 168"),
-    sort_by: str = Query("created_at", pattern=r"^(created_at|published_at|crawled_at)$"),
+    sort_by: str = Query("created_at",
+                          pattern=r"^(created_at|published_at|crawled_at|curation_score)$"),
     sort_order: str = Query("desc", pattern=r"^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ):
     from app.repositories.ignored_repo import IgnoredRepo
+    from app.models.content import ContentItem
+    from app.models.analysis import AiAnalysis
+    from app.services.scoring_engine import ScoringInput, score_items
     from datetime import timedelta
 
-    repo = ContentRepo(db)
     filters = {k: v for k, v in {
         "source_type": source_type, "platform": platform,
         "status": status, "category": category,
@@ -44,14 +51,90 @@ async def list_contents(
         "title": f"%{keyword}%" if keyword else None,
     }.items() if v is not None}
 
-    # Time range filter: exclude items older than `hours`
     time_cutoff = None
     if hours:
         time_cutoff = datetime.utcnow() - timedelta(hours=hours)
 
-    # Exclude ignored items
     ignored_ids = await IgnoredRepo(db).list_ignored_ids()
 
+    # ── Curation-score ranking path ────────────────────────────────────
+    if sort_by == "curation_score":
+        repo = ContentRepo(db)
+        scored_items, total = await repo.list_for_scoring(
+            filters=filters,
+            exclude_ids=ignored_ids,
+            time_cutoff=time_cutoff,
+            limit=_SCORING_BATCH_SIZE,
+        )
+
+        if not scored_items:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+
+        # Build scoring inputs
+        scoring_inputs: list[ScoringInput] = []
+        item_map: dict[int, ContentItem] = {}
+        for item in scored_items:
+            if not item.analyses:
+                continue
+            a = item.analyses[-1]
+            src_w = item.source.weight if item.source else 3
+            si = ScoringInput(
+                content_id=item.id,
+                title=item.title,
+                source_id=item.source_id,
+                source_name=item.source_name,
+                published_at=item.published_at,
+                crawled_at=item.crawled_at,
+                curation_score=a.curation_score or 0,
+                info_density=a.info_density or 50,
+                actionability=a.actionability or 50,
+                source_weight=a.source_weight or 50,
+                creator_score=a.creator_score or 0,
+                viral_score=a.viral_score or 0,
+                freshness_score=a.freshness_score or 0,
+                quality_score=a.quality_score or 0,
+                hot_score=a.hot_score or 0,
+                risk_score=a.risk_score or 0,
+                source_weight_db=src_w,
+            )
+            scoring_inputs.append(si)
+            item_map[item.id] = item
+
+        if not scoring_inputs:
+            return {"items": [], "total": 0, "page": page, "page_size": page_size}
+
+        # Run full scoring pipeline (risk filter → 6-dim weighted → time decay → diversity)
+        scored = score_items(scoring_inputs)
+
+        # Paginate scored results
+        page_offset = (page - 1) * page_size
+        page_items = scored[page_offset:page_offset + page_size]
+
+        result_items = []
+        for breakdown, si in page_items:
+            item = item_map.get(si.content_id)
+            if not item:
+                continue
+            d = _with_analysis(item)
+            # Attach scoring engine output to analysis dict
+            if "analysis" in d and d["analysis"]:
+                d["analysis"]["adjusted_curation_score"] = breakdown.final_score
+                d["analysis"]["score_breakdown"] = breakdown.to_dict()
+            result_items.append(d)
+
+        # sort_order desc is already guaranteed by score_items (descending)
+        if sort_order == "asc" and result_items:
+            result_items.reverse()
+
+        return {
+            "items": result_items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    # ── Standard SQL sort path ─────────────────────────────────────────
+    repo = ContentRepo(db)
     items, total = await repo.list_paginated_with_analyses(
         page=page, page_size=page_size,
         filters=filters or None, sort_by=sort_by, sort_order=sort_order,

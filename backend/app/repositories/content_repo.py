@@ -183,6 +183,102 @@ class ContentRepo(BaseRepository[ContentItem]):
         await self.db.flush()
         return result.rowcount
 
+    # ── Eager-loaded paginated listing ────────────────────────────
+
+    async def list_paginated_with_analyses(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        filters: Optional[dict] = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ) -> tuple[Sequence[ContentItem], int]:
+        """Like list_paginated but eager-loads analyses relation."""
+        stmt = select(self.model).options(selectinload(self.model.analyses))
+        count_stmt = select(func.count()).select_from(self.model)
+
+        if filters:
+            for field, value in filters.items():
+                if value is None:
+                    continue
+                col = getattr(self.model, field, None)
+                if col is None:
+                    continue
+                if isinstance(value, str) and ("%" in value or "_" in value):
+                    stmt = stmt.where(col.ilike(value))
+                    count_stmt = count_stmt.where(col.ilike(value))
+                else:
+                    stmt = stmt.where(col == value)
+                    count_stmt = count_stmt.where(col == value)
+
+        total_result = await self.db.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        sort_col = getattr(self.model, sort_by, self.model.created_at)
+        stmt = stmt.order_by(
+            sort_col.desc() if sort_order == "desc" else sort_col.asc()
+        )
+
+        offset = (page - 1) * page_size
+        stmt = stmt.offset(offset).limit(page_size)
+
+        result = await self.db.execute(stmt)
+        items = result.scalars().unique().all()
+        return items, total
+
+    # ── Detail with metrics + analyses ────────────────────────────
+
+    async def get_detail(self, id: int) -> Optional[ContentItem]:
+        """Fetch a content item eagerly loaded with metrics and analyses."""
+        result = await self.db.execute(
+            select(self.model)
+            .options(selectinload(self.model.metrics))
+            .options(selectinload(self.model.analyses))
+            .where(self.model.id == id)
+        )
+        return result.scalar_one_or_none()
+
+    # ── Favorites listing ─────────────────────────────────────────
+
+    async def list_favorites(
+        self, page: int = 1, page_size: int = 20,
+    ) -> tuple[Sequence[ContentItem], int]:
+        """Paginated listing of favorited items with analyses."""
+        return await self.list_paginated_with_analyses(
+            page=page,
+            page_size=page_size,
+            filters={"is_favorited": True},
+            sort_by="updated_at",
+            sort_order="desc",
+        )
+
+    # ── Today picks candidates (SQLite fallback) ─────────────────
+
+    async def list_for_today_picks(
+        self,
+        hours: int = 48,
+        category: Optional[str] = None,
+    ) -> Sequence[ContentItem]:
+        """Fetch items with analyses + source for today-picks scoring."""
+        from app.models.analysis import AiAnalysis
+        from datetime import datetime as dt, timedelta
+
+        cutoff = dt.utcnow() - timedelta(hours=hours)
+        stmt = (
+            select(self.model)
+            .options(
+                selectinload(self.model.analyses),
+                selectinload(self.model.source),
+            )
+            .join(AiAnalysis, AiAnalysis.content_id == self.model.id)
+            .where(self.model.crawled_at >= cutoff)
+            .where(AiAnalysis.risk_score <= 70)
+        )
+        if category:
+            stmt = stmt.where(self.model.category == category)
+        result = await self.db.execute(stmt)
+        return result.scalars().unique().all()
+
     # ── Recent items ───────────────────────────────────────────────
 
     async def get_recent(

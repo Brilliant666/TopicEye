@@ -22,3 +22,40 @@ class AnalysisRepository(BaseRepository[AiAnalysis]):
         stmt = select(AiAnalysis).where(AiAnalysis.content_id == content_id)
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def list_with_score_filter(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        min_creator_score: Optional[float] = None,
+        min_viral_score: Optional[float] = None,
+    ):
+        """List analyses with optional score thresholds."""
+        from sqlalchemy import func
+        filters = {}
+        if min_creator_score is not None:
+            filters["min_creator_score"] = min_creator_score
+        if min_viral_score is not None:
+            filters["min_viral_score"] = min_viral_score
+
+        stmt = select(AiAnalysis)
+        count_stmt = select(func.count()).select_from(AiAnalysis)
+
+        if min_creator_score is not None:
+            stmt = stmt.where(AiAnalysis.creator_score >= min_creator_score)
+            count_stmt = count_stmt.where(AiAnalysis.creator_score >= min_creator_score)
+        if min_viral_score is not None:
+            stmt = stmt.where(AiAnalysis.viral_score >= min_viral_score)
+            count_stmt = count_stmt.where(AiAnalysis.viral_score >= min_viral_score)
+
+        total_result = await self.db.execute(count_stmt)
+        total = total_result.scalar() or 0
+
+        stmt = stmt.order_by(AiAnalysis.created_at.desc())
+        offset = (page - 1) * page_size
+        stmt = stmt.offset(offset).limit(page_size)
+
+        result = await self.db.execute(stmt)
+        items = result.scalars().all()
+        return items, total

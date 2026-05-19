@@ -4,15 +4,16 @@ import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from datetime import datetime
+from sqlalchemy import select
 
-from app.database import get_db
+from app.core.dependencies import get_db
+from app.core.exceptions import NotFoundError
 from app.models.source import Source, SourceType, SourceStatus
 from app.schemas.source import (
     SourceCreate, SourceUpdate, SourceResponse, SourceListResponse,
     SyncResultResponse,
 )
+from app.repositories.source_repo import SourceRepository
 from app.services.content_pipeline import ingest_from_source
 
 router = APIRouter(prefix="/sources", tags=["sources"])
@@ -20,11 +21,8 @@ router = APIRouter(prefix="/sources", tags=["sources"])
 
 @router.post("", response_model=SourceResponse, status_code=201)
 async def create_source(data: SourceCreate, db: AsyncSession = Depends(get_db)):
-    source = Source(**data.model_dump())
-    db.add(source)
-    await db.flush()
-    await db.refresh(source)
-    return source
+    repo = SourceRepository(db)
+    return await repo.create(**data.model_dump())
 
 
 @router.get("", response_model=SourceListResponse)
@@ -37,31 +35,20 @@ async def list_sources(
     keyword: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Source)
-    count_query = select(func.count()).select_from(Source)
-
-    if source_type:
-        query = query.where(Source.source_type == source_type)
-        count_query = count_query.where(Source.source_type == source_type)
-    if status:
-        query = query.where(Source.status == status)
-        count_query = count_query.where(Source.status == status)
-    if enabled is not None:
-        query = query.where(Source.enabled == enabled)
-        count_query = count_query.where(Source.enabled == enabled)
+    repo = SourceRepository(db)
+    filters = {
+        "source_type": source_type,
+        "status": status,
+        "enabled": enabled,
+    }
     if keyword:
-        query = query.where(Source.name.ilike(f"%{keyword}%"))
-        count_query = count_query.where(Source.name.ilike(f"%{keyword}%"))
+        filters["name"] = f"%{keyword}%"
 
-    total_result = await db.execute(count_query)
-    total = total_result.scalar() or 0
-
-    offset = (page - 1) * page_size
-    query = query.order_by(Source.created_at.desc()).offset(offset).limit(page_size)
-
-    result = await db.execute(query)
-    items = result.scalars().all()
-
+    items, total = await repo.list_paginated(
+        page=page, page_size=page_size,
+        filters={k: v for k, v in filters.items() if v is not None},
+        sort_by="created_at", sort_order="desc",
+    )
     return SourceListResponse(items=items, total=total, page=page, page_size=page_size)
 
 
@@ -70,110 +57,84 @@ async def import_opml(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Import RSS feeds from OPML file (e.g., exported from Folo/Follow).
-    Extracts all <outline xmlUrl="..."> entries and creates Source records.
-    """
+    """Import RSS feeds from OPML file."""
     content = await file.read()
-
     try:
         root = ET.fromstring(content)
     except ET.ParseError:
         raise HTTPException(status_code=400, detail="Invalid OPML XML")
 
-    # OPML body contains outline elements
     body = root.find("body")
     if body is None:
         raise HTTPException(status_code=400, detail="No <body> element found in OPML")
 
     outlines = body.findall(".//outline[@xmlUrl]")
-
-    created = 0
-    skipped = 0
+    repo = SourceRepository(db)
+    created = skipped = 0
 
     for outline in outlines:
         feed_url = outline.get("xmlUrl", "").strip()
         if not feed_url:
             continue
-
-        # Skip duplicates by URL
-        existing = await db.execute(select(Source).where(Source.url == feed_url))
-        if existing.scalar_one_or_none():
+        existing = await repo.get_one(Source.url == feed_url)
+        if existing:
             skipped += 1
             continue
 
         name = outline.get("title") or outline.get("text") or feed_url
-
-        source = Source(
-            name=name,
-            url=feed_url,
-            source_type=SourceType.RSS,
-            category="导入",
-            enabled=True,
-            status=SourceStatus.ACTIVE,
+        await repo.create(
+            name=name, url=feed_url,
+            source_type=SourceType.RSS, category="导入",
+            enabled=True, status=SourceStatus.ACTIVE,
         )
-        db.add(source)
-        await db.flush()
         created += 1
 
     return {
-        "created": created,
-        "skipped": skipped,
-        "total": len(outlines),
+        "created": created, "skipped": skipped, "total": len(outlines),
         "message": f"成功导入 {created} 个源，跳过 {skipped} 个重复。",
     }
 
 
 @router.get("/{source_id}", response_model=SourceResponse)
 async def get_source(source_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Source).where(Source.id == source_id))
-    source = result.scalar_one_or_none()
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-    return source
+    repo = SourceRepository(db)
+    try:
+        return await repo.get_by_id_or_raise(source_id, resource_name="Source")
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
 @router.put("/{source_id}", response_model=SourceResponse)
 async def update_source(
     source_id: int, data: SourceUpdate, db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(Source).where(Source.id == source_id))
-    source = result.scalar_one_or_none()
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-
-    update_data = data.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(source, key, value)
-    source.updated_at = datetime.utcnow()
-    await db.flush()
-    await db.refresh(source)
-    return source
+    repo = SourceRepository(db)
+    try:
+        return await repo.update(source_id, **data.model_dump(exclude_unset=True))
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
 @router.delete("/{source_id}", status_code=204)
 async def delete_source(source_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Source).where(Source.id == source_id))
-    source = result.scalar_one_or_none()
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
-    await db.delete(source)
-    await db.flush()
+    repo = SourceRepository(db)
+    try:
+        await repo.delete(source_id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
 @router.post("/{source_id}/sync", response_model=SyncResultResponse)
 async def sync_source(source_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Source).where(Source.id == source_id))
-    source = result.scalar_one_or_none()
-    if not source:
-        raise HTTPException(status_code=404, detail="Source not found")
+    repo = SourceRepository(db)
+    try:
+        source = await repo.get_by_id_or_raise(source_id, resource_name="Source")
+    except NotFoundError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
 
     stats = await ingest_from_source(source, db)
     await db.refresh(source)
-
     return SyncResultResponse(
-        fetched=stats["fetched"],
-        new=stats["new"],
-        duplicates=stats["duplicates"],
+        fetched=stats["fetched"], new=stats["new"], duplicates=stats["duplicates"],
         source_info=SourceResponse.model_validate(source),
     )

@@ -196,7 +196,7 @@ class DuckDBAnalytics:
         """Get all topic groups ordered by best_score."""
         conn = self._get_conn()
         results = conn.execute("""
-            SELECT id, name, summary, keywords, best_score, item_count
+            SELECT id, name, summary, keywords, best_score, content_count
             FROM sqlite_db.topic_groups
             ORDER BY best_score DESC
         """).fetchall()
@@ -208,7 +208,7 @@ class DuckDBAnalytics:
                 "summary": row[2],
                 "keywords": row[3],
                 "best_score": float(row[4]) if row[4] else 0.0,
-                "item_count": row[5] or 0,
+                "content_count": row[5] or 0,
             }
             for row in results
         ]

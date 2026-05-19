@@ -257,7 +257,8 @@ function renderCard(
   const analysis = (item.analysis || (item as any).analyses?.[0]) as ContentAnalysis | null;
   const isFav = favorites.has(item.id);
   const curationScore = (analysis as any)?.adjusted_curation_score || (analysis as any)?.curation_score || 0;
-  const tags: string[] = (analysis as any)?.tags || [];
+  const _rawTags = (analysis as any)?.tags;
+  const tags: string[] = Array.isArray(_rawTags) ? _rawTags : (typeof _rawTags === 'string' && _rawTags ? _rawTags.split(',') : []);
   const recommendation: string = (analysis as any)?.recommendation || '';
 
   return (

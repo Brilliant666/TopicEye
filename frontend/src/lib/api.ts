@@ -216,6 +216,16 @@ export const dailyReportApi = {
     return request('/daily-reports/today');
   },
 
+  /** 按日期查询单个日报 */
+  getByDate(date: string): Promise<any> {
+    return request(`/daily-reports/by-date?date=${encodeURIComponent(date)}`);
+  },
+
+  /** 获取有日报的日期列表 */
+  listDates(): Promise<{ dates: Array<{ report_date: string; weekday: string; takeaway: string | null; status: string }> }> {
+    return request('/daily-reports/dates');
+  },
+
   /** 日报列表 */
   list(limit: number = 7): Promise<{ items: any[]; total: number }> {
     return request(`/daily-reports?limit=${limit}`);

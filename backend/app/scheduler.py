@@ -5,6 +5,8 @@ Jobs:
     - sync_and_analyze: every 30 minutes, sync all enabled sources,
       then auto-analyze new pending content.
     - cleanup_old_content: daily at 03:00, remove stale pending content.
+
+All DB access goes through Repository layer — no raw SQL here.
 """
 
 from __future__ import annotations
@@ -15,11 +17,11 @@ from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
-from sqlalchemy import select, delete
 
-from app.database import async_session
-from app.models.source import Source, SourceStatus
-from app.models.content import ContentItem, ContentStatus
+from app.core.database import async_session
+from app.models.content import ContentStatus
+from app.repositories.source_repo import SourceRepository
+from app.repositories.content_repo import ContentRepo
 from app.services.content_pipeline import ingest_from_source
 from app.services.analysis import analyze_batch
 
@@ -34,12 +36,10 @@ async def sync_and_analyze() -> None:
     """Sync all enabled sources, then auto-analyze new pending content."""
     logger.info("Scheduler: sync_and_analyze started")
 
-    # ── Phase 1: Sync sources ──
+    # ── Phase 1: Sync sources via SourceRepository ──
     async with async_session() as db:
-        result = await db.execute(
-            select(Source).where(Source.enabled.is_(True))
-        )
-        sources = result.scalars().all()
+        source_repo = SourceRepository(db)
+        sources = await source_repo.get_enabled_sources()
 
         for source in sources:
             try:
@@ -57,16 +57,12 @@ async def sync_and_analyze() -> None:
 
     logger.info("Scheduler: sync finished (%d sources)", len(sources))
 
-    # ── Phase 2: Auto-analyze pending content ──
+    # ── Phase 2: Auto-analyze pending content via ContentRepo ──
     BATCH_SIZE = 20
     async with async_session() as db:
-        result = await db.execute(
-            select(ContentItem.id)
-            .where(ContentItem.status == ContentStatus.PENDING)
-            .order_by(ContentItem.published_at.desc())
-            .limit(BATCH_SIZE)
-        )
-        pending_ids = [row[0] for row in result.all()]
+        content_repo = ContentRepo(db)
+        pending = await content_repo.get_by_status(ContentStatus.PENDING, limit=BATCH_SIZE)
+        pending_ids = [item.id for item in pending]
 
     if not pending_ids:
         logger.info("Scheduler: no pending content to analyze")
@@ -109,16 +105,12 @@ async def cleanup_old_content() -> None:
     cutoff = datetime.utcnow() - timedelta(days=90)
 
     async with async_session() as db:
-        stmt = (
-            delete(ContentItem)
-            .where(ContentItem.status == ContentStatus.PENDING)
-            .where(ContentItem.created_at < cutoff)
-        )
-        result = await db.execute(stmt)
+        content_repo = ContentRepo(db)
+        removed = await content_repo.delete_old_pending(cutoff_days=90)
         await db.commit()
         logger.info(
             "Scheduler: cleanup_old_content removed %d old pending items",
-            result.rowcount,
+            removed,
         )
 
 

@@ -5,11 +5,16 @@ import { T, CATEGORIES, SOURCE_TYPE_COLOR_MAP } from '@/lib/design-tokens';
 import { contentsApi } from '@/lib/api';
 import type { ContentItem } from '@/types';
 
-// ─── Helpers ───
+// ─── Helpers ──
+
+function parseUTC(s: string): Date {
+  const normalized = s.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(s) ? s : s + 'Z';
+  return new Date(normalized);
+}
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return '-';
-  const date = new Date(dateStr);
+  const date = parseUTC(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const seconds = Math.floor(diffMs / 1000);

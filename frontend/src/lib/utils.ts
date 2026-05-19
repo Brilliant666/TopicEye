@@ -10,7 +10,11 @@ import type { ContentItem, ContentAnalysis } from '@/types';
 export function timeAgo(dateStr: string | null): string {
   if (!dateStr) return '从未同步';
   try {
-    const date = new Date(dateStr);
+    // Backend stores UTC datetimes without 'Z' suffix — append it so JS parses as UTC
+    const normalized = dateStr.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(dateStr)
+      ? dateStr
+      : dateStr + 'Z';
+    const date = new Date(normalized);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const seconds = Math.floor(diffMs / 1000);

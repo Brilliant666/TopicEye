@@ -7,9 +7,14 @@ import { useAppContext } from '@/components/ClientLayout';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
 import { getRecommendLevel } from '@/types';
 
+function parseUTC(s: string): Date {
+  const normalized = s.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(s) ? s : s + 'Z';
+  return new Date(normalized);
+}
+
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return '';
-  const date = new Date(dateStr);
+  const date = parseUTC(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const hours = Math.floor(diffMs / 3600000);

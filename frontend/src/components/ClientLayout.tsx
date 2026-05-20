@@ -23,8 +23,29 @@ export function useAppContext() {
   return useContext(AppContext);
 }
 
+const FAVORITES_STORAGE_KEY = 'topiceye_favorites';
+
+function loadFavoritesFromStorage(): Set<number> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
+    if (!raw) return new Set();
+    const arr: number[] = JSON.parse(raw);
+    return new Set(arr);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveFavoritesToStorage(favSet: Set<number>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...favSet]));
+  } catch {}
+}
+
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
-  const [favorites, setFavorites] = useState<Set<number>>(new Set());
+  const [favorites, setFavorites] = useState<Set<number>>(() => loadFavoritesFromStorage());
   const [contentCount, setContentCount] = useState(0);
   const [sourceCount, setSourceCount] = useState(0);
 
@@ -47,6 +68,11 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   useEffect(() => {
     refreshCounts();
   }, [refreshCounts]);
+
+  // Sync favorites to localStorage whenever it changes
+  useEffect(() => {
+    saveFavoritesToStorage(favorites);
+  }, [favorites]);
 
   const toggleFavorite = useCallback(async (id: number) => {
     try {

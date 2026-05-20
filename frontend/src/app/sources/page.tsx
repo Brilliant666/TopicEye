@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { T } from '@/lib/design-tokens';
 import { sourcesApi, settingsApi } from '@/lib/api';
-import type { RSSHubInstance } from '@/lib/api';
+import type { RSSHubInstance, CreateSourceRequest } from '@/lib/api';
 import { timeAgo } from '@/lib/utils';
 import SourceForm, { FormState, emptyForm, CATEGORIES, SOURCE_TYPES } from '@/components/SourceForm';
 import SourceRowComponent, { type BackendSource } from '@/components/SourceRow';
@@ -133,7 +133,7 @@ export default function SourcesPage() {
         url: form.url.trim(),
         category: form.category,
         enabled: form.enabled,
-      } as any);
+      } as CreateSourceRequest);
       setShowAddModal(false);
       setForm(emptyForm);
       await fetchSources();
@@ -173,7 +173,7 @@ export default function SourcesPage() {
         url: form.url.trim(),
         category: form.category,
         enabled: form.enabled,
-      } as any);
+      } as CreateSourceRequest);
       setEditingSource(null);
       setForm(emptyForm);
       await fetchSources();

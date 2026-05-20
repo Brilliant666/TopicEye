@@ -35,8 +35,7 @@ export default function FavoritesPage() {
     try {
       setLoading(true);
       const res = await contentsApi.listFavorites({ page_size: 100 });
-      const data = res as any;
-      setItems(data.items || []);
+      setItems(res.items || []);
     } catch (err) {
       console.error('Failed to fetch favorites:', err);
     } finally {

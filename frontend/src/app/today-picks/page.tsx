@@ -8,15 +8,7 @@ import { useAppContext } from '@/components/ClientLayout';
 import CategoryChip from '@/components/CategoryChip';
 import AnalysisPanel from '@/components/AnalysisPanel';
 import { timeAgo, getTagColor, getRecommendLevelLabel } from '@/lib/utils';
-import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
-
-interface TopicInfo {
-  id: number;
-  name: string;
-  summary: string | null;
-  keywords: string[] | null;
-  best_score: number;
-}
+import type { ContentItem, ContentAnalysis, RecommendLevel, TopicInfo } from '@/types';
 
 const TIME_RANGES = [
   { value: '', label: '全部时间' },
@@ -71,10 +63,9 @@ function TodayPicksPage() {
       if (selectedCategory) params.category = selectedCategory;
       if (selectedTimeRange) params.time_range = selectedTimeRange;
       const res = await contentsApi.todayPicks(params);
-      const data = res as any;
-      setItems(data.items || []);
-      setTopics(data.topics || []);
-      setDupCount(data.duplicates_hidden || 0);
+      setItems(res.items || []);
+      setTopics(res.topics || []);
+      setDupCount(res.duplicates_hidden || 0);
     } catch (err) {
       console.error('Failed to fetch today picks:', err);
     } finally {
@@ -96,7 +87,7 @@ function TodayPicksPage() {
   const filteredItems = useMemo(() => {
     if (!selectedLevel) return items;
     return items.filter(item => {
-      const analysis = (item.analysis || (item as any).analyses?.[0]) as ContentAnalysis | null;
+const analysis = (item.analysis || item.analyses?.[0]) as ContentAnalysis | null;
       if (!analysis) return false;
       const level = getRecommendLevelLabel(analysis);
       return level === selectedLevel;
@@ -105,7 +96,7 @@ function TodayPicksPage() {
 
   const topicMap = new Map<number | null, ContentItem[]>();
   for (const item of filteredItems) {
-    const tid = (item as any).topic_id || null;
+    const tid = item.topic_id || null;
     if (!topicMap.has(tid)) topicMap.set(tid, []);
     topicMap.get(tid)!.push(item);
   }
@@ -254,12 +245,12 @@ function renderCard(
   favorites: Set<number>, handleFav: (id: number) => void,
   setSelectedAnalysis: (a: ContentAnalysis & { _content_id?: number }) => void,
 ) {
-  const analysis = (item.analysis || (item as any).analyses?.[0]) as ContentAnalysis | null;
+  const analysis = item.analysis || (item as ContentItem).analyses?.[0];
   const isFav = favorites.has(item.id);
-  const curationScore = (analysis as any)?.adjusted_curation_score || (analysis as any)?.curation_score || 0;
-  const _rawTags = (analysis as any)?.tags;
+  const curationScore = analysis?.adjusted_curation_score || analysis?.curation_score || 0;
+  const _rawTags = analysis?.tags as string | string[] | null | undefined;
   const tags: string[] = Array.isArray(_rawTags) ? _rawTags : (typeof _rawTags === 'string' && _rawTags ? _rawTags.split(',') : []);
-  const recommendation: string = (analysis as any)?.recommendation || '';
+  const recommendation: string = analysis?.recommendation || '';
 
   return (
     <div key={item.id}

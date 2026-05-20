@@ -15,7 +15,10 @@ import type {
   PaginatedResponse,
   SyncResult,
   DailyReport,
+  TopicInfo,
 } from '@/types';
+
+export type { CreateSourceRequest, UpdateSourceRequest };
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
@@ -47,7 +50,7 @@ async function request<T>(
 
 export const sourcesApi = {
   /** 获取信源列表 */
-  list(): Promise<PaginatedResponse<Source>> {
+  list(): Promise<PaginatedResponse<Source> & { total?: number }> {
     return request('/sources');
   },
 
@@ -131,7 +134,11 @@ export const contentsApi = {
   },
 
   /** 当日精选（自动 Top 30%） */
-  todayPicks(params?: { category?: string; time_range?: string }): Promise<any> {
+  todayPicks(params?: { category?: string; time_range?: string }): Promise<{
+    items: ContentItem[];
+    topics: TopicInfo[];
+    duplicates_hidden: number;
+  }> {
     const query = params
       ? '?' + new URLSearchParams(
           Object.entries(params)

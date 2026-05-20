@@ -67,8 +67,11 @@ export interface ContentItem {
   is_favorited?: boolean;
   created_at?: string;
   updated_at?: string;
-  // Joined analysis data (from backend)
-  analysis?: ContentAnalysis | null;
+  // Extended fields from today-picks API
+  analyses?: ContentAnalysis[];
+  topic_id?: number | null;
+  // Legacy API field alias
+  analysis?: ContentAnalysis;
 }
 
 export interface ContentMetrics {
@@ -175,24 +178,13 @@ export interface SimilarArticle {
   metrics: string;
 }
 
-// ─── Topic Asset ───
-
-export interface TopicAsset {
+// Today-picks API response topic shape
+export interface TopicInfo {
   id: number;
-  contentId?: number;
-  title: string;
-  source: string;
-  sourceType: SourceType;
-  publishedAt: string;
-  fetchedAt?: string;
-  categories: string[];
-  metrics: ContentMetrics;
-  analysis: ContentAnalysis;
-  platforms: string[];
-  similarArticles: SimilarArticle[];
-  isFavorite: boolean;
-  createdAt?: string;
-  updatedAt?: string;
+  name: string;
+  summary: string | null;
+  keywords: string[] | null;
+  best_score: number;
 }
 
 // ─── Daily Report ───

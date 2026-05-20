@@ -56,7 +56,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         sourcesApi.list(),
       ]);
       setContentCount(contents.total || 0);
-      setSourceCount((sources as any).total || (sources as any).items?.length || 0);
+      setSourceCount(sources.total || sources.items?.length || 0);
 
       // Also refresh favorites from backend
       const favs = await contentsApi.listFavorites({ page_size: 100 });

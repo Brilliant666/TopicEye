@@ -12,7 +12,7 @@ interface AnalysisPanelProps {
 }
 
 export default function AnalysisPanel({ analysis, onClose }: AnalysisPanelProps) {
-  const contentId = (analysis as any)?._content_id || (analysis as any).content_id || 0;
+  const contentId = analysis.content_id || 0;
   const [creationPlan, setCreationPlan] = useState<Record<string, any> | null>(null);
   const [generating, setGenerating] = useState(false);
   const [activePlatform, setActivePlatform] = useState<string | null>(null);
@@ -47,10 +47,10 @@ export default function AnalysisPanel({ analysis, onClose }: AnalysisPanelProps)
         <div style={{ marginBottom: 24 }}>
           <h3 style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginBottom: 12 }}>精选评分</h3>
           {[
-            { label: '精选分', value: (analysis as any)?.curation_score || 0, color: '#FF6B35' },
-            { label: '信息密度', value: (analysis as any)?.info_density || 0, color: '#8B5CF6' },
-            { label: '可操作性', value: (analysis as any)?.actionability || 0, color: '#3B82F6' },
-            { label: '来源权威', value: (analysis as any)?.source_weight || 0, color: '#10B981' },
+            { label: '精选分', value: analysis.curation_score || 0, color: '#FF6B35' },
+            { label: '信息密度', value: analysis.info_density || 0, color: '#8B5CF6' },
+            { label: '可操作性', value: analysis.actionability || 0, color: '#3B82F6' },
+            { label: '来源权威', value: analysis.source_weight || 0, color: '#10B981' },
           ].map((s) => (
             <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <span style={{ fontSize: 12, color: T.gray500, width: 64 }}>{s.label}</span>

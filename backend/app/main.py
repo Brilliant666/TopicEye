@@ -1,11 +1,13 @@
 from contextlib import asynccontextmanager
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.database import engine, Base
 from app.api.v1.router import router as v1_router
 from app.scheduler import start_scheduler, shutdown_scheduler
+from app.core.exceptions import AppException
 # Ensure all models are imported for table creation
 import app.models.daily_report  # noqa: F401
 import app.models.category  # noqa: F401
@@ -79,6 +81,26 @@ app.add_middleware(
 
 # Mount v1 API routes
 app.include_router(v1_router)
+
+
+# ── Global exception handlers ─────────────────────────────────────────
+
+@app.exception_handler(AppException)
+async def app_exception_handler(request: Request, exc: AppException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.message, "detail": exc.detail},
+        headers={} if not exc.detail else None,
+    )
+
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception: %s", exc)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal server error", "detail": {}},
+    )
 
 
 @app.get("/health", tags=["health"])

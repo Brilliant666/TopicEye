@@ -30,8 +30,19 @@ def register_scraper(source_type: str):
 
 
 def get_scraper_cls(source_type: str) -> Optional[type]:
-    """Look up the scraper class for a source type."""
-    return _SCRAPER_REGISTRY.get(source_type)
+    """Look up the scraper class for a source type.
+    
+    Tries exact match first, then case-insensitive fallback.
+    """
+    cls = _SCRAPER_REGISTRY.get(source_type)
+    if cls is not None:
+        return cls
+    # Case-insensitive fallback: "Reddit" -> "REDDIT"
+    upper = source_type.upper()
+    for key, val in _SCRAPER_REGISTRY.items():
+        if key.upper() == upper:
+            return val
+    return None
 
 
 # ── Base class ────────────────────────────────────────────────────────
@@ -81,3 +92,4 @@ from . import rss as _rss_mod        # noqa: E402, F401
 from . import website as _website_mod  # noqa: E402, F401
 from . import twitter as _twitter_mod  # noqa: E402, F401
 from . import rsshub as _rsshub_mod   # noqa: E402, F401
+from . import reddit as _reddit_mod   # noqa: E402, F401

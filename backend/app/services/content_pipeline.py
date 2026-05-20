@@ -136,6 +136,9 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
             new_count += 1
             existing_hashes.add(ch)
 
+            # ── Persist platform-specific metrics (Reddit, etc.) ──
+            _maybe_save_metrics(entry, item, db)
+
             # Update category content count
             try:
                 await cat_repo.increment_count(category)
@@ -167,3 +170,38 @@ def _update_source_status(source: Source, status: SourceStatus) -> None:
     source.status = status
     source.sync_error = None
     source.updated_at = datetime.utcnow()
+
+
+def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> None:
+    """Extract platform-specific metrics (e.g. _reddit_meta) and persist as ContentMetrics."""
+    reddit_meta = entry.get("_reddit_meta")
+    if not reddit_meta:
+        return
+
+    from app.models.metrics import ContentMetrics
+
+    score = reddit_meta.get("score", 0)
+    num_comments = reddit_meta.get("num_comments", 0)
+    subscribers = reddit_meta.get("subreddit_subscribers", 0)
+
+    # Compute engagement_rate as comments / subscribers (or score/subscribers)
+    engagement_rate = 0.0
+    if subscribers > 0:
+        engagement_rate = round((score + num_comments) / subscribers * 100, 4)
+
+    # Compute explosion_ratio: score relative to subreddit size
+    explosion_ratio = 0.0
+    if subscribers > 0:
+        explosion_ratio = round(score / subscribers * 1000, 4)
+
+    metrics = ContentMetrics(
+        content=item,
+        likes=score,
+        comments=num_comments,
+        shares=0,
+        favorites=0,
+        followers_count=subscribers,
+        engagement_rate=engagement_rate,
+        explosion_ratio=explosion_ratio,
+    )
+    db.add(metrics)

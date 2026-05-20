@@ -20,7 +20,7 @@ export const emptyForm: FormState = {
 };
 
 export const CATEGORIES = ['AI', '商业', '科技', '教育', '自媒体', '生活', '职场', '产品'];
-export const SOURCE_TYPES = ['RSS', 'RSSHub', '公众号', '网站'];
+export const SOURCE_TYPES = ['RSS', 'RSSHub', 'Reddit', '公众号', '网站'];
 
 interface SourceFormProps {
   form: FormState;

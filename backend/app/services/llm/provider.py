@@ -16,9 +16,9 @@ import json
 import logging
 import time
 import asyncio
+import asyncio
 from typing import Any, Optional
 from datetime import datetime, timedelta
-from threading import Lock as _SyncLock
 
 from litellm import completion
 from tenacity import (
@@ -48,7 +48,7 @@ class ModelFailover:
     def __init__(self):
         self._state = self.HEALTHY
         self._reset_at: Optional[datetime] = None  # exact reset time from 429
-        self._lock = _SyncLock()
+        self._lock = asyncio.Lock()
 
     @property
     def state(self) -> str:
@@ -275,7 +275,6 @@ async def call_llm(
                 logger.warning("Primary LLM rate-limited, switching to fallback: %s", exc)
             else:
                 logger.warning("Primary LLM failed (non-rate-limit): %s", exc)
-                _failover.on_probe_failure()
             # Fall through to fallback
 
     # ── Step 2: Try fallback ──────────────────────────────────────────

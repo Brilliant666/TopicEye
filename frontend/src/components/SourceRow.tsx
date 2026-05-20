@@ -15,6 +15,7 @@ export interface BackendSource {
   platform?: string;
   category: string;
   weight: number;
+  fetch_interval_minutes: number;
   status: string;
   last_sync_at: string | null;
   sync_error: string | null;
@@ -29,6 +30,20 @@ const typeColors: Record<string, { bg: string; color: string }> = {
   '公众号': { bg: '#FFF1F2', color: '#E11D48' },
   '网站': { bg: '#FEF3C7', color: '#92400E' },
 };
+
+const INTERVAL_OPTIONS = [
+  { value: 30, label: '30分钟' },
+  { value: 60, label: '1小时' },
+  { value: 120, label: '2小时' },
+  { value: 360, label: '6小时' },
+  { value: 720, label: '12小时' },
+  { value: 1440, label: '1天' },
+];
+
+function formatInterval(minutes: number): string {
+  const opt = INTERVAL_OPTIONS.find(o => o.value === minutes);
+  return opt ? opt.label : `${minutes}分钟`;
+}
 
 // ─── Spinner ───
 
@@ -58,6 +73,7 @@ interface SourceRowProps {
   onEdit: () => void;
   onDelete: () => void;
   onWeightChange?: (w: number) => void;
+  onIntervalChange?: (minutes: number) => void;
 }
 
 export default function SourceRowComponent({
@@ -69,18 +85,20 @@ export default function SourceRowComponent({
   onEdit,
   onDelete,
   onWeightChange,
+  onIntervalChange,
 }: SourceRowProps) {
   const [hovered, setHovered] = useState(false);
+  const [intervalOpen, setIntervalOpen] = useState(false);
   const tc = typeColors[source.source_type] || { bg: T.gray100, color: T.gray600 };
   const isActive = source.status === 'active' && source.enabled;
 
   return (
     <div
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseLeave={() => { setHovered(false); setIntervalOpen(false); }}
       style={{
         display: 'grid',
-        gridTemplateColumns: '2fr 1fr 1fr 1.2fr 1fr 0.8fr 1.5fr',
+        gridTemplateColumns: '2fr 1fr 1fr 1.2fr 1fr 1fr 0.8fr 1.5fr',
         padding: '14px 24px',
         borderBottom: `1px solid ${T.gray100}`,
         fontSize: 13,
@@ -117,6 +135,66 @@ export default function SourceRowComponent({
         </span>
         {source.sync_error && <div style={{ fontSize: 11, color: T.red, marginTop: 1 }}>{source.sync_error}</div>}
         {syncResult && <div style={{ fontSize: 11, color: T.teal, marginTop: 1 }}>{syncResult}</div>}
+      </div>
+
+      {/* Interval selector */}
+      <div style={{ position: 'relative' }}>
+        <button
+          onClick={() => setIntervalOpen((v) => !v)}
+          style={{
+            padding: '3px 8px',
+            fontSize: 11,
+            background: intervalOpen ? T.primaryLight : T.gray100,
+            color: intervalOpen ? T.primary : T.gray600,
+            border: `1px solid ${intervalOpen ? T.primaryBorder : T.gray200}`,
+            borderRadius: 4,
+            cursor: 'pointer',
+            transition: 'all 0.15s',
+            whiteSpace: 'nowrap',
+          }}
+          title="点击修改采集频率"
+        >
+          {formatInterval(source.fetch_interval_minutes)}
+          <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>▼</span>
+        </button>
+        {intervalOpen && (
+          <div style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            zIndex: 100,
+            background: T.white,
+            border: `1px solid ${T.gray200}`,
+            borderRadius: 6,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+            padding: '4px',
+            minWidth: 90,
+          }}>
+            {INTERVAL_OPTIONS.map((opt) => (
+              <div
+                key={opt.value}
+                onClick={() => {
+                  onIntervalChange?.(opt.value);
+                  setIntervalOpen(false);
+                }}
+                style={{
+                  padding: '6px 10px',
+                  fontSize: 12,
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  color: opt.value === source.fetch_interval_minutes ? T.primary : T.gray700,
+                  background: opt.value === source.fetch_interval_minutes ? T.primaryLight : 'transparent',
+                  fontWeight: opt.value === source.fetch_interval_minutes ? 600 : 400,
+                  transition: 'background 0.1s',
+                }}
+                onMouseEnter={(e) => { if (opt.value !== source.fetch_interval_minutes) e.currentTarget.style.background = T.gray50; }}
+                onMouseLeave={(e) => { if (opt.value !== source.fetch_interval_minutes) e.currentTarget.style.background = 'transparent'; }}
+              >
+                {opt.label}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Weight */}

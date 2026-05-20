@@ -1,10 +1,11 @@
 """
 APScheduler-based periodic task scheduler.
 
-Jobs:
-    - sync_and_analyze: every 30 minutes, sync all enabled sources,
-      then auto-analyze new pending content.
-    - cleanup_old_content: daily at 03:00, remove stale pending content.
+Per-source scheduling:
+    - Each enabled source gets its own IntervalTrigger job.
+    - Interval is read from source.fetch_interval_minutes (default 60 min).
+    - A rescan job runs every 10 minutes to pick up new / updated sources.
+    - cleanup_old_content: daily at 03:00.
 
 All DB access goes through Repository layer — no raw SQL here.
 """
@@ -33,7 +34,11 @@ scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
 # ── Scheduled jobs ────────────────────────────────────────────────────
 
 async def sync_and_analyze() -> None:
-    """Sync all enabled sources, then auto-analyze new pending content."""
+    """Legacy: sync all enabled sources, then auto-analyze new pending content.
+
+    Kept for backward compatibility — prefer per-source jobs registered in
+    start_scheduler() which respect each source's fetch_interval_minutes.
+    """
     logger.info("Scheduler: sync_and_analyze started")
 
     # ── Phase 1: Sync sources via SourceRepository ──
@@ -116,16 +121,121 @@ async def cleanup_old_content() -> None:
 
 # ── Lifecycle helpers ─────────────────────────────────────────────────
 
+async def _sync_single_source(source_id: int) -> None:
+    """Job handler: sync one source by ID, then run shared post-sync pipeline."""
+    async with async_session() as db:
+        from app.repositories.source_repo import SourceRepository
+        source_repo = SourceRepository(db)
+        source = await source_repo.get_by_id(source_id)
+        if not source or not source.enabled:
+            logger.debug("Source id=%d skipped (not found or disabled)", source_id)
+            return
+        try:
+            stats = await ingest_from_source(source, db)
+            await db.commit()
+            logger.info("Scheduler: source '%s' synced — %s", source.name, stats)
+        except Exception:
+            logger.exception("Scheduler: failed to sync source id=%d", source_id)
+            await db.rollback()
+
+    # Shared post-sync: analyze pending + cluster + trends
+    await _run_post_sync_pipeline()
+
+
+async def _run_post_sync_pipeline() -> None:
+    """Analyze pending, cluster, and snapshot trends. Called after each sync."""
+    BATCH_SIZE = 20
+    async with async_session() as db:
+        content_repo = ContentRepo(db)
+        pending = await content_repo.get_by_status(ContentStatus.PENDING, limit=BATCH_SIZE)
+        pending_ids = [item.id for item in pending]
+    if pending_ids:
+        try:
+            async with async_session() as db:
+                await analyze_batch(pending_ids, db)
+            logger.info("Scheduler: auto-analysis complete for %d items", len(pending_ids))
+        except Exception:
+            logger.exception("Scheduler: auto-analysis failed")
+    try:
+        async with async_session() as db:
+            from app.services.topic_clustering import cluster_and_dedup
+            stats = await cluster_and_dedup(db)
+        logger.info("Scheduler: clustering done — %s", stats)
+    except Exception:
+        logger.exception("Scheduler: clustering failed")
+    try:
+        async with async_session() as db:
+            from app.services.trends import snapshot_daily_trends
+            stats = await snapshot_daily_trends(db)
+            await db.commit()
+        logger.info("Scheduler: trend snapshot done — %s", stats)
+    except Exception:
+        logger.exception("Scheduler: trend snapshot failed")
+
+
+async def _rescan_sources() -> None:
+    """Every 10 minutes: sync scheduler job list with enabled sources from DB.
+
+    - New enabled sources → add a per-source IntervalTrigger job.
+    - Disabled sources → remove their jobs.
+    - Interval changed → replace the job.
+    """
+    async with async_session() as db:
+        source_repo = SourceRepository(db)
+        sources = await source_repo.get_enabled_sources()
+
+    current_job_ids = {job.id for job in scheduler.get_jobs()}
+    source_job_prefix = "source_sync_"
+    db_source_ids = {f"{source_job_prefix}{s.id}" for s in sources}
+
+    # Remove jobs for disabled/deleted sources
+    for job_id in current_job_ids:
+        if job_id.startswith(source_job_prefix) and job_id not in db_source_ids:
+            scheduler.remove_job(job_id)
+            logger.info("Scheduler: removed job %s (source disabled)", job_id)
+
+    # Add or update jobs for each enabled source
+    for source in sources:
+        job_id = f"{source_job_prefix}{source.id}"
+        interval_minutes = source.fetch_interval_minutes or 60
+
+        existing = scheduler.get_job(job_id)
+        if existing:
+            # Check if interval changed
+            existing_interval = existing.trigger.interval.seconds // 60
+            if existing_interval != interval_minutes:
+                scheduler.reschedule_job(job_id, trigger=IntervalTrigger(minutes=interval_minutes))
+                logger.info("Scheduler: updated job %s interval to %d min", job_id, interval_minutes)
+        else:
+            scheduler.add_job(
+                _sync_single_source,
+                trigger=IntervalTrigger(minutes=interval_minutes),
+                id=job_id,
+                name=f"Sync source: {source.name}",
+                replace_existing=True,
+                kwargs={"source_id": source.id},
+            )
+            logger.info("Scheduler: added job %s (%s) interval=%d min",
+                         job_id, source.name, interval_minutes)
+
+    logger.info("Scheduler: source rescan complete — %d active jobs", len(sources))
+
+
+# ── Lifecycle helpers ─────────────────────────────────────────────────
+
 def start_scheduler() -> None:
-    """Register jobs and start the scheduler."""
+    """Register per-source jobs and start the scheduler."""
+    # Periodic rescan to catch new/updated/disabled sources
+    # (initial scan happens via the first _rescan_sources() job run)
     scheduler.add_job(
-        sync_and_analyze,
-        trigger=IntervalTrigger(minutes=30),
-        id="sync_and_analyze",
-        name="Sync sources and auto-analyze pending content",
+        _rescan_sources,
+        trigger=IntervalTrigger(minutes=10),
+        id="rescan_sources",
+        name="Rescan enabled sources and update scheduler",
         replace_existing=True,
     )
 
+    # Daily cleanup
     scheduler.add_job(
         cleanup_old_content,
         trigger=CronTrigger(hour=3, minute=0),
@@ -135,7 +245,7 @@ def start_scheduler() -> None:
     )
 
     scheduler.start()
-    logger.info("Scheduler started: sync+analyze every 30min, cleanup at 03:00")
+    logger.info("Scheduler started: per-source sync jobs + 10min rescan + 03:00 cleanup")
 
 
 def shutdown_scheduler() -> None:

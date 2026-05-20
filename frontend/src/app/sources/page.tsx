@@ -255,6 +255,15 @@ export default function SourcesPage() {
     }
   };
 
+  const handleIntervalChange = async (id: number, fetch_interval_minutes: number) => {
+    try {
+      await sourcesApi.update(id, { fetch_interval_minutes });
+      setSources((prev) => prev.map((s) => (s.id === id ? { ...s, fetch_interval_minutes } : s)));
+    } catch (err: any) {
+      setError(err.message || '采集频率更新失败');
+    }
+  };
+
   // ─── Stats ───
   const activeCount = sources.filter((s) => s.status === 'active' && s.enabled).length;
 
@@ -367,8 +376,10 @@ export default function SourcesPage() {
       {/* Table */}
       {!loading && (
         <div style={{ background: T.white, borderRadius: T.radius, border: `1px solid ${T.gray100}`, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1.2fr 1fr 0.8fr 1.5fr', padding: '12px 24px', background: T.gray50, borderBottom: `1px solid ${T.gray200}`, fontSize: 12, fontWeight: 600, color: T.gray500, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
-            <span>信源名称</span><span>类型</span><span>分类</span><span>最近同步</span><span>权重</span><span>状态</span><span>操作</span>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1.2fr 1fr 1fr 0.8fr 1.5fr', padding: '12px 24px', background: T.gray50, borderBottom: `1px solid ${T.gray200}`, fontSize: 12, fontWeight: 600, color: T.gray500, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
+            {['名称', '类型', '分类', '最后同步', '采集频率', '权重', '状态', '操作'].map((h) => (
+              <div key={h}>{h}</div>
+            ))}
           </div>
           {sources.length === 0 && (
             <div style={{ padding: '48px 24px', textAlign: 'center' as const, color: T.gray400, fontSize: 14 }}>暂无信源，点击「添加信源」开始</div>
@@ -376,7 +387,8 @@ export default function SourcesPage() {
           {sources.map((src) => (
             <SourceRowComponent key={src.id} source={src} syncing={syncingIds.has(src.id)} syncResult={syncResults[src.id] || null}
               deleting={deletingIds.has(src.id)} onSync={() => handleSync(src.id)} onEdit={() => openEditModal(src)}
-              onDelete={() => handleDelete(src.id)} onWeightChange={(w) => handleWeightChange(src.id, w)} />
+              onDelete={() => handleDelete(src.id)} onWeightChange={(w) => handleWeightChange(src.id, w)}
+              onIntervalChange={(mins) => handleIntervalChange(src.id, mins)} />
           ))}
         </div>
       )}

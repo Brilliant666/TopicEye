@@ -38,6 +38,7 @@ export interface UpdateSourceRequest {
   url?: string;
   category?: string;
   weight?: number;
+  fetch_interval_minutes?: number;
   status?: SourceStatus;
   enabled?: boolean;
 }

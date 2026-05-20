@@ -254,7 +254,7 @@ function RecommendTag({ level }: { level: RecommendLevel }) {
     '强烈建议写': { bg: '#dcfce7', color: '#16a34a' },
     '值得观察': { bg: '#dbeafe', color: '#2563eb' },
     '适合深挖': { bg: '#fef3c7', color: '#d97706' },
-    '可蹭但谨慎': { bg: '#fee2e2', color: '#dc2626' },
+    '适合蹭热点': { bg: '#fee2e2', color: '#dc2626' },
     '不建议追': { bg: '#f3f4f6', color: '#9ca3af' },
   };
   const { bg, color } = colorMap[level] || { bg: '#f3f4f6', color: '#9ca3af' };

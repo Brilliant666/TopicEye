@@ -7,12 +7,14 @@ import { sourcesApi, contentsApi } from '@/lib/api';
 // App context - shared across pages
 interface AppContextType {
   favorites: Set<number>;
+  topicCount: number;
   toggleFavorite: (id: number) => void;
   refreshCounts: () => void;
 }
 
 const AppContext = createContext<AppContextType>({
   favorites: new Set(),
+  topicCount: 0,
   toggleFavorite: () => {},
   refreshCounts: () => {},
 });
@@ -64,7 +66,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   }, []);
 
   return (
-    <AppContext.Provider value={{ favorites, toggleFavorite, refreshCounts }}>
+    <AppContext.Provider value={{ favorites, topicCount: contentCount, toggleFavorite, refreshCounts }}>
       <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
         <Sidebar topicCount={contentCount} favCount={favorites.size} sourceCount={sourceCount} />
         <main style={{ flex: 1, overflow: 'hidden', background: '#F7F7F8' }}>

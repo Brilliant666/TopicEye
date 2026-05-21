@@ -132,6 +132,7 @@ export default function SourcesPage() {
         source_type: form.source_type,
         url: form.url.trim(),
         category: form.category,
+        weight: form.weight,
         enabled: form.enabled,
       } as CreateSourceRequest);
       setShowAddModal(false);
@@ -172,6 +173,7 @@ export default function SourcesPage() {
         source_type: form.source_type,
         url: form.url.trim(),
         category: form.category,
+        weight: form.weight,
         enabled: form.enabled,
       } as CreateSourceRequest);
       setEditingSource(null);
@@ -192,6 +194,7 @@ export default function SourcesPage() {
       source_type: src.source_type,
       url: src.url,
       category: src.category,
+      weight: src.weight ?? 3,
       enabled: src.enabled,
     });
   };

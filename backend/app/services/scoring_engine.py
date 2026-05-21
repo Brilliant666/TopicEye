@@ -46,6 +46,13 @@ CONFIG = {
 
     # Fallback: when curation_score is 0 but other scores exist
     "fallback_use_avg": True,
+
+    # ── Percentile-based curation mode ──
+    "curation_mode": "percentile",       # "percentile" | "fixed"
+    "curation_percentile": 70,           # top ~30% selected (P70 and above)
+
+    # ── User feedback signal ──
+    "w_feedback": 0.15,                  # 15% weight for feedback_score
 }
 
 
@@ -63,11 +70,19 @@ class ScoringInput:
         "hot_score", "risk_score",
         # Source
         "source_weight_db",  # Source.weight from DB (1-5)
+        # Feedback & source accuracy signals
+        "feedback_score",     # user feedback signal (0+, default 0)
+        "source_accuracy",    # source historical accuracy (0-1, default 0.5)
     )
 
     def __init__(self, **kwargs):
         for slot in self.__slots__:
-            setattr(self, slot, kwargs.get(slot, 0))
+            if slot == "feedback_score":
+                setattr(self, slot, kwargs.get(slot, 0))
+            elif slot == "source_accuracy":
+                setattr(self, slot, kwargs.get(slot, 0.5))
+            else:
+                setattr(self, slot, kwargs.get(slot, 0))
 
 
 class ScoreBreakdown:
@@ -82,6 +97,7 @@ class ScoreBreakdown:
         "final_score",          # base_score + source_bonus) * time_decay * diversity
         "dimension_scores",     # dict of individual dimension contributions
         "selected",             # whether it passes the threshold
+        "threshold_used",       # actual curation threshold applied (for frontend)
     )
 
     def __init__(self, **kwargs):
@@ -128,6 +144,15 @@ def _compute_base_score(item: ScoringInput) -> tuple[float, dict]:
     else:
         base = dim_sum
 
+    # ── User feedback signal adjustment ──
+    feedback_adjustment = (item.feedback_score or 0) * cfg["w_feedback"]
+    base += feedback_adjustment
+
+    # ── Source historical accuracy factor ──
+    # accuracy_factor range: 0.8 (low accuracy) – 1.2 (high accuracy)
+    accuracy_factor = 0.8 + (item.source_accuracy or 0.5) * 0.4
+    base *= accuracy_factor
+
     return base, dimensions
 
 
@@ -136,6 +161,22 @@ def _compute_source_bonus(item: ScoringInput) -> float:
     cfg = CONFIG
     w = item.source_weight_db or 3  # default weight = 3
     return (w - 3) * cfg["source_weight_bonus_factor"]
+
+
+def _compute_percentile_threshold(base_scores: list[float], percentile: float) -> float:
+    """
+    Compute the value at the given percentile from a list of base scores.
+    Items with base_score >= this value are in the top (100 - percentile)%.
+    Returns the fixed curation_threshold as fallback if the list is empty.
+    """
+    if not base_scores:
+        return CONFIG["curation_threshold"]
+
+    sorted_scores = sorted(base_scores)
+    n = len(sorted_scores)
+    # Use nearest-rank method: rank = ceil(percentile/100 * n)
+    rank = min(math.ceil(percentile / 100.0 * n), n)
+    return round(sorted_scores[rank - 1], 2)
 
 
 def _compute_time_decay(item: ScoringInput, now: Optional[datetime] = None) -> float:
@@ -220,18 +261,32 @@ def score_items(items: list[ScoringInput]) -> list[tuple[ScoreBreakdown, Scoring
     # Phase 3: Source diversity penalty
     diversity_factors = _compute_diversity_penalty(safe_items, prelim_scores)
 
-    # Phase 4: Compute final score + threshold
+    # Phase 4: Compute final score
     results: list[tuple[ScoreBreakdown, ScoringInput]] = []
     for i, (bd, item) in enumerate(zip(breakdowns, safe_items)):
         bd.diversity_factor = round(diversity_factors[i], 4)
         bd.final_score = round(
             prelim_scores[i] * diversity_factors[i], 2
         )
-        bd.selected = bd.final_score >= cfg["curation_threshold"]
         results.append((bd, item))
 
     # Sort by final_score descending
     results.sort(key=lambda x: x[0].final_score, reverse=True)
+
+    # Phase 5: Determine threshold and mark selected
+    if cfg["curation_mode"] == "percentile":
+        # Use final_score ranking: top (100 - percentile)% are selected
+        # e.g. curation_percentile=70 → top 30% selected
+        final_scores = [bd.final_score for bd, _ in results]
+        actual_threshold = _compute_percentile_threshold(
+            final_scores, cfg["curation_percentile"]
+        )
+    else:
+        actual_threshold = cfg["curation_threshold"]
+
+    for bd, item in results:
+        bd.threshold_used = round(actual_threshold, 2)
+        bd.selected = bd.final_score >= actual_threshold
 
     return results
 

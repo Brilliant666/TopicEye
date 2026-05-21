@@ -327,3 +327,27 @@ export const statsApi = {
     return request(`/stats/dashboard?days=${days}`);
   },
 };
+
+// ─── Feedback API ───
+
+export type FeedbackType = 'like' | 'dislike' | 'skip' | 'not_relevant' | 'outdated' | 'great_pick';
+
+export const feedbackApi = {
+  /** 提交反馈 */
+  submit(contentId: number, feedbackType: FeedbackType, comment?: string): Promise<any> {
+    return request('/feedback', {
+      method: 'POST',
+      body: JSON.stringify({ content_id: contentId, feedback_type: feedbackType, comment }),
+    });
+  },
+
+  /** 获取内容的反馈列表 */
+  list(contentId: number): Promise<any[]> {
+    return request(`/feedback/content/${contentId}`);
+  },
+
+  /** 获取反馈统计 */
+  stats(): Promise<{ total: number; by_type: Record<string, number>; avg_score_delta: number }> {
+    return request('/feedback/stats');
+  },
+};

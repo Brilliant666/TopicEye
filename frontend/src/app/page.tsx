@@ -5,7 +5,8 @@ import { T, SOURCE_TYPE_COLOR_MAP } from '@/lib/design-tokens';
 import { useAppContext } from '@/components/ClientLayout';
 import Header from '@/components/Header';
 import CategoryChip from '@/components/CategoryChip';
-import { contentsApi, analysesApi } from '@/lib/api';
+import { contentsApi, analysesApi, feedbackApi } from '@/lib/api';
+import type { FeedbackType } from '@/lib/api';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
 import { getRecommendLevel } from '@/types';
 import ContentAnalysisPanel from '@/components/ContentAnalysisPanel';
@@ -217,7 +218,7 @@ export default function HomePage() {
           {/* Source type */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ fontSize: 12, color: T.gray500, fontWeight: 500 }}>来源</span>
-            {['全部', 'RSS', '公众号', '网站'].map((type) => (
+            {['全部', 'RSS', 'RSSHub', '公众号', '网站', 'Reddit', 'Zhihu'].map((type) => (
               <button
                 key={type}
                 onClick={() => setActiveSourceType(type)}
@@ -601,7 +602,10 @@ function TimelineItem({
                 ))
               : null}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Feedback buttons */}
+            <FeedbackButtons contentId={item.id} />
+            {/* Favorite */}
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -621,6 +625,7 @@ function TimelineItem({
             >
               {isFav ? '★' : '☆'}
             </button>
+            {/* Ignore */}
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -722,5 +727,148 @@ function CurationScoreBadge({ score }: { score: number | null | undefined }) {
     >
       ★{rounded}
     </span>
+  );
+}
+
+// ── Feedback Buttons ──
+
+const FEEDBACK_OPTIONS: { type: FeedbackType; icon: string; label: string; color: string }[] = [
+  { type: 'great_pick', icon: '🔥', label: '精选好文', color: '#16a34a' },
+  { type: 'like', icon: '👍', label: '有价值', color: '#2563eb' },
+  { type: 'dislike', icon: '👎', label: '不感兴趣', color: '#dc2626' },
+  { type: 'not_relevant', icon: '🚫', label: '不相关', color: '#9ca3af' },
+  { type: 'outdated', icon: '⏰', label: '过时了', color: '#d97706' },
+];
+
+function FeedbackButtons({ contentId }: { contentId: number }) {
+  const [activeFeedback, setActiveFeedback] = useState<FeedbackType | null>(null);
+  const [showMore, setShowMore] = useState(false);
+
+  const handleFeedback = async (type: FeedbackType) => {
+    if (activeFeedback === type) return; // already submitted
+    try {
+      await feedbackApi.submit(contentId, type);
+      setActiveFeedback(type);
+    } catch (err: any) {
+      // 409 = duplicate, that's fine
+      if (!err.message?.includes('409') && !err.message?.includes('Conflict')) {
+        console.error('Feedback failed:', err);
+      }
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative' }}>
+      {/* Quick feedback: thumbs up/down */}
+      {FEEDBACK_OPTIONS.slice(0, 2).map(({ type, icon, label, color }) => (
+        <button
+          key={type}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleFeedback(type);
+          }}
+          title={label}
+          style={{
+            background: activeFeedback === type ? `${color}15` : 'none',
+            border: 'none',
+            cursor: activeFeedback === type ? 'default' : 'pointer',
+            fontSize: 13,
+            padding: '2px 4px',
+            borderRadius: 4,
+            lineHeight: 1,
+            opacity: activeFeedback && activeFeedback !== type ? 0.3 : 1,
+            transition: 'all 0.15s',
+          }}
+        >
+          {icon}
+        </button>
+      ))}
+      
+      {/* More feedback options dropdown */}
+      <div style={{ position: 'relative' }}>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowMore(!showMore);
+          }}
+          style={{
+            background: showMore ? T.gray100 : 'none',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: 11,
+            padding: '2px 6px',
+            borderRadius: 4,
+            color: T.gray400,
+            lineHeight: 1,
+            transition: 'all 0.15s',
+          }}
+          title="更多反馈"
+        >
+          ▾
+        </button>
+        {showMore && (
+          <>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: 'absolute',
+                right: 0,
+                top: '100%',
+                marginTop: 4,
+                background: T.white,
+                border: `1px solid ${T.gray200}`,
+                borderRadius: T.radiusSm,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+                padding: 4,
+                zIndex: 100,
+                minWidth: 120,
+              }}
+            >
+              {FEEDBACK_OPTIONS.map(({ type, icon, label, color }) => (
+                <button
+                  key={type}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleFeedback(type);
+                    setShowMore(false);
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    width: '100%',
+                    padding: '6px 10px',
+                    background: activeFeedback === type ? `${color}10` : 'none',
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: activeFeedback === type ? 'default' : 'pointer',
+                    fontSize: 12,
+                    color: activeFeedback === type ? color : T.gray600,
+                    fontWeight: activeFeedback === type ? 600 : 400,
+                    textAlign: 'left' as const,
+                  }}
+                >
+                  <span>{icon}</span>
+                  <span>{label}</span>
+                  {activeFeedback === type && <span style={{ marginLeft: 'auto', fontSize: 10 }}>✓</span>}
+                </button>
+              ))}
+            </div>
+            {/* Click outside to close */}
+            <div
+              onClick={() => setShowMore(false)}
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 99,
+              }}
+            />
+          </>
+        )}
+      </div>
+    </div>
   );
 }

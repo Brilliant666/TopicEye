@@ -92,4 +92,5 @@ export const SOURCE_TYPE_COLOR_MAP: Record<string, { bg: string; color: string }
   'Reddit':  { bg: '#FFF7ED', color: '#C2410C' },
   '公众号':  { bg: '#FFF1F2', color: '#E11D48' },
   '网站':    { bg: '#FEF3C7', color: '#92400E' },
+  'Zhihu':   { bg: '#EFF6FF', color: '#2563EB' },
 };

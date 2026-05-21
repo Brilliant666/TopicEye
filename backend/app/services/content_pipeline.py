@@ -173,35 +173,58 @@ def _update_source_status(source: Source, status: SourceStatus) -> None:
 
 
 def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> None:
-    """Extract platform-specific metrics (e.g. _reddit_meta) and persist as ContentMetrics."""
-    reddit_meta = entry.get("_reddit_meta")
-    if not reddit_meta:
-        return
-
+    """Extract platform-specific metrics (e.g. _reddit_meta, _zhihu_meta) and persist as ContentMetrics."""
     from app.models.metrics import ContentMetrics
 
-    score = reddit_meta.get("score", 0)
-    num_comments = reddit_meta.get("num_comments", 0)
-    subscribers = reddit_meta.get("subreddit_subscribers", 0)
+    # ── Reddit metrics ──
+    reddit_meta = entry.get("_reddit_meta")
+    if reddit_meta:
+        score = reddit_meta.get("score", 0)
+        num_comments = reddit_meta.get("num_comments", 0)
+        subscribers = reddit_meta.get("subreddit_subscribers", 0)
 
-    # Compute engagement_rate as comments / subscribers (or score/subscribers)
-    engagement_rate = 0.0
-    if subscribers > 0:
-        engagement_rate = round((score + num_comments) / subscribers * 100, 4)
+        engagement_rate = 0.0
+        if subscribers > 0:
+            engagement_rate = round((score + num_comments) / subscribers * 100, 4)
 
-    # Compute explosion_ratio: score relative to subreddit size
-    explosion_ratio = 0.0
-    if subscribers > 0:
-        explosion_ratio = round(score / subscribers * 1000, 4)
+        explosion_ratio = 0.0
+        if subscribers > 0:
+            explosion_ratio = round(score / subscribers * 1000, 4)
 
-    metrics = ContentMetrics(
-        content=item,
-        likes=score,
-        comments=num_comments,
-        shares=0,
-        favorites=0,
-        followers_count=subscribers,
-        engagement_rate=engagement_rate,
-        explosion_ratio=explosion_ratio,
-    )
-    db.add(metrics)
+        metrics = ContentMetrics(
+            content=item,
+            likes=score,
+            comments=num_comments,
+            shares=0,
+            favorites=0,
+            followers_count=subscribers,
+            engagement_rate=engagement_rate,
+            explosion_ratio=explosion_ratio,
+        )
+        db.add(metrics)
+        return
+
+    # ── Zhihu metrics ──
+    zhihu_meta = entry.get("_zhihu_meta")
+    if zhihu_meta:
+        hot_score = zhihu_meta.get("hot_score", 0)
+        rank = zhihu_meta.get("rank", 0)
+
+        # For Zhihu hot list, hot_score is the primary engagement metric
+        # Use a simple explosion_ratio based on rank (lower rank = higher)
+        explosion_ratio = 0.0
+        if rank > 0:
+            explosion_ratio = round(1000.0 / rank, 4)
+
+        metrics = ContentMetrics(
+            content=item,
+            likes=hot_score,
+            comments=0,
+            shares=0,
+            favorites=0,
+            followers_count=0,
+            engagement_rate=round(hot_score / 10000, 4) if hot_score > 0 else 0.0,
+            explosion_ratio=explosion_ratio,
+        )
+        db.add(metrics)
+        return

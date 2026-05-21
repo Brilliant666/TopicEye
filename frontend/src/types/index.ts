@@ -5,7 +5,7 @@
 
 // ─── Source (信源) ───
 
-export type SourceType = 'RSS' | 'RSSHub' | 'Reddit' | '公众号' | '网站';
+export type SourceType = 'RSS' | 'RSSHub' | 'Reddit' | '公众号' | '网站' | 'Zhihu';
 export type SourceStatus = 'active' | 'error' | 'paused';
 
 export interface Source {

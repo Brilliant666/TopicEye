@@ -8,6 +8,7 @@ export interface FormState {
   source_type: string;
   url: string;
   category: string;
+  weight: number;
   enabled: boolean;
 }
 
@@ -16,11 +17,12 @@ export const emptyForm: FormState = {
   source_type: 'RSS',
   url: '',
   category: 'AI',
+  weight: 3,
   enabled: true,
 };
 
 export const CATEGORIES = ['AI', '商业', '科技', '教育', '自媒体', '生活', '职场', '产品'];
-export const SOURCE_TYPES = ['RSS', 'RSSHub', 'Reddit', '公众号', '网站'];
+export const SOURCE_TYPES = ['RSS', 'RSSHub', 'Reddit', '公众号', '网站', 'Zhihu'];
 
 interface SourceFormProps {
   form: FormState;
@@ -71,6 +73,35 @@ export default function SourceForm({ form, setForm }: SourceFormProps) {
         >
           {CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
         </select>
+      </div>
+      <div>
+        <label style={{ fontSize: 13, fontWeight: 500, color: T.gray700, display: 'block', marginBottom: 6 }}>
+          信源权重
+          <span style={{ fontSize: 11, fontWeight: 400, color: T.gray400, marginLeft: 8 }}>
+            权重越高，精选评分加分越多
+          </span>
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {[1, 2, 3, 4, 5].map((w) => (
+            <span
+              key={w}
+              onClick={() => setForm((f) => ({ ...f, weight: w }))}
+              style={{
+                fontSize: 18,
+                color: w <= form.weight ? T.primary : T.gray200,
+                cursor: 'pointer',
+                transition: 'color 0.15s',
+                userSelect: 'none',
+                lineHeight: 1,
+              }}
+            >
+              ●
+            </span>
+          ))}
+          <span style={{ fontSize: 12, color: T.gray500, marginLeft: 8, fontFamily: T.mono }}>
+            {form.weight}/5 {form.weight > 3 ? `(+${(form.weight - 3) * 6}分)` : form.weight < 3 ? `(${(form.weight - 3) * 6}分)` : '(基准)'}
+          </span>
+        </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <input type="checkbox" checked={form.enabled} onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))} style={{ width: 16, height: 16, cursor: 'pointer' }} id="src-enabled" />

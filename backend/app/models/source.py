@@ -16,6 +16,7 @@ class SourceType(str, enum.Enum):
     XIAOHONGSHU = "小红书"
     X = "X"
     YOUTUBE = "YouTube"
+    ZHIHU = "Zhihu"
     BILIBILI = "B站"
     CUSTOM = "自定义"
 

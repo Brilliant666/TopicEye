@@ -9,6 +9,7 @@ from app.api.v1.creation import router as creation_router
 from app.api.v1.settings import router as settings_router
 from app.api.v1.categories import router as categories_router
 from app.api.v1.stats import router as stats_router
+from app.api.v1.feedback import router as feedback_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(sources_router)
@@ -21,3 +22,4 @@ router.include_router(creation_router)
 router.include_router(settings_router)
 router.include_router(categories_router)
 router.include_router(stats_router)
+router.include_router(feedback_router)

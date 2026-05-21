@@ -11,6 +11,7 @@ from app.core.exceptions import AppException
 # Ensure all models are imported for table creation
 import app.models.daily_report  # noqa: F401
 import app.models.category  # noqa: F401
+import app.models.feedback  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

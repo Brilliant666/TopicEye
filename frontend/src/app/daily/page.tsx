@@ -12,7 +12,7 @@ interface DailyReportData {
   takeaway: string | null;
   keywords: string[] | null;
   trends: Array<{ title: string; desc: string; color: string }> | null;
-  top_picks: Array<{ title: string; reason: string; score: number; platforms: string[] }> | null;
+  top_picks: Array<{ title: string; reason: string; score: number; platforms: string[]; source_url?: string }> | null;
   platform_tips: Record<string, string[]> | null;
   topic_count: number;
   content_count: number;
@@ -387,46 +387,62 @@ export default function DailyReportPage() {
               <div style={{ marginBottom: 28 }}>
                 <SectionTitle icon="🎯" title="精选选题推荐" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {topPicks.map((pick: { title: string; reason: string; score?: number; platforms?: string[] }, i: number) => (
+                  {topPicks.map((pick: { title: string; reason: string; score?: number; platforms?: string[]; source_url?: string }, i: number) => (
                     <div key={i} style={{
                       padding: '16px 20px', background: T.white,
                       borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                          <span style={{
-                            fontSize: 11, fontWeight: 700, color: T.white,
-                            background: i === 0 ? '#FF6B35' : i === 1 ? '#F59E0B' : T.primary,
-                            width: 22, height: 22, borderRadius: '50%',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          }}>
-                            {i + 1}
-                          </span>
-                          <span style={{ fontSize: 14, fontWeight: 600, color: T.gray900 }}>{pick.title}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                            <span style={{
+                              fontSize: 11, fontWeight: 700, color: T.white,
+                              background: i === 0 ? '#FF6B35' : i === 1 ? '#F59E0B' : T.primary,
+                              width: 22, height: 22, borderRadius: '50%',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                            }}>
+                              {i + 1}
+                            </span>
+                            <span style={{ fontSize: 14, fontWeight: 600, color: T.gray900 }}>{pick.title}</span>
+                            {pick.source_url && (
+                              <a
+                                href={pick.source_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="查看原文"
+                                style={{
+                                  fontSize: 13, color: T.gray400,
+                                  textDecoration: 'none', flexShrink: 0,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                ↗
+                              </a>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 12, color: T.gray500, marginLeft: 30 }}>{pick.reason}</div>
+                          {(pick.platforms ?? []).length > 0 && (
+                            <div style={{ display: 'flex', gap: 6, marginTop: 6, marginLeft: 30 }}>
+                              {(pick.platforms ?? []).map((p: string, j: number) => (
+                                <span key={j} style={{
+                                  fontSize: 10, color: T.teal, background: T.tealLight,
+                                  padding: '1px 8px', borderRadius: 4,
+                                }}>
+                                  {p}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <div style={{ fontSize: 12, color: T.gray500, marginLeft: 30 }}>{pick.reason}</div>
-                        {(pick.platforms ?? []).length > 0 && (
-                          <div style={{ display: 'flex', gap: 6, marginTop: 6, marginLeft: 30 }}>
-                            {(pick.platforms ?? []).map((p: string, j: number) => (
-                              <span key={j} style={{
-                                fontSize: 10, color: T.teal, background: T.tealLight,
-                                padding: '1px 8px', borderRadius: 4,
-                              }}>
-                                {p}
-                              </span>
-                            ))}
+                        {pick.score && (
+                          <div style={{
+                            fontSize: 22, fontWeight: 800, color: T.primary,
+                            fontFamily: T.mono, marginLeft: 16,
+                          }}>
+                            {pick.score}
                           </div>
                         )}
                       </div>
-                      {pick.score && (
-                        <div style={{
-                          fontSize: 22, fontWeight: 800, color: T.primary,
-                          fontFamily: T.mono, marginLeft: 16,
-                        }}>
-                          {pick.score}
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>

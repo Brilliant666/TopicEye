@@ -33,7 +33,7 @@ REPORT_PROMPT = """你是一位资深内容策划顾问。请根据以下今日�
     {{"title": "趋势标题", "desc": "趋势描述（30字内）", "color": "#3B82F6"}}
   ],
   "top_picks": [
-    {{"title": "选题标题", "reason": "推荐理由（40字内）", "score": 85, "platforms": ["公众号", "小红书"]}}
+    {{"title": "选题标题", "reason": "推荐理由（40字内）", "source_url": "原文链接URL", "score": 85, "platforms": ["公众号", "小红书"]}}
   ],
   "platform_tips": {{
     "公众号": ["tip1"],
@@ -44,7 +44,7 @@ REPORT_PROMPT = """你是一位资深内容策划顾问。请根据以下今日�
 
 要求：
 - trends 给出 2-3 个今日内容趋势
-- top_picks 从上面数据中选 3-5 个最值得写的选题
+- top_picks 从上面数据中选 3-5 个最值得写的选题，source_url 必须从上面数据中复制原始URL，不要编造
 - platform_tips 给出各平台今天的创作建议
 - 所有文本用中文
 - 只输出 JSON，不要其他内容"""
@@ -85,6 +85,7 @@ async def _fetch_recently_analyzed(db: AsyncSession) -> list[dict]:
         data.append({
             "id": item.id,
             "title": item.title,
+            "url": item.url,
             "category": item.category,
             "source_name": item.source_name,
             "creator_score": a.creator_score,
@@ -134,11 +135,14 @@ async def generate_daily_report(db: AsyncSession) -> DailyReport:
 
     # Build prompt
     items_text = ""
+    # Build a title→url mapping for fallback matching
+    title_url_map: dict[str, str] = {}
     for i, item in enumerate(items_data[:15], 1):  # limit to top 15
         items_text += f"\n{i}. [{item['category']}] {item['title']}"
-        items_text += f"\n   来源: {item['source_name']} | 创作:{item['creator_score']} 爆文:{item['viral_score']} 质量:{item['quality_score']} 风险:{item['risk_score']}"
+        items_text += f"\n   来源: {item['source_name']} | URL: {item.get('url', '')} | 创作:{item['creator_score']} 爆文:{item['viral_score']} 质量:{item['quality_score']} 风险:{item['risk_score']}"
         if item['summary']:
             items_text += f"\n   摘要: {item['summary'][:100]}"
+        title_url_map[item['title']] = item.get('url', '')
 
     prompt = REPORT_PROMPT.format(date=today, items_text=items_text)
 
@@ -166,7 +170,25 @@ async def generate_daily_report(db: AsyncSession) -> DailyReport:
         report.takeaway = result.get("takeaway", "")
         report.keywords = json.dumps(result.get("keywords", []), ensure_ascii=False)
         report.trends = json.dumps(result.get("trends", []), ensure_ascii=False)
-        report.top_picks = json.dumps(result.get("top_picks", []), ensure_ascii=False)
+
+        # Enrich top_picks with source_url via title matching fallback
+        picks = result.get("top_picks", [])
+        for pick in picks:
+            pick_url = pick.get("source_url", "")
+            if not pick_url or not pick_url.startswith("http"):
+                # Fuzzy match: find the best matching title
+                pick_title = pick.get("title", "")
+                best_url = ""
+                best_len = 0
+                for t, u in title_url_map.items():
+                    if u and (pick_title in t or t in pick_title):
+                        if len(t) > best_len:
+                            best_url = u
+                            best_len = len(t)
+                if best_url:
+                    pick["source_url"] = best_url
+
+        report.top_picks = json.dumps(picks, ensure_ascii=False)
         report.platform_tips = json.dumps(result.get("platform_tips", {}), ensure_ascii=False)
         report.topic_count = len(result.get("top_picks", []))
         report.status = "DONE"

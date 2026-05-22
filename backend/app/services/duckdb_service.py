@@ -372,7 +372,7 @@ class DuckDBAnalytics:
         cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
 
         results = conn.execute(f"""
-            SELECT c.id, c.title, c.category, c.source_name, a.summary,
+            SELECT c.id, c.title, c.url, c.category, c.source_name, a.summary,
                    a.creator_score, a.viral_score, a.quality_score, a.risk_score,
                    a.recommended_reason
             FROM sqlite_db.content_items c
@@ -387,14 +387,15 @@ class DuckDBAnalytics:
             {
                 "id": row[0],
                 "title": row[1],
-                "category": row[2],
-                "source_name": row[3],
-                "summary": row[4] or "",
-                "creator_score": float(row[5]) if row[5] else 0,
-                "viral_score": float(row[6]) if row[6] else 0,
-                "quality_score": float(row[7]) if row[7] else 0,
-                "risk_score": float(row[8]) if row[8] else 0,
-                "recommended_reason": row[9] or "",
+                "url": row[2],
+                "category": row[3],
+                "source_name": row[4],
+                "summary": row[5] or "",
+                "creator_score": float(row[6]) if row[6] else 0,
+                "viral_score": float(row[7]) if row[7] else 0,
+                "quality_score": float(row[8]) if row[8] else 0,
+                "risk_score": float(row[9]) if row[9] else 0,
+                "recommended_reason": row[10] or "",
             }
             for row in results
         ]

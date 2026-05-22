@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { T, LEVEL_CONFIG } from '@/lib/design-tokens';
+import { T } from '@/lib/design-tokens';
 
 interface ScoreBarProps {
   label: string;

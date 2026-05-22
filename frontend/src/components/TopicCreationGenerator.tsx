@@ -33,7 +33,7 @@ export default function TopicCreationGenerator({ contentId }: TopicCreationGener
 
     try {
       const { creationApi } = await import('@/lib/api');
-      const result = await creationApi.generatePlan(contentId, platform);
+      const result = await creationApi.generatePlan(contentId, platform) as CreationPlan;
       setCreationPlan(result);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '生成失败';
@@ -122,7 +122,8 @@ export default function TopicCreationGenerator({ contentId }: TopicCreationGener
           <div style={{ fontSize: 14, fontWeight: 600, color: T.gray800, marginBottom: 12 }}>
             创作方案
           </div>
-          <CreationPlanDisplay plan={creationPlan} platform={creationPlan.platform} />
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          <CreationPlanDisplay plan={creationPlan as any} platform={creationPlan.platform as string} />
         </div>
       )}
     </div>

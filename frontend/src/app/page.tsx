@@ -5,7 +5,7 @@ import { T, SOURCE_TYPE_COLOR_MAP } from '@/lib/design-tokens';
 import { useAppContext } from '@/components/ClientLayout';
 import Header from '@/components/Header';
 import CategoryChip from '@/components/CategoryChip';
-import { contentsApi, analysesApi, feedbackApi } from '@/lib/api';
+import { contentsApi, feedbackApi } from '@/lib/api';
 import type { FeedbackType } from '@/lib/api';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
 import { getRecommendLevel } from '@/types';
@@ -75,28 +75,27 @@ export default function HomePage() {
   // Fetch data
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
 
-    contentsApi
-      .list({
-        page_size: 50,
-        hours: activeTimeRange === '全部' ? undefined : parseInt(activeTimeRange),
-        source_type: activeSourceType === '全部' ? undefined : activeSourceType,
-      })
-      .then((res) => {
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await contentsApi.list({
+          page_size: 50,
+          hours: activeTimeRange === '全部' ? undefined : parseInt(activeTimeRange),
+          source_type: activeSourceType === '全部' ? undefined : activeSourceType,
+        });
         if (!cancelled) {
           setItems(res.items || []);
         }
-      })
-      .catch((err) => {
+      } catch (err: unknown) {
         if (!cancelled) {
-          setError(err.message || '获取内容失败');
+          setError(err instanceof Error ? err.message : '获取内容失败');
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -749,9 +748,10 @@ function FeedbackButtons({ contentId }: { contentId: number }) {
     try {
       await feedbackApi.submit(contentId, type);
       setActiveFeedback(type);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // 409 = duplicate, that's fine
-      if (!err.message?.includes('409') && !err.message?.includes('Conflict')) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg?.includes('409') && !msg?.includes('Conflict')) {
         console.error('Feedback failed:', err);
       }
     }

@@ -4,8 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { T } from '@/lib/design-tokens';
 import { sourcesApi, settingsApi } from '@/lib/api';
 import type { RSSHubInstance, CreateSourceRequest } from '@/lib/api';
-import { timeAgo } from '@/lib/utils';
-import SourceForm, { FormState, emptyForm, CATEGORIES, SOURCE_TYPES } from '@/components/SourceForm';
+import SourceForm, { FormState, emptyForm } from '@/components/SourceForm';
 import SourceRowComponent, { type BackendSource } from '@/components/SourceRow';
 import { Spinner } from '@/components/SourceRow';
 
@@ -28,19 +27,18 @@ export default function SourcesPage() {
   const [rsshubError, setRsshubError] = useState<string | null>(null);
   const [newInstanceUrl, setNewInstanceUrl] = useState('');
   const opmlInputRef = useRef<HTMLInputElement>(null);
-  const [importingOPML, setImportingOPML] = useState(false);
+  const [, setImportingOPML] = useState(false);
 
   // ─── Fetch sources ───
   const fetchSources = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const res: any = await sourcesApi.list();
-      const data = res?.data !== undefined ? res.data : res;
-      const items = data?.items || (Array.isArray(data) ? data : []);
-      setSources(items);
-    } catch (err: any) {
-      setError(err.message || '加载信源列表失败');
+      const res = await sourcesApi.list();
+      const items = res?.items || [];
+      setSources(items as BackendSource[]);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '加载信源列表失败');
     } finally {
       setLoading(false);
     }
@@ -52,8 +50,8 @@ export default function SourcesPage() {
       setRsshubLoading(true);
       const data = await settingsApi.getRSSHubInstances();
       setRsshubInstances(data.instances || []);
-    } catch (err: any) {
-      setRsshubError(err.message || '加载RSSHub实例失败');
+    } catch (err: unknown) {
+      setRsshubError(err instanceof Error ? err.message : '加载RSSHub实例失败');
     } finally {
       setRsshubLoading(false);
     }
@@ -73,8 +71,8 @@ export default function SourcesPage() {
     try {
       setRsshubSaving(true);
       await settingsApi.updateRSSHubInstances(updated);
-    } catch (err: any) {
-      setRsshubError(err.message || '更新失败');
+    } catch (err: unknown) {
+      setRsshubError(err instanceof Error ? err.message : '更新失败');
       setRsshubInstances((prev) => prev.map((i) => i.url === url ? { ...i, enabled: !i.enabled } : i));
     } finally {
       setRsshubSaving(false);
@@ -98,8 +96,8 @@ export default function SourcesPage() {
     try {
       setRsshubSaving(true);
       await settingsApi.updateRSSHubInstances(updated);
-    } catch (err: any) {
-      setRsshubError(err.message || '添加失败');
+    } catch (err: unknown) {
+      setRsshubError(err instanceof Error ? err.message : '添加失败');
       setRsshubInstances((prev) => prev.filter((i) => i.url !== url));
     } finally {
       setRsshubSaving(false);
@@ -114,8 +112,8 @@ export default function SourcesPage() {
     try {
       setRsshubSaving(true);
       await settingsApi.updateRSSHubInstances(rsshubInstances.filter((i) => i.url !== url));
-    } catch (err: any) {
-      setRsshubError(err.message || '删除失败');
+    } catch (err: unknown) {
+      setRsshubError(err instanceof Error ? err.message : '删除失败');
       setRsshubInstances(prev);
     } finally {
       setRsshubSaving(false);
@@ -138,8 +136,8 @@ export default function SourcesPage() {
       setShowAddModal(false);
       setForm(emptyForm);
       await fetchSources();
-    } catch (err: any) {
-      setError(err.message || '添加信源失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '添加信源失败');
     } finally {
       setSubmitting(false);
     }
@@ -155,8 +153,8 @@ export default function SourcesPage() {
       // Show success as a temporary rsshubError display (reuses existing banner)
       setRsshubError(result.message);
       fetchSources();
-    } catch (err: any) {
-      setError(err.message || 'OPML 导入失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'OPML 导入失败');
     } finally {
       setImportingOPML(false);
       if (opmlInputRef.current) opmlInputRef.current.value = '';
@@ -179,8 +177,8 @@ export default function SourcesPage() {
       setEditingSource(null);
       setForm(emptyForm);
       await fetchSources();
-    } catch (err: any) {
-      setError(err.message || '更新信源失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '更新信源失败');
     } finally {
       setSubmitting(false);
     }
@@ -208,19 +206,18 @@ export default function SourcesPage() {
         delete next[id];
         return next;
       });
-      const res: any = await sourcesApi.sync(id);
-      const data = res?.data !== undefined ? res.data : res;
-      const fetched = data?.fetched ?? 0;
-      const newCount = data?.new ?? 0;
+      const res = await sourcesApi.sync(id);
+      const fetched = res?.fetched ?? 0;
+      const newCount = res?.new ?? 0;
       setSyncResults((prev) => ({
         ...prev,
         [id]: `获取 ${fetched} 条，新增 ${newCount} 条`,
       }));
       await fetchSources();
-    } catch (err: any) {
+    } catch (err: unknown) {
       setSyncResults((prev) => ({
         ...prev,
-        [id]: `同步失败: ${err.message}`,
+        [id]: `同步失败: ${err instanceof Error ? err.message : String(err)}`,
       }));
     } finally {
       setSyncingIds((prev) => {
@@ -238,8 +235,8 @@ export default function SourcesPage() {
       setDeletingIds((prev) => new Set(prev).add(id));
       await sourcesApi.delete(id);
       setSources((prev) => prev.filter((s) => s.id !== id));
-    } catch (err: any) {
-      setError(err.message || '删除失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '删除失败');
     } finally {
       setDeletingIds((prev) => {
         const next = new Set(prev);
@@ -253,8 +250,8 @@ export default function SourcesPage() {
     try {
       await sourcesApi.update(id, { weight });
       setSources((prev) => prev.map((s) => (s.id === id ? { ...s, weight } : s)));
-    } catch (err: any) {
-      setError(err.message || '权重更新失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '权重更新失败');
     }
   };
 
@@ -262,8 +259,8 @@ export default function SourcesPage() {
     try {
       await sourcesApi.update(id, { fetch_interval_minutes });
       setSources((prev) => prev.map((s) => (s.id === id ? { ...s, fetch_interval_minutes } : s)));
-    } catch (err: any) {
-      setError(err.message || '采集频率更新失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '采集频率更新失败');
     }
   };
 

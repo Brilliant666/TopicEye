@@ -70,23 +70,23 @@ export default function ContentsPage() {
     try {
       setLoading(true);
       setError(null);
-      const params: Record<string, any> = { page: p, page_size: PAGE_SIZE };
+      const params: Record<string, unknown> = { page: p, page_size: PAGE_SIZE };
       if (cat && cat !== '全部') params.category = cat;
-      const res: any = await contentsApi.list(params);
-      const data = res?.data !== undefined ? res.data : res;
-      const list = data?.items || (Array.isArray(data) ? data : []);
-      setItems(list);
-      setTotal(data?.total ?? list.length);
-      setPage(data?.page ?? p);
-    } catch (err: any) {
-      setError(err.message || '加载内容列表失败');
+      const res = await contentsApi.list(params);
+      const list = res?.items || [];
+      setItems(list as ContentItem[]);
+      setTotal(res?.total ?? list.length);
+      setPage(res?.page ?? p);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '加载内容列表失败';
+      setError(message);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchContents(1, category);
+    void fetchContents(1, category);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category]);
 

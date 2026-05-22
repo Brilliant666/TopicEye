@@ -60,7 +60,7 @@ function TopicRow({ topic, dates, maxCount, color, isLast }: {
     return pt?.content_count || 0;
   });
   const latestPt = topic.pts[topic.pts.length - 1];
-  const barWidth = 320;
+  // barWidth reserved for future chart sizing
   const barH = (c: number) => c ? Math.max(4, (c / maxCount) * 32) : 0;
 
   return (
@@ -148,7 +148,7 @@ export default function TrendsPage() {
     }
   }, [days]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { void fetchData(); }, [fetchData]);
 
   // Aggregate
   const totalTopics = new Set(trends.map(t => t.topic_id)).size;

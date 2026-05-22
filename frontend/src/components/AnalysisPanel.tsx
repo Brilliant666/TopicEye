@@ -13,7 +13,7 @@ interface AnalysisPanelProps {
 
 export default function AnalysisPanel({ analysis, onClose }: AnalysisPanelProps) {
   const contentId = analysis.content_id || 0;
-  const [creationPlan, setCreationPlan] = useState<Record<string, any> | null>(null);
+  const [creationPlan, setCreationPlan] = useState<Record<string, unknown> | null>(null);
   const [generating, setGenerating] = useState(false);
   const [activePlatform, setActivePlatform] = useState<string | null>(null);
 

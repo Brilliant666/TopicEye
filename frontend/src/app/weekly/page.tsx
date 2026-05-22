@@ -5,6 +5,42 @@ import { T } from '@/lib/design-tokens';
 import { weeklyDigestApi } from '@/lib/api';
 import type { WeeklyDigest, WeeklyDigestWeekSummary } from '@/types';
 
+interface TrendItem {
+  title: string;
+  desc: string;
+  color?: string;
+  momentum?: string;
+}
+
+interface ClusterItem {
+  name: string;
+  count: number;
+  representative_title: string;
+  heat: number;
+}
+
+interface PickItem {
+  title: string;
+  reason: string;
+  source?: string;
+  category?: string;
+  platforms: string[];
+  score?: number;
+}
+
+interface ActionItem {
+  title: string;
+  angle: string;
+  platform?: string;
+  difficulty?: string;
+}
+
+interface CategoryInfo {
+  count: number;
+  top_title?: string;
+  avg_score?: number;
+}
+
 export default function WeeklyDigestPage() {
   const [digest, setDigest] = useState<WeeklyDigest | null>(null);
   const [weeks, setWeeks] = useState<WeeklyDigestWeekSummary[]>([]);
@@ -42,12 +78,13 @@ export default function WeeklyDigestPage() {
       }
       setDigest(data);
       setSelectedWeek(data.week_key);
-    } catch (err: any) {
-      if (err.message?.includes('404') || err.message?.includes('not found')) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (errMsg?.includes('404') || errMsg?.includes('not found')) {
         setDigest(null);
         setError(weekKey ? `${weekKey} 暂无周刊` : '暂无周刊数据');
       } else {
-        setError(err.message || '加载失败');
+        setError(errMsg || '加载失败');
       }
     } finally {
       setLoading(false);
@@ -56,7 +93,7 @@ export default function WeeklyDigestPage() {
 
   // Load current week's digest initially
   useEffect(() => {
-    fetchDigest();
+    void fetchDigest();
   }, [fetchDigest]);
 
   const handleWeekSelect = useCallback((weekKey: string) => {
@@ -72,28 +109,29 @@ export default function WeeklyDigestPage() {
       // Refresh weeks list
       const weeksData = await weeklyDigestApi.listWeeks();
       setWeeks(weeksData.weeks || []);
-    } catch (err: any) {
-      setError(err.message || '生成失败');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '生成失败');
     } finally {
       setGenerating(false);
     }
   };
 
   // Parse JSON strings if backend returns them as strings
-  const parseJson = (val: any) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const parseJson = <T,>(val: unknown, fallback: T): T => {
     if (typeof val === 'string') {
-      try { return JSON.parse(val); } catch { return null; }
+      try { return JSON.parse(val) as T; } catch { return fallback; }
     }
-    return val;
+    return (val as T) ?? fallback;
   };
 
-  const keywords = parseJson(digest?.keywords);
-  const trends = parseJson(digest?.trends);
-  const topPicks = parseJson(digest?.top_picks);
-  const categorySummary = parseJson(digest?.category_summary);
-  const platformTips = parseJson(digest?.platform_tips);
-  const topicClusters = parseJson(digest?.topic_clusters);
-  const actionItems = parseJson(digest?.action_items);
+  const keywords = parseJson<string[]>(digest?.keywords, []);
+  const trends = parseJson<TrendItem[]>(digest?.trends, []);
+  const topPicks = parseJson<PickItem[]>(digest?.top_picks, []);
+  const categorySummary = parseJson<Record<string, CategoryInfo>>(digest?.category_summary, {});
+  const platformTips = parseJson<Record<string, string[]>>(digest?.platform_tips, {});
+  const topicClusters = parseJson<ClusterItem[]>(digest?.topic_clusters, []);
+  const actionItems = parseJson<ActionItem[]>(digest?.action_items, []);
 
   // Determine if this is the current week
   const getCurrentWeekKey = () => {
@@ -340,7 +378,7 @@ export default function WeeklyDigestPage() {
             )}
 
             {/* Keywords */}
-            {keywords?.length > 0 && (
+            {(keywords || []).length > 0 && (
               <div style={{ marginBottom: 28 }}>
                 <SectionTitle icon="🔑" title="本周关键词" />
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -358,11 +396,11 @@ export default function WeeklyDigestPage() {
             )}
 
             {/* Trends */}
-            {trends?.length > 0 && (
+            {(trends || []).length > 0 && (
               <div style={{ marginBottom: 28 }}>
                 <SectionTitle icon="📈" title="内容趋势" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {trends.map((trend: any, i: number) => (
+                  {trends.map((trend: TrendItem, i: number) => (
                     <div key={i} style={{
                       display: 'flex', alignItems: 'flex-start', gap: 12,
                       padding: '14px 18px', background: T.white,
@@ -393,11 +431,11 @@ export default function WeeklyDigestPage() {
             )}
 
             {/* Topic Clusters */}
-            {topicClusters?.length > 0 && (
+            {(topicClusters || []).length > 0 && (
               <div style={{ marginBottom: 28 }}>
                 <SectionTitle icon="🔥" title="热门话题聚类" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
-                  {topicClusters.map((cluster: any, i: number) => (
+                  {topicClusters.map((cluster: ClusterItem, i: number) => (
                     <div key={i} style={{
                       padding: '14px 18px', background: T.white,
                       borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
@@ -436,11 +474,11 @@ export default function WeeklyDigestPage() {
             )}
 
             {/* Top Picks */}
-            {topPicks?.length > 0 && (
+            {(topPicks || []).length > 0 && (
               <div style={{ marginBottom: 28 }}>
                 <SectionTitle icon="🎯" title="精选选题 TOP 5" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {topPicks.map((pick: any, i: number) => (
+                  {topPicks.map((pick: PickItem, i: number) => (
                     <div key={i} style={{
                       padding: '16px 20px', background: T.white,
                       borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
@@ -470,7 +508,7 @@ export default function WeeklyDigestPage() {
                               {pick.category}
                             </span>
                           )}
-                          {pick.platforms?.length > 0 && pick.platforms.map((p: string, j: number) => (
+                          {(pick.platforms ?? []).length > 0 && (pick.platforms ?? []).map((p: string, j: number) => (
                             <span key={j} style={{
                               fontSize: 10, color: T.teal, background: T.tealLight,
                               padding: '1px 8px', borderRadius: 4,
@@ -499,7 +537,8 @@ export default function WeeklyDigestPage() {
               <div style={{ marginBottom: 28 }}>
                 <SectionTitle icon="📊" title="分类概览" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
-                  {Object.entries(categorySummary).map(([cat, info]: [string, any]) => (
+                  {Object.entries(categorySummary || {}).map(([cat, info]) => {
+                    return (
                     <div key={cat} style={{
                       padding: '14px 18px', background: T.white,
                       borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
@@ -526,22 +565,23 @@ export default function WeeklyDigestPage() {
                             }} />
                           </div>
                           <span style={{ fontSize: 10, color: T.gray400, fontFamily: T.mono }}>
-                            {info.avg_score?.toFixed(0)}
+                            {info.avg_score.toFixed(0)}
                           </span>
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
 
             {/* Action Items */}
-            {actionItems?.length > 0 && (
+            {(actionItems || []).length > 0 && (
               <div style={{ marginBottom: 28 }}>
                 <SectionTitle icon="✅" title="下周创作行动清单" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {actionItems.map((item: any, i: number) => (
+                  {actionItems.map((item: ActionItem, i: number) => (
                     <div key={i} style={{
                       padding: '14px 18px', background: T.white,
                       borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
@@ -593,7 +633,7 @@ export default function WeeklyDigestPage() {
               <div style={{ marginBottom: 28 }}>
                 <SectionTitle icon="💡" title="平台创作建议" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
-                  {Object.entries(platformTips).map(([platform, tips]: [string, any]) => (
+                  {Object.entries(platformTips || {}).map(([platform, tips]) => (
                     <div key={platform} style={{
                       padding: '16px 20px', background: T.white,
                       borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,

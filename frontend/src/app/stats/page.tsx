@@ -106,7 +106,7 @@ function TrendChart({ data }: { data: DashboardData['daily_trend'] }) {
 }
 
 export default function StatsPage() {
-  const { topicCount } = useAppContext();
+  const { topicCount: _topicCount } = useAppContext(); // eslint-disable-line @typescript-eslint/no-unused-vars
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(7);
@@ -119,8 +119,8 @@ export default function StatsPage() {
         setError(null);
         const result = await statsApi.getDashboard(days);
         setData(result);
-      } catch (e: any) {
-        setError(e?.message || '加载失败');
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : '加载失败');
       } finally {
         setLoading(false);
       }

@@ -4,8 +4,38 @@ import React, { useState } from 'react';
 import { T } from '@/lib/design-tokens';
 import { formatPlanText } from '@/lib/utils';
 
+interface Scene {
+  seq: number;
+  seconds: number;
+  visual: string;
+  narration: string;
+}
+
+interface OutlineSection {
+  section: number;
+  heading: string;
+  points?: string[];
+  evidence?: string;
+}
+
+interface CreationPlan {
+  titles?: string[];
+  tone?: string;
+  cover_slogan?: string;
+  structure?: { hook?: string; points?: string[]; cta?: string };
+  tags?: string[];
+  hook?: string;
+  scenes?: Scene[];
+  total_seconds?: number;
+  bgm_suggestion?: string;
+  outline?: OutlineSection[];
+  word_count_estimate?: number;
+  key_quote?: string;
+  closing?: string;
+}
+
 interface CreationPlanDisplayProps {
-  plan: Record<string, any>;
+  plan: CreationPlan;
   platform: string;
 }
 
@@ -13,7 +43,7 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
   const [copied, setCopied] = useState(false);
 
   const handleCopy = () => {
-    const text = formatPlanText(plan);
+    const text = formatPlanText(plan as Record<string, unknown>);
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -37,7 +67,7 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
       </div>
 
       {/* Titles */}
-      {plan.titles?.length > 0 && (
+      {plan.titles && plan.titles.length > 0 && (
         <div>
           <div style={{ fontSize: 11, fontWeight: 600, color: T.gray500, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>备选标题</div>
           {plan.titles.map((t: string, i: number) => (
@@ -80,7 +110,7 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
               </div>
             )}
           </div>
-          {plan.tags?.length > 0 && (
+          {plan.tags && plan.tags.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {plan.tags.map((tag: string) => (
                 <span key={tag} style={{ fontSize: 11, color: T.primary, background: `${T.primary}10`, padding: '2px 10px', borderRadius: 12 }}>#{tag}</span>
@@ -101,7 +131,7 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
           )}
           <div>
             <div style={{ fontSize: 11, fontWeight: 600, color: T.gray500, marginBottom: 8 }}>分镜头脚本（共{plan.total_seconds || 60}秒）</div>
-            {plan.scenes.map((scene: any, i: number) => (
+            {plan.scenes.map((scene: Scene, i: number) => (
               <div key={i} style={{ padding: '10px 14px', marginBottom: 6, background: T.gray50, borderRadius: 6, borderLeft: `3px solid ${T.primary}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: T.primary }}>镜头 {scene.seq}</span>
@@ -127,7 +157,7 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
             <div style={{ fontSize: 11, fontWeight: 600, color: T.gray500, marginBottom: 8 }}>
               文章大纲（约{plan.word_count_estimate || 2000}字）
             </div>
-            {plan.outline.map((section: any, i: number) => (
+            {plan.outline.map((section: OutlineSection, i: number) => (
               <div key={i} style={{ padding: '12px 14px', marginBottom: 6, background: T.gray50, borderRadius: 6, borderLeft: `3px solid ${i === 0 ? '#FF6B35' : T.primary}` }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: T.gray900, marginBottom: 4 }}>
                   {section.section}. {section.heading}

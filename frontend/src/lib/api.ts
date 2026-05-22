@@ -9,15 +9,12 @@ import type {
   UpdateSourceRequest,
   ContentItem,
   ContentAnalysis,
-  Topic,
   TopicFilterParams,
   ContentFilterParams,
   PaginatedResponse,
   SyncResult,
-  DailyReport,
   TopicInfo,
   WeeklyDigest,
-  WeeklyDigestWeekSummary,
   WeeklyDigestListResponse,
   WeeklyDigestWeeksResponse,
 } from '@/types';
@@ -166,9 +163,19 @@ export const contentsApi = {
 
 // ─── Topics API ───
 
+// Backend returns {items: TopicGroupResponse[], total: number}
+interface TopicGroupResponse {
+  id: number;
+  name: string;
+  summary: string | null;
+  keywords: string[] | null;
+  content_count: number;
+  best_score: number;
+}
+
 export const topicsApi = {
-  /** 获取今日选题列表 */
-  list(params?: TopicFilterParams): Promise<Topic[]> {
+  /** 获取选题分组列表 */
+  list(params?: TopicFilterParams): Promise<{items: TopicGroupResponse[]; total: number}> {
     const query = params
       ? '?' + new URLSearchParams(
           Object.entries(params)
@@ -179,14 +186,14 @@ export const topicsApi = {
     return request(`/topics${query}`);
   },
 
-  /** 获取选题详情 */
-  get(id: number): Promise<Topic> {
+  /** 获取选题详情（含成员内容） */
+  get(id: number): Promise<{topic: TopicGroupResponse; items: Array<{id: number; title: string; url: string; source_name: string}>}> {
     return request(`/topics/${id}`);
   },
 
-  /** 收藏/取消收藏 */
-  toggleFavorite(id: number): Promise<{ isFavorite: boolean }> {
-    return request(`/topics/${id}/favorite`, { method: 'POST' });
+  /** 触发聚类 */
+  cluster(): Promise<{status: string; stats: Record<string, unknown>}> {
+    return request('/topics/cluster', { method: 'POST' });
   },
 };
 
@@ -233,12 +240,12 @@ export const analysesApi = {
 
 export const dailyReportApi = {
   /** 获取今日日报（不存在则自动生成） */
-  getToday(): Promise<any> {
+  getToday(): Promise<Record<string, unknown>> {
     return request('/daily-reports/today');
   },
 
   /** 按日期查询单个日报 */
-  getByDate(date: string): Promise<any> {
+  getByDate(date: string): Promise<Record<string, unknown>> {
     return request(`/daily-reports/by-date?date=${encodeURIComponent(date)}`);
   },
 
@@ -248,19 +255,19 @@ export const dailyReportApi = {
   },
 
   /** 日报列表 */
-  list(limit: number = 7): Promise<{ items: any[]; total: number }> {
+  list(limit: number = 7): Promise<{ items: Record<string, unknown>[]; total: number }> {
     return request(`/daily-reports?limit=${limit}`);
   },
 
   /** 强制重新生成今日日报 */
-  regenerate(): Promise<any> {
+  regenerate(): Promise<Record<string, unknown>> {
     return request('/daily-reports/generate', { method: 'POST' });
   },
 };
 
 export const creationApi = {
   /** 生成创作方案 */
-  generatePlan(contentId: number, platform: string): Promise<any> {
+  generatePlan(contentId: number, platform: string): Promise<Record<string, unknown>> {
     return request('/creation/plan', {
       method: 'POST',
       body: JSON.stringify({ content_id: contentId, platform }),
@@ -268,7 +275,7 @@ export const creationApi = {
   },
 
   /** 获取可用平台列表 */
-  listPlatforms(): Promise<any> {
+  listPlatforms(): Promise<Record<string, unknown>> {
     return request('/creation/platforms');
   },
 };
@@ -338,7 +345,7 @@ export type FeedbackType = 'like' | 'dislike' | 'skip' | 'not_relevant' | 'outda
 
 export const feedbackApi = {
   /** 提交反馈 */
-  submit(contentId: number, feedbackType: FeedbackType, comment?: string): Promise<any> {
+  submit(contentId: number, feedbackType: FeedbackType, comment?: string): Promise<Record<string, unknown>> {
     return request('/feedback', {
       method: 'POST',
       body: JSON.stringify({ content_id: contentId, feedback_type: feedbackType, comment }),
@@ -346,7 +353,7 @@ export const feedbackApi = {
   },
 
   /** 获取内容的反馈列表 */
-  list(contentId: number): Promise<any[]> {
+  list(contentId: number): Promise<Record<string, unknown>[]> {
     return request(`/feedback/content/${contentId}`);
   },
 

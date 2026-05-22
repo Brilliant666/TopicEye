@@ -13,6 +13,14 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    rules: {
+      // Data-fetching in useEffect naturally calls setState via async flow.
+      // This rule flags indirect setState in effects, causing false positives
+      // for standard fetch-then-setState patterns.
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

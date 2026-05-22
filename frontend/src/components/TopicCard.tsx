@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { T, LEVEL_CONFIG } from '@/lib/design-tokens';
+import { T } from '@/lib/design-tokens';
 import type { Topic } from '@/types';
 import LevelBadge from './LevelBadge';
 import PlatformTag from './PlatformTag';

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { T, LEVEL_CONFIG } from '@/lib/design-tokens';
 import { contentsApi } from '@/lib/api';
 import { useAppContext } from '@/components/ClientLayout';
-import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
+import type { ContentItem, ContentAnalysis } from '@/types';
 import { getRecommendLevel } from '@/types';
 
 function parseUTC(s: string): Date {
@@ -26,7 +26,7 @@ function timeAgo(dateStr: string | null): string {
 }
 
 export default function FavoritesPage() {
-  const { favorites, toggleFavorite } = useAppContext();
+  const { toggleFavorite } = useAppContext();
   const [items, setItems] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAnalysis, setSelectedAnalysis] = useState<ContentAnalysis | null>(null);
@@ -44,7 +44,7 @@ export default function FavoritesPage() {
   }, []);
 
   useEffect(() => {
-    fetchFavorites();
+    void fetchFavorites();
   }, [fetchFavorites]);
 
   const handleUnfav = async (id: number) => {

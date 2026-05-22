@@ -131,34 +131,45 @@ export function getRecommendLevelLabel(analysis: ContentAnalysis): string {
 
 export function formatPlanText(plan: Record<string, unknown>): string {
   const lines: string[] = [];
-  const p = plan as Record<string, any>;
-  if (p.titles) {
+  const p = plan as Record<string, unknown>;
+  const titles = p.titles as string[] | undefined;
+  if (titles) {
     lines.push('【备选标题】');
-    p.titles.forEach((t: string, i: number) => lines.push(`${i + 1}. ${t}`));
+    titles.forEach((t: string, i: number) => lines.push(`${i + 1}. ${t}`));
     lines.push('');
   }
-  if (p.cover_slogan) lines.push(`封面文案：${p.cover_slogan}\n`);
-  if (p.structure) {
+  const coverSlogan = p.cover_slogan as string | undefined;
+  if (coverSlogan) lines.push(`封面文案：${coverSlogan}\n`);
+  const structure = p.structure as Record<string, unknown> | undefined;
+  if (structure) {
     lines.push('【正文结构】');
-    if (p.structure.hook) lines.push(`Hook: ${p.structure.hook}`);
-    p.structure.points?.forEach((pt: string) => lines.push(`- ${pt}`));
-    if (p.structure.cta) lines.push(`互动引导: ${p.structure.cta}`);
+    const hook = structure.hook as string | undefined;
+    if (hook) lines.push(`Hook: ${hook}`);
+    const points = structure.points as string[] | undefined;
+    points?.forEach((pt: string) => lines.push(`- ${pt}`));
+    const cta = structure.cta as string | undefined;
+    if (cta) lines.push(`互动引导: ${cta}`);
     lines.push('');
   }
-  if (p.scenes) {
+  const scenes = p.scenes as Array<Record<string, unknown>> | undefined;
+  if (scenes) {
     lines.push('【分镜头脚本】');
-    p.scenes.forEach((s: any) => lines.push(`镜头${s.seq}(${s.seconds}s): ${s.visual}\n旁白: ${s.narration}`));
+    scenes.forEach((s) => lines.push(`镜头${s.seq}(${s.seconds}s): ${s.visual}\n旁白: ${s.narration}`));
     lines.push('');
   }
-  if (p.outline) {
+  const outline = p.outline as Array<Record<string, unknown>> | undefined;
+  if (outline) {
     lines.push('【文章大纲】');
-    p.outline.forEach((s: any) => {
+    outline.forEach((s) => {
       lines.push(`${s.section}. ${s.heading}`);
-      s.points?.forEach((pt: string) => lines.push(`  • ${pt}`));
+      const sPoints = s.points as string[] | undefined;
+      sPoints?.forEach((pt: string) => lines.push(`  • ${pt}`));
     });
     lines.push('');
   }
-  if (p.tags) lines.push(`标签：${p.tags.map((t: string) => `#${t}`).join(' ')}`);
-  if (p.tone) lines.push(`风格：${p.tone}`);
+  const tags = p.tags as string[] | undefined;
+  if (tags) lines.push(`标签：${tags.map((t: string) => `#${t}`).join(' ')}`);
+  const tone = p.tone as string | undefined;
+  if (tone) lines.push(`风格：${tone}`);
   return lines.join('\n');
 }

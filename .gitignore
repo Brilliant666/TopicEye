@@ -43,3 +43,5 @@ docs/
 .pytest_cache/
 htmlcov/
 .coverage
+
+.mavis/

@@ -8,7 +8,7 @@ import { useAppContext } from '@/components/ClientLayout';
 import CategoryChip from '@/components/CategoryChip';
 import AnalysisPanel from '@/components/AnalysisPanel';
 import { timeAgo, getTagColor, getRecommendLevelLabel } from '@/lib/utils';
-import type { ContentItem, ContentAnalysis, RecommendLevel, TopicInfo } from '@/types';
+import type { ContentItem, ContentAnalysis, TopicInfo } from '@/types';
 
 const TIME_RANGES = [
   { value: '', label: '全部时间' },
@@ -73,13 +73,13 @@ function TodayPicksPage() {
     }
   }, [selectedCategory, selectedTimeRange]);
 
-  useEffect(() => { fetchPicks(); }, [fetchPicks]);
+  useEffect(() => { void fetchPicks(); }, [fetchPicks]);
 
   const handleFav = async (id: number) => { await toggleFavorite(id); };
   const toggleTopic = (id: number) => {
     setExpandedTopics(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
       return next;
     });
   };
@@ -101,7 +101,6 @@ const analysis = (item.analysis || item.analyses?.[0]) as ContentAnalysis | null
     topicMap.get(tid)!.push(item);
   }
 
-  const topicInfoMap = new Map(topics.map(t => [t.id, t]));
   const sortedTopics = topics
     .filter(t => topicMap.has(t.id) && (topicMap.get(t.id)?.length || 0) > 0)
     .sort((a, b) => b.best_score - a.best_score);

@@ -58,18 +58,19 @@ export default function DailyReportPage() {
       setError(null);
       let data: DailyReportData;
       if (date) {
-        data = await dailyReportApi.getByDate(date) as DailyReportData;
+        data = await dailyReportApi.getByDate(date) as unknown as DailyReportData;
       } else {
-        data = await dailyReportApi.getToday() as DailyReportData;
+        data = await dailyReportApi.getToday() as unknown as DailyReportData;
       }
       setReport(data);
       setSelectedDate(data.report_date);
-    } catch (err: any) {
-      if (err.message?.includes('404') || err.message?.includes('not found')) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : '加载失败';
+      if (errMsg.includes('404') || errMsg.includes('not found')) {
         setReport(null);
         setError(date ? `${date} 暂无日报` : '暂无日报数据');
       } else {
-        setError(err.message || '加载失败');
+        setError(errMsg);
       }
     } finally {
       setLoading(false);
@@ -90,19 +91,20 @@ export default function DailyReportPage() {
     try {
       setGenerating(true);
       const data = await dailyReportApi.regenerate();
-      setReport(data as DailyReportData);
+      setReport(data as unknown as DailyReportData);
       // Refresh dates list
       const datesData = await dailyReportApi.listDates();
       setDates(datesData.dates || []);
-    } catch (err: any) {
-      setError(err.message || '生成失败');
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : '生成失败';
+      setError(errMsg);
     } finally {
       setGenerating(false);
     }
   };
 
   // Parse JSON strings if needed
-  const parseJson = (val: any) => {
+  const parseJson = (val: unknown) => {
     if (typeof val === 'string') {
       try { return JSON.parse(val); } catch { return null; }
     }
@@ -362,7 +364,7 @@ export default function DailyReportPage() {
               <div style={{ marginBottom: 28 }}>
                 <SectionTitle icon="📈" title="内容趋势" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {trends.map((trend: any, i: number) => (
+                  {trends.map((trend: { title: string; desc: string; color?: string }, i: number) => (
                     <div key={i} style={{
                       display: 'flex', alignItems: 'flex-start', gap: 12,
                       padding: '14px 18px', background: T.white,
@@ -387,7 +389,7 @@ export default function DailyReportPage() {
               <div style={{ marginBottom: 28 }}>
                 <SectionTitle icon="🎯" title="精选选题推荐" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {topPicks.map((pick: any, i: number) => (
+                  {topPicks.map((pick: { title: string; reason: string; score?: number; platforms?: string[] }, i: number) => (
                     <div key={i} style={{
                       padding: '16px 20px', background: T.white,
                       borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
@@ -406,9 +408,9 @@ export default function DailyReportPage() {
                           <span style={{ fontSize: 14, fontWeight: 600, color: T.gray900 }}>{pick.title}</span>
                         </div>
                         <div style={{ fontSize: 12, color: T.gray500, marginLeft: 30 }}>{pick.reason}</div>
-                        {pick.platforms?.length > 0 && (
+                        {(pick.platforms ?? []).length > 0 && (
                           <div style={{ display: 'flex', gap: 6, marginTop: 6, marginLeft: 30 }}>
-                            {pick.platforms.map((p: string, j: number) => (
+                            {(pick.platforms ?? []).map((p: string, j: number) => (
                               <span key={j} style={{
                                 fontSize: 10, color: T.teal, background: T.tealLight,
                                 padding: '1px 8px', borderRadius: 4,
@@ -438,7 +440,7 @@ export default function DailyReportPage() {
               <div style={{ marginBottom: 40 }}>
                 <SectionTitle icon="💡" title="平台创作建议" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
-                  {Object.entries(platformTips).map(([platform, tips]: [string, any]) => (
+                  {Object.entries(platformTips).map(([platform, tips]: [string, unknown]) => (
                     <div key={platform} style={{
                       padding: '16px 20px', background: T.white,
                       borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,

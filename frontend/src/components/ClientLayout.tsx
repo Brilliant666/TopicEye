@@ -60,13 +60,13 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
       // Also refresh favorites from backend
       const favs = await contentsApi.listFavorites({ page_size: 100 });
-      const favIds = new Set((favs.items || []).map((item: any) => item.id));
+      const favIds = new Set((favs.items || []).map((item) => item.id));
       setFavorites(favIds);
     } catch {}
   }, []);
 
   useEffect(() => {
-    refreshCounts();
+    void refreshCounts();
   }, [refreshCounts]);
 
   // Sync favorites to localStorage whenever it changes

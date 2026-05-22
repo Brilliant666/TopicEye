@@ -17,7 +17,7 @@ interface TopicHeaderCardProps {
 
 export default function TopicHeaderCard({
   item,
-  analysis,
+  analysis: _analysis, // eslint-disable-line @typescript-eslint/no-unused-vars
   level,
   tags,
   isFav,

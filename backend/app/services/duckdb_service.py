@@ -269,7 +269,7 @@ class DuckDBAnalytics:
         row = conn.execute(f"""
             SELECT
                 COUNT(*) AS total_items,
-                COUNT(CASE WHEN a.curation_score >= 60 THEN 1 END) AS curated_count,
+                COUNT(CASE WHEN a.curation_score >= 70 THEN 1 END) AS curated_count,
                 AVG(a.curation_score) AS avg_curation,
                 MAX(a.curation_score) AS max_curation,
                 COUNT(DISTINCT c.topic_id) AS topic_count,
@@ -298,7 +298,7 @@ class DuckDBAnalytics:
         kpi_row = conn.execute(f"""
             SELECT
                 COUNT(DISTINCT c.id) AS total_crawled,
-                COUNT(DISTINCT CASE WHEN a.curation_score >= 60 THEN c.id END) AS total_curated,
+                COUNT(DISTINCT CASE WHEN a.curation_score >= 70 THEN c.id END) AS total_curated,
                 ROUND(AVG(a.curation_score), 1) AS avg_curation,
                 COUNT(DISTINCT c.source_id) AS active_sources
             FROM sqlite_db.content_items c
@@ -312,7 +312,7 @@ class DuckDBAnalytics:
                 s.name,
                 s.source_type,
                 COUNT(DISTINCT c.id) AS content_count,
-                COUNT(DISTINCT CASE WHEN a.curation_score >= 60 THEN c.id END) AS curated_count,
+                COUNT(DISTINCT CASE WHEN a.curation_score >= 70 THEN c.id END) AS curated_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_score
             FROM sqlite_db.content_items c
             LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
@@ -329,7 +329,7 @@ class DuckDBAnalytics:
             SELECT
                 DATE(c.crawled_at) AS crawl_date,
                 COUNT(DISTINCT c.id) AS content_count,
-                COUNT(DISTINCT CASE WHEN a.curation_score >= 60 THEN c.id END) AS curated_count,
+                COUNT(DISTINCT CASE WHEN a.curation_score >= 70 THEN c.id END) AS curated_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_curation
             FROM sqlite_db.content_items c
             LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id

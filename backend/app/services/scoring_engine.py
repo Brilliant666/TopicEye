@@ -49,7 +49,7 @@ CONFIG = {
 
     # ── Percentile-based curation mode ──
     "curation_mode": "percentile",       # "percentile" | "fixed"
-    "curation_percentile": 70,           # top ~30% selected (P70 and above)
+    "curation_percentile": 75,           # top ~25% selected (P75 and above)
 
     # ── User feedback signal ──
     "w_feedback": 0.15,                  # 15% weight for feedback_score

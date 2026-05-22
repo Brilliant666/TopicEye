@@ -9,12 +9,13 @@ from app.database import Base
 
 class SourceType(str, enum.Enum):
     RSS = "RSS"
-    RSSHUB = "RSSHub"
+    RSSHub = "RSSHub"
     REDDIT = "Reddit"
     WEBSITE = "网站"
     WECHAT = "公众号"
     XIAOHONGSHU = "小红书"
     X = "X"
+    TWITTER_RSS = "TwitterRSS"
     YOUTUBE = "YouTube"
     ZHIHU = "Zhihu"
     BILIBILI = "B站"

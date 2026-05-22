@@ -92,5 +92,6 @@ from . import rss as _rss_mod        # noqa: E402, F401
 from . import website as _website_mod  # noqa: E402, F401
 from . import twitter as _twitter_mod  # noqa: E402, F401
 from . import rsshub as _rsshub_mod   # noqa: E402, F401
-from . import reddit as _reddit_mod   # noqa: E402, F401
-from . import zhihu as _zhihu_mod     # noqa: E402, F401
+from . import reddit as _reddit_mod       # noqa: E402, F401
+from . import zhihu as _zhihu_mod         # noqa: E402, F401
+from . import twitter_rss as _twitter_rss_mod  # noqa: E402, F401

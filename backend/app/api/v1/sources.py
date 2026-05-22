@@ -1,5 +1,7 @@
 from __future__ import annotations
 from typing import Optional
+import json
+import re
 import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
@@ -82,10 +84,25 @@ async def import_opml(
             continue
 
         name = outline.get("title") or outline.get("text") or feed_url
+
+        # Detect xgo.ing Twitter RSS feeds
+        if "xgo.ing" in feed_url:
+            source_type = SourceType.TWITTER_RSS
+            # Extract @handle from name like "OpenAI(@OpenAI)"
+            screen_name = ""
+            handle_match = re.search(r'\(@?(\w+)\)', name)
+            if handle_match:
+                screen_name = handle_match.group(1)
+            keyword = json.dumps({"screen_name": screen_name}) if screen_name else None
+        else:
+            source_type = SourceType.RSS
+            keyword = None
+
         await repo.create(
             name=name, url=feed_url,
-            source_type=SourceType.RSS, category="导入",
+            source_type=source_type, category="导入",
             enabled=True, status=SourceStatus.ACTIVE,
+            keyword=keyword,
         )
         created += 1
 

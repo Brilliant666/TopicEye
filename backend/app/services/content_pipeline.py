@@ -228,3 +228,20 @@ def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> Non
         )
         db.add(metrics)
         return
+
+    # ── Twitter RSS metrics ──
+    twitter_rss_meta = entry.get("_twitter_rss_meta")
+    if twitter_rss_meta:
+        # Basic metrics from xgo.ing RSS — limited data available
+        metrics = ContentMetrics(
+            content=item,
+            likes=0,
+            comments=0,
+            shares=0,
+            favorites=0,
+            followers_count=0,
+            engagement_rate=0.0,
+            explosion_ratio=0.0,
+        )
+        db.add(metrics)
+        return

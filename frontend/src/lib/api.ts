@@ -50,9 +50,24 @@ async function request<T>(
 // ─── Sources API ───
 
 export const sourcesApi = {
-  /** 获取信源列表 */
-  list(): Promise<PaginatedResponse<Source> & { total?: number }> {
-    return request('/sources');
+  /** 获取信源列表（支持分页和筛选） */
+  list(params?: {
+    page?: number;
+    page_size?: number;
+    source_type?: string;
+    status?: string;
+    enabled?: boolean;
+    keyword?: string;
+  }): Promise<PaginatedResponse<Source> & { total?: number }> {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.page_size) qs.set('page_size', String(params.page_size));
+    if (params?.source_type) qs.set('source_type', params.source_type);
+    if (params?.status) qs.set('status', params.status);
+    if (params?.enabled !== undefined) qs.set('enabled', String(params.enabled));
+    if (params?.keyword) qs.set('keyword', params.keyword);
+    const query = qs.toString();
+    return request(`/sources${query ? '?' + query : ''}`);
   },
 
   /** 获取单个信源 */

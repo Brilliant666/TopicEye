@@ -12,6 +12,12 @@ import { Spinner } from '@/components/SourceRow';
 
 export default function SourcesPage() {
   const [sources, setSources] = useState<BackendSource[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(20);
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [filterType, setFilterType] = useState('');
+  const [filterEnabled, setFilterEnabled] = useState<boolean | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -30,19 +36,27 @@ export default function SourcesPage() {
   const [, setImportingOPML] = useState(false);
 
   // ─── Fetch sources ───
-  const fetchSources = useCallback(async () => {
+  const fetchSources = useCallback(async (p: number = 1) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await sourcesApi.list();
+      const res = await sourcesApi.list({
+        page: p,
+        page_size: pageSize,
+        source_type: filterType || undefined,
+        enabled: filterEnabled,
+        keyword: searchKeyword || undefined,
+      });
       const items = res?.items || [];
       setSources(items as BackendSource[]);
+      setTotal(res?.total ?? 0);
+      setPage(p);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '加载信源列表失败');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [pageSize, filterType, filterEnabled, searchKeyword]);
 
   // ─── Fetch RSSHub instances ───
   const fetchRSSHubInstances = useCallback(async () => {
@@ -58,7 +72,7 @@ export default function SourcesPage() {
   }, []);
 
   useEffect(() => {
-    fetchSources();
+    fetchSources(1);
     fetchRSSHubInstances();
   }, [fetchSources, fetchRSSHubInstances]);
 
@@ -274,7 +288,7 @@ export default function SourcesPage() {
         <div>
           <h1 style={{ fontSize: 26, fontWeight: 700, color: T.gray900, marginBottom: 6 }}>信源管理</h1>
           <p style={{ fontSize: 13, color: T.gray400 }}>
-            共 <b style={{ fontFamily: T.mono, color: T.gray600 }}>{sources.length}</b> 个信源 ·
+            共 <b style={{ fontFamily: T.mono, color: T.gray600 }}>{total}</b> 个信源 ·
             活跃 <b style={{ fontFamily: T.mono, color: T.teal }}>{activeCount}</b> 个
           </p>
         </div>
@@ -302,6 +316,66 @@ export default function SourcesPage() {
         >
           导入 OPML
         </button>
+      </div>
+
+      {/* Search & Filter Bar */}
+      <div style={{
+        display: 'flex', gap: 10, alignItems: 'center',
+        marginBottom: 16, flexWrap: 'wrap' as const,
+      }}>
+        <input
+          type="text"
+          placeholder="搜索信源名称..."
+          value={searchKeyword}
+          onChange={(e) => setSearchKeyword(e.target.value)}
+          style={{
+            padding: '7px 14px', fontSize: 13, width: 220,
+            border: `1px solid ${T.gray200}`, borderRadius: T.radiusSm,
+            outline: 'none',
+          }}
+        />
+        <select
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value)}
+          style={{
+            padding: '7px 12px', fontSize: 13,
+            border: `1px solid ${T.gray200}`, borderRadius: T.radiusSm,
+            background: T.white, cursor: 'pointer',
+          }}
+        >
+          <option value="">全部类型</option>
+          <option value="rss">RSS</option>
+          <option value="rsshub">RSSHub</option>
+          <option value="twitter_rss">Twitter RSS</option>
+          <option value="reddit">Reddit</option>
+          <option value="zhihu">知乎</option>
+          <option value="hackernews">HackerNews</option>
+        </select>
+        <select
+          value={filterEnabled === undefined ? '' : filterEnabled ? 'yes' : 'no'}
+          onChange={(e) => setFilterEnabled(e.target.value === '' ? undefined : e.target.value === 'yes')}
+          style={{
+            padding: '7px 12px', fontSize: 13,
+            border: `1px solid ${T.gray200}`, borderRadius: T.radiusSm,
+            background: T.white, cursor: 'pointer',
+          }}
+        >
+          <option value="">全部状态</option>
+          <option value="yes">已启用</option>
+          <option value="no">已禁用</option>
+        </select>
+        {(searchKeyword || filterType || filterEnabled !== undefined) && (
+          <button
+            onClick={() => { setSearchKeyword(''); setFilterType(''); setFilterEnabled(undefined); }}
+            style={{
+              padding: '6px 12px', fontSize: 12, color: T.gray500,
+              background: 'transparent', border: `1px solid ${T.gray200}`,
+              borderRadius: T.radiusSm, cursor: 'pointer',
+            }}
+          >
+            清除筛选
+          </button>
+        )}
       </div>
 
       {/* Error Banner */}
@@ -390,6 +464,75 @@ export default function SourcesPage() {
               onDelete={() => handleDelete(src.id)} onWeightChange={(w) => handleWeightChange(src.id, w)}
               onIntervalChange={(mins) => handleIntervalChange(src.id, mins)} />
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {total > pageSize && (
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          marginTop: 16, padding: '12px 0', fontSize: 13, color: T.gray500,
+        }}>
+          <span>
+            第 {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} 条，共 {total} 条
+          </span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              disabled={page <= 1}
+              onClick={() => fetchSources(page - 1)}
+              style={{
+                padding: '6px 14px', fontSize: 13,
+                background: page <= 1 ? T.gray100 : T.white,
+                color: page <= 1 ? T.gray300 : T.gray700,
+                border: `1px solid ${T.gray200}`, borderRadius: T.radiusSm,
+                cursor: page <= 1 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              上一页
+            </button>
+            {Array.from({ length: Math.ceil(total / pageSize) }, (_, i) => i + 1)
+              .filter((p) => {
+                // Show first, last, and ±2 around current
+                if (p === 1 || p === Math.ceil(total / pageSize)) return true;
+                return Math.abs(p - page) <= 2;
+              })
+              .map((p, idx, arr) => {
+                const pages = arr;
+                const showEllipsis = idx > 0 && p - pages[idx - 1] > 1;
+                return (
+                  <React.Fragment key={p}>
+                    {showEllipsis && <span style={{ padding: '6px 4px', color: T.gray400 }}>…</span>}
+                    <button
+                      onClick={() => fetchSources(p)}
+                      style={{
+                        padding: '6px 12px', fontSize: 13,
+                        background: p === page ? T.primary : T.white,
+                        color: p === page ? T.white : T.gray700,
+                        border: `1px solid ${p === page ? T.primary : T.gray200}`,
+                        borderRadius: T.radiusSm,
+                        cursor: p === page ? 'default' : 'pointer',
+                        fontWeight: p === page ? 600 : 400,
+                      }}
+                    >
+                      {p}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+            <button
+              disabled={page >= Math.ceil(total / pageSize)}
+              onClick={() => fetchSources(page + 1)}
+              style={{
+                padding: '6px 14px', fontSize: 13,
+                background: page >= Math.ceil(total / pageSize) ? T.gray100 : T.white,
+                color: page >= Math.ceil(total / pageSize) ? T.gray300 : T.gray700,
+                border: `1px solid ${T.gray200}`, borderRadius: T.radiusSm,
+                cursor: page >= Math.ceil(total / pageSize) ? 'not-allowed' : 'pointer',
+              }}
+            >
+              下一页
+            </button>
+          </div>
         </div>
       )}
 

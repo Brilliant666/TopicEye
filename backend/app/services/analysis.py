@@ -82,6 +82,21 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
     curation = result.get("curation", {})
     curation_score = max(0, min(100, float(curation.get("curation_score", 0))))
 
+    # Cross-market bonus: English content from HN/Reddit has higher signal value
+    # for Chinese-speaking creators (early trend detection before mainstream coverage)
+    if lang == "en":
+        source_name = (content.source_name or "").lower()
+        platform = (content.platform or "").lower()
+        is_intl = any(kw in source_name for kw in ("hacker", "reddit", "techcrunch", "arxiv", "github"))
+        is_intl = is_intl or any(kw in platform for kw in ("hacker", "reddit"))
+        if is_intl and curation_score >= 55:
+            bonus = min(10, 100 - curation_score)  # cap at 100
+            curation_score += bonus
+            logger.info(
+                "Cross-market bonus +%d for content id=%d (source=%s, curation=%.0f)",
+                bonus, content.id, content.source_name, curation_score,
+            )
+
     # Build analysis record
     analysis = AiAnalysis(
         content_id=content.id,

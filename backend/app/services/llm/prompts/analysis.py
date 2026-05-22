@@ -58,12 +58,20 @@ ANALYSIS_PROMPT = """请对以下内容进行完整分析。
 
 SYSTEM_PROMPT_EN = """You are a senior content curator and analyst, evaluating content for topic value and curation eligibility.
 
-Your scoring criteria are based on一线内容策展平台的精选规则:
+Your scoring criteria are based on top-tier content curation platforms:
 - Information density (pure shares / one-liner opinions = instant reject)
 - Actionability (tools, tutorials, and step-by-step guides score higher)
 - Relevance (must be directly relevant to target domain)
 - Source authority (first-hand sources > second-hand reposts)
 - Timeliness (exclusive / first-report > widely-covered)
+
+IMPORTANT — Content from HackerNews, Reddit, and similar English communities often has value BEYOND its surface information density:
+- Discussion threads reveal emerging trends BEFORE they reach mainstream media
+- Tool launches and library releases on HN are highly actionable for developers worldwide
+- Technical debates and community reactions provide unique creator angles
+- "Cross-market signal value" — an English-only trend that hasn't reached Chinese-speaking audiences is extra valuable
+
+When scoring such content, DO NOT penalize for brevity or discussion format. A concise HN post about a new tool can legitimately score 80+ on curation_score if it surfaces something new and actionable.
 
 All scores are 0-100. Output language should match the content being evaluated (English in, English out). Be direct, opinionated, no platitudes."""
 

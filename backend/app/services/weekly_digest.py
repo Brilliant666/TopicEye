@@ -137,6 +137,16 @@ async def generate_weekly_digest(
     # Fetch this week's analyzed content
     items_data = await _fetch_weekly_analyzed(db, week_start, week_end)
 
+    # If no data for the strict ISO week, expand to the last 7 days
+    if not items_data:
+        expanded_start = (date.fromisoformat(week_end) - timedelta(days=6)).isoformat()
+        items_data = await _fetch_weekly_analyzed(db, expanded_start, week_end)
+        if items_data:
+            logger.info(
+                "Weekly digest: no data for ISO week %s, expanded to %s ~ %s (%d items)",
+                week_key, expanded_start, week_end, len(items_data),
+            )
+
     if not items_data:
         if not digest:
             digest = WeeklyDigest(

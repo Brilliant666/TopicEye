@@ -265,7 +265,7 @@ export default function DailyReportPage() {
               {report?.content_count ? ` · 基于 ${report.content_count} 条内容分析` : ''}
             </p>
           </div>
-          {isToday && (
+          {report && (
             <button
               onClick={handleRegenerate}
               disabled={generating}
@@ -297,18 +297,16 @@ export default function DailyReportPage() {
           <div style={{ textAlign: 'center', padding: 80 }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
             <div style={{ color: T.gray500, fontSize: 14, marginBottom: 12 }}>{report.overview}</div>
-            {isToday && (
-              <button
-                onClick={handleRegenerate}
-                style={{
-                  padding: '8px 20px', fontSize: 13, fontWeight: 500,
-                  background: T.primary, color: T.white,
-                  border: 'none', borderRadius: T.radiusSm, cursor: 'pointer',
-                }}
-              >
-                重试生成
-              </button>
-            )}
+            <button
+              onClick={handleRegenerate}
+              style={{
+                padding: '8px 20px', fontSize: 13, fontWeight: 500,
+                background: T.primary, color: T.white,
+                border: 'none', borderRadius: T.radiusSm, cursor: 'pointer',
+              }}
+            >
+              重试生成
+            </button>
           </div>
         ) : report?.status === 'GENERATING' ? (
           <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
@@ -473,6 +471,21 @@ export default function DailyReportPage() {
           <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
             <div style={{ fontSize: 32, marginBottom: 12 }}>📭</div>
             暂无日报数据
+            <div style={{ marginTop: 16 }}>
+              <button
+                onClick={handleRegenerate}
+                disabled={generating}
+                style={{
+                  padding: '8px 20px', fontSize: 13, fontWeight: 500,
+                  background: generating ? T.gray100 : T.primary,
+                  color: generating ? T.gray400 : T.white,
+                  border: 'none', borderRadius: T.radiusSm,
+                  cursor: generating ? 'wait' : 'pointer',
+                }}
+              >
+                {generating ? '生成中...' : '📝 生成今日日报'}
+              </button>
+            </div>
           </div>
         )}
       </div>

@@ -26,6 +26,7 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
     { id: 'picks', label: '当日精选', href: '/today-picks', badge: 'HOT' },
     { id: 'today', label: '今日选题', href: '/', count: topicCount },
     { id: 'daily', label: 'AI 日报', href: '/daily', badge: 'NEW' },
+    { id: 'weekly', label: 'AI 周刊', href: '/weekly', badge: 'NEW' },
     { id: 'stats', label: '数据统计', href: '/stats' },
     { id: 'favorites', label: '收藏夹', href: '/favorites', count: favCount },
     { id: 'sources', label: '信源管理', href: '/sources', count: sourceCount },

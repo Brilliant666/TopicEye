@@ -16,6 +16,10 @@ import type {
   SyncResult,
   DailyReport,
   TopicInfo,
+  WeeklyDigest,
+  WeeklyDigestWeekSummary,
+  WeeklyDigestListResponse,
+  WeeklyDigestWeeksResponse,
 } from '@/types';
 
 export type { CreateSourceRequest, UpdateSourceRequest };
@@ -349,5 +353,35 @@ export const feedbackApi = {
   /** 获取反馈统计 */
   stats(): Promise<{ total: number; by_type: Record<string, number>; avg_score_delta: number }> {
     return request('/feedback/stats');
+  },
+};
+
+// ─── Weekly Digest (周刊) API ───
+
+export const weeklyDigestApi = {
+  /** 获取本周周刊（不存在则自动生成） */
+  getCurrent(): Promise<WeeklyDigest> {
+    return request('/weekly-digests/current');
+  },
+
+  /** 按 week_key 获取周刊 */
+  getByWeek(weekKey: string): Promise<WeeklyDigest> {
+    return request(`/weekly-digests/by-week?week_key=${encodeURIComponent(weekKey)}`);
+  },
+
+  /** 获取所有有周刊的周列表 */
+  listWeeks(): Promise<WeeklyDigestWeeksResponse> {
+    return request('/weekly-digests/weeks');
+  },
+
+  /** 获取周刊列表 */
+  list(limit: number = 8): Promise<WeeklyDigestListResponse> {
+    return request(`/weekly-digests?limit=${limit}`);
+  },
+
+  /** 强制重新生成周刊 */
+  generate(weekKey?: string): Promise<WeeklyDigest> {
+    const query = weekKey ? `?week_key=${encodeURIComponent(weekKey)}` : '';
+    return request(`/weekly-digests/generate${query}`, { method: 'POST' });
   },
 };

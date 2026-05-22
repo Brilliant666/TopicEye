@@ -399,6 +399,47 @@ class DuckDBAnalytics:
             for row in results
         ]
 
+    def query_content_for_weekly(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Fetch analyzed content for a given week date range (YYYY-MM-DD strings).
+
+        Returns items sorted by curation_score descending, with additional fields
+        for weekly digest generation (tags, recommendation, curation_score).
+        """
+        conn = self._get_conn()
+
+        results = conn.execute(f"""
+            SELECT c.id, c.title, c.category, c.source_name, c.platform,
+                   a.summary, a.creator_score, a.viral_score, a.quality_score,
+                   a.risk_score, a.curation_score, a.tags, a.recommendation,
+                   a.recommended_reason
+            FROM sqlite_db.content_items c
+            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            WHERE DATE(c.crawled_at) >= '{start_date}'
+              AND DATE(c.crawled_at) <= '{end_date}'
+              AND a.curation_score IS NOT NULL
+            ORDER BY COALESCE(a.curation_score, 0) DESC, COALESCE(a.creator_score, 0) DESC
+        """).fetchall()
+
+        return [
+            {
+                "id": row[0],
+                "title": row[1],
+                "category": row[2] or "未分类",
+                "source_name": row[3] or "",
+                "platform": row[4] or "",
+                "summary": row[5] or "",
+                "creator_score": float(row[6]) if row[6] else 0,
+                "viral_score": float(row[7]) if row[7] else 0,
+                "quality_score": float(row[8]) if row[8] else 0,
+                "risk_score": float(row[9]) if row[9] else 0,
+                "curation_score": float(row[10]) if row[10] else 0,
+                "tags": row[11] or [],
+                "recommendation": row[12] or "",
+                "recommended_reason": row[13] or "",
+            }
+            for row in results
+        ]
+
 
 # ── Module-level singleton ─────────────────────────────────────────────
 
@@ -448,3 +489,8 @@ def query_dashboard_stats(days: int = 7) -> Dict[str, Any]:
 
 def query_content_for_report(hours: int = 48) -> List[Dict[str, Any]]:
     return get_analytics().query_content_for_report(hours=hours)
+
+
+def query_content_for_weekly(start_date: str, end_date: str) -> List[Dict[str, Any]]:
+    """Fetch analyzed content for a given week date range (YYYY-MM-DD strings)."""
+    return get_analytics().query_content_for_weekly(start_date=start_date, end_date=end_date)

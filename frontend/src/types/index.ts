@@ -251,3 +251,76 @@ export interface ContentFilterParams {
   keyword?: string;
   [key: string]: unknown; // allow any extra params for URLSearchParams
 }
+
+// ─── Weekly Digest (周刊) ───
+
+export interface WeeklyDigest {
+  id: number;
+  week_key: string;
+  week_label: string;
+  week_start: string;
+  week_end: string;
+  overview: string | null;
+  takeaway: string | null;
+  keywords: string[] | null;
+  trends: WeeklyDigestTrend[] | null;
+  top_picks: WeeklyDigestTopPick[] | null;
+  category_summary: Record<string, { count: number; avg_score: number; top_title: string }> | null;
+  platform_tips: Record<string, string[]> | null;
+  topic_clusters: WeeklyDigestTopicCluster[] | null;
+  action_items: WeeklyDigestActionItem[] | null;
+  content_count: number;
+  analyzed_count: number;
+  source_count: number;
+  category_count: number;
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface WeeklyDigestTrend {
+  title: string;
+  desc: string;
+  color: string;
+  momentum?: string;
+}
+
+export interface WeeklyDigestTopPick {
+  rank: number;
+  title: string;
+  source: string;
+  category: string;
+  reason: string;
+  score: number;
+  platforms: string[];
+}
+
+export interface WeeklyDigestTopicCluster {
+  name: string;
+  count: number;
+  heat: number;
+  representative_title: string;
+}
+
+export interface WeeklyDigestActionItem {
+  title: string;
+  angle: string;
+  difficulty: string;
+  platform: string;
+}
+
+export interface WeeklyDigestWeekSummary {
+  week_key: string;
+  week_label: string;
+  takeaway: string | null;
+  status: string;
+}
+
+export interface WeeklyDigestListResponse {
+  items: WeeklyDigest[];
+  total: number;
+}
+
+export interface WeeklyDigestWeeksResponse {
+  weeks: WeeklyDigestWeekSummary[];
+}

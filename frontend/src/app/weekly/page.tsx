@@ -1,0 +1,645 @@
+'use client';
+
+import React, { useState, useEffect, useCallback } from 'react';
+import { T } from '@/lib/design-tokens';
+import { weeklyDigestApi } from '@/lib/api';
+import type { WeeklyDigest, WeeklyDigestWeekSummary } from '@/types';
+
+export default function WeeklyDigestPage() {
+  const [digest, setDigest] = useState<WeeklyDigest | null>(null);
+  const [weeks, setWeeks] = useState<WeeklyDigestWeekSummary[]>([]);
+  const [selectedWeek, setSelectedWeek] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [weeksLoading, setWeeksLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch available weeks list
+  useEffect(() => {
+    (async () => {
+      try {
+        setWeeksLoading(true);
+        const data = await weeklyDigestApi.listWeeks();
+        setWeeks(data.weeks || []);
+      } catch {
+        // Silent fail — weeks sidebar is non-critical
+      } finally {
+        setWeeksLoading(false);
+      }
+    })();
+  }, []);
+
+  // Fetch digest for a given week (or current)
+  const fetchDigest = useCallback(async (weekKey?: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      let data: WeeklyDigest;
+      if (weekKey) {
+        data = await weeklyDigestApi.getByWeek(weekKey);
+      } else {
+        data = await weeklyDigestApi.getCurrent();
+      }
+      setDigest(data);
+      setSelectedWeek(data.week_key);
+    } catch (err: any) {
+      if (err.message?.includes('404') || err.message?.includes('not found')) {
+        setDigest(null);
+        setError(weekKey ? `${weekKey} 暂无周刊` : '暂无周刊数据');
+      } else {
+        setError(err.message || '加载失败');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Load current week's digest initially
+  useEffect(() => {
+    fetchDigest();
+  }, [fetchDigest]);
+
+  const handleWeekSelect = useCallback((weekKey: string) => {
+    if (weekKey === selectedWeek) return;
+    fetchDigest(weekKey);
+  }, [selectedWeek, fetchDigest]);
+
+  const handleRegenerate = async (weekKey?: string) => {
+    try {
+      setGenerating(true);
+      const data = await weeklyDigestApi.generate(weekKey);
+      setDigest(data);
+      // Refresh weeks list
+      const weeksData = await weeklyDigestApi.listWeeks();
+      setWeeks(weeksData.weeks || []);
+    } catch (err: any) {
+      setError(err.message || '生成失败');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  // Parse JSON strings if backend returns them as strings
+  const parseJson = (val: any) => {
+    if (typeof val === 'string') {
+      try { return JSON.parse(val); } catch { return null; }
+    }
+    return val;
+  };
+
+  const keywords = parseJson(digest?.keywords);
+  const trends = parseJson(digest?.trends);
+  const topPicks = parseJson(digest?.top_picks);
+  const categorySummary = parseJson(digest?.category_summary);
+  const platformTips = parseJson(digest?.platform_tips);
+  const topicClusters = parseJson(digest?.topic_clusters);
+  const actionItems = parseJson(digest?.action_items);
+
+  // Determine if this is the current week
+  const getCurrentWeekKey = () => {
+    const now = new Date();
+    const janFirst = new Date(now.getFullYear(), 0, 1);
+    const days = Math.floor((now.getTime() - janFirst.getTime()) / 86400000);
+    const weekNum = Math.ceil((days + janFirst.getDay() + 1) / 7);
+    return `${now.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+  };
+
+  const isCurrentWeek = digest?.week_key === getCurrentWeekKey();
+
+  return (
+    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+      {/* Left Sidebar — Week History */}
+      <div style={{
+        width: 260,
+        minWidth: 260,
+        borderRight: `1px solid ${T.gray200}`,
+        background: T.white,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}>
+        {/* Sidebar header */}
+        <div style={{
+          padding: '20px 20px 12px',
+          borderBottom: `1px solid ${T.gray100}`,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 18, lineHeight: 1 }}>📖</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: T.gray900 }}>历史周刊</span>
+          </div>
+          <p style={{ fontSize: 11, color: T.gray400, marginTop: 4 }}>
+            共 {weeks.length} 期
+          </p>
+        </div>
+
+        {/* Current week button */}
+        <div style={{ padding: '8px 12px 4px' }}>
+          <button
+            onClick={() => fetchDigest()}
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              fontSize: 13,
+              fontWeight: 600,
+              color: isCurrentWeek || !selectedWeek ? T.white : T.primary,
+              background: isCurrentWeek || !selectedWeek
+                ? T.primary
+                : T.primaryLight,
+              border: `1px solid ${isCurrentWeek || !selectedWeek ? T.primary : T.primaryBorder}`,
+              borderRadius: T.radiusSm,
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+              textAlign: 'left',
+            }}
+          >
+            📌 本周
+          </button>
+        </div>
+
+        {/* Weeks list */}
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '4px 12px 12px',
+        }}>
+          {weeksLoading ? (
+            <div style={{ padding: '20px 8px', textAlign: 'center', fontSize: 12, color: T.gray400 }}>
+              加载中...
+            </div>
+          ) : weeks.length === 0 ? (
+            <div style={{ padding: '20px 8px', textAlign: 'center', fontSize: 12, color: T.gray400 }}>
+              暂无历史周刊
+            </div>
+          ) : (
+            weeks.map((w) => {
+              const isActive = selectedWeek === w.week_key;
+              return (
+                <button
+                  key={w.week_key}
+                  onClick={() => handleWeekSelect(w.week_key)}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    padding: '10px 12px',
+                    marginBottom: 2,
+                    fontSize: 13,
+                    fontWeight: isActive ? 600 : 400,
+                    color: isActive ? T.gray900 : T.gray600,
+                    background: isActive ? T.primaryLight : 'transparent',
+                    border: 'none',
+                    borderRadius: T.radiusXs,
+                    cursor: 'pointer',
+                    transition: 'all 0.12s',
+                    textAlign: 'left',
+                    borderLeft: isActive ? `3px solid ${T.primary}` : '3px solid transparent',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 13, color: isActive ? T.gray900 : T.gray700 }}>
+                      {w.week_label}
+                    </span>
+                    <span style={{
+                      fontSize: 9, fontWeight: 600,
+                      color: w.status === 'DONE' ? T.teal : w.status === 'ERROR' ? T.red : T.gray400,
+                      background: w.status === 'DONE' ? T.tealLight : w.status === 'ERROR' ? T.redLight : T.gray100,
+                      padding: '1px 6px', borderRadius: 4,
+                    }}>
+                      {w.status === 'DONE' ? '已完成' : w.status === 'ERROR' ? '失败' : w.status === 'GENERATING' ? '生成中' : '待生成'}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.gray400, marginTop: 2 }}>
+                    {w.week_key}
+                  </div>
+                  {w.takeaway && (
+                    <div style={{
+                      fontSize: 11, color: T.gray400, marginTop: 3,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {w.takeaway}
+                    </div>
+                  )}
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div style={{ flex: 1, padding: '32px 40px', overflowY: 'auto' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+              <h1 style={{ fontSize: 26, fontWeight: 700, color: T.gray900 }}>AI 周刊</h1>
+              <span style={{
+                fontSize: 10, fontWeight: 700, color: T.white,
+                background: 'linear-gradient(135deg, #8B5CF6, #EC4899)',
+                padding: '3px 10px', borderRadius: 20,
+              }}>
+                WEEKLY
+              </span>
+              {!isCurrentWeek && digest && (
+                <span style={{
+                  fontSize: 10, fontWeight: 600, color: T.purple,
+                  background: T.purpleLight,
+                  padding: '3px 10px', borderRadius: 20,
+                  border: `1px solid ${T.purpleBorder}`,
+                }}>
+                  历史回顾
+                </span>
+              )}
+            </div>
+            <p style={{ fontSize: 13, color: T.gray400 }}>
+              {digest ? `${digest.week_label}（${digest.week_start} ~ ${digest.week_end}）` : '加载中...'}
+              {digest?.content_count ? ` · 基于 ${digest.content_count} 条内容分析` : ''}
+            </p>
+          </div>
+          <button
+            onClick={() => handleRegenerate(digest?.week_key)}
+            disabled={generating}
+            style={{
+              padding: '8px 16px', fontSize: 13, fontWeight: 500,
+              background: generating ? T.gray100 : T.primary,
+              color: generating ? T.gray400 : T.white,
+              border: 'none', borderRadius: T.radiusSm,
+              cursor: generating ? 'wait' : 'pointer',
+              transition: 'all 0.15s',
+            }}
+          >
+            {generating ? '生成中...' : '🔄 重新生成'}
+          </button>
+        </div>
+
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>📖</div>
+            正在加载 AI 周刊...
+          </div>
+        ) : error ? (
+          <div style={{ textAlign: 'center', padding: 80, color: T.red, fontSize: 14 }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+            {error}
+          </div>
+        ) : digest?.status === 'ERROR' ? (
+          <div style={{ textAlign: 'center', padding: 80 }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+            <div style={{ color: T.gray500, fontSize: 14, marginBottom: 12 }}>{digest.overview}</div>
+            <button
+              onClick={() => handleRegenerate(digest.week_key)}
+              style={{
+                padding: '8px 20px', fontSize: 13, fontWeight: 500,
+                background: T.primary, color: T.white,
+                border: 'none', borderRadius: T.radiusSm, cursor: 'pointer',
+              }}
+            >
+              重试生成
+            </button>
+          </div>
+        ) : digest?.status === 'GENERATING' || digest?.status === 'PENDING' ? (
+          <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
+            AI 正在生成周刊，请稍候...
+            <div style={{ marginTop: 16 }}>
+              <button
+                onClick={() => fetchDigest(digest.week_key)}
+                style={{
+                  padding: '6px 16px', fontSize: 12, fontWeight: 500,
+                  background: T.gray100, color: T.gray600,
+                  border: 'none', borderRadius: T.radiusSm, cursor: 'pointer',
+                }}
+              >
+                刷新状态
+              </button>
+            </div>
+          </div>
+        ) : digest ? (
+          <div style={{ maxWidth: 860 }}>
+            {/* Takeaway */}
+            {digest.takeaway && (
+              <div style={{
+                background: `linear-gradient(135deg, ${T.purple}10, ${T.primary}10)`,
+                borderRadius: T.radius, padding: '20px 24px',
+                marginBottom: 24, borderLeft: `4px solid ${T.purple}`,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: T.purple, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  本周要点
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: T.gray900, lineHeight: 1.6 }}>
+                  {digest.takeaway}
+                </div>
+              </div>
+            )}
+
+            {/* Overview */}
+            {digest.overview && (
+              <div style={{ marginBottom: 28 }}>
+                <SectionTitle icon="📰" title="本周概述" />
+                <p style={{ fontSize: 14, color: T.gray600, lineHeight: 1.8 }}>{digest.overview}</p>
+              </div>
+            )}
+
+            {/* Keywords */}
+            {keywords?.length > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <SectionTitle icon="🔑" title="本周关键词" />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {keywords.map((kw: string, i: number) => (
+                    <span key={i} style={{
+                      fontSize: 13, fontWeight: 500, color: T.gray700,
+                      background: T.gray50, border: `1px solid ${T.gray200}`,
+                      padding: '4px 14px', borderRadius: 20,
+                    }}>
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Trends */}
+            {trends?.length > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <SectionTitle icon="📈" title="内容趋势" />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {trends.map((trend: any, i: number) => (
+                    <div key={i} style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 12,
+                      padding: '14px 18px', background: T.white,
+                      borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
+                    }}>
+                      <div style={{
+                        width: 8, height: 8, borderRadius: '50%',
+                        background: trend.color || T.purple, marginTop: 5, flexShrink: 0,
+                      }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: T.gray900, marginBottom: 2 }}>{trend.title}</div>
+                        <div style={{ fontSize: 13, color: T.gray500 }}>{trend.desc}</div>
+                      </div>
+                      {trend.momentum && (
+                        <span style={{
+                          fontSize: 10, fontWeight: 600,
+                          color: trend.momentum === 'up' ? T.teal : trend.momentum === 'down' ? T.red : T.gray500,
+                          background: trend.momentum === 'up' ? T.tealLight : trend.momentum === 'down' ? T.redLight : T.gray100,
+                          padding: '2px 8px', borderRadius: 4,
+                        }}>
+                          {trend.momentum === 'up' ? '↑ 上升' : trend.momentum === 'down' ? '↓ 下降' : '→ 平稳'}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Topic Clusters */}
+            {topicClusters?.length > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <SectionTitle icon="🔥" title="热门话题聚类" />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+                  {topicClusters.map((cluster: any, i: number) => (
+                    <div key={i} style={{
+                      padding: '14px 18px', background: T.white,
+                      borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: T.gray900 }}>{cluster.name}</span>
+                        <span style={{
+                          fontSize: 11, fontFamily: T.mono, fontWeight: 600, color: T.primary,
+                          background: T.primaryLight, padding: '2px 8px', borderRadius: 10,
+                        }}>
+                          {cluster.count}篇
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: T.gray400, lineHeight: 1.5 }}>
+                        代表: {cluster.representative_title}
+                      </div>
+                      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{
+                          flex: 1, height: 4, borderRadius: 2, background: T.gray100,
+                          overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            width: `${Math.min(cluster.heat, 100)}%`,
+                            height: '100%', borderRadius: 2,
+                            background: `linear-gradient(90deg, ${T.primary}, ${T.purple})`,
+                          }} />
+                        </div>
+                        <span style={{ fontSize: 10, color: T.gray400, fontFamily: T.mono }}>
+                          {cluster.heat}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Top Picks */}
+            {topPicks?.length > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <SectionTitle icon="🎯" title="精选选题 TOP 5" />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {topPicks.map((pick: any, i: number) => (
+                    <div key={i} style={{
+                      padding: '16px 20px', background: T.white,
+                      borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span style={{
+                            fontSize: 11, fontWeight: 700, color: T.white,
+                            background: i === 0 ? '#FF6B35' : i === 1 ? '#F59E0B' : i === 2 ? '#8B5CF6' : T.primary,
+                            width: 22, height: 22, borderRadius: '50%',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>
+                            {i + 1}
+                          </span>
+                          <span style={{ fontSize: 14, fontWeight: 600, color: T.gray900 }}>{pick.title}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: T.gray500, marginLeft: 30 }}>{pick.reason}</div>
+                        <div style={{ display: 'flex', gap: 6, marginTop: 6, marginLeft: 30, alignItems: 'center' }}>
+                          {pick.source && (
+                            <span style={{ fontSize: 10, color: T.gray400 }}>
+                              📡 {pick.source}
+                            </span>
+                          )}
+                          {pick.category && (
+                            <span style={{ fontSize: 10, color: T.teal, background: T.tealLight, padding: '1px 8px', borderRadius: 4 }}>
+                              {pick.category}
+                            </span>
+                          )}
+                          {pick.platforms?.length > 0 && pick.platforms.map((p: string, j: number) => (
+                            <span key={j} style={{
+                              fontSize: 10, color: T.teal, background: T.tealLight,
+                              padding: '1px 8px', borderRadius: 4,
+                            }}>
+                              {p}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      {pick.score && (
+                        <div style={{
+                          fontSize: 22, fontWeight: 800, color: T.primary,
+                          fontFamily: T.mono, marginLeft: 16,
+                        }}>
+                          {pick.score}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Category Summary */}
+            {categorySummary && typeof categorySummary === 'object' && Object.keys(categorySummary).length > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <SectionTitle icon="📊" title="分类概览" />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+                  {Object.entries(categorySummary).map(([cat, info]: [string, any]) => (
+                    <div key={cat} style={{
+                      padding: '14px 18px', background: T.white,
+                      borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: T.gray900 }}>{cat}</span>
+                        <span style={{ fontSize: 12, fontFamily: T.mono, color: T.gray400 }}>
+                          {info.count}篇
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: T.gray500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {info.top_title || '-'}
+                      </div>
+                      {info.avg_score !== undefined && (
+                        <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{
+                            flex: 1, height: 4, borderRadius: 2, background: T.gray100,
+                            overflow: 'hidden',
+                          }}>
+                            <div style={{
+                              width: `${Math.min(info.avg_score, 100)}%`,
+                              height: '100%', borderRadius: 2,
+                              background: T.teal,
+                            }} />
+                          </div>
+                          <span style={{ fontSize: 10, color: T.gray400, fontFamily: T.mono }}>
+                            {info.avg_score?.toFixed(0)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Action Items */}
+            {actionItems?.length > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <SectionTitle icon="✅" title="下周创作行动清单" />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {actionItems.map((item: any, i: number) => (
+                    <div key={i} style={{
+                      padding: '14px 18px', background: T.white,
+                      borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
+                      display: 'flex', alignItems: 'flex-start', gap: 12,
+                    }}>
+                      <div style={{
+                        width: 24, height: 24, borderRadius: '50%',
+                        background: i < 3 ? T.primaryLight : T.gray100,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 700,
+                        color: i < 3 ? T.primary : T.gray500,
+                        flexShrink: 0, marginTop: 1,
+                      }}>
+                        {i + 1}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: T.gray900, marginBottom: 4 }}>
+                          {item.title}
+                        </div>
+                        <div style={{ fontSize: 12, color: T.gray500, lineHeight: 1.5, marginBottom: 6 }}>
+                          {item.angle}
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {item.platform && (
+                            <span style={{ fontSize: 10, color: T.teal, background: T.tealLight, padding: '1px 8px', borderRadius: 4 }}>
+                              {item.platform}
+                            </span>
+                          )}
+                          {item.difficulty && (
+                            <span style={{
+                              fontSize: 10, fontWeight: 500,
+                              color: item.difficulty === '简单' ? T.teal : item.difficulty === '中等' ? T.amber : T.red,
+                              background: item.difficulty === '简单' ? T.tealLight : item.difficulty === '中等' ? T.amberLight : T.redLight,
+                              padding: '1px 8px', borderRadius: 4,
+                            }}>
+                              {item.difficulty}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Platform Tips */}
+            {platformTips && typeof platformTips === 'object' && Object.keys(platformTips).length > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <SectionTitle icon="💡" title="平台创作建议" />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
+                  {Object.entries(platformTips).map(([platform, tips]: [string, any]) => (
+                    <div key={platform} style={{
+                      padding: '16px 20px', background: T.white,
+                      borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
+                    }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: T.gray900, marginBottom: 10 }}>
+                        📱 {platform}
+                      </div>
+                      {(Array.isArray(tips) ? tips : []).map((tip: string, j: number) => (
+                        <div key={j} style={{ fontSize: 12, color: T.gray500, lineHeight: 1.6, marginBottom: 4, paddingLeft: 10, borderLeft: `2px solid ${T.gray200}` }}>
+                          {tip}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Stats footer */}
+            <div style={{
+              padding: '16px 20px', background: T.gray50, borderRadius: T.radiusSm,
+              display: 'flex', gap: 24, fontSize: 12, color: T.gray400,
+              flexWrap: 'wrap',
+            }}>
+              <span>📅 {digest.week_label}</span>
+              <span>📊 分析 {digest.analyzed_count} 条内容</span>
+              <span>📡 来自 {digest.source_count} 个信源</span>
+              <span>📂 覆盖 {digest.category_count} 个分类</span>
+            </div>
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>📭</div>
+            暂无周刊数据
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SectionTitle({ icon, title }: { icon: string; title: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+      <span style={{ fontSize: 16 }}>{icon}</span>
+      <h2 style={{ fontSize: 16, fontWeight: 700, color: T.gray900 }}>{title}</h2>
+    </div>
+  );
+}

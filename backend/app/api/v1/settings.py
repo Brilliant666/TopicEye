@@ -93,41 +93,22 @@ async def update_rsshub_instances(
 
 # ── DuckDB analytics layer management ──
 
-@router.post("/duckdb/sync")
-async def trigger_duckdb_sync():
-    """Manually trigger a full sync from SQLite to DuckDB analytical layer."""
-    try:
-        from app.services.duckdb_service import sync_full
-        stats = sync_full()
-        return {"status": "ok", "synced": stats}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"DuckDB sync failed: {e}")
-
-
 @router.get("/duckdb/status")
 async def duckdb_status():
-    """Get DuckDB analytical layer status — table counts and last sync time."""
+    """Get DuckDB analytical layer status.
+
+    The current architecture uses DuckDB in-memory with SQLite ATTACH (READ_ONLY).
+    No sync step is needed — DuckDB queries always see fresh SQLite data.
+    """
     try:
-        from app.database import get_duckdb_conn
-        conn = get_duckdb_conn()
-
-        content_count = conn.execute("SELECT COUNT(*) FROM analytics_content").fetchone()[0]
-        topics_count = conn.execute("SELECT COUNT(*) FROM analytics_topics").fetchone()[0]
-        trends_count = conn.execute("SELECT COUNT(*) FROM analytics_trends").fetchone()[0]
-
-        watermark = conn.execute(
-            "SELECT last_synced_at FROM _sync_watermark WHERE table_name = 'analytics_content'"
-        ).fetchone()
-        last_sync = str(watermark[0]) if watermark else None
-
+        from app.services.duckdb_service import get_analytics
+        analytics = get_analytics()
+        available = analytics.available
         return {
-            "status": "ok",
-            "tables": {
-                "analytics_content": content_count,
-                "analytics_topics": topics_count,
-                "analytics_trends": trends_count,
-            },
-            "last_synced_at": last_sync,
+            "status": "ok" if available else "unavailable",
+            "architecture": "in-memory DuckDB + SQLite ATTACH (READ_ONLY)",
+            "note": "No sync needed — DuckDB reads SQLite directly." if available
+                    else "DuckDB or sqlite extension not installed. App falls back to SQLAlchemy.",
         }
     except Exception as e:
-        return {"status": "not_initialized", "error": str(e)}
+        return {"status": "error", "error": str(e)}

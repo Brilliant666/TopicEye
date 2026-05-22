@@ -245,6 +245,18 @@ def start_scheduler() -> None:
     )
 
     scheduler.start()
+
+    # Immediately register all enabled sources so they start syncing
+    # right away instead of waiting for the first 10-minute rescan.
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(_rescan_sources())
+            logger.info("Scheduler: initial source rescan scheduled immediately")
+    except RuntimeError:
+        logger.warning("Scheduler: could not schedule initial rescan (no event loop)")
+
     logger.info("Scheduler started: per-source sync jobs + 10min rescan + 03:00 cleanup")
 
 

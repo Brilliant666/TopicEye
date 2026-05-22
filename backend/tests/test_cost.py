@@ -1,6 +1,14 @@
+#!/usr/bin/env python
+"""
+Token cost estimation for LLM analysis calls.
+
+NOT a pytest test — this script makes real API calls to measure token usage
+and estimate monthly costs. Run manually:
+    python scripts/estimate_llm_cost.py
+"""
 import sys, os
-sys.path.insert(0, ".")
-os.chdir("/Users/fxbin/Desktop/Project/AIProject/TopicEye/backend")
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+os.chdir(os.path.join(os.path.dirname(__file__), ".."))
 
 import asyncio
 from openai import AsyncOpenAI
@@ -108,4 +116,5 @@ async def test():
         cost = (input_miss + output) * daily_items * 30
         print(f"  {daily_items}条/天 × 30天 = {daily_items*30}次/月 → {cost:.2f} 元/月")
 
-asyncio.run(test())
+if __name__ == "__main__":
+    asyncio.run(test())

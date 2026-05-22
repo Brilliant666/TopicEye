@@ -16,9 +16,9 @@ import json
 import logging
 import time
 import asyncio
-import asyncio
 from typing import Any, Optional
 from datetime import datetime, timedelta
+import threading
 
 from litellm import completion
 from tenacity import (
@@ -48,7 +48,7 @@ class ModelFailover:
     def __init__(self):
         self._state = self.HEALTHY
         self._reset_at: Optional[datetime] = None  # exact reset time from 429
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()
 
     @property
     def state(self) -> str:

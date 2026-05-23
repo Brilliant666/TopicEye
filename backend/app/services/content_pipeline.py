@@ -207,8 +207,16 @@ def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> Non
     # ── Zhihu metrics ──
     zhihu_meta = entry.get("_zhihu_meta")
     if zhihu_meta:
-        hot_score = zhihu_meta.get("hot_score", 0)
-        rank = zhihu_meta.get("rank", 0)
+        hot_score_raw = zhihu_meta.get("hot_score", 0)
+        rank_raw = zhihu_meta.get("rank", 0)
+        try:
+            hot_score = int(float(str(hot_score_raw).replace("_", "")))
+        except (ValueError, TypeError):
+            hot_score = 0
+        try:
+            rank = int(float(str(rank_raw).replace("_", "")))
+        except (ValueError, TypeError):
+            rank = 0
 
         # For Zhihu hot list, hot_score is the primary engagement metric
         # Use a simple explosion_ratio based on rank (lower rank = higher)
@@ -223,7 +231,7 @@ def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> Non
             shares=0,
             favorites=0,
             followers_count=0,
-            engagement_rate=round(hot_score / 10000, 4) if hot_score > 0 else 0.0,
+            engagement_rate=round(float(hot_score) / 10000, 4) if hot_score > 0 else 0.0,
             explosion_ratio=explosion_ratio,
         )
         db.add(metrics)

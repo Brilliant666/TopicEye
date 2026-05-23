@@ -101,23 +101,23 @@ def _extract_hot_score(detail_text: str) -> int:
     """Extract numeric hot score from Zhihu detail_text like '2345 万热度'."""
     if not detail_text:
         return 0
-    # Match patterns like "1234 万热度" or "12345 热度"
-    match = re.search(r"([\d,]+)\s*万?热度", detail_text)
+    # Match patterns like "1234 万热度", "12345 热度", or "1_2345678.123 万热度" (underscore-separated float)
+    match = re.search(r"([\d_.,]+)\s*万?热度", detail_text)
     if match:
-        num_str = match.group(1).replace(",", "")
+        num_str = match.group(1).replace(",", "").replace("_", "")
         try:
-            num = int(num_str)
+            num = float(num_str)
         except ValueError:
             return 0
         # If "万热度", multiply by 10000
         if "万热度" in detail_text:
             num *= 10000
-        return num
+        return int(num)
     # Fallback: try to extract any number
-    match = re.search(r"([\d,]+)", detail_text)
+    match = re.search(r"([\d_.,]+)", detail_text)
     if match:
         try:
-            return int(match.group(1).replace(",", ""))
+            return int(float(match.group(1).replace(",", "").replace("_", "")))
         except ValueError:
             return 0
     return 0
@@ -184,7 +184,7 @@ class ZhihuScraper(BaseScraper):
         if author_info and isinstance(author_info, dict):
             author = author_info.get("name", "")
 
-        # Hot score from detail_text
+        # Hot score from detail_text — ensure int
         hot_score = _extract_hot_score(detail_text)
 
         # Thumbnail / cover

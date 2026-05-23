@@ -12,6 +12,7 @@ All DB access goes through Repository layer — no raw SQL here.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 
@@ -28,7 +29,23 @@ from app.services.analysis import analyze_batch
 
 logger = logging.getLogger(__name__)
 
-scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
+# Semaphore to limit concurrent DB write tasks — SQLite single-writer constraint.
+# Allows a small number of parallel sync jobs (each opens its own session)
+# while preventing lock storms when 160+ sources trigger simultaneously.
+_MAX_CONCURRENT_SYNCS = 3
+_sync_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_semaphore() -> asyncio.Semaphore:
+    global _sync_semaphore
+    if _sync_semaphore is None:
+        _sync_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_SYNCS)
+    return _sync_semaphore
+
+scheduler = AsyncIOScheduler(
+    timezone="Asia/Shanghai",
+    job_defaults={"max_instances": 1, "coalesce": True, "misfire_grace_time": 120},
+)
 
 
 # ── Scheduled jobs ────────────────────────────────────────────────────
@@ -123,23 +140,25 @@ async def cleanup_old_content() -> None:
 
 async def _sync_single_source(source_id: int) -> None:
     """Job handler: sync one source by ID, then run shared post-sync pipeline."""
-    async with async_session() as db:
-        from app.repositories.source_repo import SourceRepository
-        source_repo = SourceRepository(db)
-        source = await source_repo.get_by_id(source_id)
-        if not source or not source.enabled:
-            logger.debug("Source id=%d skipped (not found or disabled)", source_id)
-            return
-        try:
-            stats = await ingest_from_source(source, db)
-            await db.commit()
-            logger.info("Scheduler: source '%s' synced — %s", source.name, stats)
-        except Exception:
-            logger.exception("Scheduler: failed to sync source id=%d", source_id)
-            await db.rollback()
+    sem = _get_semaphore()
+    async with sem:
+        async with async_session() as db:
+            from app.repositories.source_repo import SourceRepository
+            source_repo = SourceRepository(db)
+            source = await source_repo.get_by_id(source_id)
+            if not source or not source.enabled:
+                logger.debug("Source id=%d skipped (not found or disabled)", source_id)
+                return
+            try:
+                stats = await ingest_from_source(source, db)
+                await db.commit()
+                logger.info("Scheduler: source '%s' synced — %s", source.name, stats)
+            except Exception:
+                logger.exception("Scheduler: failed to sync source id=%d", source_id)
+                await db.rollback()
 
-    # Shared post-sync: analyze pending + cluster + trends
-    await _run_post_sync_pipeline()
+        # Shared post-sync: analyze pending + cluster + trends
+        await _run_post_sync_pipeline()
 
 
 async def _run_post_sync_pipeline() -> None:

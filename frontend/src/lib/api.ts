@@ -298,20 +298,24 @@ export const creationApi = {
 // ─── Viral (低粉爆文) API ───
 
 export const viralApi = {
-  /** 获取低粉爆文列表 — 基于内容+分析数据，前端筛选排序 */
+  /** 获取低粉爆文列表 */
   async list(params?: {
     category?: string;
-    timeRange?: string;
-    sortBy?: string;
+    hours?: number;
+    sort_by?: string;
     page?: number;
-    pageSize?: number;
-  }): Promise<PaginatedResponse<ContentItem>> {
-    // Fetch all analyzed content with high viral_score, then filter/sort client-side
+    page_size?: number;
+  }): Promise<PaginatedResponse<ContentItem> & { total?: number }> {
     const page = params?.page || 1;
-    const pageSize = params?.pageSize || 100;
+    const pageSize = params?.page_size || 20;
     const query = '?' + new URLSearchParams(
-      Object.entries({ page: String(page), page_size: String(pageSize) })
-        .filter(([, v]) => v !== undefined)
+      Object.entries({
+        page: String(page),
+        page_size: String(pageSize),
+        sort_by: 'low_follower_viral',
+        hours: params?.hours !== undefined ? String(params.hours) : '',
+        category: params?.category || '',
+      }).filter(([, v]) => v !== '') as [string, string][]
     ).toString();
     return request(`/contents${query}`);
   },

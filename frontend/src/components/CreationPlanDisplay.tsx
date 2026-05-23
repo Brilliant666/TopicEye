@@ -18,7 +18,7 @@ interface OutlineSection {
   evidence?: string;
 }
 
-interface CreationPlan {
+export interface CreationPlan {
   titles?: string[];
   tone?: string;
   cover_slogan?: string;
@@ -32,6 +32,8 @@ interface CreationPlan {
   word_count_estimate?: number;
   key_quote?: string;
   closing?: string;
+  _meta?: { platform: string; platform_name: string; content_id: number };
+  [key: string]: unknown;
 }
 
 interface CreationPlanDisplayProps {

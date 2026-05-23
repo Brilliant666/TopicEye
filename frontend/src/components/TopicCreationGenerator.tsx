@@ -3,17 +3,7 @@
 import React, { useState } from 'react';
 import { T } from '@/lib/design-tokens';
 import SectionTitle from '@/components/SectionTitle';
-import CreationPlanDisplay from '@/components/CreationPlanDisplay';
-
-interface CreationPlan {
-  platform: string;
-  titles?: string[];
-  cover_text?: string;
-  structure?: string;
-  tags?: string[];
-  style?: string;
-  [key: string]: unknown;
-}
+import CreationPlanDisplay, { type CreationPlan } from '@/components/CreationPlanDisplay';
 
 interface TopicCreationGeneratorProps {
   contentId: number;
@@ -33,7 +23,7 @@ export default function TopicCreationGenerator({ contentId }: TopicCreationGener
 
     try {
       const { creationApi } = await import('@/lib/api');
-      const result = await creationApi.generatePlan(contentId, platform) as CreationPlan;
+      const result = await creationApi.generatePlan(contentId, platform) as CreationPlan & { _meta?: { platform: string } };
       setCreationPlan(result);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '生成失败';
@@ -122,8 +112,7 @@ export default function TopicCreationGenerator({ contentId }: TopicCreationGener
           <div style={{ fontSize: 14, fontWeight: 600, color: T.gray800, marginBottom: 12 }}>
             创作方案
           </div>
-          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          <CreationPlanDisplay plan={creationPlan as any} platform={creationPlan.platform as string} />
+          <CreationPlanDisplay plan={creationPlan} platform={creationPlan._meta?.platform ?? creatingPlatform ?? ''} />
         </div>
       )}
     </div>

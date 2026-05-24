@@ -14,6 +14,7 @@ import app.models.category  # noqa: F401
 import app.models.feedback  # noqa: F401
 import app.models.weekly_digest  # noqa: F401
 import app.models.trending  # noqa: F401
+import app.models.mother_topic  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,6 +35,16 @@ async def lifespan(app: FastAPI):
             await seed_db.commit()
     except Exception as e:
         logger.warning("Category seed skipped: %s", e)
+
+    # Seed mother topics (4 content pillars for 大痴小乙)
+    try:
+        from app.services.mother_topic_seed import seed_mother_topics
+        async with async_session() as seed_db:
+            added = await seed_mother_topics()
+            await seed_db.commit()
+            logger.info("Mother topics seeded (%d new)", added)
+    except Exception as e:
+        logger.warning("Mother topic seed skipped: %s", e)
 
     # Initialize DuckDB analytical layer (in-memory + ATTACH SQLite)
     try:

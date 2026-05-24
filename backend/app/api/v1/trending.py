@@ -186,9 +186,11 @@ async def get_topic_angles(
     from app.services.angle_recommend import generate_angles_for_topic
 
     # 从 DB 找到相关趋势条目，拼出各平台标题
+    # 转义 LIKE 通配符，防止用户输入 %/_ 泄露非预期数据
+    safe_topic = topic[:8].replace('%', '\\%').replace('_', '\\_')
     stmt = (
         select(TrendingItem)
-        .where(TrendingItem.title.like(f"%{topic[:8]}%"))
+        .where(TrendingItem.title.like(f"%{safe_topic}%"))
         .order_by(TrendingItem.rank)
         .limit(8)
     )

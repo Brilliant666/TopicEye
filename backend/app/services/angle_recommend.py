@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from app.services.llm import call_llm_json  # noqa: E402
@@ -68,16 +69,22 @@ async def generate_angles_for_topic(
             "angle_note": "...",
         }
     """
-    titles_text = "\n".join(f"- {t}" for t in platform_titles[:8])
+    # 防御 prompt injection：清洗用户输入，移除控制字符，限制长度
+    clean_topic = re.sub(r'[\x00-\x1f\x7f]', '', topic)[:40]
+    clean_keywords = re.sub(r'[\x00-\x1f\x7f]', '', ', '.join(keywords))[:200]
+    clean_titles = '\n'.join(f"- {t}" for t in platform_titles[:8])
+    # 限制标题总长度，防止超长输入耗尽 LLM token
+    if len(clean_titles) > 2000:
+        clean_titles = clean_titles[:2000] + '\n...(truncated)'
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {
             "role": "user",
             "content": USER_TEMPLATE.format(
-                topic=topic,
-                keywords=", ".join(keywords),
-                titles=titles_text,
+                topic=clean_topic,
+                keywords=clean_keywords,
+                titles=clean_titles,
             ),
         },
     ]

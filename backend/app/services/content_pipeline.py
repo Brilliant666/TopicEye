@@ -237,6 +237,29 @@ def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> Non
         db.add(metrics)
         return
 
+    # ── Douyin Hot metrics ──
+    douyin_meta = entry.get("_douyin_hot_meta")
+    if douyin_meta:
+        hot_score = douyin_meta.get("hot_score", 0)
+        rank = douyin_meta.get("rank", 0)
+
+        explosion_ratio = 0.0
+        if rank > 0:
+            explosion_ratio = round(1000.0 / rank, 4)
+
+        metrics = ContentMetrics(
+            content=item,
+            likes=hot_score,
+            comments=0,
+            shares=0,
+            favorites=0,
+            followers_count=0,
+            engagement_rate=round(float(hot_score) / 10000, 4) if hot_score > 0 else 0.0,
+            explosion_ratio=explosion_ratio,
+        )
+        db.add(metrics)
+        return
+
     # ── Twitter RSS metrics ──
     twitter_rss_meta = entry.get("_twitter_rss_meta")
     if twitter_rss_meta:

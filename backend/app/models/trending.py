@@ -43,6 +43,7 @@ class TrendingSource(str, enum.Enum):
     WALLSTREETCN = "wallstreetcn"
     CLS = "cls"
     XUEQIU = "xueqiu"
+    EASTMONEY = "eastmoney"
     DOUBAN = "douban"
     IQIYI = "iqiyi"
 

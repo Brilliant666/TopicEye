@@ -37,30 +37,36 @@ class JuejinTrending(BaseTrendingScraper):
             logger.warning("juejin trending fetch failed: %s", e)
             return []
 
-        items = data.get("data", [])
-        if not items:
+        raw_items = data.get("data", [])
+        if not raw_items:
             logger.warning("juejin trending: empty data")
             return []
 
         results: List[TrendingEntry] = []
-        for idx, item in enumerate(items[:30], start=1):
-            article = item.get("article_info", {})
+        for idx, raw in enumerate(raw_items[:30], start=1):
+            # 数据在 item_info.article_info 里
+            item_info = raw.get("item_info", {})
+            article = item_info.get("article_info", {})
+            if not article:
+                continue
             title = article.get("title", "").strip()
             if not title:
                 continue
 
             article_id = article.get("article_id", "")
-            digg = item.get("article_info", {}).get("digg_count", 0)
-            view = item.get("article_info", {}).get("view_count", 0)
-            comment = item.get("article_info", {}).get("comment_count", 0)
-            hot_val = digg * 100 + view + comment * 50
+            digg = article.get("digg_count", 0)
+            view = article.get("view_count", 0)
+            comment = article.get("comment_count", 0)
+            hot_index = article.get("hot_index", 0)
 
-            author = item.get("author_user_info", {}).get("user_name", "")
+            author_info = item_info.get("author_user_info", {})
+            author = author_info.get("user_name", "")
+
             results.append({
                 "title": title,
                 "rank": idx,
                 "url": f"https://juejin.cn/post/{article_id}",
-                "hot_value": hot_val,
+                "hot_value": hot_index or (digg * 100 + view + comment * 50),
                 "hot_value_raw": f"赞{digg} 读{view} 评{comment}",
                 "trend": "up" if idx <= 5 else "stable",
                 "extra": {

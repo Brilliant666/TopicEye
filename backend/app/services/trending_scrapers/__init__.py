@@ -77,4 +77,5 @@ from . import (  # noqa: E402, F401
     _hackernews,
     _douyin_trending,
     _juejin,
+    _eastmoney,
 )

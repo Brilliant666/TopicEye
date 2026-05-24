@@ -138,6 +138,19 @@ async def cleanup_old_content() -> None:
 
 # ── Lifecycle helpers ─────────────────────────────────────────────────
 
+async def _sync_all_trending() -> None:
+    """Sync all trending sources (lightweight, no LLM)."""
+    from app.services.trending_pipeline import sync_all_trending
+    try:
+        async with async_session() as db:
+            results = await sync_all_trending(db)
+            await db.commit()
+        total = sum(r.get("fetched", 0) for r in results.values())
+        logger.info("Scheduler: trending sync done — %d items from %d sources", total, len(results))
+    except Exception:
+        logger.exception("Scheduler: trending sync failed")
+
+
 async def _sync_single_source(source_id: int) -> None:
     """Job handler: sync one source by ID, then run shared post-sync pipeline."""
     sem = _get_semaphore()
@@ -260,6 +273,15 @@ def start_scheduler() -> None:
         trigger=CronTrigger(hour=3, minute=0),
         id="cleanup_old_content",
         name="Cleanup old pending content",
+        replace_existing=True,
+    )
+
+    # Trending radar: sync all trending sources every 30 minutes
+    scheduler.add_job(
+        _sync_all_trending,
+        trigger=IntervalTrigger(minutes=30),
+        id="sync_trending",
+        name="Sync all trending sources",
         replace_existing=True,
     )
 

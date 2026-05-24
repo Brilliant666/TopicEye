@@ -10,10 +10,8 @@ from . import BaseTrendingScraper, register_trending, TrendingEntry
 
 logger = logging.getLogger(__name__)
 
-_PAT = re.compile(r"<item>(.*?)</item>", re.DOTALL)
-_TITLE_PAT = re.compile(r"<title><!\[CDATA\[(.*?)\]\]></title>", re.DOTALL)
+_TITLE_PAT = re.compile(r"<title>(.*?)</title>", re.DOTALL)
 _LINK_PAT = re.compile(r"<link>(.*?)</link>", re.DOTALL)
-_DESC_PAT = re.compile(r"<description><!\[CDATA\[(.*?)\]\]></description>", re.DOTALL)
 
 
 @register_trending("ithome")
@@ -35,17 +33,18 @@ class ITHomeTrending(BaseTrendingScraper):
             logger.warning("ithome trending fetch failed: %s", e)
             return []
 
+        # 按条目拆分
+        items = re.split(r"<item>", xml)[1:]  # 跳过 channel header
         results: List[TrendingEntry] = []
-        for idx, match in enumerate(_PAT.finditer(xml), start=1):
-            block = match.group(1)
+        for idx, block in enumerate(items[:30], start=1):
             title_m = _TITLE_PAT.search(block)
             link_m = _LINK_PAT.search(block)
-            desc_m = _DESC_PAT.search(block)
             if not title_m:
                 continue
             title = title_m.group(1).strip()
             link = link_m.group(1).strip() if link_m else ""
-            desc = desc_m.group(1).strip() if desc_m else ""
+            if not title:
+                continue
 
             results.append({
                 "title": title,
@@ -54,10 +53,7 @@ class ITHomeTrending(BaseTrendingScraper):
                 "hot_value": 0,
                 "hot_value_raw": "",
                 "trend": "stable",
-                "extra": {"summary": desc[:200] if desc else ""},
             })
-            if idx >= 30:
-                break
 
         logger.info("ithome trending: fetched %d items", len(results))
         return results

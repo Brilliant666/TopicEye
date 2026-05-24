@@ -519,9 +519,9 @@ function TrendingPage() {
   }
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 1200, margin: '0 auto' }}>
+    <div style={{ padding: '32px 40px', maxWidth: 1200, margin: '0 auto', paddingBottom: 80 }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: T.gray900, margin: 0 }}>
             趋势雷达
@@ -609,71 +609,6 @@ function TrendingPage() {
             共 {clusters.length} 个话题
           </span>
         </div>
-      )}
-
-      {/* Category Tabs (only on list tab) */}
-      {tab === 'list' && (
-        <>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-            {CATEGORIES.map(cat => {
-              const active = selectedCategory === cat.value;
-              return (
-                <button
-                  key={cat.value}
-                  onClick={() => { setSelectedCategory(cat.value); setSelectedSource(''); }}
-                  style={{
-                    padding: '6px 16px', fontSize: 13, fontWeight: active ? 600 : 400,
-                    background: active ? T.primaryLight : T.white,
-                    color: active ? T.primary : T.gray600,
-                    border: `1px solid ${active ? T.primaryBorder : T.gray200}`,
-                    borderRadius: 20, cursor: 'pointer', transition: 'all 0.15s ease',
-                  }}
-                >
-                  {cat.label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Source Filter */}
-          {filteredSources.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, marginBottom: 24, flexWrap: 'wrap' }}>
-              <button
-                onClick={() => setSelectedSource('')}
-                style={{
-                  padding: '4px 12px', fontSize: 12, fontWeight: !selectedSource ? 600 : 400,
-                  background: !selectedSource ? T.gray900 : T.white,
-                  color: !selectedSource ? T.white : T.gray600,
-                  border: `1px solid ${!selectedSource ? T.gray900 : T.gray200}`,
-                  borderRadius: 16, cursor: 'pointer',
-                }}
-              >
-                全部信源
-              </button>
-              {filteredSources.map(s => {
-                const active = selectedSource === s.source;
-                return (
-                  <button
-                    key={s.source}
-                    onClick={() => setSelectedSource(active ? '' : s.source)}
-                    style={{
-                      padding: '4px 12px', fontSize: 12, fontWeight: active ? 600 : 400,
-                      background: active ? T.primaryLight : T.white,
-                      color: active ? T.primary : T.gray600,
-                      border: `1px solid ${active ? T.primaryBorder : T.gray200}`,
-                      borderRadius: 16, cursor: 'pointer',
-                    }}
-                  >
-                    {SOURCE_LABELS[s.source] || s.source}
-                    <span style={{ marginLeft: 4, fontSize: 10, color: T.gray400 }}>
-                      {s.count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </>
       )}
 
       {/* Loading */}

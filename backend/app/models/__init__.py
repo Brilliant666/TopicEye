@@ -6,5 +6,6 @@ from app.models.topic import TopicGroup
 from app.models.trend import TopicTrend
 from app.models.category import Category
 from app.models.ignored import IgnoredItem
+from app.models.trending import TrendingItem
 
-__all__ = ["Source", "ContentItem", "ContentMetrics", "AiAnalysis", "TopicGroup", "Category", "IgnoredItem"]
+__all__ = ["Source", "ContentItem", "ContentMetrics", "AiAnalysis", "TopicGroup", "Category", "IgnoredItem", "TrendingItem"]

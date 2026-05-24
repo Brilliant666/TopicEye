@@ -6,12 +6,14 @@ import { motherTopicsApi, contentsApi, type MotherTopic, type ContentItem } from
 
 /* ── helpers ── */
 
+function normalizeScore(raw: number): number {
+  // 理论上限 1.1，归一化到 0-100
+  return Math.min(Math.round(raw * (100 / 1.1)), 100);
+}
+
 function ScoreBadge({ score }: { score: number }) {
-  const color =
-    score >= 80 ? '#10b981' :
-    score >= 65 ? '#f59e0b' :
-    score >= 50 ? '#6b7280' :
-    '#9ca3af';
+  const s = normalizeScore(score);
+  const color = s >= 80 ? '#10b981' : s >= 65 ? '#f59e0b' : s >= 50 ? '#6b7280' : '#9ca3af';
   return (
     <span style={{
       display: 'inline-block',
@@ -24,7 +26,7 @@ function ScoreBadge({ score }: { score: number }) {
       minWidth: 36,
       textAlign: 'center',
     }}>
-      {score.toFixed(1)}
+      {s}
     </span>
   );
 }
@@ -47,44 +49,47 @@ function TopicPill({ name, active }: { name: string; active: boolean }) {
 }
 
 function ScoreBar({ score }: { score: number }) {
-  const pct = Math.min(100, (score / 120) * 100);
-  const color = score >= 80 ? '#10b981' : score >= 65 ? '#f59e0b' : '#9ca3af';
+  const s = normalizeScore(score);
+  const pct = Math.min(100, s);
+  const color = s >= 80 ? '#10b981' : s >= 65 ? '#f59e0b' : '#9ca3af';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <div style={{
-        flex: 1,
-        height: 4,
-        borderRadius: 2,
-        background: '#f3f4f6',
-        overflow: 'hidden',
-      }}>
-        <div style={{
-          width: `${pct}%`,
-          height: '100%',
-          background: color,
-          borderRadius: 2,
-        }} />
+      <div style={{ flex: 1, height: 4, borderRadius: 2, background: '#f3f4f6', overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 2 }} />
       </div>
+      <span style={{ fontSize: 11, color: '#9ca3af', minWidth: 28 }}>{s}分</span>
     </div>
   );
 }
 
 /* ── Content Card ── */
 
+interface TopicScore {
+  name: string;
+  keyword_score: number;
+  weight: number;
+  freshness: number;
+  final: number;
+}
+
 interface ScoredContent {
   content: ContentItem;
   scoring: {
     final_score: number;
     top_topic: string | null;
-    topic_scores: Array<{ name: string; keyword_score: number; weight: number; final: number }>;
+    topic_scores: TopicScore[];
   } | null;
 }
 
 function ContentCard({ item, onToggle }: { item: ScoredContent; onToggle: (id: number) => void }) {
   const { favorites } = useAppContext();
-  const fav = favorites?.[item.content.id];
+  const fav = favorites.has(item.content.id);
   const score = item.scoring?.final_score ?? 0;
   const topTopic = item.scoring?.top_topic;
+  const allTopics = item.scoring?.topic_scores ?? [];
+
+  // 过滤出得分 > 0 的母题，展示所有匹配的
+  const matchedTopics = allTopics.filter(ts => ts.final > 0);
 
   return (
     <div style={{
@@ -98,9 +103,15 @@ function ContentCard({ item, onToggle }: { item: ScoredContent; onToggle: (id: n
       {/* header row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
             <ScoreBadge score={score} />
-            {topTopic && <TopicPill name={topTopic} active={true} />}
+            {matchedTopics.map(ts => (
+              <TopicPill
+                key={ts.name}
+                name={ts.name}
+                active={ts.name === topTopic}
+              />
+            ))}
             <span style={{ fontSize: 11, color: '#9ca3af' }}>
               {item.content.source_name || item.content.source || ''}
             </span>
@@ -139,13 +150,15 @@ function ContentCard({ item, onToggle }: { item: ScoredContent; onToggle: (id: n
       </div>
 
       {/* score detail */}
-      {item.scoring && (
+      {item.scoring && matchedTopics.length > 0 && (
         <div style={{ marginBottom: 8 }}>
           <ScoreBar score={score} />
-          <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
-            {item.scoring.topic_scores.slice(0, 4).map(ts => (
+          <div style={{ display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+            {matchedTopics.map(ts => (
               <span key={ts.name} style={{ fontSize: 11, color: '#6b7280' }}>
-                {ts.name}: <b style={{ color: ts.final > 0.5 ? '#374151' : '#9ca3af' }}>{ts.final.toFixed(2)}</b>
+                {ts.name}: <b style={{ color: ts.final > 50 ? '#374151' : '#9ca3af' }}>
+                  {normalizeScore(ts.final)}分
+                </b>
               </span>
             ))}
           </div>
@@ -154,9 +167,6 @@ function ContentCard({ item, onToggle }: { item: ScoredContent; onToggle: (id: n
 
       {/* meta */}
       <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#9ca3af' }}>
-        {item.content.curation_score != null && (
-          <span>精选分 {item.content.curation_score.toFixed(1)}</span>
-        )}
         {item.content.published_at && (
           <span>{new Date(item.content.published_at).toLocaleDateString('zh-CN')}</span>
         )}
@@ -170,52 +180,67 @@ function ContentCard({ item, onToggle }: { item: ScoredContent; onToggle: (id: n
 
 export default function MyTopicsPage() {
   const [topics, setTopics] = useState<MotherTopic[]>([]);
-  const [selectedTopic, setSelectedTopic] = useState<string>(''); // '' = all
-  const [contents, setContents] = useState<ScoredContent[]>([]);
+  const [allScored, setAllScored] = useState<ScoredContent[]>([]);
+  const [selectedTopic, setSelectedTopic] = useState<string>(''); // '' = 全部
   const [loading, setLoading] = useState(true);
   const [filterMinScore, setFilterMinScore] = useState(0);
   const { toggleFavorite } = useAppContext();
 
-  // Load mother topics
+  // Load mother topics + fetch all contents once
   useEffect(() => {
-    motherTopicsApi.list(true).then(setTopics).catch(console.error);
+    setLoading(true);
+    Promise.all([
+      motherTopicsApi.list(true),
+      contentsApi.list({ page: 1, page_size: 200 }),
+    ]).then(async ([ts, { items }]) => {
+      setTopics(ts);
+
+      // Score every item against all mother topics
+      const scored: ScoredContent[] = await Promise.all(
+        items.map(async content => {
+          try {
+            const scoring = await motherTopicsApi.score({
+              title: content.title,
+              summary: content.summary || '',
+              hot_value: 0,
+            });
+            return { content, scoring };
+          } catch {
+            return { content, scoring: null };
+          }
+        })
+      );
+
+      // Sort by final score desc
+      scored.sort((a, b) =>
+        (b.scoring?.final_score ?? 0) - (a.scoring?.final_score ?? 0)
+      );
+      setAllScored(scored);
+      setLoading(false);
+    }).catch(err => {
+      console.error(err);
+      setLoading(false);
+    });
   }, []);
 
-  // Load contents and score them
-  useEffect(() => {
-    if (!topics.length) return;
-    setLoading(true);
+  // Derive displayed items: filter by selected topic, then by min score
+  const filtered = allScored.filter(c => {
+    const s = c.scoring?.final_score ?? 0;
+    if (s < filterMinScore / 100) return false;
 
-    contentsApi
-      .list({ page: 1, page_size: 100, category: selectedTopic || undefined })
-      .then(async ({ items }) => {
-        const scored: ScoredContent[] = await Promise.all(
-          items.map(async content => {
-            try {
-              const scoring = await motherTopicsApi.score({
-                title: content.title,
-                summary: content.summary || '',
-                hot_value: (content.metrics as any)?.hot_value || 0,
-              });
-              return { content, scoring };
-            } catch {
-              return { content, scoring: null };
-            }
-          })
-        );
+    if (!selectedTopic) return true; // 全部：展示所有
 
-        // Sort by final score desc
-        scored.sort((a, b) => (b.scoring?.final_score ?? 0) - (a.scoring?.final_score ?? 0));
-        setContents(scored);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error(err);
-        setLoading(false);
-      });
-  }, [topics, selectedTopic]);
+    // 只展示 top_topic 匹配的内容
+    return c.scoring?.top_topic === selectedTopic;
+  });
 
-  const filtered = contents.filter(c => (c.scoring?.final_score ?? 0) >= filterMinScore);
+  // Stats from full scored set (unfiltered by min score)
+  const statsTotal = allScored.length;
+  const statsMain = allScored.filter(c => normalizeScore(c.scoring?.final_score ?? 0) >= 80).length;
+  const statsReserve = allScored.filter(c => {
+    const s = normalizeScore(c.scoring?.final_score ?? 0);
+    return s >= 65 && s < 80;
+  }).length;
 
   return (
     <div style={{ padding: '20px 24px', maxWidth: 900 }}>
@@ -284,7 +309,7 @@ export default function MyTopicsPage() {
             style={{ width: 80 }}
           />
           <span style={{ fontSize: 12, fontWeight: 600, color: '#374151', minWidth: 30 }}>
-            {filterMinScore.toFixed(0)}
+            {filterMinScore}
           </span>
         </div>
       </div>
@@ -299,29 +324,20 @@ export default function MyTopicsPage() {
         borderRadius: 10,
       }}>
         <div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#111827' }}>{filtered.length}</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#111827' }}>{statsTotal}</div>
           <div style={{ fontSize: 11, color: '#9ca3af' }}>候选内容</div>
         </div>
         <div style={{ borderLeft: '1px solid #e5e7eb', paddingLeft: 16 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#10b981' }}>
-            {filtered.filter(c => (c.scoring?.final_score ?? 0) >= 80).length}
-          </div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#10b981' }}>{statsMain}</div>
           <div style={{ fontSize: 11, color: '#9ca3af' }}>今日主选题</div>
         </div>
         <div style={{ borderLeft: '1px solid #e5e7eb', paddingLeft: 16 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#f59e0b' }}>
-            {filtered.filter(c => {
-              const s = c.scoring?.final_score ?? 0;
-              return s >= 65 && s < 80;
-            }).length}
-          </div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#f59e0b' }}>{statsReserve}</div>
           <div style={{ fontSize: 11, color: '#9ca3af' }}>值得储备</div>
         </div>
         <div style={{ borderLeft: '1px solid #e5e7eb', paddingLeft: 16 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#6366f1' }}>
-            {topics.find(t => t.name === selectedTopic)?.keywords.length ?? 0}
-          </div>
-          <div style={{ fontSize: 11, color: '#9ca3af' }}>关键词</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#6366f1' }}>{topics.length}</div>
+          <div style={{ fontSize: 11, color: '#9ca3af' }}>母题数</div>
         </div>
       </div>
 

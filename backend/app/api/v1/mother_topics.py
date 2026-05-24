@@ -189,8 +189,10 @@ async def score_content(
         keyword_score = topic.match_score(text)
         # 来源新鲜度（简化：直接用 hot_value / 1000 作为基础分）
         freshness = min(1.0, req.hot_value / 10000)
-        # 母题匹配分 × 权重 + 新鲜度加成
-        final = round(keyword_score * topic.weight + freshness * 0.1, 3)
+        # 母题匹配分 × 权重 + 新鲜度加成（0.0 ~ 1.1）
+        raw = keyword_score * topic.weight + freshness * 0.1
+        # 归一化到 0-100，理论上限约 110
+        final = round(min(raw * (100 / 1.1), 100), 1)
         topic_scores.append({
             "name": topic.name,
             "keyword_score": round(keyword_score, 3),

@@ -506,3 +506,105 @@ export interface CrossPlatformCluster {
   total_hot: number;
   avg_rank: number;
 }
+
+// ─── Mother Topics API ──────────────────────────────────────────────
+
+export interface MotherTopic {
+  id: number;
+  name: string;
+  description: string | null;
+  keywords: string[];
+  weight: number;
+  content_type: string | null;
+  target_reader: string | null;
+  is_active: boolean;
+  display_order: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ContentScoringResult {
+  title: string;
+  topic_scores: Array<{
+    name: string;
+    keyword_score: number;
+    weight: number;
+    freshness: number;
+    final: number;
+  }>;
+  top_topic: string | null;
+  final_score: number;
+}
+
+export const motherTopicsApi = {
+  /** 列出所有母题 */
+  list(active_only = false): Promise<MotherTopic[]> {
+    return request(`/mother-topics/?active_only=${active_only}`);
+  },
+
+  /** 创建母题 */
+  create(data: {
+    name: string;
+    description?: string;
+    keywords: string[];
+    weight?: number;
+    content_type?: string;
+    target_reader?: string;
+    is_active?: boolean;
+    display_order?: number;
+  }): Promise<MotherTopic> {
+    return request('/mother-topics/', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** 更新母题 */
+  update(
+    id: number,
+    data: Partial<{
+      name: string;
+      description: string;
+      keywords: string[];
+      weight: number;
+      content_type: string;
+      target_reader: string;
+      is_active: boolean;
+      display_order: number;
+    }>
+  ): Promise<MotherTopic> {
+    return request(`/mother-topics/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** 删除母题（软删除） */
+  delete(id: number): Promise<{ ok: boolean; message: string }> {
+    return request(`/mother-topics/${id}`, { method: 'DELETE' });
+  },
+
+  /** 对内容按母题打分 */
+  score(data: {
+    title: string;
+    summary?: string;
+    source?: string;
+    hot_value?: number;
+  }): Promise<ContentScoringResult> {
+    return request('/mother-topics/score', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** 对已入库内容重新匹配母题 */
+  matchContent(contentId: number): Promise<{
+    content_id: number;
+    title: string;
+    top_topic: string | null;
+    top_score: number;
+    all_scores: Array<{ name: string; keyword_score: number; weight: number; final: number }>;
+  }> {
+    return request(`/mother-topics/match/${contentId}`);
+  },
+};

@@ -25,6 +25,7 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
   const navItems: NavItem[] = [
     { id: 'lfv', label: '低粉爆文', href: '/low-follower-viral', badge: 'NEW' },
     { id: 'picks', label: '当日精选', href: '/today-picks', badge: 'HOT' },
+    { id: 'my-topics', label: '我的母题', href: '/my-topics', badge: '私' },
     { id: 'today', label: '今日选题', href: '/', count: topicCount },
     { id: 'daily', label: 'AI 日报', href: '/daily', badge: 'NEW' },
     { id: 'weekly', label: 'AI 周刊', href: '/weekly', badge: 'NEW' },

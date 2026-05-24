@@ -93,10 +93,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   return (
     <AppContext.Provider value={{ favorites, topicCount: contentCount, toggleFavorite, refreshCounts }}>
-      <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+      <div style={{ display: 'flex', height: '100dvh', overflow: 'hidden' }}>
         <Sidebar topicCount={contentCount} favCount={favorites.size} sourceCount={sourceCount} />
-        <main style={{ flex: 1, overflow: 'hidden', background: '#F7F7F8' }}>
-          {children}
+        <main style={{ flex: 1, overflow: 'hidden', background: '#F7F7F8', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+            {children}
+          </div>
         </main>
       </div>
     </AppContext.Provider>

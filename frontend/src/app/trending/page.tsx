@@ -519,7 +519,7 @@ function TrendingPage() {
   }
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 1200, margin: '0 auto', paddingBottom: 80 }}>
+    <div style={{ padding: '32px 40px', maxWidth: 1200, margin: '0 auto', paddingBottom: 80, minHeight: '100%', boxSizing: 'border-box' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>

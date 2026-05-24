@@ -700,77 +700,104 @@ function TrendingPage() {
         </div>
       )}
 
-      {/* List Tab Content: grouped by source */}
-      {!loading && tab === 'list' && Object.entries(groupedItems).map(([source, srcItems]) => (
-        <div key={source} style={{ marginBottom: 32 }}>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            marginBottom: 12, paddingBottom: 8,
-            borderBottom: `2px solid ${T.gray100}`,
-          }}>
-            <span style={{ fontSize: 15, fontWeight: 600, color: T.gray900 }}>
-              {SOURCE_LABELS[source] || source}
-            </span>
-            <span style={{ fontSize: 11, color: T.gray400 }}>
-              {srcItems.length} 条
-            </span>
-            {srcItems[0] && <CategoryTag category={srcItems[0].category} />}
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {srcItems.map((item, idx) => (
-              <a
-                key={item.id}
-                href={item.url || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '10px 14px', borderRadius: T.radiusXs,
-                  textDecoration: 'none',
-                  background: idx < 3 ? T.gray50 : T.white,
-                  transition: 'background 0.12s ease',
-                  cursor: item.url ? 'pointer' : 'default',
-                }}
-                onMouseEnter={e => { (e.currentTarget as unknown as HTMLDivElement).style.background = T.gray100; }}
-                onMouseLeave={e => { (e.currentTarget as unknown as HTMLDivElement).style.background = idx < 3 ? T.gray50 : T.white; }}
-              >
-                <RankNumber rank={item.rank} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{
-                    fontSize: 13.5, fontWeight: idx < 3 ? 600 : 400,
-                    color: T.gray900,
-                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      {/* List Tab Content: platform grid */}
+      {!loading && tab === 'list' && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(340, 1fr))',
+          gap: 16,
+        }}>
+          {Object.entries(groupedItems).map(([source, srcItems]) => {
+            const cat = srcItems[0]?.category || 'hot';
+            const catColor = CATEGORY_COLORS[cat] || CATEGORY_COLORS.hot;
+            return (
+              <div key={source} style={{
+                border: `1px solid ${T.gray200}`,
+                borderRadius: T.radius,
+                overflow: 'hidden',
+                background: T.white,
+              }}>
+                {/* 卡片头部 */}
+                <div style={{
+                  padding: '10px 14px',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  background: catColor.bg,
+                  borderBottom: `1px solid ${T.gray200}`,
+                }}>
+                  <span style={{
+                    fontSize: 13, fontWeight: 700, color: catColor.color,
                   }}>
-                    {item.title}
-                  </div>
-                  {item.extra?.digest && (
-                    <div style={{
-                      fontSize: 11, color: T.gray400, marginTop: 2,
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                      {(item.extra.digest as string).slice(0, 80)}
-                    </div>
-                  )}
+                    {SOURCE_LABELS[source] || source}
+                  </span>
+                  <span style={{
+                    fontSize: 10, color: catColor.color,
+                    background: T.white, padding: '1px 6px', borderRadius: 8,
+                    fontWeight: 600,
+                  }}>
+                    {srcItems.length}
+                  </span>
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, color: catColor.color,
+                    background: T.white, padding: '1px 6px', borderRadius: 8,
+                    textTransform: 'uppercase', letterSpacing: '0.05em',
+                  }}>
+                    {cat}
+                  </span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                  {item.hot_value > 0 && (
-                    <span style={{
-                      fontSize: 11, fontFamily: T.mono, fontWeight: 500,
-                      color: item.hot_value > 100 ? T.primary : T.gray400,
-                    }}>
-                      {item.hot_value >= 10000
-                        ? `${(item.hot_value / 10000).toFixed(1)}万`
-                        : item.hot_value.toLocaleString()}
-                    </span>
-                  )}
-                  <TrendBadge trend={item.trend} />
+                {/* 排行列表 */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  {srcItems.slice(0, 10).map((item, idx) => (
+                    <a
+                      key={item.id}
+                      href={item.url || '#'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '7px 12px',
+                        textDecoration: 'none',
+                        background: idx < 3 ? T.gray50 : T.white,
+                        borderBottom: idx < srcItems.length - 1 ? `1px solid ${T.gray100}` : 'none',
+                        transition: 'background 0.1s ease',
+                      }}
+                      onMouseEnter={e => { (e.currentTarget as unknown as HTMLDivElement).style.background = T.gray100; }}
+                      onMouseLeave={e => { (e.currentTarget as unknown as HTMLDivElement).style.background = idx < 3 ? T.gray50 : T.white; }}
+                    >
+                      <div style={{
+                        width: 20, height: 20, borderRadius: '50%',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 10, fontWeight: 700, flexShrink: 0,
+                        fontFamily: T.mono,
+                        ...(idx === 0 ? { background: '#FF6B35', color: '#fff' } :
+                           idx === 1 ? { background: '#FF8F65', color: '#fff' } :
+                           idx === 2 ? { background: '#FFB899', color: '#fff' } :
+                           { background: T.gray100, color: T.gray500 }),
+                      }}>
+                        {item.rank}
+                      </div>
+                      <span style={{
+                        flex: 1, fontSize: 12.5,
+                        color: T.gray900,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>
+                        {item.title}
+                      </span>
+                      {item.hot_value > 0 && (
+                        <span style={{
+                          fontSize: 10, fontFamily: T.mono, color: T.gray400,
+                          flexShrink: 0,
+                        }}>
+                          {item.hot_value >= 10000 ? `${(item.hot_value / 10000).toFixed(1)}万` : item.hot_value}
+                        </span>
+                      )}
+                    </a>
+                  ))}
                 </div>
-              </a>
-            ))}
-          </div>
+              </div>
+            );
+          })}
         </div>
-      ))}
+      )}
 
       {/* Empty */}
       {!loading && tab === 'list' && items.length === 0 && (

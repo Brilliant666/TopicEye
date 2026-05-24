@@ -178,13 +178,180 @@ function SourceMiniItem({ item }: { item: CrossPlatformSourceItem }) {
   );
 }
 
+/* ── 角度推荐面板 ── */
+
+interface AngleResult {
+  common_angles: string[];
+  contrast_angles: { angle: string; reasoning: string }[];
+  angle_note: string;
+}
+
+function AnglePanel({ cluster }: { cluster: CrossPlatformCluster }) {
+  const [angles, setAngles] = useState<AngleResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fetched, setFetched] = useState(false);
+
+  const fetchAngles = async () => {
+    if (fetched || loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/v1/trending/angles?topic=${encodeURIComponent(cluster.topic)}`
+      );
+      if (!res.ok) throw new Error('请求失败');
+      const data = await res.json();
+      setAngles(data);
+      setFetched(true);
+    } catch (e) {
+      setError('角度生成失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{
+      marginTop: 8,
+      padding: '10px 14px',
+      background: '#FFFBEB',
+      border: `1px solid #FDE68A`,
+      borderRadius: T.radiusSm,
+    }}>
+      {/* 按钮行 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: '#92400E' }}>AI 角度推荐</span>
+        {!fetched && !loading && (
+          <button
+            onClick={fetchAngles}
+            style={{
+              fontSize: 10, fontWeight: 600,
+              padding: '2px 8px', borderRadius: 8,
+              background: '#F59E0B', color: '#fff',
+              border: 'none', cursor: 'pointer',
+            }}
+          >
+            生成反差角度
+          </button>
+        )}
+        {loading && (
+          <span style={{ fontSize: 10, color: '#92400E' }}>生成中...</span>
+        )}
+      </div>
+
+      {/* 大众角度（不要写） */}
+      {angles && angles.common_angles.length > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 10, color: '#92400E', marginBottom: 4, fontWeight: 600 }}>
+            大众角度（不要写）：
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {angles.common_angles.map((a, i) => (
+              <span key={i} style={{
+                fontSize: 10, color: '#78350F',
+                background: '#FEF3C7',
+                padding: '2px 6px', borderRadius: 6,
+                textDecoration: 'line-through',
+              }}>{a}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 反差角度 */}
+      {angles && angles.contrast_angles.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, color: '#065F46', marginBottom: 4, fontWeight: 600 }}>
+            反差角度（值得写）：
+          </div>
+          {angles.contrast_angles.map((c, i) => (
+            <div key={i} style={{
+              marginBottom: 6,
+              padding: '6px 10px',
+              background: '#ECFDF5',
+              borderRadius: T.radiusXs,
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#065F46', marginBottom: 2 }}>
+                → {c.angle}
+              </div>
+              <div style={{ fontSize: 10, color: '#047857' }}>
+                {c.reasoning}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 角度洞察 */}
+      {angles && angles.angle_note && (
+        <div style={{
+          marginTop: 6, padding: '4px 8px',
+          background: '#F0FDF4', borderRadius: T.radiusXs,
+          fontSize: 10, color: '#166534',
+          fontStyle: 'italic',
+        }}>
+          💡 {angles.angle_note}
+        </div>
+      )}
+
+      {error && (
+        <div style={{ fontSize: 10, color: '#DC2626' }}>{error}</div>
+      )}
+    </div>
+  );
+}
+
+/* ── 展开后的完整 ClusterCard ── */
+
+function ClusterCardExpanded({ cluster }: { cluster: CrossPlatformCluster }) {
+  return (
+    <>
+      {/* 平台详情 */}
+      <div style={{
+        fontSize: 11, fontWeight: 600, color: T.gray500,
+        marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em',
+      }}>
+        各平台排名
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {cluster.source_items.map(item => (
+          <SourceMiniItem key={`${item.source}-${item.rank}`} item={item} />
+        ))}
+      </div>
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${T.gray200}`,
+      }}>
+        <span style={{ fontSize: 11, color: T.gray400 }}>
+          平均排名 #{cluster.avg_rank} · {cluster.total_hot.toLocaleString()} 总热度
+        </span>
+        <a
+          href={cluster.source_items[0]?.url || '#'}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            fontSize: 11, color: T.primary, textDecoration: 'none',
+            fontWeight: 600,
+          }}
+        >
+          查看详情 →
+        </a>
+      </div>
+
+      {/* AI 角度推荐 */}
+      <AnglePanel cluster={cluster} />
+    </>
+  );
+}
+
 function ClusterCard({ cluster }: { cluster: CrossPlatformCluster }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
     <div style={{
       border: `1px solid ${T.gray200}`,
-      borderRadius: T.radiusMd,
+      borderRadius: T.radius,
       overflow: 'hidden',
       transition: 'box-shadow 0.15s ease',
     }}>
@@ -269,36 +436,7 @@ function ClusterCard({ cluster }: { cluster: CrossPlatformCluster }) {
           background: T.gray50,
           borderTop: `1px solid ${T.gray100}`,
         }}>
-          <div style={{
-            fontSize: 11, fontWeight: 600, color: T.gray500,
-            marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em',
-          }}>
-            各平台排名
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {cluster.source_items.map(item => (
-              <SourceMiniItem key={`${item.source}-${item.rank}`} item={item} />
-            ))}
-          </div>
-          <div style={{
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${T.gray200}`,
-          }}>
-            <span style={{ fontSize: 11, color: T.gray400 }}>
-              平均排名 #{cluster.avg_rank} · {cluster.total_hot.toLocaleString()} 总热度
-            </span>
-            <a
-              href={cluster.source_items[0]?.url || '#'}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                fontSize: 11, color: T.primary, textDecoration: 'none',
-                fontWeight: 600,
-              }}
-            >
-              查看详情 →
-            </a>
-          </div>
+          <ClusterCardExpanded cluster={cluster} />
         </div>
       )}
     </div>

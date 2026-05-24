@@ -108,6 +108,7 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
         from app.repositories.category_repo import CategoryRepository
         cat_repo = CategoryRepository(db)
 
+        new_items: list[ContentItem] = []
         for entry in entries:
             ch = entry["_content_hash"]
             if ch in existing_hashes:
@@ -139,18 +140,20 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
                 tags=tags if tags else None,
                 status=ContentStatus.PENDING,
             )
-            db.add(item)
+            new_items.append(item)
             new_count += 1
             existing_hashes.add(ch)
 
             # ── Persist platform-specific metrics (Reddit, etc.) ──
             _maybe_save_metrics(entry, item, db)
 
-            # Update category content count
-            try:
-                await cat_repo.increment_count(category)
-            except Exception:
-                pass  # Non-critical
+        # Batch flush: single round-trip for all items this source
+        if new_items:
+            for item in new_items:
+                db.add(item)
+            await db.flush()
+            # Deferred batch category count update (runs after flush in background)
+            _deferred_batch_category_increment(db, new_items)
 
         # ── Step 6: Update source ────────────────────────────────────
         _update_source_status(source, SourceStatus.ACTIVE)
@@ -177,6 +180,34 @@ def _update_source_status(source: Source, status: SourceStatus) -> None:
     source.status = status
     source.sync_error = None
     source.updated_at = datetime.utcnow()
+
+
+def _deferred_batch_category_increment(db: AsyncSession, items: list[ContentItem]) -> None:
+    """
+    Batch-increment category content_count after items are flushed.
+    One UPDATE per unique category = minimal DB round-trips.
+    """
+    from collections import Counter
+    from sqlalchemy import text
+
+    counts = Counter(item.category for item in items if item.category)
+    if not counts:
+        return
+
+    async def _do_it():
+        for cat_name, count in counts.items():
+            await db.execute(
+                text("UPDATE categories SET content_count = content_count + :n WHERE name = :name"),
+                {"n": count, "name": cat_name}
+            )
+        await db.flush()
+
+    import asyncio
+    try:
+        loop = asyncio.get_running_loop()
+        asyncio.create_task(_do_it())
+    except Exception:
+        pass  # fire-and-forget, non-critical
 
 
 def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> None:

@@ -97,6 +97,30 @@ def classify(text: str) -> str:
     return scores.most_common(1)[0][0]
 
 
+def _get_keyword_score(text: str) -> float:
+    """
+    Returns a 0.0-1.0 confidence score for keyword-based classification.
+    1.0 = strong keyword hit (multiple keywords in same category)
+    0.0 = no keywords matched
+    """
+    if not text:
+        return 0.0
+
+    text_lower = text.lower()
+    scores: Counter[str] = Counter()
+    for keyword, category in _KEYWORD_MAP.items():
+        if keyword in text_lower:
+            scores[category] += 1
+
+    if not scores:
+        return 0.0
+
+    top_count = scores.most_common(1)[0][1]
+    # Normalize: 1 keyword hit = 0.4, 2 hits = 0.7, 3+ = 1.0
+    score = min(1.0, (top_count - 1) * 0.3 + 0.4)
+    return score
+
+
 def extract_tags(text: str, max_tags: int = 5) -> list[str]:
     """
     Extract relevant keyword tags from *text* (sync fallback).
@@ -125,6 +149,10 @@ async def classify_async(
     """
     Classify content using LLM with dynamic category discovery.
 
+    Fast-path: keyword fallback is tried FIRST. If confidence is high
+    enough (>0.6 keyword score), skip LLM entirely and use keyword result.
+    Only falls back to LLM when keyword score is low (category=其他 or low score).
+
     Returns:
         {
             "category": str,          # 分类名称
@@ -132,8 +160,6 @@ async def classify_async(
             "is_new_category": bool,  # 是否为新发现的分类
             "confidence": float,      # 置信度
         }
-
-    Falls back to keyword-based classification on any error.
     """
     from app.repositories.category_repo import CategoryRepository
     from app.services.llm import call_llm_json
@@ -151,8 +177,25 @@ async def classify_async(
     if not category_names:
         category_names = CATEGORIES.copy()
 
-    categories_str = "、".join(category_names)
     text_input = f"{title} {summary}".strip()
+
+    # ── Fast-path: keyword fallback first (no I/O, no LLM call) ──────────
+    keyword_category = classify(text_input)
+    keyword_tags = extract_tags(text_input)
+    keyword_score = _get_keyword_score(text_input)  # 0.0 ~ 1.0
+
+    # If keyword hit a known category with decent score, skip LLM entirely
+    # This avoids one LLM API call per content item during bulk ingestion
+    if keyword_category != "其他" and keyword_score >= 0.4:
+        return {
+            "category": keyword_category,
+            "tags": keyword_tags,
+            "is_new_category": False,
+            "confidence": keyword_score,
+        }
+
+    # ── Slow path: LLM classification ─────────────────────────────────────
+    categories_str = "、".join(category_names)
 
     try:
         messages = [

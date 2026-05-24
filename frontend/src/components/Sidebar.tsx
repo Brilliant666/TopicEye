@@ -32,6 +32,7 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
     { id: 'favorites', label: '收藏夹', href: '/favorites', count: favCount },
     { id: 'sources', label: '信源管理', href: '/sources', count: sourceCount },
     { id: 'trends', label: '趋势追踪', href: '/trends', badge: 'NEW' },
+    { id: 'trending', label: '趋势雷达', href: '/trending', badge: 'NEW' },
   ];
 
   const isActive = (href: string) => {

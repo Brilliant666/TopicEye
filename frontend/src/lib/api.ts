@@ -411,3 +411,58 @@ export const weeklyDigestApi = {
     return request(`/weekly-digests/generate${query}`, { method: 'POST' });
   },
 };
+
+// ─── Trending Radar (趋势雷达) API ───
+
+export interface TrendingItem {
+  id: number;
+  source: string;
+  category: string;
+  rank: number;
+  title: string;
+  url: string;
+  hot_value: number;
+  hot_value_raw: string;
+  trend: string | null;
+  cover_url: string | null;
+  extra: Record<string, unknown> | null;
+  fetched_at: string;
+  batch_id: string;
+}
+
+export interface TrendingSource {
+  source: string;
+  category: string;
+  display_name: string;
+  count: number;
+  last_synced: string | null;
+}
+
+export const trendingApi = {
+  /** 获取趋势数据 */
+  list(params?: { category?: string; source?: string; limit?: number }): Promise<TrendingItem[]> {
+    const query = params
+      ? '?' + new URLSearchParams(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined && v !== '')
+            .map(([k, v]) => [k, String(v)])
+        ).toString()
+      : '';
+    return request(`/trending${query}`);
+  },
+
+  /** 获取可用信源列表 */
+  listSources(): Promise<{ sources: TrendingSource[] }> {
+    return request('/trending/sources');
+  },
+
+  /** 同步单个信源 */
+  sync(source: string): Promise<{ fetched: number }> {
+    return request(`/trending/sync/${source}`, { method: 'POST' });
+  },
+
+  /** 同步所有信源 */
+  syncAll(): Promise<Record<string, { fetched: number }>> {
+    return request('/trending/sync-all', { method: 'POST' });
+  },
+};

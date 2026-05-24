@@ -511,6 +511,16 @@ function TrendingPage() {
     ? sources.filter(s => s.category === selectedCategory)
     : sources;
 
+  const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
+  const toggleSource = (source: string) => {
+    setExpandedSources(prev => {
+      const next = new Set(prev);
+      if (next.has(source)) next.delete(source);
+      else next.add(source);
+      return next;
+    });
+  };
+
   // Group items by source for display
   const groupedItems: Record<string, TrendingItem[]> = {};
   for (const item of items) {
@@ -678,9 +688,9 @@ function TrendingPage() {
                     {cat}
                   </span>
                 </div>
-                {/* 排行列表 — 紧凑行高 */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-                  {srcItems.slice(0, 5).map((item, idx) => (
+                {/* 排行列表 — 滚动 + 展开按钮 */}
+                <div style={{ maxHeight: expandedSources.has(source) ? 'none' : 200, overflowY: 'auto' }}>
+                  {(expandedSources.has(source) ? srcItems : srcItems.slice(0, 5)).map((item, idx) => (
                     <a
                       key={item.id}
                       href={item.url || '#'}
@@ -710,14 +720,28 @@ function TrendingPage() {
                       }}>
                         {item.title}
                       </span>
-                      {item.heat && (
+                      {item.hot_value > 0 && (
                         <span style={{ fontSize: 10, color: T.gray400, flexShrink: 0 }}>
-                          {item.heat >= 10000 ? `${(item.heat / 10000).toFixed(1)}万` : item.heat}
+                          {item.hot_value >= 10000 ? `${(item.hot_value / 10000).toFixed(1)}万` : item.hot_value}
                         </span>
                       )}
                     </a>
                   ))}
                 </div>
+                {/* 展开更多按钮 */}
+                {srcItems.length > 5 && (
+                  <button
+                    onClick={() => toggleSource(source)}
+                    style={{
+                      width: '100%', padding: '6px', fontSize: 11, fontWeight: 600,
+                      color: T.gray500, background: T.gray50,
+                      border: 'none', borderTop: `1px solid ${T.gray100}`,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {expandedSources.has(source) ? '收起' : `展开 ${srcItems.length - 5} 条`}
+                  </button>
+                )}
               </div>
             );
           })}

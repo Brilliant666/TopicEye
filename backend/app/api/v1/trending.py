@@ -166,13 +166,46 @@ async def get_cross_platform(
     }
 
 
+# ── 历史快照 API ────────────────────────────────────────────────────────
+
+@router.get("/snapshots/diff/{source}")
+async def get_snapshot_diff_api(
+    source: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    获取指定 source 的今日 vs 昨日快照对比。
+    返回 rank 变化和新上榜/掉榜条目。
+    """
+    from app.services.trending_snapshot import get_snapshot_diff
+
+    diff = await get_snapshot_diff(db, source)
+    if diff is None:
+        return {"source": source, "available": False, "changes": []}
+    return {"source": source, "available": True, **diff}
+
+
+@router.post("/snapshots/save")
+async def manual_save_snapshots(
+    db: AsyncSession = Depends(get_db),
+):
+    """手动触发保存所有趋势源快照（一般用于调试）。"""
+    from app.services.trending_snapshot import save_all_snapshots
+
+    results = await save_all_snapshots(db)
+    await db.commit()
+    return {"saved": results}
+
+
+# ── 角度推荐 API ────────────────────────────────────────────────────────
+
 class AngleRecommendOut(BaseModel):
     common_angles: list[str]
     contrast_angles: list[dict[str, str]]
     angle_note: str
 
 
-@router.get("/angles")
+@router.get("/angles", response_model=AngleRecommendOut)
 async def get_topic_angles(
     topic: str = Query(..., description="话题标题"),
     db: AsyncSession = Depends(get_db),

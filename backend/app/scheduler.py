@@ -253,6 +253,32 @@ async def _rescan_sources() -> None:
     logger.info("Scheduler: source rescan complete — %d active jobs", len(sources))
 
 
+async def _save_trending_snapshots() -> None:
+    """Save daily snapshot for all trending sources at 00:30."""
+    logger.info("Scheduler: save_trending_snapshots started")
+    try:
+        async with async_session() as db:
+            from app.services.trending_snapshot import save_all_snapshots
+            results = await save_all_snapshots(db)
+            await db.commit()
+        logger.info("Scheduler: trending snapshots saved — %s", results)
+    except Exception:
+        logger.exception("Scheduler: save_trending_snapshots failed")
+
+
+async def _cleanup_old_trending_snapshots() -> None:
+    """Delete trending snapshots older than 15 days at 01:00."""
+    logger.info("Scheduler: cleanup_old_trending_snapshots started")
+    try:
+        async with async_session() as db:
+            from app.services.trending_snapshot import cleanup_old_snapshots
+            count = await cleanup_old_snapshots(db)
+            await db.commit()
+        logger.info("Scheduler: cleanup_old_trending_snapshots removed %d records", count)
+    except Exception:
+        logger.exception("Scheduler: cleanup_old_trending_snapshots failed")
+
+
 # ── Lifecycle helpers ─────────────────────────────────────────────────
 
 def start_scheduler() -> None:
@@ -282,6 +308,22 @@ def start_scheduler() -> None:
         trigger=IntervalTrigger(minutes=30),
         id="sync_trending",
         name="Sync all trending sources",
+        replace_existing=True,
+    )
+
+    # Trending snapshot: save daily snapshot at 00:30, cleanup old at 01:00
+    scheduler.add_job(
+        _save_trending_snapshots,
+        trigger=CronTrigger(hour=0, minute=30),
+        id="save_trending_snapshots",
+        name="Save daily trending snapshots",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _cleanup_old_trending_snapshots,
+        trigger=CronTrigger(hour=1, minute=0),
+        id="cleanup_trending_snapshots",
+        name="Cleanup trending snapshots older than 15 days",
         replace_existing=True,
     )
 

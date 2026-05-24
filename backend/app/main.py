@@ -13,6 +13,7 @@ import app.models.daily_report  # noqa: F401
 import app.models.category  # noqa: F401
 import app.models.feedback  # noqa: F401
 import app.models.weekly_digest  # noqa: F401
+import app.models.trending  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

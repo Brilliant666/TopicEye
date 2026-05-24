@@ -110,3 +110,105 @@ async def trigger_sync_all(
     """手动触发所有趋势源同步。"""
     results = await sync_all_trending(db)
     return results
+
+
+@router.get("/cross-platform")
+async def get_cross_platform(
+    min_resonance: int = Query(1, ge=1, le=10, description="最小共振平台数"),
+    limit: int = Query(30, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """跨平台热点交叉发现。
+
+    对所有趋势数据做标题聚类，找出在多平台同时出现的热点话题。
+    resonance >= 3 为"高共振"，值得关注。
+    """
+    from app.services.trending_cross import cluster_trending_items
+
+    # 取全部数据
+    stmt = select(TrendingItem).order_by(TrendingItem.source, TrendingItem.rank)
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+
+    # 转成 dict 列表给聚类函数
+    item_dicts = [
+        {
+            "id": it.id,
+            "source": it.source.name if hasattr(it.source, "name") else str(it.source),
+            "category": it.category.name if hasattr(it.category, "name") else str(it.category),
+            "rank": it.rank,
+            "title": it.title,
+            "url": it.url,
+            "hot_value": it.hot_value,
+            "hot_value_raw": it.hot_value_raw,
+            "trend": it.trend,
+            "extra": it.extra,
+        }
+        for it in items
+    ]
+
+    clusters = cluster_trending_items(item_dicts)
+
+    # 过滤最小共振数
+    clusters = [c for c in clusters if c["resonance"] >= min_resonance]
+
+    # 限制返回数量
+    clusters = clusters[:limit]
+
+    # 清理内部字段
+    for c in clusters:
+        for it in c.get("items", []):
+            it.pop("_keywords", None)
+
+    return {
+        "total": len(clusters),
+        "clusters": clusters,
+    }
+
+
+class AngleRecommendOut(BaseModel):
+    common_angles: list[str]
+    contrast_angles: list[dict[str, str]]
+    angle_note: str
+
+
+@router.get("/angles")
+async def get_topic_angles(
+    topic: str = Query(..., description="话题标题"),
+    db: AsyncSession = Depends(get_db),
+):
+    """为指定话题生成创作角度推荐。
+
+    基于卡兹克方法论：
+    - 大众角度（第一直觉想到的不能写）
+    - 反差角度（陌生化，情理之中预料之外）
+    """
+    from app.services.angle_recommend import generate_angles_for_topic
+
+    # 从 DB 找到相关趋势条目，拼出各平台标题
+    stmt = (
+        select(TrendingItem)
+        .where(TrendingItem.title.like(f"%{topic[:8]}%"))
+        .order_by(TrendingItem.rank)
+        .limit(8)
+    )
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+
+    if not items:
+        return {"common_angles": [], "contrast_angles": [], "angle_note": "未找到相关话题数据"}
+
+    platform_titles = [it.title for it in items]
+
+    # 取第一个作为代表
+    rep_item = items[0]
+    keywords: list[str] = []
+    if rep_item.extra and isinstance(rep_item.extra, dict):
+        keywords = rep_item.extra.get("keywords", [])
+
+    angles = await generate_angles_for_topic(
+        topic=topic,
+        keywords=keywords,
+        platform_titles=platform_titles,
+    )
+    return angles

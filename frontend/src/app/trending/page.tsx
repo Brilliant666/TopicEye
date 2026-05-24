@@ -2,7 +2,13 @@
 
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { T } from '@/lib/design-tokens';
-import { trendingApi, type TrendingItem, type TrendingSource } from '@/lib/api';
+import {
+  trendingApi,
+  type TrendingItem,
+  type TrendingSource,
+  type CrossPlatformCluster,
+  type CrossPlatformSourceItem,
+} from '@/lib/api';
 
 /* ── Constants ── */
 
@@ -26,10 +32,14 @@ const CATEGORY_COLORS: Record<string, { bg: string; color: string }> = {
 };
 
 const TREND_ICONS: Record<string, string> = {
-  up: '↑',
-  down: '↓',
-  new: '★',
-  stable: '→',
+  up: '↑', down: '↓', new: '★', stable: '→',
+};
+
+const RESONANCE_COLORS: Record<number, { bg: string; color: string; label: string }> = {
+  5: { bg: '#FEE2E2', color: '#EF4444', label: '超强共振' },
+  4: { bg: '#FFECB5', color: '#D97706', label: '强共振' },
+  3: { bg: '#FEF9C3', color: '#A16207', label: '共振' },
+  2: { bg: '#E6FAF5', color: '#059669', label: '轻微' },
 };
 
 /* ── Components ── */
@@ -41,7 +51,7 @@ function TrendBadge({ trend }: { trend: string | null }) {
     down: { bg: '#ECFDF5', color: '#059669' },
     new: { bg: '#FFF4EE', color: '#FF6B35' },
   };
-  const c = colors[trend] || colors.stable;
+  const c = colors[trend] || { bg: T.gray100, color: T.gray600 };
   return (
     <span style={{
       fontSize: 10, fontWeight: 700, padding: '1px 5px',
@@ -94,18 +104,222 @@ function CategoryTag({ category }: { category: string }) {
   );
 }
 
+/* ── 共振话题卡片 ── */
+
+function ResonanceBadge({ resonance }: { resonance: number }) {
+  const c = RESONANCE_COLORS[resonance] || RESONANCE_COLORS[2];
+  return (
+    <span style={{
+      fontSize: 11, fontWeight: 700, padding: '2px 8px',
+      borderRadius: 6, background: c.bg, color: c.color,
+      whiteSpace: 'nowrap',
+    }}>
+      {c.label} · {resonance}平台
+    </span>
+  );
+}
+
+function HotValue({ value }: { value: number }) {
+  if (!value) return null;
+  return (
+    <span style={{
+      fontSize: 11, fontFamily: T.mono, fontWeight: 500,
+      color: value > 10000 ? T.primary : T.gray400,
+    }}>
+      {value >= 10000 ? `${(value / 10000).toFixed(1)}万` : value.toLocaleString()}
+    </span>
+  );
+}
+
+function SourceMiniItem({ item }: { item: CrossPlatformSourceItem }) {
+  return (
+    <a
+      href={item.url || '#'}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '6px 10px', borderRadius: T.radiusXs,
+        textDecoration: 'none',
+        background: T.white,
+        border: `1px solid ${T.gray100}`,
+        transition: 'all 0.12s ease',
+        flex: 1, minWidth: 0,
+      }}
+      onMouseEnter={e => {
+        const el = e.currentTarget as HTMLAnchorElement;
+        el.style.borderColor = T.primaryBorder;
+        el.style.background = T.primaryLight;
+      }}
+      onMouseLeave={e => {
+        const el = e.currentTarget as HTMLAnchorElement;
+        el.style.borderColor = T.gray100;
+        el.style.background = T.white;
+      }}
+    >
+      <span style={{
+        fontSize: 10, fontWeight: 600,
+        color: item.rank <= 3 ? '#FF6B35' : T.gray400,
+        minWidth: 16,
+      }}>
+        #{item.rank}
+      </span>
+      <span style={{
+        fontSize: 12, color: T.gray700,
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        flex: 1,
+      }}>
+        {item.title}
+      </span>
+      <span style={{ fontSize: 10, color: T.gray400, flexShrink: 0 }}>
+        {SOURCE_LABELS[item.source] || item.source}
+      </span>
+    </a>
+  );
+}
+
+function ClusterCard({ cluster }: { cluster: CrossPlatformCluster }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div style={{
+      border: `1px solid ${T.gray200}`,
+      borderRadius: T.radiusMd,
+      overflow: 'hidden',
+      transition: 'box-shadow 0.15s ease',
+    }}>
+      {/* 卡片头部 */}
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          padding: '14px 16px',
+          cursor: 'pointer',
+          background: expanded ? T.gray50 : T.white,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          {/* 左侧：共振强度标识 */}
+          <div style={{
+            width: 44, height: 44, borderRadius: 10,
+            background: RESONANCE_COLORS[cluster.resonance]?.bg || T.gray100,
+            color: RESONANCE_COLORS[cluster.resonance]?.color || T.gray500,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }}>
+            <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1 }}>{cluster.resonance}</span>
+            <span style={{ fontSize: 8, fontWeight: 600, marginTop: 2 }}>平台</span>
+          </div>
+
+          {/* 中间：标题+关键词 */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontSize: 14, fontWeight: 600, color: T.gray900,
+              lineHeight: 1.4,
+              overflow: 'hidden', textOverflow: 'ellipsis',
+              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+            }}>
+              {cluster.topic}
+            </div>
+            <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+              {cluster.keywords.slice(0, 4).map(kw => (
+                <span key={kw} style={{
+                  fontSize: 10, color: T.gray500,
+                  background: T.gray100,
+                  padding: '1px 6px', borderRadius: 4,
+                }}>#{kw}</span>
+              ))}
+            </div>
+          </div>
+
+          {/* 右侧：平台标签+展开按钮 */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+            <ResonanceBadge resonance={cluster.resonance} />
+            <span style={{ fontSize: 11, color: T.gray400 }}>
+              {expanded ? '收起↑' : '展开↓'}
+            </span>
+          </div>
+        </div>
+
+        {/* 平台横向滚动条 */}
+        <div style={{
+          display: 'flex', gap: 6, marginTop: 10, overflowX: 'auto',
+          paddingBottom: 4,
+        }}>
+          {cluster.source_labels.map((label, i) => (
+            <span key={i} style={{
+              fontSize: 10, fontWeight: 500,
+              padding: '2px 7px', borderRadius: 12,
+              background: T.gray100, color: T.gray600,
+              whiteSpace: 'nowrap', flexShrink: 0,
+            }}>
+              {label}
+            </span>
+          ))}
+          <span style={{ fontSize: 10, color: T.gray400, marginLeft: 4, flexShrink: 0 }}>
+            {cluster.item_count}条相关内容
+          </span>
+        </div>
+      </div>
+
+      {/* 展开详情 */}
+      {expanded && (
+        <div style={{
+          padding: '10px 16px 14px',
+          background: T.gray50,
+          borderTop: `1px solid ${T.gray100}`,
+        }}>
+          <div style={{
+            fontSize: 11, fontWeight: 600, color: T.gray500,
+            marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em',
+          }}>
+            各平台排名
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {cluster.source_items.map(item => (
+              <SourceMiniItem key={`${item.source}-${item.rank}`} item={item} />
+            ))}
+          </div>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${T.gray200}`,
+          }}>
+            <span style={{ fontSize: 11, color: T.gray400 }}>
+              平均排名 #{cluster.avg_rank} · {cluster.total_hot.toLocaleString()} 总热度
+            </span>
+            <a
+              href={cluster.source_items[0]?.url || '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                fontSize: 11, color: T.primary, textDecoration: 'none',
+                fontWeight: 600,
+              }}
+            >
+              查看详情 →
+            </a>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Page ── */
 
 function TrendingPage() {
+  const [tab, setTab] = useState<'list' | 'resonance'>('list');
   const [items, setItems] = useState<TrendingItem[]>([]);
   const [sources, setSources] = useState<TrendingSource[]>([]);
+  const [clusters, setClusters] = useState<CrossPlatformCluster[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [minResonance, setMinResonance] = useState(2);
 
   const [selectedCategory, setSelectedCategory] = useState('');
   const [selectedSource, setSelectedSource] = useState('');
 
-  const fetchData = useCallback(async () => {
+  const fetchList = useCallback(async () => {
     setLoading(true);
     try {
       const [itemList, srcList] = await Promise.all([
@@ -125,13 +339,29 @@ function TrendingPage() {
     }
   }, [selectedCategory, selectedSource]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const fetchClusters = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await trendingApi.crossPlatform({ min_resonance: minResonance, limit: 50 });
+      setClusters(data.clusters || []);
+    } catch (e) {
+      console.error('Failed to fetch cross-platform:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [minResonance]);
+
+  useEffect(() => {
+    if (tab === 'list') fetchList();
+    else fetchClusters();
+  }, [tab, fetchList, fetchClusters]);
 
   const handleSyncAll = async () => {
     setSyncing(true);
     try {
       await trendingApi.syncAll();
-      await fetchData();
+      if (tab === 'list') await fetchList();
+      else await fetchClusters();
     } catch (e) {
       console.error('Sync failed:', e);
     } finally {
@@ -159,7 +389,9 @@ function TrendingPage() {
             趋势雷达
           </h1>
           <p style={{ fontSize: 13, color: T.gray400, margin: '4px 0 0' }}>
-            多平台热搜实时榜单 · {items.length} 条
+            {tab === 'list'
+              ? `多平台热搜实时榜单 · ${items.length} 条`
+              : `跨平台热点交叉发现 · ${clusters.length} 个共振话题`}
           </p>
         </div>
         <button
@@ -176,65 +408,134 @@ function TrendingPage() {
         </button>
       </div>
 
-      {/* Category Tabs */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        {CATEGORIES.map(cat => {
-          const active = selectedCategory === cat.value;
+      {/* Tab Switcher */}
+      <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: `2px solid ${T.gray100}` }}>
+        {[
+          { key: 'list' as const, label: '榜单' },
+          { key: 'resonance' as const, label: '共振发现' },
+        ].map(t => {
+          const active = tab === t.key;
           return (
             <button
-              key={cat.value}
-              onClick={() => { setSelectedCategory(cat.value); setSelectedSource(''); }}
+              key={t.key}
+              onClick={() => setTab(t.key)}
               style={{
-                padding: '6px 16px', fontSize: 13, fontWeight: active ? 600 : 400,
-                background: active ? T.primaryLight : T.white,
-                color: active ? T.primary : T.gray600,
-                border: `1px solid ${active ? T.primaryBorder : T.gray200}`,
-                borderRadius: 20, cursor: 'pointer', transition: 'all 0.15s ease',
+                padding: '8px 20px', fontSize: 14, fontWeight: active ? 600 : 400,
+                background: 'transparent', color: active ? T.primary : T.gray500,
+                border: 'none',
+                borderBottom: active ? `2px solid ${T.primary}` : '2px solid transparent',
+                marginBottom: -2, cursor: 'pointer',
+                transition: 'all 0.15s ease',
               }}
             >
-              {cat.label}
+              {t.label}
+              {t.key === 'resonance' && (
+                <span style={{
+                  marginLeft: 6, fontSize: 10, fontWeight: 700,
+                  background: '#FEE2E2', color: '#EF4444',
+                  padding: '1px 5px', borderRadius: 8,
+                }}>NEW</span>
+              )}
             </button>
           );
         })}
       </div>
 
-      {/* Source Filter */}
-      {filteredSources.length > 0 && (
-        <div style={{ display: 'flex', gap: 6, marginBottom: 24, flexWrap: 'wrap' }}>
-          <button
-            onClick={() => setSelectedSource('')}
-            style={{
-              padding: '4px 12px', fontSize: 12, fontWeight: !selectedSource ? 600 : 400,
-              background: !selectedSource ? T.gray900 : T.white,
-              color: !selectedSource ? T.white : T.gray600,
-              border: `1px solid ${!selectedSource ? T.gray900 : T.gray200}`,
-              borderRadius: 16, cursor: 'pointer',
-            }}
-          >
-            全部信源
-          </button>
-          {filteredSources.map(s => {
-            const active = selectedSource === s.source;
+      {/* Resonance Filter (only on resonance tab) */}
+      {tab === 'resonance' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+          <span style={{ fontSize: 13, color: T.gray500 }}>最低共振：</span>
+          {[1, 2, 3, 4, 5].map(r => {
+            const active = minResonance === r;
             return (
               <button
-                key={s.source}
-                onClick={() => setSelectedSource(active ? '' : s.source)}
+                key={r}
+                onClick={() => setMinResonance(r)}
                 style={{
                   padding: '4px 12px', fontSize: 12, fontWeight: active ? 600 : 400,
-                  background: active ? T.primaryLight : T.white,
-                  color: active ? T.primary : T.gray600,
-                  border: `1px solid ${active ? T.primaryBorder : T.gray200}`,
-                  borderRadius: 16, cursor: 'pointer',
+                  background: active
+                    ? (RESONANCE_COLORS[r]?.bg || T.gray100)
+                    : T.white,
+                  color: active
+                    ? (RESONANCE_COLORS[r]?.color || T.gray900)
+                    : T.gray600,
+                  border: `1px solid ${active ? (RESONANCE_COLORS[r]?.color || T.primary) : T.gray200}`,
+                  borderRadius: 12, cursor: 'pointer',
                 }}
               >
-                {SOURCE_LABELS[s.source] || s.source}
-                <span style={{ marginLeft: 4, fontSize: 10, color: T.gray400 }}>
-                  {s.count}
-                </span>
+                {r}平台+
               </button>
             );
           })}
+          <span style={{ fontSize: 11, color: T.gray400, marginLeft: 4 }}>
+            共 {clusters.length} 个话题
+          </span>
         </div>
+      )}
+
+      {/* Category Tabs (only on list tab) */}
+      {tab === 'list' && (
+        <>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+            {CATEGORIES.map(cat => {
+              const active = selectedCategory === cat.value;
+              return (
+                <button
+                  key={cat.value}
+                  onClick={() => { setSelectedCategory(cat.value); setSelectedSource(''); }}
+                  style={{
+                    padding: '6px 16px', fontSize: 13, fontWeight: active ? 600 : 400,
+                    background: active ? T.primaryLight : T.white,
+                    color: active ? T.primary : T.gray600,
+                    border: `1px solid ${active ? T.primaryBorder : T.gray200}`,
+                    borderRadius: 20, cursor: 'pointer', transition: 'all 0.15s ease',
+                  }}
+                >
+                  {cat.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Source Filter */}
+          {filteredSources.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 24, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setSelectedSource('')}
+                style={{
+                  padding: '4px 12px', fontSize: 12, fontWeight: !selectedSource ? 600 : 400,
+                  background: !selectedSource ? T.gray900 : T.white,
+                  color: !selectedSource ? T.white : T.gray600,
+                  border: `1px solid ${!selectedSource ? T.gray900 : T.gray200}`,
+                  borderRadius: 16, cursor: 'pointer',
+                }}
+              >
+                全部信源
+              </button>
+              {filteredSources.map(s => {
+                const active = selectedSource === s.source;
+                return (
+                  <button
+                    key={s.source}
+                    onClick={() => setSelectedSource(active ? '' : s.source)}
+                    style={{
+                      padding: '4px 12px', fontSize: 12, fontWeight: active ? 600 : 400,
+                      background: active ? T.primaryLight : T.white,
+                      color: active ? T.primary : T.gray600,
+                      border: `1px solid ${active ? T.primaryBorder : T.gray200}`,
+                      borderRadius: 16, cursor: 'pointer',
+                    }}
+                  >
+                    {SOURCE_LABELS[s.source] || s.source}
+                    <span style={{ marginLeft: 4, fontSize: 10, color: T.gray400 }}>
+                      {s.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
 
       {/* Loading */}
@@ -244,8 +545,25 @@ function TrendingPage() {
         </div>
       )}
 
-      {/* Content: grouped by source */}
-      {!loading && Object.entries(groupedItems).map(([source, srcItems]) => (
+      {/* Resonance Tab Content */}
+      {!loading && tab === 'resonance' && (
+        <div>
+          {clusters.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
+              暂无共振数据，切换「1平台+」试试
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {clusters.map((cluster, idx) => (
+                <ClusterCard key={`${cluster.topic}-${idx}`} cluster={cluster} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* List Tab Content: grouped by source */}
+      {!loading && tab === 'list' && Object.entries(groupedItems).map(([source, srcItems]) => (
         <div key={source} style={{ marginBottom: 32 }}>
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10,
@@ -276,8 +594,8 @@ function TrendingPage() {
                   transition: 'background 0.12s ease',
                   cursor: item.url ? 'pointer' : 'default',
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = T.gray100; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = idx < 3 ? T.gray50 : T.white; }}
+                onMouseEnter={e => { (e.currentTarget as unknown as HTMLDivElement).style.background = T.gray100; }}
+                onMouseLeave={e => { (e.currentTarget as unknown as HTMLDivElement).style.background = idx < 3 ? T.gray50 : T.white; }}
               >
                 <RankNumber rank={item.rank} />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -317,7 +635,7 @@ function TrendingPage() {
       ))}
 
       {/* Empty */}
-      {!loading && items.length === 0 && (
+      {!loading && tab === 'list' && items.length === 0 && (
         <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
           暂无趋势数据，点击右上角「立即刷新」同步
         </div>

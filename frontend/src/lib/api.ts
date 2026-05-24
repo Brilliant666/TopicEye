@@ -465,4 +465,44 @@ export const trendingApi = {
   syncAll(): Promise<Record<string, { fetched: number }>> {
     return request('/trending/sync-all', { method: 'POST' });
   },
+
+  /** 跨平台热点交叉发现 */
+  crossPlatform(params?: { min_resonance?: number; limit?: number }): Promise<{
+    total: number;
+    clusters: CrossPlatformCluster[];
+  }> {
+    const query = params
+      ? '?' + new URLSearchParams(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined && v !== '')
+            .map(([k, v]) => [k, String(v)])
+        ).toString()
+      : '';
+    return request(`/trending/cross-platform${query}`);
+  },
 };
+
+// ─── Cross-Platform Clustering ───
+
+export interface CrossPlatformSourceItem {
+  source: string;
+  source_label: string;
+  title: string;
+  rank: number;
+  hot_value: number;
+  hot_value_raw: string;
+  url: string;
+  trend: string | null;
+}
+
+export interface CrossPlatformCluster {
+  topic: string;
+  keywords: string[];
+  resonance: number;
+  item_count: number;
+  sources: string[];
+  source_labels: string[];
+  source_items: CrossPlatformSourceItem[];
+  total_hot: number;
+  avg_rank: number;
+}

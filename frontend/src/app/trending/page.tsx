@@ -635,12 +635,13 @@ function TrendingPage() {
         </div>
       )}
 
-      {/* List Tab Content: platform grid */}
+      {/* List Tab Content: responsive platform grid */}
       {!loading && tab === 'list' && (
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(340, 1fr))',
-          gap: 16,
+          gridTemplateColumns: 'repeat(auto-fill, minmax(280, 1fr))',
+          gap: 12,
+          alignContent: 'start',
         }}>
           {Object.entries(groupedItems).map(([source, srcItems]) => {
             const cat = srcItems[0]?.category || 'hot';
@@ -652,77 +653,66 @@ function TrendingPage() {
                 overflow: 'hidden',
                 background: T.white,
               }}>
-                {/* 卡片头部 */}
+                {/* 卡片头部 — 分类色打在顶部 */}
                 <div style={{
-                  padding: '10px 14px',
-                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '8px 12px',
+                  display: 'flex', alignItems: 'center', gap: 6,
                   background: catColor.bg,
                   borderBottom: `1px solid ${T.gray200}`,
                 }}>
-                  <span style={{
-                    fontSize: 13, fontWeight: 700, color: catColor.color,
-                  }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: catColor.color }}>
                     {SOURCE_LABELS[source] || source}
                   </span>
                   <span style={{
-                    fontSize: 10, color: catColor.color,
-                    background: T.white, padding: '1px 6px', borderRadius: 8,
+                    fontSize: 9, color: catColor.color,
+                    background: T.white, padding: '1px 5px', borderRadius: 6,
                     fontWeight: 600,
                   }}>
                     {srcItems.length}
                   </span>
                   <span style={{
                     fontSize: 9, fontWeight: 700, color: catColor.color,
-                    background: T.white, padding: '1px 6px', borderRadius: 8,
+                    background: T.white, padding: '1px 5px', borderRadius: 6,
                     textTransform: 'uppercase', letterSpacing: '0.05em',
                   }}>
                     {cat}
                   </span>
                 </div>
-                {/* 排行列表 */}
+                {/* 排行列表 — 紧凑行高 */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-                  {srcItems.slice(0, 10).map((item, idx) => (
+                  {srcItems.slice(0, 5).map((item, idx) => (
                     <a
                       key={item.id}
                       href={item.url || '#'}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{
-                        display: 'flex', alignItems: 'center', gap: 8,
-                        padding: '7px 12px',
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        padding: '5px 10px',
                         textDecoration: 'none',
                         background: idx < 3 ? T.gray50 : T.white,
-                        borderBottom: idx < srcItems.length - 1 ? `1px solid ${T.gray100}` : 'none',
-                        transition: 'background 0.1s ease',
+                        borderBottom: `1px solid ${T.gray100}`,
                       }}
-                      onMouseEnter={e => { (e.currentTarget as unknown as HTMLDivElement).style.background = T.gray100; }}
-                      onMouseLeave={e => { (e.currentTarget as unknown as HTMLDivElement).style.background = idx < 3 ? T.gray50 : T.white; }}
                     >
-                      <div style={{
-                        width: 20, height: 20, borderRadius: '50%',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 10, fontWeight: 700, flexShrink: 0,
-                        fontFamily: T.mono,
-                        ...(idx === 0 ? { background: '#FF6B35', color: '#fff' } :
-                           idx === 1 ? { background: '#FF8F65', color: '#fff' } :
-                           idx === 2 ? { background: '#FFB899', color: '#fff' } :
-                           { background: T.gray100, color: T.gray500 }),
-                      }}>
-                        {item.rank}
-                      </div>
                       <span style={{
-                        flex: 1, fontSize: 12.5,
-                        color: T.gray900,
+                        width: 18, height: 18, borderRadius: '50%',
+                        background: idx === 0 ? '#FF6B35' : idx === 1 ? '#FFA94D' : idx === 2 ? '#FFD59E' : T.gray200,
+                        color: idx < 3 ? T.white : T.gray500,
+                        fontSize: 10, fontWeight: 700,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0,
+                      }}>
+                        {idx + 1}
+                      </span>
+                      <span style={{
+                        flex: 1, fontSize: 12, color: T.gray800,
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       }}>
                         {item.title}
                       </span>
-                      {item.hot_value > 0 && (
-                        <span style={{
-                          fontSize: 10, fontFamily: T.mono, color: T.gray400,
-                          flexShrink: 0,
-                        }}>
-                          {item.hot_value >= 10000 ? `${(item.hot_value / 10000).toFixed(1)}万` : item.hot_value}
+                      {item.heat && (
+                        <span style={{ fontSize: 10, color: T.gray400, flexShrink: 0 }}>
+                          {item.heat >= 10000 ? `${(item.heat / 10000).toFixed(1)}万` : item.heat}
                         </span>
                       )}
                     </a>

@@ -45,6 +45,13 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
     try:
         # ── Step 1: Resolve scraper ──────────────────────────────────
         source_type_str = source.source_type.value if source.source_type else "RSS"
+
+        # Skip ZHIHU: its hot topics are now served exclusively via trending radar
+        # and should not be duplicated into the content feed.
+        if source_type_str == "ZHIHU":
+            logger.info("Source '%s' (ZHIHU): skipped — topics served via trending radar", source.name)
+            return {"fetched": 0, "new": 0, "duplicates": 0}
+
         scraper_cls = get_scraper_cls(source_type_str)
 
         if scraper_cls is None:

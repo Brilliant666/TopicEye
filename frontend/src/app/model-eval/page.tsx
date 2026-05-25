@@ -26,11 +26,13 @@ export default function ModelEvalPage() {
     fontSize: 13,
     fontWeight: active ? 600 : 400,
     color: active ? T.primary : T.gray500,
-    borderBottom: active ? `2px solid ${T.primary}` : '2px solid transparent',
+    borderWidth: 0,
+    borderStyle: 'solid' as const,
+    borderColor: 'transparent',
+    borderBottomWidth: active ? 2 : 0,
+    borderBottomColor: active ? T.primary : 'transparent',
     cursor: 'pointer',
     background: 'none',
-    border: 'none',
-    borderBottomStyle: active ? 'solid' : undefined,
   } as React.CSSProperties);
 
   return (

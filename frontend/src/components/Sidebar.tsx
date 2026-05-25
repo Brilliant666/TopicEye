@@ -14,6 +14,7 @@ interface NavItem {
   id: string;
   label: string;
   href: string;
+  icon: string;
   count?: number;
   badge?: string;
 }
@@ -23,19 +24,19 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
   const router = useRouter();
 
   const navItems: NavItem[] = [
-    { id: 'lfv', label: '低粉爆文', href: '/low-follower-viral', badge: 'NEW' },
-    { id: 'picks', label: '当日精选', href: '/today-picks', badge: 'HOT' },
-    { id: 'my-topics', label: '我的母题', href: '/my-topics', badge: '私' },
-    { id: 'today', label: '今日选题', href: '/', count: topicCount },
-    { id: 'daily', label: 'AI 日报', href: '/daily', badge: 'NEW' },
-    { id: 'weekly', label: 'AI 周刊', href: '/weekly', badge: 'NEW' },
-    { id: 'stats', label: '数据统计', href: '/stats' },
-    { id: 'favorites', label: '收藏夹', href: '/favorites', count: favCount },
-    { id: 'sources', label: '信源管理', href: '/sources', count: sourceCount },
-    { id: 'trends', label: '趋势追踪', href: '/trends', badge: 'NEW' },
-    { id: 'trending', label: '趋势雷达', href: '/trending', badge: 'NEW' },
-    { id: 'fanqie', label: '网文雷达', href: '/fanqie', badge: 'NEW' },
-    { id: 'model-eval', label: 'AI 引擎', href: '/model-eval' },
+    { id: 'lfv', label: '低粉爆文', href: '/low-follower-viral', icon: '🔥', badge: 'NEW' },
+    { id: 'picks', label: '当日精选', href: '/today-picks', icon: '⭐', badge: 'HOT' },
+    { id: 'my-topics', label: '我的母题', href: '/my-topics', icon: '🎯', badge: '私' },
+    { id: 'today', label: '今日选题', href: '/', icon: '💡', count: topicCount },
+    { id: 'daily', label: 'AI 日报', href: '/daily', icon: '📰', badge: 'NEW' },
+    { id: 'weekly', label: 'AI 周刊', href: '/weekly', icon: '📋', badge: 'NEW' },
+    { id: 'stats', label: '数据统计', href: '/stats', icon: '📊' },
+    { id: 'favorites', label: '收藏夹', href: '/favorites', icon: '⭐', count: favCount },
+    { id: 'sources', label: '信源管理', href: '/sources', icon: '📡', count: sourceCount },
+    { id: 'trends', label: '趋势追踪', href: '/trends', icon: '📈', badge: 'NEW' },
+    { id: 'trending', label: '趋势雷达', href: '/trending', icon: '🔍', badge: 'NEW' },
+    { id: 'fanqie', label: '网文雷达', href: '/fanqie', icon: '📚', badge: 'NEW' },
+    { id: 'model-eval', label: 'AI 引擎', href: '/model-eval', icon: '🧠' },
   ];
 
   const isActive = (href: string) => {
@@ -130,7 +131,10 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
                 textAlign: 'left',
               }}
             >
-              <span>{item.label}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 15, lineHeight: 1 }}>{item.icon}</span>
+                <span>{item.label}</span>
+              </span>
               {item.badge ? (
                 <span
                   style={{

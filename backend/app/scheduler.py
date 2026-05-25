@@ -284,6 +284,34 @@ async def _sync_fanqie() -> None:
         logger.exception("Scheduler: fanqie sync failed")
 
 
+@track_job("sync_qimao", name="七猫小说榜单抓取", timeout=300,
+           description="每日凌晨2点抓取七猫小说10个榜单")
+async def _sync_qimao() -> None:
+    """七猫小说榜单每日抓取（凌晨2点）。"""
+    logger.info("Scheduler: qimao sync started")
+    try:
+        from app.services.qimao_service import sync_qimao_ranks
+        result = await sync_qimao_ranks()
+        logger.info("Scheduler: qimao sync done — %s", result)
+        return str(result)
+    except Exception:
+        logger.exception("Scheduler: qimao sync failed")
+
+
+@track_job("sync_zhihu", name="知乎故事榜单抓取", timeout=300,
+           description="每日凌晨4点抓取知乎故事分类榜单")
+async def _sync_zhihu() -> None:
+    """知乎故事榜单每日抓取（凌晨4点）。"""
+    logger.info("Scheduler: zhihu sync started")
+    try:
+        from app.services.zhihu_service import sync_zhihu_ranks
+        result = await sync_zhihu_ranks()
+        logger.info("Scheduler: zhihu sync done — %s", result)
+        return str(result)
+    except Exception:
+        logger.exception("Scheduler: zhihu sync failed")
+
+
 # ── NEW: AI 日报 & 周刊定时任务 ──────────────────────────────────────
 
 @track_job("daily_report", name="AI日报生成", timeout=300,
@@ -389,6 +417,24 @@ def start_scheduler() -> None:
         trigger=CronTrigger(day_of_week="mon", hour=3, minute=0),
         id="weekly_digest",
         name="AI周刊生成",
+        replace_existing=True,
+    )
+
+    # 七猫小说榜单：每日凌晨2点抓取
+    scheduler.add_job(
+        _sync_qimao,
+        trigger=CronTrigger(hour=2, minute=0),
+        id="sync_qimao",
+        name="七猫小说榜单每日抓取",
+        replace_existing=True,
+    )
+
+    # 知乎故事榜单：每日凌晨4点抓取
+    scheduler.add_job(
+        _sync_zhihu,
+        trigger=CronTrigger(hour=4, minute=0),
+        id="sync_zhihu",
+        name="知乎故事榜单每日抓取",
         replace_existing=True,
     )
 

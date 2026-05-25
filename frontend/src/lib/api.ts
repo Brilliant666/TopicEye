@@ -347,8 +347,68 @@ export const settingsApi = {
 
 // ─── Stats / Dashboard API ───
 
+export interface StatsOverview {
+  total: number;
+  analyzed: number;
+  curated: number;
+  today_new: number;
+}
+
+export interface StatsSourceItem {
+  source_name: string;
+  source_type: string;
+  content_count: number;
+  curated_count: number;
+  curation_rate: number;
+}
+
+export interface StatsCategoryItem {
+  category: string;
+  content_count: number;
+  avg_score: number;
+}
+
+export interface StatsTrendItem {
+  date: string;
+  content_count: number;
+  curated_count: number;
+  analyzed_count: number;
+}
+
+export interface StatsNovelPlatform {
+  name: string;
+  table: string;
+  count: number;
+  last_sync: string | null;
+}
+
 export const statsApi = {
-  /** 数据统计仪表盘 */
+  /** 内容总览 */
+  getOverview(days = 7): Promise<StatsOverview> {
+    return request(`/stats/overview?days=${days}`);
+  },
+
+  /** 信源分布 */
+  getSourceDistribution(days = 7): Promise<{ sources: StatsSourceItem[] }> {
+    return request(`/stats/source-distribution?days=${days}`);
+  },
+
+  /** 分类分布 */
+  getCategoryDistribution(days = 7): Promise<{ categories: StatsCategoryItem[] }> {
+    return request(`/stats/category-distribution?days=${days}`);
+  },
+
+  /** 时间趋势 */
+  getDailyTrend(days = 7): Promise<{ trend: StatsTrendItem[] }> {
+    return request(`/stats/daily-trend?days=${days}`);
+  },
+
+  /** 网文平台统计 */
+  getNovelPlatforms(): Promise<{ platforms: StatsNovelPlatform[] }> {
+    return request('/stats/novel-platforms');
+  },
+
+  /** Legacy dashboard (backward compat) */
   getDashboard(days = 7): Promise<{
     kpi: { total_crawled: number; total_curated: number; avg_curation: number; active_sources: number };
     source_breakdown: Array<{ source_name: string; source_type: string; content_count: number; curated_count: number; avg_score: number }>;

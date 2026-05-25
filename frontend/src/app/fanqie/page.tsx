@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { T } from '@/lib/design-tokens';
-import { fanqieApi, qimaoApi, type FanqieCategory, type FanqieBook, type QimaoBook } from '@/lib/api';
+import { fanqieApi, qimaoApi, zhihuApi, type FanqieCategory, type FanqieBook, type QimaoBook, type ZhihuAlbum } from '@/lib/api';
 
 /* ── Constants ── */
 
@@ -27,6 +27,12 @@ const QIMAO_RANK_LABELS: Record<string, { label: string; color: string; bg: stri
 const QIMAO_CHANNEL_LABELS: Record<string, { label: string; color: string; bg: string }> = {
   boy: { label: '男频', color: '#2563EB', bg: '#EFF6FF' },
   girl: { label: '女频', color: '#E11D48', bg: '#FFF1F2' },
+};
+
+const ZHIHU_SORT_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  hottest: { label: '热门', color: '#DC2626', bg: '#FEF2F2' },
+  newest: { label: '最新', color: '#7C3AED', bg: '#F5F3FF' },
+  monthly_hottest: { label: '月热', color: '#D97706', bg: '#FFFBEB' },
 };
 
 /* ── Formatters ── */
@@ -182,10 +188,78 @@ function QimaoCard({ book }: { book: QimaoBook }) {
   );
 }
 
+function ZhihuCard({ album }: { album: ZhihuAlbum }) {
+  const pos = album.position;
+  const sortInfo = ZHIHU_SORT_LABELS[album.sort_type as string] ?? ZHIHU_SORT_LABELS.hottest;
+
+  return (
+    <div style={{
+      display: 'flex', gap: 12, padding: '14px 16px', borderBottom: `1px solid ${T.gray100}`,
+      alignItems: 'flex-start',
+    }}>
+      <div style={{
+        fontSize: 18, fontWeight: 700, color: pos <= 3 ? '#F59E0B' : T.gray300,
+        minWidth: 28, textAlign: 'center', lineHeight: '80px',
+      }}>
+        {pos}
+      </div>
+      <img
+        src={album.thumb_url || '/placeholder.png'}
+        alt={album.title}
+        style={{ width: 60, height: 80, objectFit: 'cover', borderRadius: 6, flexShrink: 0, background: T.gray100 }}
+        onError={(e) => { (e.target as HTMLImageElement).src = `https://via.placeholder.com/60x80?text=${encodeURIComponent(album.title?.slice(0, 2) ?? '盐')}`; }}
+      />
+      <div style={{ flex: 1, overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: T.gray900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
+            {album.title}
+          </div>
+          {album.is_exclusive && (
+            <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: '#FEF3C7', color: '#D97706', flexShrink: 0 }}>
+              独家
+            </span>
+          )}
+          {album.tag === '会员专享' && (
+            <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: '#EFF6FF', color: '#2563EB', flexShrink: 0 }}>
+              会员
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: 12, color: T.gray500, marginBottom: 6 }}>
+          {album.author}
+          {album.category1_name && album.category2_name && (
+            <span style={{ marginLeft: 8, color: T.gray400 }}>
+              {album.category1_name} · {album.category2_name}
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {album.chapter_text && (
+            <span style={{ fontSize: 10, color: T.gray400 }}>{album.chapter_text}</span>
+          )}
+          {album.price_yuan && album.price_yuan !== '免费' && (
+            <span style={{ fontSize: 10, color: '#DC2626', fontFamily: T.mono, fontWeight: 600 }}>
+              {album.price_yuan}
+            </span>
+          )}
+          {album.online_time_text && (
+            <span style={{ fontSize: 10, color: T.gray400 }}>{album.online_time_text}</span>
+          )}
+        </div>
+        {album.abstract && (
+          <div style={{ fontSize: 11, color: T.gray400, marginTop: 5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+            {album.abstract.replace(/\n/g, ' ')}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── Main Page ── */
 
 export default function FanqiePage() {
-  const [platform, setPlatform] = useState<'fanqie' | 'qimao'>('fanqie');
+  const [platform, setPlatform] = useState<'fanqie' | 'qimao' | 'zhihu'>('fanqie');
 
   /* ── 番茄状态 ── */
   const [categories, setCategories] = useState<FanqieCategory[]>([]);
@@ -203,6 +277,12 @@ export default function FanqiePage() {
   const [qimaoSyncing, setQimaoSyncing] = useState(false);
   const [qimaoChannel, setQimaoChannel] = useState<'boy' | 'girl'>('boy');
   const [qimaoRank, setQimaoRank] = useState<keyof typeof QIMAO_RANK_LABELS>('hot');
+
+  /* ── 知乎状态 ── */
+  const [zhihuAlbums, setZhihuAlbums] = useState<ZhihuAlbum[]>([]);
+  const [zhihuLoading, setZhihuLoading] = useState(false);
+  const [zhihuSyncing, setZhihuSyncing] = useState(false);
+  const [zhihuSort, setZhihuSort] = useState<keyof typeof ZHIHU_SORT_LABELS>('hottest');
 
   /* ── 番茄数据拉取 ── */
   const fetchFanqieData = useCallback(async (rt: string, isInit = false) => {
@@ -259,10 +339,23 @@ export default function FanqiePage() {
     }
   }, [qimaoChannel, qimaoRank]);
 
+  /* ── 知乎数据拉取 ── */
+  const fetchZhihuData = useCallback(async () => {
+    setZhihuLoading(true);
+    try {
+      const result = await zhihuApi.list(zhihuSort);
+      setZhihuAlbums(result.albums);
+    } catch (e) {
+      console.error('zhihu fetch error', e);
+    } finally {
+      setZhihuLoading(false);
+    }
+  }, [zhihuSort]);
+
   useEffect(() => {
-    if (platform !== 'qimao') return;
-    void fetchQimaoData();
-  }, [platform, qimaoChannel, qimaoRank]); // eslint-disable-line
+    if (platform !== 'zhihu') return;
+    void fetchZhihuData();
+  }, [platform, zhihuSort]); // eslint-disable-line
 
   /* ── 统计卡片 ── */
   const fanqieBooks = (() => {
@@ -270,11 +363,11 @@ export default function FanqiePage() {
     return booksMap[key] ?? [];
   })();
 
-  const currentBooks = platform === 'fanqie' ? fanqieBooks : qimaoBooks;
+  const currentBooks = platform === 'fanqie' ? fanqieBooks : platform === 'qimao' ? qimaoBooks : zhihuAlbums;
 
   const statCards = [
-    { label: platform === 'fanqie' ? '番茄小说' : '七猫小说', value: currentBooks.length },
-    { label: '平台', value: platform === 'fanqie' ? '番茄' : '七猫' },
+    { label: platform === 'fanqie' ? '番茄小说' : platform === 'qimao' ? '七猫小说' : '知乎盐选', value: currentBooks.length },
+    { label: '平台', value: platform === 'fanqie' ? '番茄' : platform === 'qimao' ? '七猫' : '知乎' },
   ];
 
   return (
@@ -288,7 +381,7 @@ export default function FanqiePage() {
         <div style={{ height: 20, width: 1, background: T.gray200 }} />
         {/* 平台切换 */}
         <div style={{ display: 'flex', gap: 4 }}>
-          {(['fanqie', 'qimao'] as const).map(p => (
+          {(['fanqie', 'qimao', 'zhihu'] as const).map(p => (
             <button
               key={p}
               onClick={() => setPlatform(p)}
@@ -301,7 +394,7 @@ export default function FanqiePage() {
                 transition: 'all 0.15s',
               }}
             >
-              {p === 'fanqie' ? '番茄小说' : '七猫小说'}
+              {p === 'fanqie' ? '番茄小说' : p === 'qimao' ? '七猫小说' : '知乎盐选'}
             </button>
           ))}
         </div>
@@ -339,6 +432,23 @@ export default function FanqiePage() {
             }}
           >
             {qimaoSyncing ? '同步中…' : '🔄 同步七猫'}
+          </button>
+        ) : (
+          <button
+            onClick={async () => {
+              setZhihuSyncing(true);
+              try { await zhihuApi.sync(); await fetchZhihuData(); }
+              catch (e) { console.error(e); }
+              finally { setZhihuSyncing(false); }
+            }}
+            disabled={zhihuSyncing}
+            style={{
+              padding: '5px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
+              fontSize: 12, fontWeight: 600, background: zhihuSyncing ? T.gray200 : '#0066F5',
+              color: '#fff', transition: 'background 0.2s',
+            }}
+          >
+            {zhihuSyncing ? '同步中…' : '🔄 同步知乎'}
           </button>
         )}
       </div>
@@ -463,6 +573,30 @@ export default function FanqiePage() {
         </div>
       )}
 
+      {/* 知乎：排序 Tab */}
+      {platform === 'zhihu' && (
+        <div style={{
+          display: 'flex', gap: 6, padding: '10px 16px', background: '#fff',
+          borderBottom: `1px solid ${T.gray100}`, flexShrink: 0, overflowX: 'auto',
+        }}>
+          {(Object.entries(ZHIHU_SORT_LABELS) as [string, typeof ZHIHU_SORT_LABELS[string]][]).map(([k, v]) => (
+            <button
+              key={k}
+              onClick={() => setZhihuSort(k as keyof typeof ZHIHU_SORT_LABELS)}
+              style={{
+                padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
+                fontSize: 13, fontWeight: 600,
+                background: zhihuSort === k ? v.color : '#fff',
+                color: zhihuSort === k ? '#fff' : T.gray600,
+                boxShadow: zhihuSort === k ? `0 2px 8px ${v.color}44` : `0 0 0 1px ${T.gray200}`,
+              }}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* 内容区 */}
       <div style={{ flex: 1, overflowY: 'auto', position: 'relative', background: '#fff' }}>
         {platform === 'fanqie' ? (
@@ -481,7 +615,7 @@ export default function FanqiePage() {
           ) : (
             (currentBooks as FanqieBook[]).map(book => <FanqieCard key={book.book_id} book={book} rankTab={rankTab} />)
           )
-        ) : (
+        ) : platform === 'qimao' ? (
           qimaoLoading ? (
             <div style={{ textAlign: 'center', padding: '60px 0', fontSize: 14, color: T.gray400 }}>
               加载中…
@@ -492,6 +626,18 @@ export default function FanqiePage() {
             </div>
           ) : (
             qimaoBooks.map(book => <QimaoCard key={`${book.book_id}-${book.rank_type}`} book={book} />)
+          )
+        ) : (
+          zhihuLoading ? (
+            <div style={{ textAlign: 'center', padding: '60px 0', fontSize: 14, color: T.gray400 }}>
+              加载中…
+            </div>
+          ) : zhihuAlbums.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '60px 0', fontSize: 14, color: T.gray400 }}>
+              暂无数据
+            </div>
+          ) : (
+            zhihuAlbums.map(album => <ZhihuCard key={album.business_id} album={album} />)
           )
         )}
       </div>

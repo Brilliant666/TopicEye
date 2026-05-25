@@ -665,6 +665,8 @@ export const fanqieApi = {
   },
 };
 
+// ─── 知乎盐选 API ──────────────────────────────────...
+
 // ─── 七猫小说 API ────────────────────────────────────────────────────────────
 
 export interface QimaoBook {
@@ -696,5 +698,56 @@ export const qimaoApi = {
   },
   sync(): Promise<{ books: number; elapsed_seconds: number }> {
     return request('/qimao/sync', { method: 'POST' });
+  },
+};
+
+// ─── 知乎盐选 API ────────────────────────────────────────────────────────────
+
+export interface ZhihuAlbum {
+  business_id: string;
+  title: string;
+  author: string;
+  author_desc: string | null;
+  abstract: string | null;
+  thumb_url: string | null;
+  chapter_text: string | null;
+  price_yuan: string;
+  price: number;
+  is_exclusive: boolean;
+  is_svip: boolean;
+  online_time_text: string | null;
+  tag: string | null;
+  category1_name: string;
+  category2_name: string | null;
+  position: number;
+  rank_pos_diff: number | null;
+  url: string;
+}
+
+export interface ZhihuCategory {
+  zhihu_id: string;
+  name: string;
+  name_en: string | null;
+  level: number;
+  parent_id: string | null;
+  sort: number;
+  artwork: string | null;
+}
+
+export const zhihuApi = {
+  list(sortType = 'hottest', category?: string, limit = 20, offset = 0): Promise<{
+    sort_type: string; category: string; count: number; total: number;
+    albums: ZhihuAlbum[];
+  }> {
+    const qs = new URLSearchParams({ sort_type: sortType, limit: String(limit), offset: String(offset) });
+    if (category) qs.set('category', category);
+    return request(`/zhihu/albums?${qs}`);
+  },
+  categories(parentId?: string): Promise<{ count: number; categories: ZhihuCategory[] }> {
+    const qs = parentId ? `?parent_id=${parentId}` : '';
+    return request(`/zhihu/categories${qs}`);
+  },
+  sync(): Promise<{ status: string; message: string }> {
+    return request('/zhihu/sync', { method: 'POST' });
   },
 };

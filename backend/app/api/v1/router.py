@@ -15,6 +15,7 @@ from app.api.v1.trending import router as trending_router
 from app.api.v1.mother_topics import router as mother_topics_router
 from app.api.v1.fanqie import router as fanqie_router
 from app.api.v1.qimao import router as qimao_router
+from app.api.v1.zhihu import router as zhihu_router
 from app.api.v1.notifications import router as notifications_router
 
 router = APIRouter(prefix="/api/v1")
@@ -34,4 +35,5 @@ router.include_router(trending_router)
 router.include_router(mother_topics_router)
 router.include_router(fanqie_router)
 router.include_router(qimao_router)
+router.include_router(zhihu_router)
 router.include_router(notifications_router)

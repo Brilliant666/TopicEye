@@ -291,17 +291,26 @@ function StatsBar({ categories, totalBooks }: { categories: FanqieCategory[]; to
 export default function FanqiePage() {
   const [categories, setCategories] = useState<FanqieCategory[]>([]);
   const [booksMap, setBooksMap] = useState<Record<string, FanqieBook[]>>({});
-  const [loading, setLoading] = useState(true);
+  const [initLoading, setInitLoading] = useState(true);   // 首次加载
+  const [switching, setSwitching] = useState(false);       // 切换榜单中
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState<string>('all');
   const [rankTab, setRankTab] = useState<string>('new');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  const fetchData = useCallback(async (rankType: string) => {
-    setLoading(true);
+  const fetchData = useCallback(async (rankType: string, isInit = false) => {
+    if (isInit) {
+      setInitLoading(true);
+    } else {
+      setSwitching(true);
+    }
     try {
-      const cats = await fanqieApi.categories();
-      setCategories(cats);
+      // 首次才重新拉分类，切换时复用
+      let cats = categories;
+      if (isInit || cats.length === 0) {
+        cats = await fanqieApi.categories();
+        setCategories(cats);
+      }
 
       const map: Record<string, FanqieBook[]> = {};
       for (const cat of cats) {
@@ -319,25 +328,33 @@ export default function FanqiePage() {
     } catch (e) {
       console.error('Failed to load fanqie data:', e);
     } finally {
-      setLoading(false);
+      setInitLoading(false);
+      setSwitching(false);
     }
-  }, []);
+  }, [categories]);
 
   useEffect(() => {
-    void fetchData(rankTab);
-  }, [fetchData, rankTab]);
+    void fetchData(rankTab, true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSync = async () => {
     setSyncing(true);
     try {
       await fanqieApi.sync();
-      await fetchData(rankTab);
+      await fetchData(rankTab, true);
     } catch (e) {
       console.error('Sync failed:', e);
     } finally {
       setSyncing(false);
     }
   };
+
+  // 切换榜单类型时触发数据刷新
+  useEffect(() => {
+    if (!initLoading) {
+      void fetchData(rankTab, false);
+    }
+  }, [rankTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 过滤分类
   const filteredCategories = selectedCategory
@@ -377,7 +394,7 @@ export default function FanqiePage() {
       </div>
 
       {/* 统计卡片 */}
-      {!loading && <StatsBar categories={categories} totalBooks={totalBooks} />}
+      {!initLoading && <StatsBar categories={categories} totalBooks={totalBooks} />}
 
       {/* 榜单类型切换（新书榜 / 阅读榜） */}
       <div style={{
@@ -449,8 +466,8 @@ export default function FanqiePage() {
           ))}
       </div>
 
-      {/* 加载状态 */}
-      {loading && (
+      {/* 加载状态（仅首次） */}
+      {initLoading && (
         <div style={{
           textAlign: 'center', padding: '60px 0',
           fontSize: 14, color: T.gray400,
@@ -459,17 +476,32 @@ export default function FanqiePage() {
         </div>
       )}
 
-      {/* 分类列表 */}
-      {!loading && filteredCategories.map(cat => (
-        <CategorySection
-          key={cat.fanqie_id}
-          category={cat}
-          books={booksMap[cat.fanqie_id] || []}
-        />
-      ))}
+      {/* 分类列表（带切换遮罩） */}
+      {!initLoading && (
+        <div style={{ position: 'relative', minHeight: 200 }}>
+          {/* 切换时半透明遮罩 */}
+          {switching && (
+            <div style={{
+              position: 'absolute', inset: 0, zIndex: 10,
+              background: 'rgba(247,247,248,0.7)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              borderRadius: T.radius,
+            }}>
+              <span style={{ fontSize: 13, color: T.gray400 }}>切换中...</span>
+            </div>
+          )}
+          {filteredCategories.map(cat => (
+            <CategorySection
+              key={cat.fanqie_id}
+              category={cat}
+              books={booksMap[cat.fanqie_id] || []}
+            />
+          ))}
+        </div>
+      )}
 
       {/* 空状态 */}
-      {!loading && filteredCategories.length === 0 && (
+      {!initLoading && filteredCategories.length === 0 && (
         <div style={{
           textAlign: 'center', padding: '60px 0',
           fontSize: 14, color: T.gray400,

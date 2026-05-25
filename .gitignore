@@ -45,3 +45,4 @@ htmlcov/
 .coverage
 
 .mavis/
+.skill-metrics/

@@ -127,33 +127,47 @@ async def list_rankings(
 async def category_books(
     fanqie_id: str,
     db: AsyncSession = Depends(get_db),
-    rank_type: Optional[str] = Query(None, description="male_new/male_reading/female_new/female_reading"),
-    gender: Optional[str] = Query(None, description="male / female"),
+    rank_type: Optional[str] = Query(None, description="new / reading"),
     limit: int = Query(20, le=100),
 ) -> dict:
     """
     返回指定分类下的图书。
-    rank_type 可选，默认返回所有榜单类型。
+    rank_type: "new" 新书榜 / "reading" 阅读榜，默认返回新书榜。
+    通过 pos 字段过滤（同一本书可能在多个榜单上有排名）。
     """
+    # 确定用哪个 pos 字段排序
+    if rank_type == "reading":
+        pos_col = FanqieBook.male_reading_pos
+        # 根据分类 group 决定用 male 还是 female
+    else:
+        rank_type = "new"
+
+    # 先查分类信息确定 gender
+    cat_result = await db.execute(
+        select(FanqieCategory).where(FanqieCategory.fanqie_id == fanqie_id)
+    )
+    cat = cat_result.scalar_one_or_none()
+    gender = cat.group if cat else "male"
+
+    # 选择对应的 pos 字段
+    if rank_type == "reading":
+        pos_field = "male_reading_pos" if gender == "male" else "female_reading_pos"
+    else:
+        pos_field = "male_new_pos" if gender == "male" else "female_new_pos"
+
+    # 查询：只返回在该榜单有排名的书
     query = select(FanqieBook).where(
         FanqieBook.category_id == fanqie_id,
-    )
-
-    if rank_type:
-        query = query.where(FanqieBook.rank_type == rank_type)
-    else:
-        # 默认返回新书榜（有数据的）
-        query = query.where(FanqieBook.rank_type.in_([
-            "male_new", "female_new", "male_reading", "female_reading",
-        ]))
-
-    query = query.order_by(FanqieBook.current_pos).limit(limit)
+        getattr(FanqieBook, pos_field) != None,  # type: ignore
+    ).order_by(getattr(FanqieBook, pos_field)).limit(limit)
 
     result = await db.execute(query)
     books = result.scalars().all()
 
     return {
         "fanqie_id": fanqie_id,
+        "rank_type": rank_type,
+        "gender": gender,
         "count": len(books),
         "books": [
             {
@@ -165,10 +179,8 @@ async def category_books(
                 "read_count": b.read_count,
                 "word_number": b.word_number,
                 "last_chapter_title": b.last_chapter_title,
-                "current_pos": b.current_pos,
-                "rank_type": b.rank_type,
-                "male_reading_pos": b.male_reading_pos,
-                "female_reading_pos": b.female_reading_pos,
+                "position": getattr(b, pos_field),
+                "rank_type": rank_type,
             }
             for b in books
         ],

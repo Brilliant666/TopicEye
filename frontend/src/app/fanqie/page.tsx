@@ -12,16 +12,19 @@ const GROUP_LABELS: Record<string, { label: string; color: string; bg: string }>
 };
 
 const RANK_TYPE_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  male_new: { label: '男频新书', color: '#2563EB', bg: '#EFF6FF' },
-  male_reading: { label: '男频阅读', color: '#1D4ED8', bg: '#DBEAFE' },
-  female_new: { label: '女频新书', color: '#E11D48', bg: '#FFF1F2' },
-  female_reading: { label: '女频阅读', color: '#BE123C', bg: '#FFE4E6' },
+  new: { label: '新书榜', color: '#7C3AED', bg: '#F5F3FF' },
+  reading: { label: '阅读榜', color: '#059669', bg: '#ECFDF5' },
 };
 
 const TABS = [
   { key: 'all', label: '全部分类' },
   { key: 'male', label: '男频' },
   { key: 'female', label: '女频' },
+] as const;
+
+const RANK_TABS = [
+  { key: 'new', label: '新书榜' },
+  { key: 'reading', label: '阅读榜' },
 ] as const;
 
 /* ── Helper ── */
@@ -115,7 +118,6 @@ function BookCard({ book, rank }: { book: FanqieBook; rank: number }) {
             {book.author}
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-            {/* 榜单类型标签 */}
             {rankInfo && (
               <span style={{
                 fontSize: 9, fontWeight: 600, padding: '1px 6px',
@@ -124,7 +126,6 @@ function BookCard({ book, rank }: { book: FanqieBook; rank: number }) {
                 {rankInfo.label}
               </span>
             )}
-            {/* 阅读量 */}
             {book.read_count && (
               <span style={{
                 fontSize: 10, color: T.gray400, fontFamily: T.mono,
@@ -132,7 +133,6 @@ function BookCard({ book, rank }: { book: FanqieBook; rank: number }) {
                 {formatReadCount(book.read_count)}阅读
               </span>
             )}
-            {/* 字数 */}
             {book.word_number && (
               <span style={{
                 fontSize: 10, color: T.gray400, fontFamily: T.mono,
@@ -156,7 +156,6 @@ function BookCard({ book, rank }: { book: FanqieBook; rank: number }) {
           borderTop: `1px solid ${T.gray100}`,
           paddingTop: 10,
         }}>
-          {/* 简介 */}
           {book.abstract && (
             <div style={{
               fontSize: 12, color: T.gray600, lineHeight: 1.6,
@@ -168,7 +167,6 @@ function BookCard({ book, rank }: { book: FanqieBook; rank: number }) {
               {book.abstract}
             </div>
           )}
-          {/* 最新章节 */}
           {book.last_chapter_title && (
             <div style={{
               fontSize: 11, color: T.gray400, marginTop: 8,
@@ -204,7 +202,6 @@ function CategorySection({
 
   return (
     <div style={{ marginBottom: 20 }}>
-      {/* 分类标题 */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8,
         marginBottom: 10,
@@ -227,14 +224,12 @@ function CategorySection({
         </span>
       </div>
 
-      {/* 图书列表 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {displayBooks.map((book, i) => (
-          <BookCard key={`${book.book_id}-${book.rank_type}`} book={book} rank={i + 1} />
+          <BookCard key={`${book.book_id}-${book.rank_type}`} book={book} rank={book.position || (i + 1)} />
         ))}
       </div>
 
-      {/* 展开/收起 */}
       {books.length > 5 && (
         <button
           onClick={() => setShowAll(!showAll)}
@@ -299,19 +294,22 @@ export default function FanqiePage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [tab, setTab] = useState<string>('all');
+  const [rankTab, setRankTab] = useState<string>('new');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (rankType: string) => {
     setLoading(true);
     try {
       const cats = await fanqieApi.categories();
       setCategories(cats);
 
-      // 按分类批量加载图书
       const map: Record<string, FanqieBook[]> = {};
       for (const cat of cats) {
         try {
-          const result = await fanqieApi.categoryBooks(cat.fanqie_id, { limit: 100 });
+          const result = await fanqieApi.categoryBooks(cat.fanqie_id, {
+            rank_type: rankType,
+            limit: 100,
+          });
           map[cat.fanqie_id] = result.books || [];
         } catch {
           map[cat.fanqie_id] = [];
@@ -326,14 +324,14 @@ export default function FanqiePage() {
   }, []);
 
   useEffect(() => {
-    void fetchData();
-  }, [fetchData]);
+    void fetchData(rankTab);
+  }, [fetchData, rankTab]);
 
   const handleSync = async () => {
     setSyncing(true);
     try {
       await fanqieApi.sync();
-      await fetchData();
+      await fetchData(rankTab);
     } catch (e) {
       console.error('Sync failed:', e);
     } finally {
@@ -381,6 +379,30 @@ export default function FanqiePage() {
       {/* 统计卡片 */}
       {!loading && <StatsBar categories={categories} totalBooks={totalBooks} />}
 
+      {/* 榜单类型切换（新书榜 / 阅读榜） */}
+      <div style={{
+        display: 'flex', gap: 8, marginBottom: 12,
+      }}>
+        {RANK_TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setRankTab(t.key)}
+            style={{
+              fontSize: 13, fontWeight: 700,
+              padding: '7px 20px', borderRadius: 20,
+              background: rankTab === t.key
+                ? (t.key === 'new' ? '#7C3AED' : '#059669')
+                : T.gray100,
+              color: rankTab === t.key ? T.white : T.gray600,
+              border: 'none', cursor: 'pointer',
+              transition: 'all 0.12s ease',
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {/* Tab 切换 + 分类选择 */}
       <div style={{
         display: 'flex', gap: 8, marginBottom: 20,
@@ -402,7 +424,6 @@ export default function FanqiePage() {
             {t.label}
           </button>
         ))}
-        {/* 具体分类快捷选择 */}
         <span style={{ width: 1, background: T.gray200, margin: '0 4px' }} />
         {categories
           .filter(c => tab === 'all' || c.group === tab)

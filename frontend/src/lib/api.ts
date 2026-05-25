@@ -626,10 +626,8 @@ export interface FanqieBook {
   read_count: string;
   word_number: string;
   last_chapter_title: string;
-  current_pos: number;
+  position: number;
   rank_type: string;
-  male_reading_pos: number | null;
-  female_reading_pos: number | null;
 }
 
 export const fanqieApi = {

@@ -46,7 +46,7 @@ class TrendingSourceInfo(BaseModel):
 async def get_trending(
     category: Optional[str] = Query(None, description="分类筛选: hot/tech/finance/entertainment/community"),
     source: Optional[str] = Query(None, description="信源筛选: weibo/baidu/douyin/..."),
-    limit: int = Query(30, ge=1, le=100),
+    limit: int = Query(30, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
     """获取趋势雷达数据。支持按分类和信源筛选。"""

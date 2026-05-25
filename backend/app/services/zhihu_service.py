@@ -357,12 +357,12 @@ async def sync_zhihu_ranks() -> dict:
     cat_count = len(records)
     logger.info(f'Zhihu story categories saved: {cat_count}')
 
-    # 故事默认热门 + 3 种排序
+    # 故事默认热门 + 3 种排序（category_id=1512）
     total = 0
     combos = [
-        ('1512', '热门', 'hottest'),
-        ('1512', '最新', 'newest'),
-        ('1512', '月热', 'monthly_hottest'),
+        ('1512', '故事全部', 'hottest'),
+        ('1512', '故事全部', 'newest'),
+        ('1512', '故事全部', 'monthly_hottest'),
     ]
     for cat_id, sort_label, sort_type in combos:
         items = await _fetch_api(sort_type, limit=20, category_id=cat_id)
@@ -370,11 +370,19 @@ async def sync_zhihu_ranks() -> dict:
         total += n
         await asyncio.sleep(0.8)
 
+    # 9 个子分类 × 3 种排序
+    for cat_name, cat_id, _ in STORY_SUBCATS:
+        for sort_type in SORT_TYPES:
+            items = await _fetch_api(sort_type, limit=20, category_id=cat_id)
+            n = await _fetch_and_save_albums(items, sort_type, '故事', cat_name)
+            total += n
+            await asyncio.sleep(0.8)
+
     elapsed = time.time() - t0
     logger.info(f'Zhihu sync done: {cat_count} categories, {total} albums in {elapsed:.1f}s')
     return {
         'categories': cat_count,
-        'rank_groups': len(combos),
+        'rank_groups': len(combos) + len(STORY_SUBCATS) * len(SORT_TYPES),
         'total_albums': total,
         'elapsed_seconds': round(elapsed, 1),
     }

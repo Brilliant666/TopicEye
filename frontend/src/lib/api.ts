@@ -734,6 +734,7 @@ export interface ZhihuAlbum {
   position: number;
   rank_pos_diff: number | null;
   url: string;
+  sort_type: string;
 }
 
 export interface ZhihuCategory {
@@ -747,12 +748,13 @@ export interface ZhihuCategory {
 }
 
 export const zhihuApi = {
-  list(sortType = 'hottest', category?: string, limit = 20, offset = 0): Promise<{
+  list(sortType = 'hottest', category?: string, subcategory?: string, limit = 20, offset = 0): Promise<{
     sort_type: string; category: string; count: number; total: number;
     albums: ZhihuAlbum[];
   }> {
     const qs = new URLSearchParams({ sort_type: sortType, limit: String(limit), offset: String(offset) });
     if (category) qs.set('category', category);
+    if (subcategory) qs.set('subcategory', subcategory);
     return request(`/zhihu/albums?${qs}`);
   },
   categories(parentId?: string): Promise<{ count: number; categories: ZhihuCategory[] }> {

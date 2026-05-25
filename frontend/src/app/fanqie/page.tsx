@@ -35,6 +35,19 @@ const ZHIHU_SORT_LABELS: Record<string, { label: string; color: string; bg: stri
   monthly_hottest: { label: '月热', color: '#D97706', bg: '#FFFBEB' },
 };
 
+const ZHIHU_SUBCATS = [
+  { key: '', label: '全部' },
+  { key: '爱情', label: '爱情' },
+  { key: '科幻', label: '科幻' },
+  { key: '历史', label: '历史' },
+  { key: '漫画', label: '漫画' },
+  { key: '脑洞', label: '脑洞' },
+  { key: '奇闻', label: '奇闻' },
+  { key: '亲历', label: '亲历' },
+  { key: '校园', label: '校园' },
+  { key: '悬疑', label: '悬疑' },
+];
+
 /* ── Formatters ── */
 
 function formatCount(v: string | number | undefined): string {
@@ -283,6 +296,7 @@ export default function FanqiePage() {
   const [zhihuLoading, setZhihuLoading] = useState(false);
   const [zhihuSyncing, setZhihuSyncing] = useState(false);
   const [zhihuSort, setZhihuSort] = useState<keyof typeof ZHIHU_SORT_LABELS>('hottest');
+  const [zhihuSubcat, setZhihuSubcat] = useState('');
 
   /* ── 番茄数据拉取 ── */
   const fetchFanqieData = useCallback(async (rt: string, isInit = false) => {
@@ -365,19 +379,20 @@ export default function FanqiePage() {
   const fetchZhihuData = useCallback(async () => {
     setZhihuLoading(true);
     try {
-      const result = await zhihuApi.list(zhihuSort);
+      const subcat = zhihuSubcat || undefined;
+      const result = await zhihuApi.list(zhihuSort, '故事', subcat);
       setZhihuAlbums(result.albums);
     } catch (e) {
       console.error('zhihu fetch error', e);
     } finally {
       setZhihuLoading(false);
     }
-  }, [zhihuSort]);
+  }, [zhihuSort, zhihuSubcat]);
 
   useEffect(() => {
     if (platform !== 'zhihu') return;
     void fetchZhihuData();
-  }, [platform, zhihuSort]); // eslint-disable-line
+  }, [platform, zhihuSort, zhihuSubcat]); // eslint-disable-line
 
   /* ── 统计卡片 ── */
   const fanqieBooks = (() => {
@@ -595,27 +610,47 @@ export default function FanqiePage() {
         </div>
       )}
 
-      {/* 知乎：排序 Tab */}
+      {/* 知乎：排序 Tab + 子分类筛选 */}
       {platform === 'zhihu' && (
         <div style={{
-          display: 'flex', gap: 6, padding: '10px 16px', background: '#fff',
-          borderBottom: `1px solid ${T.gray100}`, flexShrink: 0, overflowX: 'auto',
+          display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 16px',
+          background: '#fff', borderBottom: `1px solid ${T.gray100}`, flexShrink: 0,
         }}>
-          {(Object.entries(ZHIHU_SORT_LABELS) as [string, typeof ZHIHU_SORT_LABELS[string]][]).map(([k, v]) => (
-            <button
-              key={k}
-              onClick={() => setZhihuSort(k as keyof typeof ZHIHU_SORT_LABELS)}
-              style={{
-                padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
-                fontSize: 13, fontWeight: 600,
-                background: zhihuSort === k ? v.color : '#fff',
-                color: zhihuSort === k ? '#fff' : T.gray600,
-                boxShadow: zhihuSort === k ? `0 2px 8px ${v.color}44` : `0 0 0 1px ${T.gray200}`,
-              }}
-            >
-              {v.label}
-            </button>
-          ))}
+          {/* 排序类型 */}
+          <div style={{ display: 'flex', gap: 6 }}>
+            {(Object.entries(ZHIHU_SORT_LABELS) as [string, typeof ZHIHU_SORT_LABELS[string]][]).map(([k, v]) => (
+              <button
+                key={k}
+                onClick={() => setZhihuSort(k as keyof typeof ZHIHU_SORT_LABELS)}
+                style={{
+                  padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
+                  fontSize: 13, fontWeight: 600,
+                  background: zhihuSort === k ? v.color : '#fff',
+                  color: zhihuSort === k ? '#fff' : T.gray600,
+                  boxShadow: zhihuSort === k ? `0 2px 8px ${v.color}44` : `0 0 0 1px ${T.gray200}`,
+                }}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+          {/* 故事子分类 */}
+          <div style={{ display: 'flex', gap: 4, overflowX: 'auto' }}>
+            {ZHIHU_SUBCATS.map(sc => (
+              <button
+                key={sc.key}
+                onClick={() => setZhihuSubcat(sc.key)}
+                style={{
+                  padding: '4px 12px', borderRadius: 16, border: 'none', cursor: 'pointer',
+                  fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
+                  background: zhihuSubcat === sc.key ? '#0066F5' : '#F3F4F6',
+                  color: zhihuSubcat === sc.key ? '#fff' : T.gray500,
+                }}
+              >
+                {sc.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

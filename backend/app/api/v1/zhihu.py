@@ -18,23 +18,29 @@ router = APIRouter(prefix='/zhihu', tags=['知乎'])
 @router.get('/albums')
 async def list_albums(
     category: Optional[str] = Query(None, description='一级分类名'),
+    subcategory: Optional[str] = Query(None, description='二级分类名（如 爱情、科幻）'),
     sort_type: str = Query('hottest', description='排序类型'),
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    """知乎盐选专辑列表（支持分类+排序过滤）。"""
+    """知乎盐选专辑列表（支持分类+子分类+排序过滤）。"""
     query = select(ZhihuAlbum).where(ZhihuAlbum.sort_type == sort_type)
     if category:
         query = query.where(ZhihuAlbum.category1_name == category)
+    if subcategory:
+        query = query.where(ZhihuAlbum.category2_name == subcategory)
     query = query.order_by(desc(ZhihuAlbum.position)).limit(limit).offset(offset)
 
     result = await db.execute(query)
     albums = result.scalars().all()
 
-    count_result = await db.execute(
-        select(func.count()).select_from(ZhihuAlbum).where(ZhihuAlbum.sort_type == sort_type)
-    )
+    count_q = select(func.count()).select_from(ZhihuAlbum).where(ZhihuAlbum.sort_type == sort_type)
+    if category:
+        count_q = count_q.where(ZhihuAlbum.category1_name == category)
+    if subcategory:
+        count_q = count_q.where(ZhihuAlbum.category2_name == subcategory)
+    count_result = await db.execute(count_q)
     total = count_result.scalar() or 0
 
     return {
@@ -62,6 +68,7 @@ async def list_albums(
                 'category2_name': a.category2_name,
                 'position': a.position,
                 'rank_pos_diff': a.rank_pos_diff,
+                'sort_type': a.sort_type,
                 'url': a.url,
             }
             for a in albums

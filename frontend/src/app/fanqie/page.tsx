@@ -327,6 +327,28 @@ export default function FanqiePage() {
   }, [rankTab, activeCat]); // eslint-disable-line
 
   /* ── 七猫数据拉取 ── */
+  useEffect(() => {
+    if (platform !== 'qimao') return;
+    void fetchQimaoData();
+  }, [platform]); // eslint-disable-line
+
+  useEffect(() => {
+    if (platform !== 'qimao') return;
+    void fetchQimaoData();
+  }, [qimaoChannel, qimaoRank]); // eslint-disable-line
+
+  /* ── 知乎数据拉取 ── */
+  useEffect(() => {
+    if (platform !== 'zhihu') return;
+    void fetchZhihuData();
+  }, [platform]); // eslint-disable-line
+
+  useEffect(() => {
+    if (platform !== 'zhihu') return;
+    void fetchZhihuData();
+  }, [zhihuSort]); // eslint-disable-line
+
+  /* ── 七猫数据拉取 ── */
   const fetchQimaoData = useCallback(async () => {
     setQimaoLoading(true);
     try {
@@ -416,7 +438,7 @@ export default function FanqiePage() {
           >
             {syncing ? '同步中…' : '🔄 同步番茄'}
           </button>
-        ) : (
+        ) : platform === 'qimao' ? (
           <button
             onClick={async () => {
               setQimaoSyncing(true);

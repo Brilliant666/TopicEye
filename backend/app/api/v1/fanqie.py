@@ -181,6 +181,7 @@ async def category_books(
                 "last_chapter_title": b.last_chapter_title,
                 "position": getattr(b, pos_field),
                 "rank_type": rank_type,
+                "rank_pos_diff": b.rank_pos_diff,
             }
             for b in books
         ],

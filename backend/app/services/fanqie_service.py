@@ -160,6 +160,8 @@ async def _upsert_books(db: AsyncSession, book_list: list[dict], rank_type: str,
         if existing:
             # 更新榜单排名
             setattr(existing, pos_field, item.get("currentPos"))
+            if item.get("rankPosDiff") is not None:
+                existing.rank_pos_diff = item["rankPosDiff"]
             existing.crawled_at = datetime.now()
         else:
             book = FanqieBook(
@@ -176,6 +178,7 @@ async def _upsert_books(db: AsyncSession, book_list: list[dict], rank_type: str,
                 last_chapter_update_time=item.get("lastChapterUpdateTime"),
                 current_pos=item.get("currentPos", 0),
                 rank_type=rank_type,
+                rank_pos_diff=item.get("rankPosDiff"),
                 **{pos_field: item.get("currentPos")},
             )
             db.add(book)

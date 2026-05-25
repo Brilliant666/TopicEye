@@ -54,6 +54,7 @@ class FanqieBook(Base):
     male_new_pos: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     female_reading_pos: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     female_new_pos: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rank_pos_diff: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 排名变化（正=上升，负=下降）
 
     __table_args__ = (
         Index("ix_fanqie_book_ranktype", "rank_type"),

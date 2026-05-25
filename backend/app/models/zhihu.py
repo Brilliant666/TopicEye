@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, Boolean, DateTime, Text, Index, func
+from sqlalchemy import String, Integer, Boolean, DateTime, Text, Index, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -18,7 +18,9 @@ class ZhihuAlbum(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     # 知乎业务 ID（用于拼接 URL）
-    business_id: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
+    business_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    # 排序类型（hottest/newest/monthly_hottest）—— 与 business_id 组成复合唯一约束
+    sort_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     # 标题
     title: Mapped[str] = mapped_column(String(500), nullable=False, index=True)
     # 作者名（第一作者）
@@ -73,6 +75,7 @@ class ZhihuAlbum(Base):
     )
 
     __table_args__ = (
+        UniqueConstraint('business_id', 'sort_type', name='uq_zhihu_albums_bid_sort'),
         Index('ix_zhihu_albums_sort_pos', 'sort_type', 'position'),
         Index('ix_zhihu_albums_category1_sort', 'category1_name', 'sort_type'),
     )

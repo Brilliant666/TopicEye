@@ -12,6 +12,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+import sqlite3
 
 import httpx
 from sqlalchemy import select, func
@@ -264,7 +265,7 @@ async def _fetch_and_save_albums(
 
             stmt = sqlite_insert(ZhihuAlbum).values(rec)
             stmt = stmt.on_conflict_do_update(
-                index_elements=['business_id'],
+                index_elements=['business_id', 'sort_type'],
                 set_=dict(
                     title=stmt.excluded.title,
                     author=stmt.excluded.author,
@@ -295,11 +296,10 @@ async def sync_zhihu_ranks() -> dict:
     全量同步知乎榜单。
 
     策略：
-    1. 拉取 HTML，解析全部分类
-    2. 对每种排序类型调用 API 获取完整列表
-       - hottest: 故事默认分类（热门榜单）
-       - newest: 最新榜单
-       - monthly_hottest: 月热榜单
+    1. 拉取 HTML，只保存"故事"分类及其 9 个子分类
+    2. 对故事分类的 9 个子分类 × 3 种排序组合分别调用 API 同步
+       （每个组合 20 条，分页可扩展）
+    3. 故事默认热门也需要同步（category_id=1512，sort_type=hottest）
 
     Returns:
         {"categories": N, "rank_groups": N, "total_albums": N, "elapsed_seconds": float}
@@ -307,31 +307,84 @@ async def sync_zhihu_ranks() -> dict:
     import time
     t0 = time.time()
 
-    # 1. 拉取 HTML 并保存分类
+    # 1. 拉取 HTML 并保存分类（只保留故事相关）
     html = await _fetch_html(BASE_URL)
     if not html:
         logger.error('Zhihu: failed to fetch HTML')
         return {'categories': 0, 'rank_groups': 0, 'total_albums': 0, 'elapsed_seconds': 0}
 
-    cat_count = await sync_categories(html)
+    cats_raw = _extract_array(html, 'categories')
+    story_cat = None
+    for cat in cats_raw:
+        if str(cat.get('id')) == '1512':
+            story_cat = cat
+            break
 
-    # 2. 依次同步 3 种排序的热门榜单
-    #    每种 sort_type 抓 1 次（默认故事分类），每页 20 条
+    if not story_cat:
+        logger.error('Story category (1512) not found in HTML')
+        return {'categories': 0, 'rank_groups': 0, 'total_albums': 0, 'elapsed_seconds': 0}
+
+    # 保存故事一级分类 + 9 个子分类
+    records = []
+    records.append({
+        'zhihu_id': str(story_cat['id']),
+        'name': story_cat['name'],
+        'name_en': story_cat.get('name_en'),
+        'level': 1,
+        'parent_id': None,
+        'sort': story_cat.get('sort', 0),
+        'artwork': story_cat.get('artwork'),
+    })
+    for sub in story_cat.get('sub_category', []):
+        records.append({
+            'zhihu_id': str(sub['id']),
+            'name': sub['name'],
+            'name_en': sub.get('name_en'),
+            'level': 2,
+            'parent_id': str(story_cat['id']),
+            'sort': sub.get('sort', 0),
+            'artwork': sub.get('artwork'),
+        })
+
+    async with async_session() as db:
+        for rec in records:
+            stmt = sqlite_insert(ZhihuCategory).values(rec)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['zhihu_id'],
+                set_=dict(name=stmt.excluded.name, sort=stmt.excluded.sort, artwork=stmt.excluded.artwork)
+            )
+            await db.execute(stmt)
+        await db.commit()
+
+    cat_count = len(records)
+    logger.info(f'Zhihu story categories saved: {cat_count}')
+
+    # 故事默认热门 + 3 种排序
     total = 0
-    for sort_type in SORT_TYPES:
-        label = SORT_LABELS.get(sort_type, sort_type)
-        items = await _fetch_api(sort_type, limit=20)
-        n = await _fetch_and_save_albums(items, sort_type, '故事', label)
+    combos = [
+        ('1512', '热门', 'hottest'),
+        ('1512', '最新', 'newest'),
+        ('1512', '月热', 'monthly_hottest'),
+    ]
+    for cat_id, sort_label, sort_type in combos:
+        items = await _fetch_api(sort_type, limit=20, category_id=cat_id)
+        print(f"[DEBUG] combo: cat_id={cat_id}, sort_label={sort_label}, sort_type={sort_type}, items={len(items)}")
+        n = await _fetch_and_save_albums(items, sort_type, '故事', sort_label)
+        # Verify after each combo
+        conn_check = sqlite3.connect('topiceye.db')
+        cur_check = conn_check.cursor()
+        cur_check.execute("SELECT sort_type, COUNT(*) FROM zhihu_albums GROUP BY sort_type ORDER BY sort_type")
+        rows = cur_check.fetchall()
+        conn_check.close()
+        print(f"[DEBUG] state after {sort_type}: {rows}")
         total += n
-        # 避免频率限制
-        if sort_type != SORT_TYPES[-1]:
-            await asyncio.sleep(0.8)
+        await asyncio.sleep(0.8)
 
     elapsed = time.time() - t0
     logger.info(f'Zhihu sync done: {cat_count} categories, {total} albums in {elapsed:.1f}s')
     return {
         'categories': cat_count,
-        'rank_groups': len(SORT_TYPES),
+        'rank_groups': len(combos),
         'total_albums': total,
         'elapsed_seconds': round(elapsed, 1),
     }

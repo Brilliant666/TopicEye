@@ -84,6 +84,7 @@ async def trigger_generate(db: AsyncSession = Depends(get_db)):
     if report:
         report.status = "PENDING"
         await db.flush()
+        await db.commit()
 
     report = await generate_daily_report(db)
     return report

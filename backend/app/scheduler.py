@@ -279,6 +279,17 @@ async def _cleanup_old_trending_snapshots() -> None:
         logger.exception("Scheduler: cleanup_old_trending_snapshots failed")
 
 
+async def _sync_fanqie() -> None:
+    """番茄小说榜单每日抓取（凌晨1点）。"""
+    logger.info("Scheduler: fanqie sync started")
+    try:
+        from app.services.fanqie_service import full_sync
+        result = await full_sync()
+        logger.info("Scheduler: fanqie sync done — %s", result)
+    except Exception:
+        logger.exception("Scheduler: fanqie sync failed")
+
+
 # ── Lifecycle helpers ─────────────────────────────────────────────────
 
 def start_scheduler() -> None:
@@ -324,6 +335,15 @@ def start_scheduler() -> None:
         trigger=CronTrigger(hour=1, minute=0),
         id="cleanup_trending_snapshots",
         name="Cleanup trending snapshots older than 15 days",
+        replace_existing=True,
+    )
+
+    # 番茄小说榜单：每日凌晨1点抓取
+    scheduler.add_job(
+        _sync_fanqie,
+        trigger=CronTrigger(hour=1, minute=0),
+        id="sync_fanqie",
+        name="番茄小说榜单每日抓取",
         replace_existing=True,
     )
 

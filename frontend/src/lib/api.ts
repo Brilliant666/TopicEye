@@ -608,3 +608,60 @@ export const motherTopicsApi = {
     return request(`/mother-topics/match/${contentId}`);
   },
 };
+
+/* ── 番茄小说 ── */
+
+export interface FanqieCategory {
+  fanqie_id: string;
+  name: string;
+  group: 'male' | 'female';
+}
+
+export interface FanqieBook {
+  book_id: string;
+  book_name: string;
+  author: string;
+  abstract: string;
+  thumb_uri: string;
+  read_count: string;
+  word_number: string;
+  last_chapter_title: string;
+  current_pos: number;
+  rank_type: string;
+  male_reading_pos: number | null;
+  female_reading_pos: number | null;
+}
+
+export const fanqieApi = {
+  /** 获取全部分类 */
+  categories(): Promise<FanqieCategory[]> {
+    return request('/fanqie/categories');
+  },
+
+  /** 获取四大榜单（或指定类型） */
+  rankings(type?: string): Promise<Record<string, {
+    label: string;
+    count: number;
+    books: FanqieBook[];
+  }>> {
+    const params = type ? `?type=${type}` : '';
+    return request(`/fanqie/rankings${params}`);
+  },
+
+  /** 获取分类下图书 */
+  categoryBooks(
+    fanqieId: string,
+    params?: { rank_type?: string; limit?: number },
+  ): Promise<{ fanqie_id: string; count: number; books: FanqieBook[] }> {
+    const qs = new URLSearchParams();
+    if (params?.rank_type) qs.set('rank_type', params.rank_type);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const query = qs.toString();
+    return request(`/fanqie/category/${fanqieId}/books${query ? '?' + query : ''}`);
+  },
+
+  /** 手动触发全量同步 */
+  sync(): Promise<{ categories: number; elapsed_seconds: number }> {
+    return request('/fanqie/sync', { method: 'POST' });
+  },
+};

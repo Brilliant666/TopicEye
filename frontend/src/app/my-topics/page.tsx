@@ -226,11 +226,13 @@ export default function MyTopicsPage() {
   // Derive displayed items: filter by selected topic, then by min score
   const filtered = allScored.filter(c => {
     const s = c.scoring?.final_score ?? 0;
+
+    // 全部模式下：至少要有母题匹配分（score > 0）才展示
+    if (!selectedTopic) {
+      return s > 0;  // 过滤掉score=0的无关联内容
+    }
+
     if (s < filterMinScore / 100) return false;
-
-    if (!selectedTopic) return true; // 全部：展示所有
-
-    // 只展示 top_topic 匹配的内容
     return c.scoring?.top_topic === selectedTopic;
   });
 

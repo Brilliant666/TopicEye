@@ -111,7 +111,7 @@ class DuckDBAnalytics:
     def query_today_picks(
         self,
         hours: int = 48,
-        curation_threshold: float = 60,
+        curation_threshold: float = 82,  # P75 threshold for ~25% selection rate
         weight_bonus: int = 8,
         risk_threshold: float = 70,
     ) -> List[Dict[str, Any]]:
@@ -380,7 +380,7 @@ class DuckDBAnalytics:
             WHERE c.crawled_at >= '{cutoff}'
               AND a.curation_score IS NOT NULL
             ORDER BY (COALESCE(a.creator_score, 0) + COALESCE(a.viral_score, 0)) DESC
-            LIMIT 15
+            LIMIT 100
         """).fetchall()
 
         return [

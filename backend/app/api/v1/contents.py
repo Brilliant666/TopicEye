@@ -28,7 +28,7 @@ def _with_analysis(item) -> dict:
 
 @router.get("")
 async def list_contents(
-    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
     source_type: Optional[str] = None, platform: Optional[str] = None,
     status: Optional[str] = None, category: Optional[str] = None,
     keyword: Optional[str] = None, source_id: Optional[int] = None,
@@ -228,7 +228,7 @@ async def today_picks(
 
 @router.get("/favorites/list", response_model=ContentListResponse)
 async def list_favorites(
-    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
+    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ):
     items, total = await ContentRepo(db).list_favorites(page=page, page_size=page_size)

@@ -383,10 +383,10 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
-    # AI周刊：每周一早9点生成
+    # AI周刊：每周一凌晨3点生成（总结上周）
     scheduler.add_job(
         _generate_weekly_digest,
-        trigger=CronTrigger(day_of_week="mon", hour=9, minute=0),
+        trigger=CronTrigger(day_of_week="mon", hour=3, minute=0),
         id="weekly_digest",
         name="AI周刊生成",
         replace_existing=True,

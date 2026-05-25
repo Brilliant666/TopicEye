@@ -116,16 +116,22 @@ async def generate_weekly_digest(
     db: AsyncSession,
     reference_date: Optional[date] = None,
 ) -> WeeklyDigest:
-    """Generate (or regenerate) the weekly digest for the given date's week.
+    """Generate (or regenerate) the weekly digest for the PREVIOUS week.
+
+    By default, generates last week's digest (Monday–Sunday).
+    If reference_date is provided, uses that date's previous week.
 
     Args:
         db: Database session.
-        reference_date: The date whose ISO week to generate for. Defaults to today.
+        reference_date: The date whose PREVIOUS ISO week to generate for. Defaults to today.
 
     Returns:
         The WeeklyDigest record (may have status ERROR if generation failed).
     """
-    week_key, week_label, week_start, week_end = _get_week_range(reference_date)
+    # Use PREVIOUS week, not current week
+    d = reference_date or date.today()
+    last_week_date = d - timedelta(days=7)
+    week_key, week_label, week_start, week_end = _get_week_range(last_week_date)
 
     # Check if digest already exists and is done
     existing = await db.execute(

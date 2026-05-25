@@ -597,6 +597,18 @@ export const motherTopicsApi = {
     });
   },
 
+  /** 批量对多条内容按母题打分（只查一次 DB） */
+  scoreBatch(items: Array<{
+    title: string;
+    summary?: string;
+    hot_value?: number;
+  }>): Promise<{ results: ContentScoringResult[] }> {
+    return request('/mother-topics/score-batch', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    });
+  },
+
   /** 对已入库内容重新匹配母题 */
   matchContent(contentId: number): Promise<{
     content_id: number;

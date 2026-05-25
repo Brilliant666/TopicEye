@@ -215,6 +215,72 @@ async def score_content(
     )
 
 
+class BatchScoringRequest(BaseModel):
+    items: list[ContentScoringRequest]
+
+
+class BatchScoringResult(BaseModel):
+    results: list[ContentScoringResult]
+
+
+@router.post("/score-batch", response_model=BatchScoringResult)
+async def score_content_batch(
+    req: BatchScoringRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    批量对多条内容按母题打分。
+    只查一次 DB 获取所有活跃母题，然后循环打分。
+    """
+    # 一次性加载所有活跃母题
+    result = await db.execute(
+        select(MotherTopic).where(MotherTopic.is_active == True).order_by(MotherTopic.display_order)
+    )
+    topics = result.scalars().all()
+
+    if not topics:
+        return BatchScoringResult(results=[
+            ContentScoringResult(
+                title=item.title,
+                topic_scores=[],
+                top_topic=None,
+                final_score=0.0,
+            )
+            for item in req.items
+        ])
+
+    results: list[ContentScoringResult] = []
+    for item in req.items:
+        text = f"{item.title} {item.summary or ''}"
+        freshness = min(1.0, item.hot_value / 10000)
+
+        topic_scores = []
+        for topic in topics:
+            keyword_score = topic.match_score(text)
+            raw = keyword_score * topic.weight + freshness * 0.1
+            final = round(min(raw * (100 / 1.1), 100), 1)
+            topic_scores.append({
+                "name": topic.name,
+                "keyword_score": round(keyword_score, 3),
+                "weight": topic.weight,
+                "freshness": round(freshness, 3),
+                "final": final,
+            })
+
+        topic_scores.sort(key=lambda x: x["final"], reverse=True)
+        top = topic_scores[0] if topic_scores else None
+        final_score = top["final"] if top else 0.0
+
+        results.append(ContentScoringResult(
+            title=item.title,
+            topic_scores=topic_scores,
+            top_topic=top["name"] if top else None,
+            final_score=final_score,
+        ))
+
+    return BatchScoringResult(results=results)
+
+
 @router.get("/match/{content_id}")
 async def match_content_to_topics(
     content_id: int,

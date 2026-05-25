@@ -186,7 +186,7 @@ export default function MyTopicsPage() {
   const [filterMinScore, setFilterMinScore] = useState(0);
   const { toggleFavorite } = useAppContext();
 
-  // Load mother topics + fetch all contents once
+  // Load mother topics + fetch all contents once, then batch score
   useEffect(() => {
     setLoading(true);
     Promise.all([
@@ -195,21 +195,25 @@ export default function MyTopicsPage() {
     ]).then(async ([ts, { items }]) => {
       setTopics(ts);
 
-      // Score every item against all mother topics
-      const scored: ScoredContent[] = await Promise.all(
-        items.map(async content => {
-          try {
-            const scoring = await motherTopicsApi.score({
-              title: content.title,
-              summary: content.summary || '',
-              hot_value: 0,
-            });
-            return { content, scoring };
-          } catch {
-            return { content, scoring: null };
-          }
-        })
-      );
+      // Batch score all items in a single API call
+      let scored: ScoredContent[];
+      try {
+        const { results } = await motherTopicsApi.scoreBatch(
+          items.map(c => ({
+            title: c.title,
+            summary: c.summary || '',
+            hot_value: 0,
+          }))
+        );
+        // Map results back to ScoredContent[], matching by title
+        const resultMap = new Map(results.map(r => [r.title, r]));
+        scored = items.map(content => ({
+          content,
+          scoring: resultMap.get(content.title) ?? null,
+        }));
+      } catch {
+        scored = items.map(content => ({ content, scoring: null }));
+      }
 
       // Sort by final score desc
       scored.sort((a, b) =>

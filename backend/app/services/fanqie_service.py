@@ -158,10 +158,18 @@ async def _upsert_books(db: AsyncSession, book_list: list[dict], rank_type: str,
         existing = result.scalar_one_or_none()
 
         if existing:
+            # 计算排名变化：旧排名 - 新排名，正数=上升，负数=下降
+            new_pos = item.get("currentPos")
+            old_pos = getattr(existing, pos_field, None)
+            if old_pos is not None and new_pos is not None:
+                existing.rank_pos_diff = old_pos - new_pos
+            else:
+                existing.rank_pos_diff = None  # 该榜单首次上榜
+
             # 更新榜单排名
-            setattr(existing, pos_field, item.get("currentPos"))
-            if item.get("rankPosDiff") is not None:
-                existing.rank_pos_diff = item["rankPosDiff"]
+            setattr(existing, pos_field, new_pos)
+            existing.current_pos = new_pos or existing.current_pos
+            existing.rank_type = rank_type
             existing.crawled_at = datetime.now()
         else:
             book = FanqieBook(
@@ -178,7 +186,7 @@ async def _upsert_books(db: AsyncSession, book_list: list[dict], rank_type: str,
                 last_chapter_update_time=item.get("lastChapterUpdateTime"),
                 current_pos=item.get("currentPos", 0),
                 rank_type=rank_type,
-                rank_pos_diff=item.get("rankPosDiff"),
+                rank_pos_diff=None,  # 新上榜，暂无变化
                 **{pos_field: item.get("currentPos")},
             )
             db.add(book)

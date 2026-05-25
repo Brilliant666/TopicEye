@@ -37,6 +37,7 @@ class BookItem(BaseModel):
     male_new_pos: Optional[int]
     female_reading_pos: Optional[int]
     female_new_pos: Optional[int]
+    rank_pos_diff: Optional[int] = None  # 排名变化（正=上升，负=下降，null=新上榜）
 
     class Config:
         from_attributes = True
@@ -116,6 +117,7 @@ async def list_rankings(
                     "word_number": b.word_number,
                     "last_chapter_title": b.last_chapter_title,
                     "current_pos": b.current_pos,
+                    "rank_pos_diff": b.rank_pos_diff,
                 }
                 for b in books
             ],

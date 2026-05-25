@@ -12,8 +12,6 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional
-import sqlite3
-
 import httpx
 from sqlalchemy import select, func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -368,15 +366,7 @@ async def sync_zhihu_ranks() -> dict:
     ]
     for cat_id, sort_label, sort_type in combos:
         items = await _fetch_api(sort_type, limit=20, category_id=cat_id)
-        print(f"[DEBUG] combo: cat_id={cat_id}, sort_label={sort_label}, sort_type={sort_type}, items={len(items)}")
         n = await _fetch_and_save_albums(items, sort_type, '故事', sort_label)
-        # Verify after each combo
-        conn_check = sqlite3.connect('topiceye.db')
-        cur_check = conn_check.cursor()
-        cur_check.execute("SELECT sort_type, COUNT(*) FROM zhihu_albums GROUP BY sort_type ORDER BY sort_type")
-        rows = cur_check.fetchall()
-        conn_check.close()
-        print(f"[DEBUG] state after {sort_type}: {rows}")
         total += n
         await asyncio.sleep(0.8)
 

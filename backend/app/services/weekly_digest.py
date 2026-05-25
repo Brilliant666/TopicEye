@@ -65,8 +65,10 @@ async def _fetch_weekly_analyzed(db: AsyncSession, week_start: str, week_end: st
     query = (
         select(ContentItem)
         .options(selectinload(ContentItem.analyses))
+        .join(ContentItem.analyses)
         .where(ContentItem.crawled_at >= start_dt)
         .where(ContentItem.crawled_at <= end_dt)
+        .where(ContentItem.analyses.any())
     )
     result = await db.execute(query)
     items = result.scalars().unique().all()
@@ -220,7 +222,12 @@ async def generate_weekly_digest(
             max_tokens=3000,
         )
 
-        digest.overview = result.get("overview", "")
+        # Validate LLM returned useful content — empty dict is a failure
+        overview = result.get("overview", "")
+        if not overview or "raw_response" in result:
+            raise ValueError(f"LLM返回空内容或格式无效: {str(result)[:200]}")
+
+        digest.overview = overview
         digest.takeaway = result.get("takeaway", "")
         digest.keywords = json.dumps(result.get("keywords", []), ensure_ascii=False)
         digest.trends = json.dumps(result.get("trends", []), ensure_ascii=False)

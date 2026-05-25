@@ -113,6 +113,8 @@ async def generate_daily_report(db: AsyncSession) -> DailyReport:
     report = existing.scalar_one_or_none()
 
     if report and report.status == "DONE":
+        report.updated_at = datetime.utcnow()
+        await db.commit()
         return report
 
     # Fetch today's analyzed content
@@ -137,7 +139,7 @@ async def generate_daily_report(db: AsyncSession) -> DailyReport:
     items_text = ""
     # Build a title→url mapping for fallback matching
     title_url_map: dict[str, str] = {}
-    for i, item in enumerate(items_data[:15], 1):  # limit to top 15
+    for i, item in enumerate(items_data[:50], 1):  # limit to top 50
         items_text += f"\n{i}. [{item['category']}] {item['title']}"
         items_text += f"\n   来源: {item['source_name']} | URL: {item.get('url', '')} | 创作:{item['creator_score']} 爆文:{item['viral_score']} 质量:{item['quality_score']} 风险:{item['risk_score']}"
         if item['summary']:
@@ -166,7 +168,12 @@ async def generate_daily_report(db: AsyncSession) -> DailyReport:
     try:
         result = await call_llm_json([{"role": "user", "content": prompt}])
 
-        report.overview = result.get("overview", "")
+        # Validate LLM returned useful content — empty dict is a failure
+        overview = result.get("overview", "")
+        if not overview or "raw_response" in result:
+            raise ValueError(f"LLM返回空内容或格式无效: {str(result)[:200]}")
+
+        report.overview = overview
         report.takeaway = result.get("takeaway", "")
         report.keywords = json.dumps(result.get("keywords", []), ensure_ascii=False)
         report.trends = json.dumps(result.get("trends", []), ensure_ascii=False)

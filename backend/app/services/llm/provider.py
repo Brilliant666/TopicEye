@@ -296,22 +296,41 @@ async def call_llm_json(
     temperature: float = 0.2,
     max_tokens: int = 2000,
 ) -> dict[str, Any]:
-    """Call LLM and parse JSON response."""
-    raw = await call_llm(messages, temperature=temperature, max_tokens=max_tokens)
+    """Call LLM and parse JSON response.
 
-    # Try to extract JSON from markdown code blocks or raw text
-    text = raw.strip()
-    if "```json" in text:
-        start = text.index("```json") + 7
-        end = text.index("```", start)
-        text = text[start:end].strip()
-    elif "```" in text:
-        start = text.index("```") + 3
-        end = text.index("```", start)
-        text = text[start:end].strip()
+    Retries once on empty/unparseable response before giving up.
+    """
+    raw = ""
+    for attempt in range(2):
+        raw = await call_llm(messages, temperature=temperature, max_tokens=max_tokens)
 
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        logger.warning("Failed to parse LLM JSON response, returning raw")
-        return {"raw_response": raw}
+        # Try to extract JSON from markdown code blocks or raw text
+        text = raw.strip()
+        if not text:
+            logger.warning("LLM returned empty response (attempt %d)", attempt + 1)
+            if attempt == 0:
+                continue
+            return {"raw_response": raw}
+
+        if "```json" in text:
+            start = text.index("```json") + 7
+            end = text.index("```", start)
+            text = text[start:end].strip()
+        elif "```" in text:
+            start = text.index("```") + 3
+            end = text.index("```", start)
+            text = text[start:end].strip()
+
+        try:
+            result = json.loads(text)
+            if not isinstance(result, dict) or not result:
+                logger.warning("LLM JSON is empty or not a dict (attempt %d): %s", attempt + 1, str(result)[:200])
+                if attempt == 0:
+                    continue
+            return result
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse LLM JSON response (attempt %d): %s", attempt + 1, text[:200])
+            if attempt == 0:
+                continue
+
+    return {"raw_response": raw}

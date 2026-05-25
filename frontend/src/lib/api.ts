@@ -628,6 +628,7 @@ export interface FanqieBook {
   last_chapter_title: string;
   position: number;
   rank_type: string;
+  rank_pos_diff?: number | null;
 }
 
 export const fanqieApi = {
@@ -661,5 +662,39 @@ export const fanqieApi = {
   /** 手动触发全量同步 */
   sync(): Promise<{ categories: number; elapsed_seconds: number }> {
     return request('/fanqie/sync', { method: 'POST' });
+  },
+};
+
+// ─── 七猫小说 API ────────────────────────────────────────────────────────────
+
+export interface QimaoBook {
+  book_id: string;
+  title: string;
+  author: string;
+  abstract: string;
+  category1_name: string;
+  category2_name: string;
+  thumb_uri: string;
+  words_num: string;
+  collect_count: number;
+  latest_chapter_title: string;
+  update_time: string;
+  is_over: number;
+  is_continue_top: number;
+  index_change: number;
+  position: number;
+  rank_type?: string;
+}
+
+export const qimaoApi = {
+  list(channel: string, rankType: string, limit = 20, offset = 0): Promise<{
+    channel: string; rank_type: string; count: number;
+    books: QimaoBook[];
+  }> {
+    const qs = new URLSearchParams({ channel, rank_type: rankType, limit: String(limit), offset: String(offset) });
+    return request(`/qimao/books?${qs}`);
+  },
+  sync(): Promise<{ books: number; elapsed_seconds: number }> {
+    return request('/qimao/sync', { method: 'POST' });
   },
 };

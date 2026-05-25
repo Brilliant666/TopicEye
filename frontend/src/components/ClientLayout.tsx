@@ -2,6 +2,8 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
+import NotificationBell from '@/components/NotificationBell';
+import { T } from '@/lib/design-tokens';
 import { sourcesApi, contentsApi } from '@/lib/api';
 
 // App context - shared across pages
@@ -96,6 +98,16 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       <div style={{ display: 'flex', height: '100dvh', overflow: 'hidden' }}>
         <Sidebar topicCount={contentCount} favCount={favorites.size} sourceCount={sourceCount} />
         <main style={{ flex: 1, overflow: 'hidden', background: '#F7F7F8', display: 'flex', flexDirection: 'column' }}>
+          {/* 顶栏 */}
+          <div style={{
+            height: 48, flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            padding: '0 24px',
+            background: T.white,
+            borderBottom: `1px solid ${T.gray100}`,
+          }}>
+            <NotificationBell />
+          </div>
           <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
             {children}
           </div>

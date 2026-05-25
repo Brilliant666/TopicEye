@@ -16,6 +16,7 @@ import app.models.weekly_digest  # noqa: F401
 import app.models.trending  # noqa: F401
 import app.models.mother_topic  # noqa: F401
 import app.models.fanqie  # noqa: F401
+import app.models.notification  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

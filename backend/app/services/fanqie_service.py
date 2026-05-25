@@ -15,7 +15,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
-from app.models.fanqie import FanqieCategory, FanqieBook
+from app.models.fanqie import FanqieCategory, FanqieBook, FanqieRankSnapshot
 from app.services.fanqie_text_decoder import clean_books
 
 logger = logging.getLogger(__name__)
@@ -109,10 +109,13 @@ async def sync_category_books(categories: list[dict]) -> None:
             is_male = group == "male"
             gender = 1 if is_male else 0
 
-            for rank_mold, rank_suffix in [
+            for rank_idx, (rank_mold, rank_suffix) in enumerate([
                 (2, "reading"),   # 阅读榜
                 (1, "new"),       # 新书榜
-            ]:
+            ]):
+                # 不同 rank_mold 之间额外等待 1s
+                if rank_idx > 0:
+                    await asyncio.sleep(1)
                 params = {
                     "app_id": 2503,
                     "rank_list_type": 3,   # 固定传3，通过 rankMold 区分阅读/新书
@@ -138,7 +141,7 @@ async def sync_category_books(categories: list[dict]) -> None:
                     "category_name": cat["name"],
                 })
                 logger.info(f"分类 {cat['name']}[{rank_type}] 抓取 {len(book_list)} 本")
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(1.5)
 
         await db.commit()
 
@@ -193,13 +196,100 @@ async def full_sync() -> dict:
     # Step 2: 每个分类的阅读榜+新书榜
     await sync_category_books(categories)
 
+    # Step 3: 保存当日排名快照
+    try:
+        async with async_session() as db:
+            snap_count = await _save_daily_snapshot(db)
+            await db.commit()
+        logger.info(f"保存排名快照 {snap_count} 条")
+    except Exception as e:
+        logger.error(f"保存快照失败: {e}")
+
+    # Step 4: 清理 30 天前的快照
+    try:
+        async with async_session() as db:
+            removed = await _cleanup_old_snapshots(db, days=30)
+            await db.commit()
+        if removed > 0:
+            logger.info(f"清理旧快照 {removed} 条")
+    except Exception as e:
+        logger.error(f"清理快照失败: {e}")
+
     elapsed = (datetime.now() - start).total_seconds()
     logger.info(f"=== 番茄全量同步完成，耗时 {elapsed:.1f}s ===")
+
+    # 推送通知
+    try:
+        from app.services.notification_service import push_notification
+        await push_notification(
+            type="success",
+            category="fanqie_sync",
+            title="番茄数据同步完成",
+            message=f"同步 {len(categories)} 个分类，耗时 {elapsed:.0f}s",
+        )
+    except Exception:
+        pass  # 通知推送失败不影响主流程
 
     return {
         "categories": len(categories),
         "elapsed_seconds": elapsed,
     }
+
+
+# ── 快照逻辑 ──────────────────────────────────────────────────
+
+async def _save_daily_snapshot(db: AsyncSession) -> int:
+    """将当前排名数据保存为当日快照（幂等，重复调用不会重复写入）。"""
+    today = date.today().isoformat()
+
+    # 检查今天是否已有快照
+    existing = await db.execute(
+        select(FanqieRankSnapshot)
+        .where(FanqieRankSnapshot.snapshot_date == today)
+        .limit(1)
+    )
+    if existing.scalar_one_or_none():
+        logger.info(f"快照 {today} 已存在，跳过")
+        return 0
+
+    # 读取当前所有图书
+    result = await db.execute(select(FanqieBook))
+    books = result.scalars().all()
+
+    count = 0
+    for book in books:
+        # 四个榜单各存一条
+        for rank_type, pos_field in [
+            ("male_reading", "male_reading_pos"),
+            ("male_new", "male_new_pos"),
+            ("female_reading", "female_reading_pos"),
+            ("female_new", "female_new_pos"),
+        ]:
+            pos = getattr(book, pos_field, None)
+            if pos is not None:
+                snap = FanqieRankSnapshot(
+                    snapshot_date=today,
+                    book_id=book.book_id,
+                    book_name=book.book_name,
+                    rank_type=rank_type,
+                    category_id=book.category_id,
+                    position=pos,
+                    read_count=book.read_count,
+                    word_number=book.word_number,
+                )
+                db.add(snap)
+                count += 1
+
+    return count
+
+
+async def _cleanup_old_snapshots(db: AsyncSession, days: int = 30) -> int:
+    """删除 N 天前的快照。"""
+    cutoff = (date.today() - __import__("datetime").timedelta(days=days)).isoformat()
+    result = await db.execute(
+        delete(FanqieRankSnapshot).where(FanqieRankSnapshot.snapshot_date < cutoff)
+    )
+    return result.rowcount
 
 
 # ── 供 scheduler 调用的入口 ────────────────────────────────────

@@ -59,3 +59,24 @@ class FanqieBook(Base):
         Index("ix_fanqie_book_ranktype", "rank_type"),
         Index("ix_fanqie_book_cat", "category_id"),
     )
+
+
+class FanqieRankSnapshot(Base):
+    """番茄排名历史快照——每天存一份，用于排名变化分析。"""
+    __tablename__ = "fanqie_rank_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    snapshot_date: Mapped[str] = mapped_column(String(10), nullable=False)  # "2026-05-25"
+    book_id: Mapped[str] = mapped_column(String(50), nullable=False)
+    book_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    rank_type: Mapped[str] = mapped_column(String(30), nullable=False)  # male_reading / male_new / ...
+    category_id: Mapped[str] = mapped_column(String(20), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)  # 当日排名
+    read_count: Mapped[Optional[str]] = mapped_column(String(50))
+    word_number: Mapped[Optional[str]] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("ix_snap_date_type", "snapshot_date", "rank_type"),
+        Index("ix_snap_book", "book_id"),
+    )

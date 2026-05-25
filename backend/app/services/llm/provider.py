@@ -31,6 +31,68 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+# ── DB-backed model config cache ──────────────────────────────────────
+
+class ModelConfigCache:
+    """
+    Caches primary/fallback model config from DB.
+    Refreshes every 60 seconds so changes in the UI take effect quickly.
+    """
+    def __init__(self):
+        self._primary = None
+        self._fallback = None
+        self._last_refresh = 0.0
+        self._lock = asyncio.Lock()
+
+    async def refresh(self):
+        """Reload model configs from DB."""
+        try:
+            from app.core.database import async_session
+            from app.models.llm_model import LlmModel
+            from sqlalchemy import select
+
+            async with async_session() as session:
+                result = await session.execute(
+                    select(LlmModel).where(LlmModel.enabled == True)
+                )
+                models = result.scalars().all()
+
+                primary = None
+                fallback = None
+                for m in models:
+                    if m.is_primary and not primary:
+                        primary = m
+                    if m.is_fallback and not fallback:
+                        fallback = m
+
+                self._primary = primary
+                self._fallback = fallback
+                self._last_refresh = time.monotonic()
+                if primary:
+                    logger.debug("ModelConfigCache: primary=%s", primary.model_id)
+                if fallback:
+                    logger.debug("ModelConfigCache: fallback=%s", fallback.model_id)
+        except Exception as e:
+            logger.warning("ModelConfigCache refresh failed: %s", e)
+
+    async def get_primary(self):
+        if time.monotonic() - self._last_refresh > 60:
+            async with self._lock:
+                if time.monotonic() - self._last_refresh > 60:
+                    await self.refresh()
+        return self._primary
+
+    async def get_fallback(self):
+        if time.monotonic() - self._last_refresh > 60:
+            async with self._lock:
+                if time.monotonic() - self._last_refresh > 60:
+                    await self.refresh()
+        return self._fallback
+
+
+_model_cache = ModelConfigCache()
+
 # ── Model failover state tracker ──────────────────────────────────────
 
 class ModelFailover:
@@ -234,27 +296,44 @@ async def call_llm(
     """
     Call LLM with automatic primary→fallback failover.
 
-    Logic:
-    1. If primary is healthy → call primary
-    2. If primary is degraded → call fallback directly
-    3. If primary returns 429 → mark degraded, switch to fallback
-    4. If fallback succeeds while degraded → stay degraded
-    5. Periodically probe primary; if it works → switch back
+    Model config resolution order:
+    1. DB llm_models table (if primary/fallback configured there)
+    2. .env settings (legacy fallback)
     """
-    primary_model = settings.get_primary_model()
-    primary_key = settings.get_primary_api_key()
-    primary_base = settings.get_primary_base_url()
+    # Try DB-backed config first
+    db_primary = await _model_cache.get_primary()
+    db_fallback = await _model_cache.get_fallback()
 
-    fallback_model = settings.get_fallback_model()
+    if db_primary:
+        primary_model = db_primary.model_id
+        primary_key = db_primary.api_key or settings.get_primary_api_key()
+        primary_base = db_primary.api_base or settings.get_primary_base_url()
+        temperature = temperature or db_primary.temperature
+        max_tokens = max_tokens or db_primary.max_tokens
+    else:
+        primary_model = settings.get_primary_model()
+        primary_key = settings.get_primary_api_key()
+        primary_base = settings.get_primary_base_url()
+
+    if db_fallback:
+        fallback_model = db_fallback.model_id
+        fallback_key = db_fallback.api_key
+        fallback_base = db_fallback.api_base
+    else:
+        fallback_model = settings.get_fallback_model()
+        if fallback_model:
+            fallback_key = settings.get_fallback_api_key(fallback_model)
+            fallback_base = settings.get_fallback_base_url(fallback_model)
+        else:
+            fallback_key = None
+            fallback_base = None
+
     if not fallback_model:
         # No fallback configured, just call primary
         return await _call_with_retry(
             messages, primary_model, primary_key, primary_base,
             temperature, max_tokens, None,
         )
-
-    fallback_key = settings.get_fallback_api_key(fallback_model)
-    fallback_base = settings.get_fallback_base_url(fallback_model)
 
     is_degraded = _failover.should_skip_primary()
     used_primary = not is_degraded

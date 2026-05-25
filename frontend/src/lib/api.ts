@@ -751,3 +751,88 @@ export const zhihuApi = {
     return request('/zhihu/sync', { method: 'POST' });
   },
 };
+
+// ─── LLM Models API ───
+
+export interface LlmModelItem {
+  id: number;
+  name: string;
+  provider: string;
+  model_id: string;
+  api_base: string | null;
+  api_key_set: boolean;
+  enabled: boolean;
+  is_primary: boolean;
+  is_fallback: boolean;
+  temperature: number;
+  max_tokens: number;
+  requests_per_minute: number;
+  description: string | null;
+  cost_per_1k_input: number | null;
+  cost_per_1k_output: number | null;
+  extra_params: Record<string, unknown> | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface EvalRun {
+  eval_run_id: string;
+  prompt_type: string;
+  model_count: number;
+  created_at: string | null;
+  done_count: number;
+  fail_count: number;
+}
+
+export interface EvalResult {
+  id: number;
+  model_id: number;
+  model_name: string;
+  status: string;
+  response_text: string | null;
+  duration_ms: number;
+  tokens_input: number | null;
+  tokens_output: number | null;
+  quality_score: number | null;
+  auto_score: number | null;
+  notes: string | null;
+  error_message: string | null;
+  created_at: string | null;
+}
+
+export const modelsApi = {
+  list(): Promise<{ models: LlmModelItem[]; total: number }> {
+    return request('/models');
+  },
+  create(data: Partial<LlmModelItem> & { api_key?: string }): Promise<{ id: number; name: string; message: string }> {
+    return request('/models', { method: 'POST', body: JSON.stringify(data) });
+  },
+  update(id: number, data: Partial<LlmModelItem> & { api_key?: string }): Promise<{ message: string }> {
+    return request(`/models/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  },
+  delete(id: number): Promise<{ message: string }> {
+    return request(`/models/${id}`, { method: 'DELETE' });
+  },
+  setPrimary(id: number): Promise<{ message: string }> {
+    return request(`/models/${id}/set-primary`, { method: 'POST' });
+  },
+  setFallback(id: number): Promise<{ message: string }> {
+    return request(`/models/${id}/set-fallback`, { method: 'POST' });
+  },
+  test(id: number): Promise<{ status: string; model_name: string; response?: string; error?: string; duration_ms: number; tokens_input?: number; tokens_output?: number }> {
+    return request(`/models/${id}/test`, { method: 'POST' });
+  },
+  runEvaluation(data: { model_ids: number[]; prompt_type: string; custom_prompt?: string; sample_content?: string }): Promise<{ eval_run_id: string; model_count: number; message: string }> {
+    return request('/models/evaluations/run', { method: 'POST', body: JSON.stringify(data) });
+  },
+  listEvalRuns(limit?: number): Promise<{ runs: EvalRun[]; total: number }> {
+    const qs = limit ? `?limit=${limit}` : '';
+    return request(`/models/evaluations/runs${qs}`);
+  },
+  getEvalRun(runId: string): Promise<{ eval_run_id: string; prompt_type: string; results: EvalResult[] }> {
+    return request(`/models/evaluations/runs/${runId}`);
+  },
+  scoreEvaluation(evalId: number, quality_score: number, notes?: string): Promise<{ message: string }> {
+    return request(`/models/evaluations/${evalId}/score`, { method: 'PUT', body: JSON.stringify({ quality_score, notes }) });
+  },
+};

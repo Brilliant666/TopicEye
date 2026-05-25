@@ -35,6 +35,7 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
     { id: 'trends', label: '趋势追踪', href: '/trends', badge: 'NEW' },
     { id: 'trending', label: '趋势雷达', href: '/trending', badge: 'NEW' },
     { id: 'fanqie', label: '网文雷达', href: '/fanqie', badge: 'NEW' },
+    { id: 'model-eval', label: '模型测评', href: '/model-eval' },
   ];
 
   const isActive = (href: string) => {

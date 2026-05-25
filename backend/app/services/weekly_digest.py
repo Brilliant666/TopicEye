@@ -240,10 +240,22 @@ async def generate_weekly_digest(
         digest.updated_at = datetime.utcnow()
         await db.commit()
         logger.info("Weekly digest generated: %s (%s)", week_key, week_label)
+        # 通知：周刊生成成功
+        try:
+            from app.services.notification_service import push_notification
+            await push_notification("success", "weekly_digest", "AI周刊生成完成", f"{week_label} 已生成")
+        except Exception:
+            pass
     except Exception as e:
         digest.status = "ERROR"
         digest.overview = f"生成失败: {str(e)[:200]}"
         await db.commit()
         logger.error("Weekly digest generation failed for %s: %s", week_key, e)
+        # 通知：周刊生成失败
+        try:
+            from app.services.notification_service import push_notification
+            await push_notification("error", "weekly_digest", "AI周刊生成失败", str(e)[:200])
+        except Exception:
+            pass
 
     return digest

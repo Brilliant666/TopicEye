@@ -201,9 +201,21 @@ async def generate_daily_report(db: AsyncSession) -> DailyReport:
         report.status = "DONE"
         report.updated_at = datetime.utcnow()
         await db.commit()
+        # 通知：日报生成成功
+        try:
+            from app.services.notification_service import push_notification
+            await push_notification("success", "daily_report", "AI日报生成完成", f"共 {report.topic_count} 个选题")
+        except Exception:
+            pass
     except Exception as e:
         report.status = "ERROR"
         report.overview = f"生成失败: {str(e)[:200]}"
         await db.commit()
+        # 通知：日报生成失败
+        try:
+            from app.services.notification_service import push_notification
+            await push_notification("error", "daily_report", "AI日报生成失败", str(e)[:200])
+        except Exception:
+            pass
 
     return report

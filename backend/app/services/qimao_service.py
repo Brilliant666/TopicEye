@@ -14,9 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
 from app.models.qimao import QimaoBook
-from app.services.qimao_scraper import fetch_list_data
+from app.services.qimao_scraper import fetch_list_data, fetch_all_ranks
 
 logger = logging.getLogger(__name__)
+
+# 榜单配置: (channel, rank_type)
+RANK_CONFIGS = [
+    ("boy", "hot"), ("boy", "new"), ("boy", "over"), ("boy", "collect"), ("boy", "update"),
+    ("girl", "hot"), ("girl", "new"), ("girl", "over"), ("girl", "collect"), ("girl", "update"),
+]
 
 
 def _parse_book(item: dict, channel: str, rank_type: str, position: int) -> dict:
@@ -59,31 +65,25 @@ def _parse_book(item: dict, channel: str, rank_type: str, position: int) -> dict
 
 async def sync_qimao_ranks() -> dict:
     """
-    同步七猫全量榜单：
+    同步七猫全量榜单（复用同一浏览器实例）：
     - 男女各 5 种榜单类型（大热/新书/完结/收藏/更新）
-    - 每次请求间隔 3s
+    - 每次请求间隔 1.5s
     """
-    configs = [
-        ("boy", "hot"), ("boy", "new"), ("boy", "over"), ("boy", "collect"), ("boy", "update"),
-        ("girl", "hot"), ("girl", "new"), ("girl", "over"), ("girl", "collect"), ("girl", "update"),
-    ]
-
     start = datetime.now()
     total_books = 0
     errors = 0
 
-    async with async_session() as db:
-        for idx, (channel, rank_type) in enumerate(configs):
-            if idx > 0:
-                await asyncio.sleep(3)
+    # 使用 fetch_all_ranks 复用浏览器
+    all_data = await fetch_all_ranks()
 
-            books_raw = await fetch_list_data(channel, rank_type)
+    async with async_session() as db:
+        for (channel, rank_type), books_raw in all_data.items():
             if not books_raw:
                 errors += 1
-                logger.warning(f"七猫 {channel}/{rank_type} 获取失败")
+                logger.warning(f"七猫 {channel}/{rank_type} 获取为空")
                 continue
 
-            # 删除旧数据
+            # 删除该榜单旧数据
             await db.execute(
                 delete(QimaoBook).where(
                     QimaoBook.channel == channel,

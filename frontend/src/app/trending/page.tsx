@@ -443,6 +443,24 @@ function ClusterCard({ cluster }: { cluster: CrossPlatformCluster }) {
   );
 }
 
+/* ── Helpers ── */
+
+function formatTime(isoStr: string): string {
+  try {
+    const d = new Date(isoStr);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return '刚刚';
+    if (diffMin < 60) return `${diffMin}分钟前`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}小时前`;
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  } catch {
+    return '';
+  }
+}
+
 /* ── Page ── */
 
 function TrendingPage() {
@@ -464,7 +482,7 @@ function TrendingPage() {
         trendingApi.list({
           category: selectedCategory || undefined,
           source: selectedSource || undefined,
-          limit: 100,
+          limit: 200,
         }),
         trendingApi.listSources(),
       ]);
@@ -529,7 +547,7 @@ function TrendingPage() {
   }
 
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 1200, margin: '0 auto', paddingBottom: 80, minHeight: '100%', boxSizing: 'border-box' }}>
+    <div style={{ padding: '32px 40px', maxWidth: 1400, margin: '0 auto', paddingBottom: 80, minHeight: '100%', boxSizing: 'border-box' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
@@ -645,101 +663,214 @@ function TrendingPage() {
         </div>
       )}
 
-      {/* List Tab Content: responsive platform grid */}
+      {/* Category Filter (only on list tab) */}
+      {!loading && tab === 'list' && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
+          {CATEGORIES.map(c => {
+            const active = selectedCategory === c.value;
+            const catColor = c.value ? (CATEGORY_COLORS[c.value] || { bg: T.gray100, color: T.gray600 }) : { bg: T.primaryLight, color: T.primary };
+            return (
+              <button
+                key={c.value}
+                onClick={() => setSelectedCategory(c.value)}
+                style={{
+                  padding: '4px 14px', fontSize: 12, fontWeight: active ? 600 : 400,
+                  background: active ? (catColor.bg) : T.white,
+                  color: active ? (catColor.color) : T.gray600,
+                  border: `1px solid ${active ? (catColor.color) : T.gray200}`,
+                  borderRadius: 14, cursor: 'pointer',
+                  transition: 'all 0.12s ease',
+                }}
+              >
+                {c.label}
+              </button>
+            );
+          })}
+          <span style={{ fontSize: 11, color: T.gray400, marginLeft: 4 }}>
+            {Object.keys(groupedItems).length} 个信源 · {items.length} 条
+          </span>
+        </div>
+      )}
+
+      {/* List Tab Content: NewsNow-style card grid */}
       {!loading && tab === 'list' && (
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(280, 1fr))',
-          gap: 12,
+          gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))',
+          gap: 16,
           alignContent: 'start',
         }}>
           {Object.entries(groupedItems).map(([source, srcItems]) => {
             const cat = srcItems[0]?.category || 'hot';
             const catColor = CATEGORY_COLORS[cat] || CATEGORY_COLORS.hot;
+            const sourceInfo = sources.find(s => s.source === source);
+            const lastSynced = sourceInfo?.last_synced;
+            const isCollapsed = expandedSources.has(source);
+            const displayItems = isCollapsed ? srcItems : srcItems.slice(0, 10);
             return (
               <div key={source} style={{
                 border: `1px solid ${T.gray200}`,
                 borderRadius: T.radius,
                 overflow: 'hidden',
                 background: T.white,
-              }}>
-                {/* 卡片头部 — 分类色打在顶部 */}
+                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                transition: 'box-shadow 0.15s ease, border-color 0.15s ease',
+              }}
+                onMouseEnter={e => {
+                  const el = e.currentTarget as HTMLDivElement;
+                  el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)';
+                  el.style.borderColor = T.gray300;
+                }}
+                onMouseLeave={e => {
+                  const el = e.currentTarget as HTMLDivElement;
+                  el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)';
+                  el.style.borderColor = T.gray200;
+                }}
+              >
+                {/* Card Header: source name + time badge + collapse button */}
                 <div style={{
-                  padding: '8px 12px',
-                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '10px 14px',
+                  display: 'flex', alignItems: 'center', gap: 8,
                   background: catColor.bg,
                   borderBottom: `1px solid ${T.gray200}`,
-                }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: catColor.color }}>
+                  cursor: 'pointer',
+                }}
+                  onClick={() => toggleSource(source)}
+                >
+                  {/* Source icon dot */}
+                  <div style={{
+                    width: 28, height: 28, borderRadius: 8,
+                    background: catColor.color,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.white }}>
+                      {(SOURCE_LABELS[source] || source).charAt(0)}
+                    </span>
+                  </div>
+                  {/* Source name */}
+                  <span style={{ fontSize: 13, fontWeight: 700, color: catColor.color, flex: 1 }}>
                     {SOURCE_LABELS[source] || source}
                   </span>
+                  {/* Category tag */}
                   <span style={{
-                    fontSize: 9, color: catColor.color,
-                    background: T.white, padding: '1px 5px', borderRadius: 6,
-                    fontWeight: 600,
-                  }}>
-                    {srcItems.length}
-                  </span>
-                  <span style={{
-                    fontSize: 9, fontWeight: 700, color: catColor.color,
-                    background: T.white, padding: '1px 5px', borderRadius: 6,
-                    textTransform: 'uppercase', letterSpacing: '0.05em',
+                    fontSize: 9, fontWeight: 600,
+                    background: T.white, color: catColor.color,
+                    padding: '2px 6px', borderRadius: 6,
+                    textTransform: 'uppercase', letterSpacing: '0.04em',
                   }}>
                     {cat}
                   </span>
+                  {/* Count badge */}
+                  <span style={{
+                    fontSize: 9, color: catColor.color,
+                    background: T.white, padding: '2px 6px', borderRadius: 6,
+                    fontWeight: 600,
+                  }}>
+                    {srcItems.length}条
+                  </span>
+                  {/* Last synced time */}
+                  {lastSynced && (
+                    <span style={{
+                      fontSize: 9, color: T.gray400,
+                      background: T.white, padding: '1px 5px', borderRadius: 4,
+                    }}>
+                      {formatTime(lastSynced)}
+                    </span>
+                  )}
+                  {/* Collapse/expand toggle */}
+                  <span style={{
+                    fontSize: 11, color: catColor.color, flexShrink: 0,
+                    fontWeight: 600, minWidth: 16, textAlign: 'center',
+                  }}>
+                    {isCollapsed ? '▲' : '▼'}
+                  </span>
                 </div>
-                {/* 排行列表 — 滚动 + 展开按钮 */}
-                <div style={{ maxHeight: expandedSources.has(source) ? 'none' : 200, overflowY: 'auto' }}>
-                  {(expandedSources.has(source) ? srcItems : srcItems.slice(0, 5)).map((item, idx) => (
+
+                {/* Ranked list */}
+                <div style={{ maxHeight: isCollapsed ? 'none' : 400, overflowY: 'auto' }}>
+                  {displayItems.map((item, idx) => (
                     <a
                       key={item.id}
                       href={item.url || '#'}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{
-                        display: 'flex', alignItems: 'center', gap: 6,
-                        padding: '5px 10px',
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '7px 14px',
                         textDecoration: 'none',
                         background: idx < 3 ? T.gray50 : T.white,
                         borderBottom: `1px solid ${T.gray100}`,
+                        transition: 'background 0.1s ease',
+                      }}
+                      onMouseEnter={e => {
+                        (e.currentTarget as HTMLAnchorElement).style.background = T.primaryLight;
+                      }}
+                      onMouseLeave={e => {
+                        (e.currentTarget as HTMLAnchorElement).style.background = idx < 3 ? T.gray50 : T.white;
                       }}
                     >
+                      {/* Rank number with color */}
                       <span style={{
-                        width: 18, height: 18, borderRadius: '50%',
-                        background: idx === 0 ? '#FF6B35' : idx === 1 ? '#FFA94D' : idx === 2 ? '#FFD59E' : T.gray200,
+                        width: 22, height: 22, borderRadius: 6,
+                        background: idx === 0
+                          ? 'linear-gradient(135deg, #FF6B35, #FF8F65)'
+                          : idx === 1
+                            ? 'linear-gradient(135deg, #FFA94D, #FFB870)'
+                            : idx === 2
+                              ? 'linear-gradient(135deg, #FFD59E, #FFE0B2)'
+                              : T.gray100,
                         color: idx < 3 ? T.white : T.gray500,
-                        fontSize: 10, fontWeight: 700,
+                        fontSize: 11, fontWeight: 700,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         flexShrink: 0,
+                        fontFamily: T.mono,
                       }}>
                         {idx + 1}
                       </span>
+                      {/* Title */}
                       <span style={{
-                        flex: 1, fontSize: 12, color: T.gray800,
+                        flex: 1, fontSize: 12.5, color: T.gray800,
                         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        lineHeight: '1.4',
                       }}>
                         {item.title}
                       </span>
+                      {/* Hot value */}
                       {item.hot_value > 0 && (
-                        <span style={{ fontSize: 10, color: T.gray400, flexShrink: 0 }}>
-                          {item.hot_value >= 10000 ? `${(item.hot_value / 10000).toFixed(1)}万` : item.hot_value}
+                        <span style={{
+                          fontSize: 10, fontFamily: T.mono, fontWeight: 500,
+                          color: item.hot_value > 10000 ? T.primary : T.gray400,
+                          flexShrink: 0, whiteSpace: 'nowrap',
+                        }}>
+                          {item.hot_value >= 10000 ? `${(item.hot_value / 10000).toFixed(1)}万` : item.hot_value.toLocaleString()}
                         </span>
                       )}
+                      {/* Trend badge */}
+                      <TrendBadge trend={item.trend} />
                     </a>
                   ))}
                 </div>
-                {/* 展开更多按钮 */}
-                {srcItems.length > 5 && (
+
+                {/* Expand/collapse footer */}
+                {srcItems.length > 10 && (
                   <button
                     onClick={() => toggleSource(source)}
                     style={{
-                      width: '100%', padding: '6px', fontSize: 11, fontWeight: 600,
+                      width: '100%', padding: '7px', fontSize: 11, fontWeight: 600,
                       color: T.gray500, background: T.gray50,
                       border: 'none', borderTop: `1px solid ${T.gray100}`,
                       cursor: 'pointer',
+                      transition: 'background 0.1s ease',
+                    }}
+                    onMouseEnter={e => {
+                      (e.currentTarget as HTMLButtonElement).style.background = T.gray100;
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLButtonElement).style.background = T.gray50;
                     }}
                   >
-                    {expandedSources.has(source) ? '收起' : `展开 ${srcItems.length - 5} 条`}
+                    {isCollapsed ? '收起 ▲' : `展开全部 ${srcItems.length} 条 ▼`}
                   </button>
                 )}
               </div>

@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.core.config import settings
 from app.database import engine, Base
 from app.api.v1.router import router as v1_router
 from app.scheduler import start_scheduler, shutdown_scheduler
@@ -29,28 +30,38 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create all SQLite tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    if settings.AUTO_CREATE_TABLES_ON_STARTUP:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    else:
+        logger.info("Startup table creation skipped by config")
 
     # Seed categories from hardcoded defaults (no-op if already seeded)
-    try:
-        from app.database import async_session
-        from app.services.classifier import seed_categories
-        async with async_session() as seed_db:
-            await seed_categories(seed_db)
-            await seed_db.commit()
-    except Exception as e:
-        logger.warning("Category seed skipped: %s", e)
+    if settings.STARTUP_SEED_ENABLED:
+        try:
+            from app.database import async_session
+            from app.services.classifier import seed_categories
+            async with async_session() as seed_db:
+                await seed_categories(seed_db)
+                await seed_db.commit()
+        except Exception as e:
+            logger.warning("Category seed skipped: %s", e)
+    else:
+        logger.info("Category seed skipped by config")
 
     # Seed mother topics (4 content pillars for 大痴小乙)
-    try:
-        from app.services.mother_topic_seed import seed_mother_topics
-        async with async_session() as seed_db:
-            added = await seed_mother_topics()
-            await seed_db.commit()
-            logger.info("Mother topics seeded (%d new)", added)
-    except Exception as e:
-        logger.warning("Mother topic seed skipped: %s", e)
+    if settings.STARTUP_SEED_ENABLED:
+        try:
+            from app.database import async_session
+            from app.services.mother_topic_seed import seed_mother_topics
+            async with async_session() as seed_db:
+                added = await seed_mother_topics()
+                await seed_db.commit()
+                logger.info("Mother topics seeded (%d new)", added)
+        except Exception as e:
+            logger.warning("Mother topic seed skipped: %s", e)
+    else:
+        logger.info("Mother topic seed skipped by config")
 
     # Initialize DuckDB analytical layer (in-memory + ATTACH SQLite)
     try:
@@ -64,8 +75,11 @@ async def lifespan(app: FastAPI):
         logger.warning("DuckDB init skipped: %s — falling back to SQLite queries", e)
 
     # Start the periodic scheduler
-    start_scheduler()
-    logger.info("Application startup complete — scheduler running")
+    if settings.SCHEDULER_ENABLED:
+        start_scheduler()
+        logger.info("Application startup complete — scheduler running")
+    else:
+        logger.info("Application startup complete — scheduler disabled by config")
 
     yield
 

@@ -37,6 +37,8 @@ logger = logging.getLogger(__name__)
 # Semaphore to limit concurrent DB write tasks — SQLite single-writer constraint.
 _MAX_CONCURRENT_SYNCS = 3
 _sync_semaphore: asyncio.Semaphore | None = None
+_post_sync_lock: asyncio.Lock | None = None
+_post_sync_rerun_requested = False
 
 
 def _get_semaphore() -> asyncio.Semaphore:
@@ -44,6 +46,13 @@ def _get_semaphore() -> asyncio.Semaphore:
     if _sync_semaphore is None:
         _sync_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_SYNCS)
     return _sync_semaphore
+
+
+def _get_post_sync_lock() -> asyncio.Lock:
+    global _post_sync_lock
+    if _post_sync_lock is None:
+        _post_sync_lock = asyncio.Lock()
+    return _post_sync_lock
 
 
 scheduler = AsyncIOScheduler(
@@ -169,7 +178,26 @@ async def _sync_single_source(source_id: int) -> None:
 
 
 async def _run_post_sync_pipeline() -> None:
-    """Analyze pending, cluster, and snapshot trends. Called after each sync."""
+    """Run shared post-sync work, coalescing overlapping sync completions."""
+    global _post_sync_rerun_requested
+
+    lock = _get_post_sync_lock()
+    if lock.locked():
+        _post_sync_rerun_requested = True
+        logger.info("Scheduler: post-sync pipeline already running; queued one rerun")
+        return
+
+    async with lock:
+        while True:
+            _post_sync_rerun_requested = False
+            await _run_post_sync_pipeline_once()
+            if not _post_sync_rerun_requested:
+                break
+            logger.info("Scheduler: running coalesced post-sync pipeline rerun")
+
+
+async def _run_post_sync_pipeline_once() -> None:
+    """Analyze pending, cluster, and snapshot trends once."""
     BATCH_SIZE = 20
     async with async_session() as db:
         content_repo = ContentRepo(db)
@@ -348,6 +376,10 @@ async def _generate_weekly_digest() -> None:
 
 def start_scheduler() -> None:
     """Register all scheduled jobs and start the scheduler."""
+    if scheduler.running:
+        logger.info("Scheduler already running; start skipped")
+        return
+
     # Periodic rescan to catch new/updated/disabled sources
     scheduler.add_job(
         _rescan_sources,

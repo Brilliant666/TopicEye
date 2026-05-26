@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     # DUCKDB_PATH is no longer needed — DuckDB connects in-memory and
     # ATTACHes the SQLite file directly (READ_ONLY). No separate DuckDB file.
 
+    # ── Startup behavior ──
+    AUTO_CREATE_TABLES_ON_STARTUP: bool = True
+    STARTUP_SEED_ENABLED: bool = True
+    SCHEDULER_ENABLED: bool = True
+
     # ── Legacy DeepSeek config (backward compatible) ──
     DEEPSEEK_API_KEY: Optional[str] = None
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"

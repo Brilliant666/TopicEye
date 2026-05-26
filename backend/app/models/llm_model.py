@@ -35,8 +35,8 @@ class LlmModel(Base):
     cost_per_1k_input: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="每1k input token 成本(元)")
     cost_per_1k_output: Mapped[Optional[float]] = mapped_column(Float, nullable=True, comment="每1k output token 成本(元)")
     extra_params: Mapped[Optional[str]] = mapped_column(JSON, nullable=True, comment="额外参数(JSON)")
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default="CURRENT_TIMESTAMP")
-    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate="CURRENT_TIMESTAMP")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=datetime.utcnow)
 
     __table_args__ = (
         Index("ix_llm_models_enabled", "enabled"),
@@ -64,7 +64,7 @@ class ModelEvaluation(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="人工备注")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING", comment="PENDING/RUNNING/DONE/FAILED")
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default="CURRENT_TIMESTAMP")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
     __table_args__ = (
         Index("ix_model_evals_run_type", "eval_run_id", "prompt_type"),

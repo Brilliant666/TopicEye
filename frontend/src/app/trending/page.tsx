@@ -10,6 +10,19 @@ import {
   type CrossPlatformSourceItem,
 } from '@/lib/api';
 
+/* ── Global scrollbar style (injected once) ── */
+if (typeof document !== 'undefined' && !document.getElementById('trending-scrollbar-css')) {
+  const style = document.createElement('style');
+  style.id = 'trending-scrollbar-css';
+  style.textContent = `
+    .trending-scroll::-webkit-scrollbar { width: 5px; }
+    .trending-scroll::-webkit-scrollbar-track { background: transparent; }
+    .trending-scroll::-webkit-scrollbar-thumb { background: ${T.gray300}; border-radius: 4px; }
+    .trending-scroll::-webkit-scrollbar-thumb:hover { background: ${T.gray400}; }
+  `;
+  document.head.appendChild(style);
+}
+
 /* ── Constants ── */
 
 const CATEGORIES = [
@@ -788,7 +801,12 @@ function TrendingPage() {
                 </div>
 
                 {/* Ranked list */}
-                <div style={{ maxHeight: isCollapsed ? 'none' : 400, overflowY: 'auto' }}>
+                <div className="trending-scroll" style={{
+                  maxHeight: isCollapsed ? 600 : 400,
+                  overflowY: 'auto',
+                  scrollbarWidth: 'thin',
+                  scrollbarColor: `${T.gray300} transparent`,
+                }}>
                   {displayItems.map((item, idx) => (
                     <a
                       key={item.id}

@@ -113,11 +113,11 @@ function ContentCard({ item, onToggle }: { item: ScoredContent; onToggle: (id: n
               />
             ))}
             <span style={{ fontSize: 11, color: '#9ca3af' }}>
-              {item.content.source_name || item.content.source || ''}
+              {item.content.source_name || ''}
             </span>
           </div>
           <a
-            href={item.content.url || item.content.original_url || '#'}
+            href={item.content.url || '#'}
             target="_blank"
             rel="noopener noreferrer"
             style={{
@@ -133,7 +133,7 @@ function ContentCard({ item, onToggle }: { item: ScoredContent; onToggle: (id: n
           </a>
         </div>
         <button
-          onClick={() => onToggle(item.content.id!)}
+          onClick={() => onToggle(item.content.id)}
           title={fav ? '取消收藏' : '收藏'}
           style={{
             background: 'none',

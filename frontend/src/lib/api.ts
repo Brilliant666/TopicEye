@@ -19,7 +19,7 @@ import type {
   WeeklyDigestWeeksResponse,
 } from '@/types';
 
-export type { CreateSourceRequest, UpdateSourceRequest };
+export type { ContentItem, CreateSourceRequest, UpdateSourceRequest };
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
@@ -534,7 +534,7 @@ export const trendingApi = {
     const query = params
       ? '?' + new URLSearchParams(
           Object.entries(params)
-            .filter(([, v]) => v !== undefined && v !== '')
+            .filter(([, v]) => v !== undefined)
             .map(([k, v]) => [k, String(v)])
         ).toString()
       : '';
@@ -549,7 +549,7 @@ export const trendingApi = {
     const query = params
       ? '?' + new URLSearchParams(
           Object.entries(params)
-            .filter(([, v]) => v !== undefined && v !== '')
+            .filter(([, v]) => v !== undefined)
             .map(([k, v]) => [k, String(v)])
         ).toString()
       : '';
@@ -569,7 +569,7 @@ export interface PersistentTopic {
   avg_rank: number;
   best_rank: number;
   hot_value_max: number;
-  rank_trend: string;
+  rank_trend: number[];
   first_seen: string;
   last_seen: string;
 }
@@ -613,6 +613,20 @@ export interface MotherTopic {
   updated_at: string | null;
 }
 
+export type MotherTopicMutation = Partial<
+  Pick<
+    MotherTopic,
+    | 'name'
+    | 'description'
+    | 'keywords'
+    | 'weight'
+    | 'content_type'
+    | 'target_reader'
+    | 'is_active'
+    | 'display_order'
+  >
+>;
+
 export interface ContentScoringResult {
   title: string;
   topic_scores: Array<{
@@ -652,16 +666,7 @@ export const motherTopicsApi = {
   /** 更新母题 */
   update(
     id: number,
-    data: Partial<{
-      name: string;
-      description: string;
-      keywords: string[];
-      weight: number;
-      content_type: string;
-      target_reader: string;
-      is_active: boolean;
-      display_order: number;
-    }>
+    data: MotherTopicMutation
   ): Promise<MotherTopic> {
     return request(`/mother-topics/${id}`, {
       method: 'PUT',

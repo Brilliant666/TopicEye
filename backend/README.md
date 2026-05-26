@@ -14,3 +14,15 @@ uvicorn app.main:app --reload
 ```
 
 API docs: http://localhost:8000/docs
+
+## Tests
+
+```bash
+cd backend
+source venv/bin/activate
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+Files such as `tests/test_duckdb.py`, `tests/test_cost.py`, and `test_perf.py`
+are manual diagnostics rather than pytest tests.

@@ -49,6 +49,7 @@ export const T = {
 
   // Border Radius
   radius: 12,
+  radiusMd: 10,
   radiusSm: 8,
   radiusXs: 6,
 

@@ -41,7 +41,8 @@ async function request<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: response.statusText }));
-    throw new Error(error.message || `API Error: ${response.status}`);
+    const detail = typeof error.detail === 'string' ? error.detail : undefined;
+    throw new Error(detail || error.message || `API Error: ${response.status}`);
   }
 
   return response.json();

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 import uuid
 from datetime import datetime
@@ -34,6 +35,108 @@ from app.core.database import get_db
 from app.models.llm_model import LlmModel, ModelEvaluation
 
 router = APIRouter(prefix="/models", tags=["models"])
+
+
+OPENAI_COMPATIBLE_PROVIDER = {"openai", "custom"}
+
+
+def _resolve_litellm_model(model: LlmModel) -> str:
+    """Return a LiteLLM model string that includes a provider when needed."""
+    model_id = (model.model_id or "").strip()
+    provider = (model.provider or "").strip().lower()
+    api_base = model.api_base or ""
+
+    if "/" in model_id:
+        return model_id
+
+    if "open.bigmodel.cn" in api_base:
+        return f"openai/{model_id}"
+
+    if model.api_base and provider in OPENAI_COMPATIBLE_PROVIDER:
+        return f"openai/{model_id}"
+
+    if provider:
+        return f"{provider}/{model_id}"
+
+    return model_id
+
+
+def _missing_explicit_api_key(model: LlmModel) -> bool:
+    """OpenAI-compatible custom endpoints need an explicit key in this app."""
+    return bool(model.api_base) and not bool(model.api_key)
+
+
+def _sample_payload(sample_content: Optional[str]) -> dict:
+    if not sample_content:
+        return {
+            "title": "OpenAI 发布 GPT-5: 多模态能力大幅提升",
+            "content": "OpenAI 今日正式发布 GPT-5 模型，在多模态理解、代码生成和长文本处理方面均有显著提升。"
+                       "新模型在多项基准测试中刷新纪录，引发行业广泛讨论。",
+        }
+
+    try:
+        parsed = json.loads(sample_content)
+        if isinstance(parsed, dict):
+            return {
+                "title": str(parsed.get("title") or "未命名内容"),
+                "content": str(parsed.get("content") or parsed.get("summary") or sample_content),
+            }
+    except json.JSONDecodeError:
+        pass
+
+    return {"title": sample_content[:80], "content": sample_content}
+
+
+def _extract_json_candidate(content: str) -> str:
+    fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", content, re.DOTALL | re.IGNORECASE)
+    return fenced.group(1).strip() if fenced else content.strip()
+
+
+def _auto_score_response(content: str) -> float:
+    if not content:
+        return 0.0
+
+    auto_score = 2.0
+    candidate = _extract_json_candidate(content)
+    try:
+        parsed = json.loads(candidate)
+        if isinstance(parsed, dict) and parsed:
+            auto_score += 2.0
+            auto_score += min(len(parsed.keys()) * 0.2, 1.0)
+        elif isinstance(parsed, list) and parsed:
+            auto_score += 1.5
+        else:
+            auto_score += 0.5
+    except json.JSONDecodeError:
+        if len(content) > 50:
+            auto_score += 1.0
+
+    return round(min(5.0, auto_score), 1)
+
+
+async def _normalize_model_roles(db: AsyncSession, models: list[LlmModel]) -> None:
+    """Repair duplicate role flags from older writes before returning configs."""
+    primary_seen = False
+    fallback_seen = False
+    dirty = False
+
+    for model in models:
+        if model.is_primary:
+            if primary_seen:
+                model.is_primary = False
+                dirty = True
+            else:
+                primary_seen = True
+
+        if model.is_fallback:
+            if model.is_primary or fallback_seen:
+                model.is_fallback = False
+                dirty = True
+            else:
+                fallback_seen = True
+
+    if dirty:
+        await db.commit()
 
 
 # ── Pydantic schemas ──────────────────────────────────────────────────
@@ -92,6 +195,7 @@ async def list_models(db: AsyncSession = Depends(get_db)):
     """List all configured LLM models."""
     result = await db.execute(select(LlmModel).order_by(LlmModel.id))
     models = result.scalars().all()
+    await _normalize_model_roles(db, models)
     return {
         "models": [
             {
@@ -154,8 +258,6 @@ async def update_model(model_id: int, req: ModelUpdateRequest, db: AsyncSession 
 
     update_data = req.model_dump(exclude_unset=True)
     for key, value in update_data.items():
-        if key == "extra_params" and isinstance(value, dict):
-            value = json.dumps(value, ensure_ascii=False)
         setattr(model, key, value)
 
     # Ensure only one primary / one fallback
@@ -165,12 +267,14 @@ async def update_model(model_id: int, req: ModelUpdateRequest, db: AsyncSession 
             .where(LlmModel.id != model_id)
             .values(is_primary=False)
         )
+        model.is_fallback = False
     if req.is_fallback is True:
         await db.execute(
             LlmModel.__table__.update()
             .where(LlmModel.id != model_id)
             .values(is_fallback=False)
         )
+        model.is_primary = False
 
     await db.commit()
     return {"message": f"模型 {model.name} 更新成功"}
@@ -201,6 +305,7 @@ async def set_primary(model_id: int, db: AsyncSession = Depends(get_db)):
         LlmModel.__table__.update().values(is_primary=False)
     )
     model.is_primary = True
+    model.is_fallback = False
     model.enabled = True
     await db.commit()
     return {"message": f"{model.name} 已设为主模型"}
@@ -218,6 +323,7 @@ async def set_fallback(model_id: int, db: AsyncSession = Depends(get_db)):
         LlmModel.__table__.update().values(is_fallback=False)
     )
     model.is_fallback = True
+    model.is_primary = False
     model.enabled = True
     await db.commit()
     return {"message": f"{model.name} 已设为备用模型"}
@@ -233,12 +339,15 @@ async def test_model(model_id: int, db: AsyncSession = Depends(get_db)):
     if not model:
         raise HTTPException(404, f"Model {model_id} not found")
 
-    # Resolve model name: if api_base points to open.bigmodel.cn,
-    # use openai/ prefix (compatible endpoint).
-    resolved_model = model.model_id
-    if model.api_base and "open.bigmodel.cn" in model.api_base:
-        if "/" not in resolved_model:
-            resolved_model = f"openai/{resolved_model}"
+    if _missing_explicit_api_key(model):
+        return {
+            "status": "failed",
+            "model_name": model.name,
+            "error": "模型配置缺少 API Key，请在模型配置中补充后再测试。",
+            "duration_ms": 0,
+        }
+
+    resolved_model = _resolve_litellm_model(model)
 
     test_prompt = "请用一句话介绍你自己，包括你的模型名称。"
     kwargs = {
@@ -352,14 +461,8 @@ async def run_evaluation(req: EvalRunRequest, db: AsyncSession = Depends(get_db)
     if not prompt_template:
         raise HTTPException(400, f"未知的测评类型: {req.prompt_type}")
 
-    # Use sample content or default test data
-    sample = req.sample_content or json.dumps({
-        "title": "OpenAI 发布 GPT-5: 多模态能力大幅提升",
-        "content": "OpenAI 今日正式发布 GPT-5 模型，在多模态理解、代码生成和长文本处理方面均有显著提升。"
-                   "新模型在多项基准测试中刷新纪录，引发行业广泛讨论。",
-    }, ensure_ascii=False)
-
-    prompt_text = prompt_template.format(title=sample, content=sample)
+    sample = _sample_payload(req.sample_content)
+    prompt_text = prompt_template.format(title=sample["title"], content=sample["content"])
 
     # Create eval run
     eval_run_id = f"eval_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
@@ -384,12 +487,13 @@ async def run_evaluation(req: EvalRunRequest, db: AsyncSession = Depends(get_db)
         eval_record.status = "RUNNING"
         await db.flush()
 
-        # Resolve model name: if api_base points to open.bigmodel.cn,
-        # use openai/ prefix (compatible endpoint).
-        resolved_model = model.model_id
-        if model.api_base and "open.bigmodel.cn" in model.api_base:
-            if "/" not in resolved_model:
-                resolved_model = f"openai/{resolved_model}"
+        if _missing_explicit_api_key(model):
+            eval_record.status = "FAILED"
+            eval_record.error_message = "模型配置缺少 API Key，请在模型配置中补充后再测评。"
+            await asyncio.sleep(0.1)
+            continue
+
+        resolved_model = _resolve_litellm_model(model)
 
         kwargs = {
             "model": resolved_model,
@@ -415,19 +519,7 @@ async def run_evaluation(req: EvalRunRequest, db: AsyncSession = Depends(get_db)
             eval_record.tokens_input = usage.prompt_tokens if usage else None
             eval_record.tokens_output = usage.completion_tokens if usage else None
 
-            # Auto-score: simple heuristic based on response length + JSON validity
-            auto_score = 0.0
-            if content:
-                auto_score += 2.0  # got a response
-                try:
-                    parsed = json.loads(content)
-                    if isinstance(parsed, dict) and len(parsed) > 0:
-                        auto_score += 2.0  # valid JSON with content
-                    auto_score = min(5.0, auto_score + min(len(parsed.keys()) * 0.2, 1.0))
-                except json.JSONDecodeError:
-                    if len(content) > 50:
-                        auto_score += 1.0  # substantial text response
-            eval_record.auto_score = round(auto_score, 1)
+            eval_record.auto_score = _auto_score_response(content)
 
         except Exception as e:
             duration_ms = int((time.monotonic() - start) * 1000)

@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { T } from '@/lib/design-tokens';
-import { modelsApi, LlmModelItem, EvalRun, EvalResult } from '@/lib/api';
+import { modelsApi } from '@/lib/api';
+import type { LlmModelItem, EvalRun, EvalResult } from '@/lib/api';
 
 type Tab = 'models' | 'evaluate' | 'history';
 
@@ -157,7 +158,7 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
             {/* Actions */}
             <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
               {!m.is_primary && <button onClick={() => handleSetPrimary(m.id)} style={actionBtnStyle}>设为主模型</button>}
-              {!m.is_fallback && <button onClick={() => handleSetFallback(m.id)} style={actionBtnStyle}>设为备用</button>}
+              {!m.is_primary && !m.is_fallback && <button onClick={() => handleSetFallback(m.id)} style={actionBtnStyle}>设为备用</button>}
               <button onClick={() => handleToggle(m)} style={actionBtnStyle}>{m.enabled ? '禁用' : '启用'}</button>
               <button onClick={() => handleTest(m.id)} disabled={testing === m.id} style={{ ...actionBtnStyle, color: T.primary }}>
                 {testing === m.id ? '测试中...' : '测试'}
@@ -285,14 +286,23 @@ const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, color:
 /* ─── A/B Evaluate Tab ───────────────────────────────────────────── */
 
 function EvaluateTab({ models }: { models: LlmModelItem[] }) {
-  const enabledModels = models.filter(m => m.enabled);
+  const enabledModels = useMemo(() => models.filter(m => m.enabled), [models]);
+  const runnableModelIds = useMemo(
+    () => new Set(enabledModels.filter(m => m.api_key_set || !m.api_base).map(m => m.id)),
+    [enabledModels]
+  );
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [promptType, setPromptType] = useState('analysis');
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ eval_run_id: string; results: EvalResult[] } | null>(null);
   const [scoringId, setScoringId] = useState<number | null>(null);
 
+  useEffect(() => {
+    setSelected(prev => new Set([...prev].filter(id => runnableModelIds.has(id))));
+  }, [models]);
+
   const toggleModel = (id: number) => {
+    if (!runnableModelIds.has(id)) return;
     setSelected(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
@@ -318,14 +328,19 @@ function EvaluateTab({ models }: { models: LlmModelItem[] }) {
 
   const handleScore = async (evalId: number, score: number) => {
     setScoringId(evalId);
-    await modelsApi.scoreEvaluation(evalId, score);
-    if (result) {
-      setResult({
-        ...result,
-        results: result.results.map(r => r.id === evalId ? { ...r, quality_score: score } : r),
-      });
+    try {
+      await modelsApi.scoreEvaluation(evalId, score);
+      if (result) {
+        setResult({
+          ...result,
+          results: result.results.map(r => r.id === evalId ? { ...r, quality_score: score } : r),
+        });
+      }
+    } catch (e) {
+      alert('评分失败: ' + String(e));
+    } finally {
+      setScoringId(null);
     }
-    setScoringId(null);
   };
 
   const promptTypes = [
@@ -345,16 +360,20 @@ function EvaluateTab({ models }: { models: LlmModelItem[] }) {
             <button
               key={m.id}
               onClick={() => toggleModel(m.id)}
+              disabled={!runnableModelIds.has(m.id)}
               style={{
-                padding: '8px 14px', fontSize: 13, borderRadius: T.radiusSm, cursor: 'pointer',
+                padding: '8px 14px', fontSize: 13, borderRadius: T.radiusSm, cursor: runnableModelIds.has(m.id) ? 'pointer' : 'not-allowed',
                 border: `1px solid ${selected.has(m.id) ? T.primary : T.gray200}`,
                 background: selected.has(m.id) ? T.primaryLight : T.white,
-                color: selected.has(m.id) ? T.primary : T.gray600,
+                color: !runnableModelIds.has(m.id) ? T.gray400 : selected.has(m.id) ? T.primary : T.gray600,
                 fontWeight: selected.has(m.id) ? 600 : 400,
+                opacity: runnableModelIds.has(m.id) ? 1 : 0.55,
               }}
+              title={runnableModelIds.has(m.id) ? undefined : '该模型缺少 API Key，暂不能参与测评'}
             >
               {m.name}
               {m.is_primary && <span style={{ marginLeft: 4, fontSize: 10 }}>(主)</span>}
+              {!runnableModelIds.has(m.id) && <span style={{ marginLeft: 4, fontSize: 10 }}>(缺 Key)</span>}
             </button>
           ))}
         </div>

@@ -802,8 +802,8 @@ function TrendingPage() {
 
                 {/* Ranked list */}
                 <div className="trending-scroll" style={{
-                  maxHeight: isCollapsed ? 600 : 400,
-                  overflowY: 'auto',
+                  maxHeight: isCollapsed ? 'none' : 400,
+                  overflowY: isCollapsed ? 'visible' : 'auto',
                   scrollbarWidth: 'thin',
                   scrollbarColor: `${T.gray300} transparent`,
                 }}>

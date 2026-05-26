@@ -52,7 +52,6 @@ def _union_find_cluster(
 
     Returns list of groups, each group is a list of item IDs.
     """
-    # Build adjacency: items sharing >= CLUSTER_TAG_OVERLAP tags
     n = len(items)
     parent = list(range(n))
 
@@ -69,15 +68,31 @@ def _union_find_cluster(
 
     tag_sets = [_extract_tags(item) for item in items]
 
-    for i in range(n):
-        if not tag_sets[i]:
-            continue
-        for j in range(i + 1, n):
-            if not tag_sets[j]:
+    if CLUSTER_TAG_OVERLAP <= 1:
+        # Fast path for the current product rule: any shared tag connects items.
+        # This avoids the previous O(n^2) pairwise scan on large analyzed corpora.
+        tag_index: dict[str, list[int]] = defaultdict(list)
+        for idx, tags in enumerate(tag_sets):
+            for tag in tags:
+                tag_index[tag].append(idx)
+
+        for indices in tag_index.values():
+            if len(indices) < 2:
                 continue
-            overlap = len(tag_sets[i] & tag_sets[j])
-            if overlap >= CLUSTER_TAG_OVERLAP:
-                union(i, j)
+            anchor = indices[0]
+            for idx in indices[1:]:
+                union(anchor, idx)
+    else:
+        # Generic fallback if the overlap threshold is raised later.
+        for i in range(n):
+            if not tag_sets[i]:
+                continue
+            for j in range(i + 1, n):
+                if not tag_sets[j]:
+                    continue
+                overlap = len(tag_sets[i] & tag_sets[j])
+                if overlap >= CLUSTER_TAG_OVERLAP:
+                    union(i, j)
 
     groups: dict[int, list[int]] = defaultdict(list)
     for i in range(n):
@@ -173,9 +188,10 @@ async def cluster_and_dedup(db: AsyncSession) -> dict:
     # 3. Tag-based clustering (candidate scope for same-topic duplicates)
     #    Items without shared tags → standalone groups (will be skipped in dedup below)
     groups = _union_find_cluster(items)  # run on ALL items first
+    item_by_id = {item["id"]: item for item in items}
     cluster_items_map: dict[int, list[dict]] = {}  # cluster_idx → items
     for idx, group_ids in enumerate(groups):
-        cluster_items_map[idx] = [i for i in items if i["id"] in set(group_ids)]
+        cluster_items_map[idx] = [item_by_id[item_id] for item_id in group_ids]
 
     # 4. AI semantic dedup within candidate clusters
     #    Only small clusters (2-15 items) are candidates — same-event duplicates share tags
@@ -197,8 +213,9 @@ async def cluster_and_dedup(db: AsyncSession) -> dict:
     cluster_meta = []
     if groups:
         group_items = []
+        non_dup_by_id = {item["id"]: item for item in non_dup}
         for group_ids in groups:
-            cluster = [i for i in non_dup if i["id"] in group_ids]
+            cluster = [non_dup_by_id[item_id] for item_id in group_ids]
             group_items.append(cluster)
         cluster_meta = await _name_clusters(group_items)
 

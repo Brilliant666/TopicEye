@@ -1,4 +1,5 @@
 from app.services.dedup import build_hash, filter_duplicates, is_duplicate
+from app.services.topic_clustering import _union_find_cluster
 
 
 def test_content_hash_and_duplicate_filter_are_stable():
@@ -14,3 +15,16 @@ def test_content_hash_and_duplicate_filter_are_stable():
 
     assert [item["title"] for item in unique] == ["alpha", "beta"]
     assert [item["title"] for item in duplicates] == ["alpha"]
+
+
+def test_topic_cluster_groups_items_by_shared_tags():
+    groups = _union_find_cluster([
+        {"id": 1, "tags": ["ai", "tools"]},
+        {"id": 2, "tags": ["ai", "agents"]},
+        {"id": 3, "tags": ["finance"]},
+        {"id": 4, "tags": ["finance", "markets"]},
+        {"id": 5, "tags": ["solo"]},
+    ])
+
+    normalized = {tuple(sorted(group)) for group in groups}
+    assert normalized == {(1, 2), (3, 4)}

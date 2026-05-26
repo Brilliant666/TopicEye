@@ -245,8 +245,16 @@ async def _call_llm_single(
     """Make a single LLM call (no retry)."""
     await _rate_limiter.acquire()
 
+    # Resolve model name: if api_base points to open.bigmodel.cn,
+    # use openai/ prefix (compatible endpoint); otherwise use bare model name.
+    resolved_model = model
+    if api_base and "open.bigmodel.cn" in api_base:
+        # Z.AI / BigModel uses OpenAI-compatible endpoint
+        if "/" not in model:
+            resolved_model = f"openai/{model}"
+
     kwargs: dict[str, Any] = {
-        "model": model,
+        "model": resolved_model,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
@@ -258,7 +266,7 @@ async def _call_llm_single(
     if response_format:
         kwargs["response_format"] = response_format
 
-    logger.info("LLM call: model=%s, messages=%d", model, len(messages))
+    logger.info("LLM call: model=%s, messages=%d", resolved_model, len(messages))
 
     response = await asyncio.to_thread(completion, **kwargs)
     content = response.choices[0].message.content

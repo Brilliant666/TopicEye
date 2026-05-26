@@ -31,8 +31,8 @@ class ScheduledJob(Base):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     last_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default="CURRENT_TIMESTAMP")
-    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate="CURRENT_TIMESTAMP")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=datetime.utcnow)
 
     __table_args__ = (
         Index("ix_scheduled_jobs_enabled", "enabled"),
@@ -56,7 +56,7 @@ class JobExecutionLog(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="失败时错误信息")
     trigger_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True,
                                                       comment="scheduler / manual")
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default="CURRENT_TIMESTAMP")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
     __table_args__ = (
         Index("ix_job_exec_logs_job_key_started", "job_key", "started_at"),

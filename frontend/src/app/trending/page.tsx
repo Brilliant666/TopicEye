@@ -43,6 +43,16 @@ const SOURCE_BRAND: Record<string, { label: string; color: string; bg: string }>
   ithome:      { label: 'IT之家',   color: '#D22222', bg: '#FFF0F0' },
   juejin:      { label: '掘金',     color: '#1E80FF', bg: '#EBF3FF' },
   eastmoney:   { label: '东方财富', color: '#D4940A', bg: '#FFF8E8' },
+  douban:      { label: '豆瓣',     color: '#00B51D', bg: '#EEFBF0' },
+  tieba:       { label: '贴吧',     color: '#4E6EF2', bg: '#EEF1FD' },
+  netease:     { label: '网易',     color: '#C03A3A', bg: '#FDF0F0' },
+  v2ex:        { label: 'V2EX',     color: '#333333', bg: '#F0F0F0' },
+  github:      { label: 'GitHub',   color: '#24292F', bg: '#F0F1F3' },
+  sspai:       { label: '少数派',   color: '#D6192B', bg: '#FDF0F0' },
+  xueqiu:      { label: '雪球',     color: '#1478FF', bg: '#ECF3FF' },
+  sohu:        { label: '搜狐',     color: '#D8503C', bg: '#FDF0EF' },
+  hupu:        { label: '虎扑',     color: '#D43030', bg: '#FDF0F0' },
+  kr36:        { label: '36氪',     color: '#0080FF', bg: '#ECF3FF' },
 };
 
 function sourceBrand(source: string) {
@@ -782,6 +792,32 @@ function TrendingPage() {
                   }}>
                     {srcItems.length}条
                   </span>
+                  {/* Refresh button */}
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      const btn = e.currentTarget as HTMLButtonElement;
+                      btn.disabled = true;
+                      btn.textContent = '...';
+                      try {
+                        const res = await fetch(`/api/v1/trending/sync/${source}`, { method: 'POST' });
+                        const data = await res.json();
+                        if (data.fetched > 0) {
+                          loadData();
+                        }
+                      } finally {
+                        btn.disabled = false;
+                        btn.textContent = '↻';
+                      }
+                    }}
+                    style={{
+                      fontSize: 12, color: brand.color, background: T.white,
+                      border: `1px solid ${T.gray200}`, borderRadius: 6,
+                      cursor: 'pointer', padding: '1px 6px', lineHeight: '18px',
+                      fontWeight: 700,
+                    }}
+                    title="刷新此榜单"
+                  >↻</button>
                   {/* Last synced time */}
                   {lastSynced && (
                     <span style={{

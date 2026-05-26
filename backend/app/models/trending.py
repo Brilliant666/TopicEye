@@ -40,6 +40,9 @@ class TrendingSource(str, enum.Enum):
     EASTMONEY = "eastmoney"
     DOUBAN = "douban"
     IQIYI = "iqiyi"
+    NETEASE = "netease"
+    V2EX = "v2ex"
+    SOHU = "sohu"
 
 
 class TrendingCategory(str, enum.Enum):

@@ -78,4 +78,15 @@ from . import (  # noqa: E402, F401
     _douyin_trending,
     _juejin,
     _eastmoney,
+    _hupu,
+    _kr36,
+    _douban,
+    _v2ex,
+    _github,
+    _sspai,
+    # 以下接口暂不可用，保留代码待修复
+    # _tieba,
+    # _netease,
+    # _xueqiu,
+    # _sohu,
 )

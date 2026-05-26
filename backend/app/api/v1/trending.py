@@ -40,6 +40,7 @@ class TrendingSourceInfo(BaseModel):
     source: str
     category: str
     count: int
+    last_synced: Optional[str] = None
 
 
 @router.get("", response_model=list[TrendingItemOut])
@@ -75,12 +76,13 @@ async def get_trending(
 async def get_trending_sources(
     db: AsyncSession = Depends(get_db),
 ):
-    """获取所有趋势源及其条目数量。"""
+    """获取所有趋势源及其条目数量和最后同步时间。"""
     stmt = (
         select(
             TrendingItem.source,
             TrendingItem.category,
             func.count(TrendingItem.id).label("count"),
+            func.max(TrendingItem.fetched_at).label("last_synced"),
         )
         .group_by(TrendingItem.source, TrendingItem.category)
         .order_by(TrendingItem.category, TrendingItem.source)
@@ -88,7 +90,12 @@ async def get_trending_sources(
     result = await db.execute(stmt)
     rows = result.all()
     return [
-        TrendingSourceInfo(source=row[0], category=row[1], count=row[2])
+        TrendingSourceInfo(
+            source=row[0],
+            category=row[1],
+            count=row[2],
+            last_synced=row[3].isoformat() if row[3] else None,
+        )
         for row in rows
     ]
 

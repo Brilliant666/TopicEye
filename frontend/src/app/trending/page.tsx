@@ -32,11 +32,26 @@ const CATEGORIES = [
   { value: 'finance', label: '财经' },
 ] as const;
 
-const SOURCE_LABELS: Record<string, string> = {
-  weibo: '微博', baidu: '百度', douyin: '抖音', toutiao: '头条',
-  zhihu: '知乎', bilibili: 'B站', hackernews: 'HN', ithome: 'IT之家',
-  juejin: '掘金', eastmoney: '东方财富',
+const SOURCE_BRAND: Record<string, { label: string; color: string; bg: string }> = {
+  weibo:       { label: '微博',     color: '#FF8200', bg: '#FFF7EB' },
+  baidu:       { label: '百度',     color: '#306CFF', bg: '#EBF1FF' },
+  douyin:      { label: '抖音',     color: '#161823', bg: '#F5F5F7' },
+  toutiao:     { label: '头条',     color: '#F85959', bg: '#FFF0F0' },
+  zhihu:       { label: '知乎',     color: '#0066FF', bg: '#EBF2FF' },
+  bilibili:    { label: 'B站',      color: '#FB7299', bg: '#FFF0F5' },
+  hackernews:  { label: 'HN',       color: '#FF6600', bg: '#FFF5EB' },
+  ithome:      { label: 'IT之家',   color: '#D22222', bg: '#FFF0F0' },
+  juejin:      { label: '掘金',     color: '#1E80FF', bg: '#EBF3FF' },
+  eastmoney:   { label: '东方财富', color: '#D4940A', bg: '#FFF8E8' },
 };
+
+function sourceBrand(source: string) {
+  return SOURCE_BRAND[source] || { label: source, color: T.gray600, bg: T.gray100 };
+}
+
+const SOURCE_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(SOURCE_BRAND).map(([k, v]) => [k, v.label])
+);
 
 const CATEGORY_COLORS: Record<string, { bg: string; color: string }> = {
   hot: { bg: '#FFF4EE', color: '#FF6B35' },
@@ -704,8 +719,7 @@ function TrendingPage() {
           alignContent: 'start',
         }}>
           {Object.entries(groupedItems).map(([source, srcItems]) => {
-            const cat = srcItems[0]?.category || 'hot';
-            const catColor = CATEGORY_COLORS[cat] || CATEGORY_COLORS.hot;
+            const brand = sourceBrand(source);
             const sourceInfo = sources.find(s => s.source === source);
             const lastSynced = sourceInfo?.last_synced;
             return (
@@ -732,7 +746,7 @@ function TrendingPage() {
                 <div style={{
                   padding: '10px 14px',
                   display: 'flex', alignItems: 'center', gap: 8,
-                  background: catColor.bg,
+                  background: brand.bg,
                   borderBottom: `1px solid ${T.gray200}`,
                   cursor: 'default',
                 }}
@@ -740,7 +754,7 @@ function TrendingPage() {
                   {/* Source icon dot */}
                   <div style={{
                     width: 28, height: 28, borderRadius: 8,
-                    background: catColor.color,
+                    background: brand.color,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     flexShrink: 0,
                   }}>
@@ -749,21 +763,20 @@ function TrendingPage() {
                     </span>
                   </div>
                   {/* Source name */}
-                  <span style={{ fontSize: 13, fontWeight: 700, color: catColor.color, flex: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: brand.color, flex: 1 }}>
                     {SOURCE_LABELS[source] || source}
                   </span>
                   {/* Category tag */}
                   <span style={{
                     fontSize: 9, fontWeight: 600,
-                    background: T.white, color: catColor.color,
+                    background: T.white, color: brand.color,
                     padding: '2px 6px', borderRadius: 6,
                     textTransform: 'uppercase', letterSpacing: '0.04em',
                   }}>
-                    {cat}
                   </span>
                   {/* Count badge */}
                   <span style={{
-                    fontSize: 9, color: catColor.color,
+                    fontSize: 9, color: brand.color,
                     background: T.white, padding: '2px 6px', borderRadius: 6,
                     fontWeight: 600,
                   }}>

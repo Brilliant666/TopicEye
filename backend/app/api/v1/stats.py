@@ -21,14 +21,45 @@ from app.core.database import async_session, get_db
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/stats", tags=["stats"])
 
+# Target curation rate: top ~25-30%
+# Data distribution: >=85 → 17.7%, >=80 → 44.1%, so P70 ≈ 83
+TARGET_PCT = 70  # percentile rank (top 30% = P70 and above)
+FALLBACK_THRESHOLD = 83  # used when not enough data to compute percentile
 
-# ────────────────────────────────────────────────────────────────
-# Helper: run a read-only aggregation outside of FastAPI DI
-# ────────────────────────────────────────────────────────────────
-async def _run(fn):
-    """Run an async function with a short-lived session."""
-    async with async_session() as session:
-        return await fn(session)
+
+# ─────────────────────────────────────────────────────────────────
+# Helper: compute the P70 threshold dynamically from the DB
+# ─────────────────────────────────────────────────────────────────
+async def _p70_threshold(db: AsyncSession, cutoff: datetime) -> float:
+    """Return the P70 curation_score for items within the cutoff date range."""
+    try:
+        # Use raw SQL to get the 70th percentile value directly
+        result = await db.execute(
+            text("""
+                SELECT curation_score
+                FROM ai_analyses a
+                JOIN content_items c ON c.id = a.content_id
+                WHERE c.crawled_at >= :cutoff
+                  AND c.duplicate_of IS NULL
+                  AND a.curation_score > 0
+                ORDER BY a.curation_score ASC
+                LIMIT 1 OFFSET (
+                    SELECT FLOOR(0.70 * COUNT(*) - 1)
+                    FROM ai_analyses a2
+                    JOIN content_items c2 ON c2.id = a2.content_id
+                    WHERE c2.crawled_at >= :cutoff
+                      AND c2.duplicate_of IS NULL
+                      AND a2.curation_score > 0
+                )
+            """),
+            {"cutoff": cutoff.isoformat()},
+        )
+        row = result.fetchone()
+        if row and row[0]:
+            return float(row[0])
+    except Exception as e:
+        logger.warning(f"Failed to compute P70 threshold: {e}")
+    return FALLBACK_THRESHOLD
 
 
 # ────────────────────────────────────────────────────────────────
@@ -40,12 +71,13 @@ async def get_overview(days: int = Query(7, ge=1, le=90)):
     内容总览 KPI:
     - total: 总内容数 (in date range)
     - analyzed: 已分析数
-    - curated: 精选数 (curation_score >= 70)
+    - curated: 精选数 (curation_score >= P70 threshold, ~top 30%)
     - today_new: 今日新增
     """
     async with async_session() as db:
         cutoff = datetime.utcnow() - timedelta(days=days)
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        thr = await _p70_threshold(db, cutoff)
 
         # Total & analyzed & curated in date range
         row = await db.execute(
@@ -62,7 +94,7 @@ async def get_overview(days: int = Query(7, ge=1, le=90)):
                 func.count(
                     case(
                         (
-                            text("ai_analyses.curation_score >= 70"),
+                            text(f"ai_analyses.curation_score >= {thr:.1f}"),
                             text("content_items.id"),
                         )
                     )
@@ -73,7 +105,7 @@ async def get_overview(days: int = Query(7, ge=1, le=90)):
             .where(text("content_items.crawled_at >= :cutoff"), text("content_items.duplicate_of IS NULL"))
             .params(cutoff=cutoff.isoformat())
         )
-        r = row.fetchone()  # type: ignore[union-attr]
+        r = row.fetchone()
 
         # Today new
         today_row = await db.execute(
@@ -91,6 +123,7 @@ async def get_overview(days: int = Query(7, ge=1, le=90)):
             "total": r.total or 0,
             "analyzed": r.analyzed or 0,
             "curated": r.curated or 0,
+            "curation_threshold": round(thr, 1),
             "today_new": today_new,
         }
 
@@ -107,6 +140,8 @@ async def get_source_distribution(days: int = Query(7, ge=1, le=90)):
     """
     async with async_session() as db:
         cutoff = datetime.utcnow() - timedelta(days=days)
+        thr = await _p70_threshold(db, cutoff)
+
         rows = await db.execute(
             select(
                 func.coalesce(text("sources.name"), "未知").label("source_name"),
@@ -115,7 +150,7 @@ async def get_source_distribution(days: int = Query(7, ge=1, le=90)):
                 func.count(
                     case(
                         (
-                            text("ai_analyses.curation_score >= 70"),
+                            text(f"ai_analyses.curation_score >= {thr:.1f}"),
                             text("content_items.id"),
                         )
                     )
@@ -196,6 +231,8 @@ async def get_daily_trend(days: int = Query(7, ge=1, le=90)):
     """
     async with async_session() as db:
         cutoff = datetime.utcnow() - timedelta(days=days)
+        thr = await _p70_threshold(db, cutoff)
+
         rows = await db.execute(
             select(
                 func.date(text("content_items.crawled_at")).label("crawl_date"),
@@ -203,7 +240,7 @@ async def get_daily_trend(days: int = Query(7, ge=1, le=90)):
                 func.count(
                     case(
                         (
-                            text("ai_analyses.curation_score >= 70"),
+                            text(f"ai_analyses.curation_score >= {thr:.1f}"),
                             text("content_items.id"),
                         )
                     )
@@ -285,30 +322,15 @@ async def get_novel_platform_stats():
 
         return {
             "platforms": [
-                {
-                    "name": "番茄小说",
-                    "table": "fanqie",
-                    "count": fq.cnt or 0,
-                    "last_sync": _fmt(fq.last_sync),
-                },
-                {
-                    "name": "七猫小说",
-                    "table": "qimao",
-                    "count": qm.cnt or 0,
-                    "last_sync": _fmt(qm.last_sync),
-                },
-                {
-                    "name": "知乎盐选",
-                    "table": "zhihu",
-                    "count": zh.cnt or 0,
-                    "last_sync": _fmt(zh.last_sync),
-                },
+                {"name": "番茄小说", "table": "fanqie", "count": fq.cnt or 0, "last_sync": _fmt(fq.last_sync)},
+                {"name": "七猫小说", "table": "qimao", "count": qm.cnt or 0, "last_sync": _fmt(qm.last_sync)},
+                {"name": "知乎盐选", "table": "zhihu", "count": zh.cnt or 0, "last_sync": _fmt(zh.last_sync)},
             ]
         }
 
 
 # ────────────────────────────────────────────────────────────────
-# Legacy dashboard endpoint (kept for backward compatibility)
+# Legacy dashboard endpoint
 # ────────────────────────────────────────────────────────────────
 @router.get("/dashboard")
 async def get_dashboard_stats(days: int = Query(7, ge=1, le=90)):
@@ -320,19 +342,18 @@ async def get_dashboard_stats(days: int = Query(7, ge=1, le=90)):
         from app.services.duckdb_service import query_dashboard_stats
         return query_dashboard_stats(days=days)
     except Exception:
-        # Fallback: aggregate from SQLAlchemy
         pass
 
     async with async_session() as db:
         cutoff = datetime.utcnow() - timedelta(days=days)
+        thr = await _p70_threshold(db, cutoff)
 
-        # KPI
         kpi_row = await db.execute(
             select(
                 func.count(text("content_items.id")).label("total_crawled"),
                 func.count(
                     case(
-                        (text("ai_analyses.curation_score >= 70"), text("content_items.id"))
+                        (text(f"ai_analyses.curation_score >= {thr:.1f}"), text("content_items.id"))
                     )
                 ).label("total_curated"),
                 func.round(func.avg(text("ai_analyses.curation_score")), 1).label("avg_curation"),
@@ -351,6 +372,7 @@ async def get_dashboard_stats(days: int = Query(7, ge=1, le=90)):
                 "total_curated": kpi.total_curated or 0,
                 "avg_curation": float(kpi.avg_curation) if kpi.avg_curation else 0,
                 "active_sources": kpi.active_sources or 0,
+                "curation_threshold": round(thr, 1),
             },
             "source_breakdown": [],
             "daily_trend": [],

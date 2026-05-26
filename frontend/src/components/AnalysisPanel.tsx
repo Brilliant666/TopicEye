@@ -133,7 +133,6 @@ export default function AnalysisPanel({ analysis, onClose }: AnalysisPanelProps)
             {[
               { id: 'xiaohongshu', label: '小红书图文', emoji: '📕' },
               { id: 'short_video', label: '短视频脚本', emoji: '🎬' },
-              { id: 'wechat', label: '公众号长文', emoji: '📝' },
             ].map((p) => (
               <button
                 key={p.id}

@@ -1,4 +1,4 @@
-"""豆瓣电影热门 — https://movie.douban.com/j/search_subjects"""
+"""豆瓣热搜 — https://m.douban.com/rexxar/api/v2/search/hots"""
 from __future__ import annotations
 
 import logging
@@ -13,21 +13,17 @@ logger = logging.getLogger(__name__)
 @register_trending("douban")
 class DoubanTrending(BaseTrendingScraper):
     SOURCE = "douban"
-    CATEGORY = "entertainment"
+    CATEGORY = "hot"
 
     async def fetch(self, client: httpx.AsyncClient) -> List[TrendingEntry]:
-        url = (
-            "https://movie.douban.com/j/search_subjects"
-            "?type=movie&tag=%E7%83%AD%E9%97%A8"
-            "&sort=recommend&page_limit=30&page_start=0"
-        )
+        url = "https://m.douban.com/rexxar/api/v2/search/hots?ck="
         headers = {
             "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
+                "Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) "
+                "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+                "Version/16.6 Mobile/15E148 Safari/604.1"
             ),
-            "Referer": "https://movie.douban.com",
+            "Referer": "https://m.douban.com/",
         }
         try:
             resp = await client.get(url, headers=headers)
@@ -37,33 +33,45 @@ class DoubanTrending(BaseTrendingScraper):
             logger.warning("douban trending fetch failed: %s", e)
             return []
 
-        subjects = data.get("subjects", [])
-        if not subjects:
-            logger.warning("douban trending: empty subjects")
+        # 解析热搜话题
+        items = data.get("gallery_topics") or data.get("topics") or []
+        if not items:
+            logger.warning("douban trending: empty items")
             return []
 
         results: List[TrendingEntry] = []
-        for idx, item in enumerate(subjects, start=1):
-            title = item.get("title", "").strip()
+        for idx, item in enumerate(items, start=1):
+            title = (item.get("title") or item.get("name", "")).strip()
             if not title:
                 continue
 
-            rate = item.get("rate", "0")
+            read_count = item.get("read_count", 0)
             try:
-                hot_val = int(float(str(rate)) * 10000)
+                hot_val = int(read_count)
             except (ValueError, TypeError):
                 hot_val = 0
+
+            url_val = item.get("url") or item.get("sharing_url", "")
+
+            # 从 card_subtitle 提取浏览量文本
+            subtitle = item.get("card_subtitle", "")
+            hot_raw = ""
+            if read_count:
+                if read_count >= 10000:
+                    hot_raw = f"{read_count / 10000:.1f}万"
+                else:
+                    hot_raw = str(read_count)
 
             results.append({
                 "title": title,
                 "rank": idx,
-                "url": item.get("url", ""),
+                "url": url_val,
                 "hot_value": hot_val,
-                "hot_value_raw": str(rate),
-                "trend": "stable",
-                "cover_url": item.get("cover", ""),
+                "hot_value_raw": hot_raw or subtitle,
+                "trend": "up" if hot_val > 50000 else "stable",
                 "extra": {
-                    "rate": rate,
+                    "type": item.get("type", ""),
+                    "id": item.get("id", ""),
                 },
             })
 

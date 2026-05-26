@@ -233,9 +233,16 @@ async def test_model(model_id: int, db: AsyncSession = Depends(get_db)):
     if not model:
         raise HTTPException(404, f"Model {model_id} not found")
 
+    # Resolve model name: if api_base points to open.bigmodel.cn,
+    # use openai/ prefix (compatible endpoint).
+    resolved_model = model.model_id
+    if model.api_base and "open.bigmodel.cn" in model.api_base:
+        if "/" not in resolved_model:
+            resolved_model = f"openai/{resolved_model}"
+
     test_prompt = "请用一句话介绍你自己，包括你的模型名称。"
     kwargs = {
-        "model": model.model_id,
+        "model": resolved_model,
         "messages": [{"role": "user", "content": test_prompt}],
         "temperature": 0.3,
         "max_tokens": 200,
@@ -377,8 +384,15 @@ async def run_evaluation(req: EvalRunRequest, db: AsyncSession = Depends(get_db)
         eval_record.status = "RUNNING"
         await db.flush()
 
+        # Resolve model name: if api_base points to open.bigmodel.cn,
+        # use openai/ prefix (compatible endpoint).
+        resolved_model = model.model_id
+        if model.api_base and "open.bigmodel.cn" in model.api_base:
+            if "/" not in resolved_model:
+                resolved_model = f"openai/{resolved_model}"
+
         kwargs = {
-            "model": model.model_id,
+            "model": resolved_model,
             "messages": [{"role": "user", "content": prompt_text}],
             "temperature": model.temperature,
             "max_tokens": model.max_tokens,

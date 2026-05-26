@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Beaker } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import { modelsApi } from '@/lib/api';
 import type { LlmModelItem, EvalRun, EvalResult } from '@/lib/api';
@@ -39,7 +40,7 @@ export default function ModelEvalPage() {
   return (
     <div style={{ padding: '24px 32px', maxWidth: 1200, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-        <span style={{ fontSize: 20 }}>🧪</span>
+        <Beaker size={22} color={T.primary} strokeWidth={2} />
         <h1 style={{ fontSize: 20, fontWeight: 700, color: T.text, margin: 0 }}>AI 引擎</h1>
       </div>
 

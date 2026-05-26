@@ -2,41 +2,60 @@
 
 import React from 'react';
 import { useRouter, usePathname } from 'next/navigation';
+import {
+  BarChart3,
+  BookOpen,
+  Bookmark,
+  BrainCircuit,
+  ClipboardList,
+  Crosshair,
+  Flame,
+  Lightbulb,
+  Newspaper,
+  Radar,
+  RadioTower,
+  Search,
+  Star,
+  TrendingUp,
+  UserRound,
+  type LucideIcon,
+} from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 
 interface SidebarProps {
   topicCount?: number;
   favCount?: number;
   sourceCount?: number;
+  compact?: boolean;
 }
 
 interface NavItem {
   id: string;
   label: string;
   href: string;
-  icon: string;
+  icon: LucideIcon;
   count?: number;
   badge?: string;
 }
 
-export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 }: SidebarProps) {
+export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0, compact = false }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
   const navItems: NavItem[] = [
-    { id: 'lfv', label: '低粉爆文', href: '/low-follower-viral', icon: '🔥', badge: 'NEW' },
-    { id: 'picks', label: '当日精选', href: '/today-picks', icon: '⭐', badge: 'HOT' },
-    { id: 'my-topics', label: '我的母题', href: '/my-topics', icon: '🎯', badge: '私' },
-    { id: 'today', label: '今日选题', href: '/', icon: '💡', count: topicCount },
-    { id: 'daily', label: 'AI 日报', href: '/daily', icon: '📰', badge: 'NEW' },
-    { id: 'weekly', label: 'AI 周刊', href: '/weekly', icon: '📋', badge: 'NEW' },
-    { id: 'stats', label: '数据统计', href: '/stats', icon: '📊' },
-    { id: 'favorites', label: '收藏夹', href: '/favorites', icon: '⭐', count: favCount },
-    { id: 'sources', label: '信源管理', href: '/sources', icon: '📡', count: sourceCount },
-    { id: 'trends', label: '趋势追踪', href: '/trends', icon: '📈', badge: 'NEW' },
-    { id: 'trending', label: '趋势雷达', href: '/trending', icon: '🔍', badge: 'NEW' },
-    { id: 'fanqie', label: '网文雷达', href: '/fanqie', icon: '📚', badge: 'NEW' },
-    { id: 'model-eval', label: 'AI 引擎', href: '/model-eval', icon: '🧠' },
+    { id: 'lfv', label: '低粉爆文', href: '/low-follower-viral', icon: Flame, badge: 'NEW' },
+    { id: 'picks', label: '当日精选', href: '/today-picks', icon: Star, badge: 'HOT' },
+    { id: 'my-topics', label: '我的母题', href: '/my-topics', icon: Crosshair, badge: '私' },
+    { id: 'today', label: '今日选题', href: '/', icon: Lightbulb, count: topicCount },
+    { id: 'daily', label: 'AI 日报', href: '/daily', icon: Newspaper, badge: 'NEW' },
+    { id: 'weekly', label: 'AI 周刊', href: '/weekly', icon: ClipboardList, badge: 'NEW' },
+    { id: 'stats', label: '数据统计', href: '/stats', icon: BarChart3 },
+    { id: 'favorites', label: '收藏夹', href: '/favorites', icon: Bookmark, count: favCount },
+    { id: 'sources', label: '信源管理', href: '/sources', icon: RadioTower, count: sourceCount },
+    { id: 'trends', label: '趋势追踪', href: '/trends', icon: TrendingUp, badge: 'NEW' },
+    { id: 'trending', label: '趋势雷达', href: '/trending', icon: Search, badge: 'NEW' },
+    { id: 'fanqie', label: '网文雷达', href: '/fanqie', icon: BookOpen, badge: 'NEW' },
+    { id: 'model-eval', label: 'AI 引擎', href: '/model-eval', icon: BrainCircuit },
   ];
 
   const isActive = (href: string) => {
@@ -47,7 +66,7 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
   return (
     <div
       style={{
-        width: 220,
+        width: compact ? 72 : 220,
         height: '100vh',
         background: T.white,
         borderRight: `1px solid ${T.gray200}`,
@@ -59,8 +78,8 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
       }}
     >
       {/* Brand */}
-      <div style={{ padding: '28px 24px 32px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ padding: compact ? '24px 14px 28px' : '28px 24px 32px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: compact ? 'center' : 'flex-start' }}>
           <div style={{ position: 'relative', width: 28, height: 28 }}>
             {/* Radar icon */}
             <div
@@ -74,7 +93,7 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
                 justifyContent: 'center',
               }}
             >
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.white }} />
+              <Radar size={16} color={T.white} strokeWidth={2.4} />
             </div>
             {/* Ping */}
             <div
@@ -90,7 +109,7 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
               }}
             />
           </div>
-          <div>
+          {!compact && <div>
             <div
               style={{ fontSize: 17, fontWeight: 700, color: T.gray900, lineHeight: 1.2 }}
             >
@@ -101,24 +120,26 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
             >
               TOPIC RADAR
             </div>
-          </div>
+          </div>}
         </div>
       </div>
 
       {/* Navigation */}
-      <nav style={{ flex: 1, padding: '0 12px' }}>
+      <nav style={{ flex: 1, padding: compact ? '0 10px' : '0 12px' }}>
         {navItems.map((item) => {
           const active = isActive(item.href);
+          const Icon = item.icon;
           return (
             <button
               key={item.id}
+              title={compact ? item.label : undefined}
               onClick={() => router.push(item.href)}
               style={{
                 width: '100%',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '10px 12px',
+                justifyContent: compact ? 'center' : 'space-between',
+                padding: compact ? '10px 0' : '10px 12px',
                 marginBottom: 2,
                 fontSize: 14,
                 fontWeight: active ? 600 : 400,
@@ -132,10 +153,10 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
               }}
             >
               <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 15, lineHeight: 1 }}>{item.icon}</span>
-                <span>{item.label}</span>
+                <Icon size={16} strokeWidth={active ? 2.2 : 1.8} />
+                {!compact && <span>{item.label}</span>}
               </span>
-              {item.badge ? (
+              {!compact && item.badge ? (
                 <span
                   style={{
                     fontSize: 9,
@@ -149,7 +170,7 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
                 >
                   {item.badge}
                 </span>
-              ) : (item.count ?? 0) > 0 ? (
+              ) : !compact && (item.count ?? 0) > 0 ? (
                 <span
                   style={{
                     fontSize: 11,
@@ -170,8 +191,8 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
       </nav>
 
       {/* Bottom User Area */}
-      <div style={{ padding: '12px 12px 16px', borderTop: `1px solid ${T.gray100}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px' }}>
+      <div style={{ padding: compact ? '12px 10px 16px' : '12px 12px 16px', borderTop: `1px solid ${T.gray100}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: compact ? 0 : '0 12px', justifyContent: compact ? 'center' : 'flex-start' }}>
           <div
             style={{
               width: 28,
@@ -186,12 +207,12 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0 
               color: T.white,
             }}
           >
-            U
+            <UserRound size={14} strokeWidth={2} />
           </div>
-          <div>
+          {!compact && <div>
             <div style={{ fontSize: 12, fontWeight: 500, color: T.gray700 }}>创作者</div>
             <div style={{ fontSize: 10, color: T.gray400 }}>免费版</div>
-          </div>
+          </div>}
         </div>
       </div>
     </div>

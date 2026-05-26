@@ -50,6 +50,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const [favorites, setFavorites] = useState<Set<number>>(() => loadFavoritesFromStorage());
   const [contentCount, setContentCount] = useState(0);
   const [sourceCount, setSourceCount] = useState(0);
+  const [compactNav, setCompactNav] = useState(false);
 
   const refreshCounts = useCallback(async () => {
     try {
@@ -70,6 +71,13 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   useEffect(() => {
     void refreshCounts();
   }, [refreshCounts]);
+
+  useEffect(() => {
+    const updateCompact = () => setCompactNav(window.innerWidth < 900);
+    updateCompact();
+    window.addEventListener('resize', updateCompact);
+    return () => window.removeEventListener('resize', updateCompact);
+  }, []);
 
   // Sync favorites to localStorage whenever it changes
   useEffect(() => {
@@ -96,7 +104,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   return (
     <AppContext.Provider value={{ favorites, topicCount: contentCount, toggleFavorite, refreshCounts }}>
       <div style={{ display: 'flex', height: '100dvh', overflow: 'hidden' }}>
-        <Sidebar topicCount={contentCount} favCount={favorites.size} sourceCount={sourceCount} />
+        <Sidebar topicCount={contentCount} favCount={favorites.size} sourceCount={sourceCount} compact={compactNav} />
         <main style={{ flex: 1, overflow: 'hidden', background: '#F7F7F8', display: 'flex', flexDirection: 'column' }}>
           {/* 顶栏 */}
           <div style={{

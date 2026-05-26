@@ -542,16 +542,6 @@ function TrendingPage() {
     ? sources.filter(s => s.category === selectedCategory)
     : sources;
 
-  const [expandedSources, setExpandedSources] = useState<Set<string>>(new Set());
-  const toggleSource = (source: string) => {
-    setExpandedSources(prev => {
-      const next = new Set(prev);
-      if (next.has(source)) next.delete(source);
-      else next.add(source);
-      return next;
-    });
-  };
-
   // Group items by source for display
   const groupedItems: Record<string, TrendingItem[]> = {};
   for (const item of items) {
@@ -718,8 +708,6 @@ function TrendingPage() {
             const catColor = CATEGORY_COLORS[cat] || CATEGORY_COLORS.hot;
             const sourceInfo = sources.find(s => s.source === source);
             const lastSynced = sourceInfo?.last_synced;
-            const isCollapsed = expandedSources.has(source);
-            const displayItems = isCollapsed ? srcItems : srcItems.slice(0, 10);
             return (
               <div key={source} style={{
                 border: `1px solid ${T.gray200}`,
@@ -746,9 +734,8 @@ function TrendingPage() {
                   display: 'flex', alignItems: 'center', gap: 8,
                   background: catColor.bg,
                   borderBottom: `1px solid ${T.gray200}`,
-                  cursor: 'pointer',
+                  cursor: 'default',
                 }}
-                  onClick={() => toggleSource(source)}
                 >
                   {/* Source icon dot */}
                   <div style={{
@@ -791,23 +778,16 @@ function TrendingPage() {
                       {formatTime(lastSynced)}
                     </span>
                   )}
-                  {/* Collapse/expand toggle */}
-                  <span style={{
-                    fontSize: 11, color: catColor.color, flexShrink: 0,
-                    fontWeight: 600, minWidth: 16, textAlign: 'center',
-                  }}>
-                    {isCollapsed ? '▲' : '▼'}
-                  </span>
                 </div>
 
                 {/* Ranked list */}
                 <div className="trending-scroll" style={{
-                  maxHeight: isCollapsed ? 'none' : 400,
-                  overflowY: isCollapsed ? 'visible' : 'auto',
+                  maxHeight: 460,
+                  overflowY: 'auto',
                   scrollbarWidth: 'thin',
                   scrollbarColor: `${T.gray300} transparent`,
                 }}>
-                  {displayItems.map((item, idx) => (
+                  {srcItems.map((item, idx) => (
                     <a
                       key={item.id}
                       href={item.url || '#'}
@@ -869,28 +849,6 @@ function TrendingPage() {
                     </a>
                   ))}
                 </div>
-
-                {/* Expand/collapse footer */}
-                {srcItems.length > 10 && (
-                  <button
-                    onClick={() => toggleSource(source)}
-                    style={{
-                      width: '100%', padding: '7px', fontSize: 11, fontWeight: 600,
-                      color: T.gray500, background: T.gray50,
-                      border: 'none', borderTop: `1px solid ${T.gray100}`,
-                      cursor: 'pointer',
-                      transition: 'background 0.1s ease',
-                    }}
-                    onMouseEnter={e => {
-                      (e.currentTarget as HTMLButtonElement).style.background = T.gray100;
-                    }}
-                    onMouseLeave={e => {
-                      (e.currentTarget as HTMLButtonElement).style.background = T.gray50;
-                    }}
-                  >
-                    {isCollapsed ? '收起 ▲' : `展开全部 ${srcItems.length} 条 ▼`}
-                  </button>
-                )}
               </div>
             );
           })}

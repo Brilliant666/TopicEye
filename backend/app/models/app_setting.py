@@ -8,7 +8,7 @@ import json
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, DateTime, Integer
+from sqlalchemy import String, Text, DateTime, select
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base

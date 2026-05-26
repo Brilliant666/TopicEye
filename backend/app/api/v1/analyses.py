@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
 from app.core.exceptions import NotFoundError
-from app.models.content import ContentItem, ContentStatus
+from app.models.content import ContentStatus
 from app.schemas.analysis import AiAnalysisResponse
 from app.repositories.content_repo import ContentRepo
 from app.repositories.analysis_repo import AnalysisRepository

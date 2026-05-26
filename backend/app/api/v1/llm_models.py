@@ -25,7 +25,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc, func, Integer as SAInteger
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -7,13 +7,13 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.mother_topic import MotherTopic, ContentType
+from app.models.mother_topic import MotherTopic
 from app.models.content import ContentItem
 
 logger = logging.getLogger(__name__)

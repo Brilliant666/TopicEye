@@ -3,20 +3,18 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, Query
+
+from fastapi import APIRouter, Query
 from sqlalchemy import (
     func,
     case,
     select,
     text,
-    cast,
-    Date,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import async_session, get_db
+from app.core.database import async_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/stats", tags=["stats"])

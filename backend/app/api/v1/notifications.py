@@ -3,12 +3,9 @@
 """
 from __future__ import annotations
 
-from typing import Optional
 
-from fastapi import APIRouter, Query, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Query
 
-from app.database import get_db
 from app.services import notification_service
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])

@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Optional
 import enum
 from datetime import datetime
-from sqlalchemy import String, Integer, Float, Text, DateTime, Enum, ForeignKey
+from sqlalchemy import Integer, Float, Text, DateTime, Enum, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 

@@ -6,7 +6,6 @@ import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
 from app.core.dependencies import get_db
 from app.core.exceptions import NotFoundError

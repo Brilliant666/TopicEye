@@ -3,7 +3,6 @@ from typing import Optional, Sequence
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.ignored import IgnoredItem
-from app.models.content import ContentItem
 
 class IgnoredRepo:
     def __init__(self, db: AsyncSession):

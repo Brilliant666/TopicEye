@@ -14,9 +14,8 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from typing import Optional
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
 from app.services.trends import snapshot_daily_trends, get_topic_trends, get_keyword_cloud

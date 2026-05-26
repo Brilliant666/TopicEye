@@ -9,12 +9,11 @@ MotherTopic — 公众号母题配置。
 from __future__ import annotations
 
 import enum
-import json
 from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import JSON, Float, String, Boolean, DateTime, func
-from sqlalchemy.orm import Mapped, mapped_column, Relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 

@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import select, desc
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -137,13 +137,6 @@ async def category_books(
     rank_type: "new" 新书榜 / "reading" 阅读榜，默认返回新书榜。
     通过 pos 字段过滤（同一本书可能在多个榜单上有排名）。
     """
-    # 确定用哪个 pos 字段排序
-    if rank_type == "reading":
-        pos_col = FanqieBook.male_reading_pos
-        # 根据分类 group 决定用 male 还是 female
-    else:
-        rank_type = "new"
-
     # 先查分类信息确定 gender
     cat_result = await db.execute(
         select(FanqieCategory).where(FanqieCategory.fanqie_id == fanqie_id)
@@ -193,7 +186,6 @@ async def category_books(
 @router.post("/sync")
 async def trigger_sync():
     """手动触发全量同步。"""
-    import asyncio
     from app.services.fanqie_service import full_sync
     result = await full_sync()
     return result

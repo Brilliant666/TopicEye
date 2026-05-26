@@ -3,11 +3,9 @@
 """
 from __future__ import annotations
 
-import asyncio
-from typing import Optional
 
 from fastapi import APIRouter, Query, Depends, BackgroundTasks
-from sqlalchemy import select, func, distinct
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db

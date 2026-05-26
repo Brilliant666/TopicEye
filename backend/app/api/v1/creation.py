@@ -4,7 +4,7 @@ Creation plan API endpoints.
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+
 
 from sqlalchemy.ext.asyncio import AsyncSession
 

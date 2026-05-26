@@ -5,12 +5,11 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.database import get_db
 from app.repositories.content_repo import ContentRepo
 from app.repositories.analysis_repo import AnalysisRepository
-from app.schemas.content import ContentResponse, ContentDetailResponse, ContentListResponse
+from app.schemas.content import ContentResponse, ContentListResponse
 from app.schemas.analysis import AiAnalysisResponse
 
 router = APIRouter(prefix="/contents", tags=["contents"])
@@ -40,7 +39,6 @@ async def list_contents(
 ):
     from app.repositories.ignored_repo import IgnoredRepo
     from app.models.content import ContentItem
-    from app.models.analysis import AiAnalysis
     from app.services.scoring_engine import ScoringInput, score_items
     from datetime import timedelta
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Integer, Float, DateTime, Text, func, Index
+from sqlalchemy import String, Integer, DateTime, Text, func, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base

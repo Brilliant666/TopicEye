@@ -73,23 +73,17 @@ class TrendingItem(Base):
 
 class TrendingSnapshot(Base):
     """
-    趋势雷达每日快照。
-    每天保存一条记录，包含该日该平台的全量榜单（JSON数组）。
-    保留15天，APScheduler 定时清理超期数据。
+    趋势雷达定时快照。
+    每天 4 个快照点（08/12/18/22），保留 7 天。
+    用 (snapshot_date, snapshot_hour, source) 唯一标识一份快照。
     """
     __tablename__ = "trending_snapshots"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    snapshot_hour: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 8/12/18/22
     source: Mapped[str] = mapped_column(Enum(TrendingSource), nullable=False)
     category: Mapped[str] = mapped_column(String(20), nullable=False, default="hot")
-    # items JSON 格式: [{"rank":1,"title":"...","url":"...","hot_value":123456,"hot_value_raw":"123万"}, ...]
     items: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     fetched_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-
-    # 唯一约束：每天每个source只有一条快照
-    __table_args__ = (
-        # 复合唯一: (snapshot_date, source)
-        # SQLite 不支持带表达式的唯一约束，用程序层控制
-    )

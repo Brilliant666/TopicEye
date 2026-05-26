@@ -540,9 +540,39 @@ export const trendingApi = {
       : '';
     return request(`/trending/cross-platform${query}`);
   },
+
+  /** 持续在榜话题分析 */
+  persistent(params?: { min_days?: number; min_sources?: number; days_back?: number }): Promise<{
+    total: number;
+    topics: PersistentTopic[];
+  }> {
+    const query = params
+      ? '?' + new URLSearchParams(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined && v !== '')
+            .map(([k, v]) => [k, String(v)])
+        ).toString()
+      : '';
+    return request(`/trending/persistent${query}`);
+  },
 };
 
 // ─── Cross-Platform Clustering ───
+
+export interface PersistentTopic {
+  title: string;
+  days_on_list: number;
+  total_days: number;
+  snapshot_count: number;
+  sources: string[];
+  source_count: number;
+  avg_rank: number;
+  best_rank: number;
+  hot_value_max: number;
+  rank_trend: string;
+  first_seen: string;
+  last_seen: string;
+}
 
 export interface CrossPlatformSourceItem {
   source: string;

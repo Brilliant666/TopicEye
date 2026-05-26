@@ -8,6 +8,7 @@ import {
   type TrendingSource,
   type CrossPlatformCluster,
   type CrossPlatformSourceItem,
+  type PersistentTopic,
 } from '@/lib/api';
 
 /* ── Global scrollbar style (injected once) ── */
@@ -502,10 +503,11 @@ function formatTime(isoStr: string): string {
 /* ── Page ── */
 
 function TrendingPage() {
-  const [tab, setTab] = useState<'list' | 'resonance'>('list');
+  const [tab, setTab] = useState<'list' | 'resonance' | 'persistent'>('list');
   const [items, setItems] = useState<TrendingItem[]>([]);
   const [sources, setSources] = useState<TrendingSource[]>([]);
   const [clusters, setClusters] = useState<CrossPlatformCluster[]>([]);
+  const [persistentTopics, setPersistentTopics] = useState<PersistentTopic[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [minResonance, setMinResonance] = useState(2);
@@ -545,10 +547,23 @@ function TrendingPage() {
     }
   }, [minResonance]);
 
+  const fetchPersistent = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await trendingApi.persistent({ min_days: 2, min_sources: 1, days_back: 7 });
+      setPersistentTopics(data.topics || []);
+    } catch (e) {
+      console.error('Failed to fetch persistent:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (tab === 'list') fetchList();
-    else fetchClusters();
-  }, [tab, fetchList, fetchClusters]);
+    else if (tab === 'resonance') fetchClusters();
+    else fetchPersistent();
+  }, [tab, fetchList, fetchClusters, fetchPersistent]);
 
   const handleSyncAll = async () => {
     setSyncing(true);
@@ -607,6 +622,7 @@ function TrendingPage() {
         {[
           { key: 'list' as const, label: '榜单' },
           { key: 'resonance' as const, label: '共振发现' },
+          { key: 'persistent' as const, label: '持续热度' },
         ].map(t => {
           const active = tab === t.key;
           return (
@@ -686,6 +702,109 @@ function TrendingPage() {
               {clusters.map((cluster, idx) => (
                 <ClusterCard key={`${cluster.topic}-${idx}`} cluster={cluster} />
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Persistent Hot Tab Content */}
+      {!loading && tab === 'persistent' && (
+        <div>
+          <p style={{ fontSize: 13, color: T.gray500, margin: '0 0 16px 0' }}>
+            连续多天在榜的话题 = 不是昙花一现，真正值得关注 · 跨平台共振 = 社会级话题
+          </p>
+          {persistentTopics.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
+              暂无持续热度数据，需积累多天快照
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {persistentTopics.map((topic, idx) => {
+                const brand0 = sourceBrand(topic.sources[0] || 'weibo');
+                return (
+                  <div key={idx} style={{
+                    display: 'flex', alignItems: 'center', gap: 16,
+                    padding: '14px 18px', background: T.white,
+                    border: `1px solid ${T.gray100}`, borderRadius: T.radiusMd,
+                  }}>
+                    {/* 在榜天数 badge */}
+                    <div style={{
+                      minWidth: 52, height: 52, borderRadius: 12,
+                      display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center',
+                      background: topic.days_on_list >= 3 ? '#FEE2E2' : topic.days_on_list >= 2 ? '#FEF3C7' : '#F0FDF4',
+                      color: topic.days_on_list >= 3 ? '#DC2626' : topic.days_on_list >= 2 ? '#D97706' : '#16A34A',
+                      fontWeight: 700, fontSize: 18, lineHeight: 1,
+                    }}>
+                      {topic.days_on_list}
+                      <span style={{ fontSize: 9, fontWeight: 500, marginTop: 2 }}>天在榜</span>
+                    </div>
+
+                    {/* 主体 */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: T.gray800,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {topic.title}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                        {topic.sources.map(s => {
+                          const b = sourceBrand(s);
+                          return (
+                            <span key={s} style={{
+                              fontSize: 11, color: b.color, background: b.bg,
+                              padding: '2px 8px', borderRadius: 10, fontWeight: 500,
+                            }}>
+                              {SOURCE_LABELS[s] || s}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* 右侧指标 */}
+                    <div style={{ display: 'flex', gap: 20, flexShrink: 0 }}>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: T.gray700 }}>
+                          {topic.source_count}
+                        </div>
+                        <div style={{ fontSize: 10, color: T.gray400 }}>平台</div>
+                      </div>
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: T.gray700 }}>
+                          #{topic.best_rank || '-'}
+                        </div>
+                        <div style={{ fontSize: 10, color: T.gray400 }}>最佳排名</div>
+                      </div>
+                      {/* 排名趋势迷你图 */}
+                      {topic.rank_trend && topic.rank_trend.length > 1 && (
+                        <div style={{ width: 80, height: 36, position: 'relative' }}>
+                          <svg viewBox="0 0 80 36" style={{ width: '100%', height: '100%' }}>
+                            {(() => {
+                              const vals = topic.rank_trend.filter(v => v > 0);
+                              if (vals.length < 2) return null;
+                              const maxR = Math.max(...vals);
+                              const minR = Math.min(...vals);
+                              const range = maxR - minR || 1;
+                              const pts = vals.map((v, i) => {
+                                const x = (i / (vals.length - 1)) * 76 + 2;
+                                const y = 34 - ((v - minR) / range) * 30;
+                                return `${x},${y}`;
+                              });
+                              return (
+                                <polyline
+                                  points={pts.join(' ')}
+                                  fill="none" stroke={brand0.color}
+                                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                                />
+                              );
+                            })()}
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -803,7 +922,7 @@ function TrendingPage() {
                         const res = await fetch(`/api/v1/trending/sync/${source}`, { method: 'POST' });
                         const data = await res.json();
                         if (data.fetched > 0) {
-                          loadData();
+                          fetchList();
                         }
                       } finally {
                         btn.disabled = false;

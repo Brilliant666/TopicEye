@@ -1,16 +1,17 @@
 """
 趋势雷达历史快照服务。
 
-每天定时保存全量快照（APScheduler），
-保留15天，超过则清理。
+每天 4 个快照点（08/12/18/22），保留 7 天，自动清理。
+用于：持续热度分析、跨时间对比、趋势变化追踪。
 """
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from datetime import date, datetime, timedelta
-from typing import Optional
+from typing import Optional, List, Dict
 
-from sqlalchemy import select, delete, and_
+from sqlalchemy import select, delete, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.trending import TrendingItem, TrendingSnapshot, TrendingSource
@@ -19,16 +20,31 @@ from app.services.trending_scrapers import get_all_trending_sources
 logger = logging.getLogger(__name__)
 
 # 快照保留天数
-SNAPSHOT_RETENTION_DAYS = 15
+SNAPSHOT_RETENTION_DAYS = 7
+
+# 每天的快照时间点（小时）
+SNAPSHOT_HOURS = [8, 12, 18, 22]
+
+
+def _current_snapshot_hour() -> int:
+    """返回当前应该存到哪个快照时间点。"""
+    now_hour = datetime.utcnow().hour
+    # 找到 <= now_hour 的最大快照点
+    for h in reversed(SNAPSHOT_HOURS):
+        if now_hour >= h:
+            return h
+    # 凌晨 0-7 点归到前一天 22 点
+    return 22
 
 
 async def save_snapshot(db: AsyncSession, source: str) -> int:
     """
-    为指定 source 保存当天快照。
-    如果当日已存在则覆盖（upsert）。
+    为指定 source 保存当前时间点的快照。
+    如果该 (date, hour, source) 已存在则覆盖。
     返回保存的条目数。
     """
     today = date.today()
+    hour = _current_snapshot_hour()
 
     # 取当前最新数据
     result = await db.execute(
@@ -53,11 +69,12 @@ async def save_snapshot(db: AsyncSession, source: str) -> int:
         for it in items
     ]
 
-    # 查重：当日该 source 是否已有快照
+    # 查重：(date, hour, source)
     existing = await db.execute(
         select(TrendingSnapshot).where(
             and_(
                 TrendingSnapshot.snapshot_date == today,
+                TrendingSnapshot.snapshot_hour == hour,
                 TrendingSnapshot.source == source,
             )
         )
@@ -68,10 +85,12 @@ async def save_snapshot(db: AsyncSession, source: str) -> int:
         record.items = items_json
         record.total_count = len(items_json)
         record.fetched_at = datetime.utcnow()
-        logger.info("save_snapshot: updated source=%s date=%s count=%d", source, today, len(items_json))
+        logger.info("save_snapshot: updated source=%s date=%s hour=%d count=%d",
+                     source, today, hour, len(items_json))
     else:
         record = TrendingSnapshot(
             snapshot_date=today,
+            snapshot_hour=hour,
             source=source,
             category=items[0].category if items else "hot",
             items=items_json,
@@ -79,7 +98,8 @@ async def save_snapshot(db: AsyncSession, source: str) -> int:
             fetched_at=datetime.utcnow(),
         )
         db.add(record)
-        logger.info("save_snapshot: created source=%s date=%s count=%d", source, today, len(items_json))
+        logger.info("save_snapshot: created source=%s date=%s hour=%d count=%d",
+                     source, today, hour, len(items_json))
 
     await db.flush()
     return len(items_json)
@@ -104,42 +124,41 @@ async def save_all_snapshots(db: AsyncSession) -> dict:
 
 async def cleanup_old_snapshots(db: AsyncSession) -> int:
     """
-    删除 15 天前的快照。
+    删除超过保留天数的快照。
     返回删除条数。
     """
     cutoff = date.today() - timedelta(days=SNAPSHOT_RETENTION_DAYS)
-    result = await db.execute(
+    # 先 count 再删
+    count_result = await db.execute(
+        select(func.count(TrendingSnapshot.id)).where(
+            TrendingSnapshot.snapshot_date < cutoff
+        )
+    )
+    count = count_result.scalar() or 0
+    await db.execute(
         delete(TrendingSnapshot).where(TrendingSnapshot.snapshot_date < cutoff)
     )
-    # result.rowcount 在 SQLAlchemy 2.0 中可能不可用，改用 count 查询
-    count = len((await db.execute(select(TrendingSnapshot).where(TrendingSnapshot.snapshot_date < cutoff))).scalars().all())
     logger.info("cleanup_old_snapshots: deleted %d snapshots before %s", count, cutoff)
     return count
 
 
 async def get_snapshot_diff(db: AsyncSession, source: str) -> Optional[dict]:
     """
-    获取今日 vs 昨日的快照对比。
-    返回 {"yesterday_rank": {title: rank}, "today_rank": {title: rank}, "changes": [...]}
-    或 None（数据不足）。
+    获取今日 vs 昨日的快照对比（取各自最新时间点）。
     """
     today = date.today()
     yesterday = today - timedelta(days=1)
 
-    # 取两天快照
-    snap_today = await db.execute(
-        select(TrendingSnapshot).where(
-            and_(TrendingSnapshot.snapshot_date == today, TrendingSnapshot.source == source)
+    async def _get_latest_snap(d: date):
+        result = await db.execute(
+            select(TrendingSnapshot).where(
+                and_(TrendingSnapshot.snapshot_date == d, TrendingSnapshot.source == source)
+            ).order_by(TrendingSnapshot.snapshot_hour.desc()).limit(1)
         )
-    )
-    snap_today = snap_today.scalar_one_or_none()
+        return result.scalar_one_or_none()
 
-    snap_yesterday = await db.execute(
-        select(TrendingSnapshot).where(
-            and_(TrendingSnapshot.snapshot_date == yesterday, TrendingSnapshot.source == source)
-        )
-    )
-    snap_yesterday = snap_yesterday.scalar_one_or_none()
+    snap_today = await _get_latest_snap(today)
+    snap_yesterday = await _get_latest_snap(yesterday)
 
     if not snap_yesterday and not snap_today:
         return None
@@ -152,7 +171,6 @@ async def get_snapshot_diff(db: AsyncSession, source: str) -> Optional[dict]:
     yesterday_ranks = build_rank_map(snap_yesterday)
     today_ranks = build_rank_map(snap_today)
 
-    # 计算变化
     changes = []
     all_titles = set(yesterday_ranks.keys()) | set(today_ranks.keys())
 
@@ -169,7 +187,12 @@ async def get_snapshot_diff(db: AsyncSession, source: str) -> Optional[dict]:
             change = "down"
         else:
             change = "same"
-        changes.append({"title": title, "yesterday_rank": y_rank, "today_rank": t_rank, "change": change})
+        changes.append({
+            "title": title,
+            "yesterday_rank": y_rank,
+            "today_rank": t_rank,
+            "change": change,
+        })
 
     return {
         "yesterday_date": str(yesterday),
@@ -178,3 +201,135 @@ async def get_snapshot_diff(db: AsyncSession, source: str) -> Optional[dict]:
         "today_count": len(today_ranks),
         "changes": sorted(changes, key=lambda x: x["change"] != "new", reverse=True),
     }
+
+
+# ── 持续热度分析 ──────────────────────────────────────────────────────
+
+async def analyze_persistent_topics(
+    db: AsyncSession,
+    min_days: int = 2,
+    min_sources: int = 1,
+    days_back: int = 7,
+) -> List[dict]:
+    """
+    分析持续在榜的话题。
+
+    逻辑：
+    1. 取最近 N 天的所有快照
+    2. 按标题归一化后统计出现天数和涉及平台数
+    3. 筛选连续在榜 >= min_days 且涉及平台 >= min_sources 的话题
+    4. 返回按天数+平台数排序的结果
+
+    返回: [{
+        "title": str,
+        "days_on_list": int,       # 在榜天数
+        "snapshot_count": int,     # 出现在多少个快照中
+        "total_snapshots": int,    # 总快照数（用于算占比）
+        "sources": [str],          # 涉及平台列表
+        "source_count": int,       # 平台数
+        "avg_rank": float,         # 平均排名
+        "best_rank": int,          # 最佳排名
+        "hot_value_max": int,      # 最高热度
+        "rank_trend": [int],       # 排名趋势（最近几天）
+        "first_seen": str,         # 首次出现日期
+        "last_seen": str,          # 最后出现日期
+    }]
+    """
+    cutoff = date.today() - timedelta(days=days_back)
+
+    # 取所有快照
+    result = await db.execute(
+        select(TrendingSnapshot).where(
+            TrendingSnapshot.snapshot_date >= cutoff
+        ).order_by(TrendingSnapshot.snapshot_date, TrendingSnapshot.snapshot_hour)
+    )
+    snapshots = result.scalars().all()
+
+    if not snapshots:
+        return []
+
+    # 统计每个快照的日期集合
+    dates = sorted(set(s.snapshot_date for s in snapshots))
+    total_days = len(dates)
+
+    # 按标题聚合
+    topic_data: Dict[str, dict] = {}
+
+    for snap in snapshots:
+        source_name = snap.source if isinstance(snap.source, str) else snap.source.value
+        for item in snap.items:
+            title = item["title"].strip()
+            if not title:
+                continue
+
+            if title not in topic_data:
+                topic_data[title] = {
+                    "dates": set(),
+                    "sources": set(),
+                    "ranks": [],
+                    "hot_values": [],
+                    "snap_count": 0,
+                }
+
+            td = topic_data[title]
+            td["dates"].add(snap.snapshot_date)
+            td["sources"].add(source_name)
+            td["ranks"].append(item.get("rank", 0))
+            td["hot_values"].append(item.get("hot_value", 0))
+            td["snap_count"] += 1
+
+    # 计算持续在榜天数（连续的，不是累计的）
+    def count_consecutive_days(dates_set: set) -> int:
+        if not dates_set:
+            return 0
+        sorted_dates = sorted(dates_set, reverse=True)
+        count = 1
+        for i in range(len(sorted_dates) - 1):
+            if (sorted_dates[i] - sorted_dates[i + 1]).days == 1:
+                count += 1
+            else:
+                break
+        return count
+
+    # 筛选和排序
+    results = []
+    for title, td in topic_data.items():
+        consec_days = count_consecutive_days(td["dates"])
+        source_count = len(td["sources"])
+
+        if consec_days < min_days or source_count < min_sources:
+            continue
+
+        avg_rank = sum(td["ranks"]) / len(td["ranks"]) if td["ranks"] else 0
+        best_rank = min(td["ranks"]) if td["ranks"] else 0
+
+        # 排名趋势：取每天的最佳排名
+        rank_trend = []
+        for d in dates:
+            day_ranks = []
+            for snap in snapshots:
+                if snap.snapshot_date == d:
+                    for item in snap.items:
+                        if item["title"].strip() == title:
+                            day_ranks.append(item.get("rank", 0))
+            rank_trend.append(min(day_ranks) if day_ranks else 0)
+
+        results.append({
+            "title": title,
+            "days_on_list": consec_days,
+            "total_days": total_days,
+            "snapshot_count": td["snap_count"],
+            "sources": sorted(list(td["sources"])),
+            "source_count": source_count,
+            "avg_rank": round(avg_rank, 1),
+            "best_rank": best_rank,
+            "hot_value_max": max(td["hot_values"]) if td["hot_values"] else 0,
+            "rank_trend": rank_trend,
+            "first_seen": str(min(td["dates"])),
+            "last_seen": str(max(td["dates"])),
+        })
+
+    # 排序：天数降序 > 平台数降序 > 最佳排名升序
+    results.sort(key=lambda x: (-x["days_on_list"], -x["source_count"], x["best_rank"]))
+
+    return results[:50]  # 最多返回 50 条

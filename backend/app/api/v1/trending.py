@@ -204,6 +204,31 @@ async def manual_save_snapshots(
     return {"saved": results}
 
 
+@router.get("/persistent")
+async def get_persistent_topics(
+    min_days: int = Query(2, ge=1, le=7, description="最小连续在榜天数"),
+    min_sources: int = Query(1, ge=1, le=10, description="最小涉及平台数"),
+    days_back: int = Query(7, ge=1, le=30, description="分析最近N天"),
+    db: AsyncSession = Depends(get_db),
+):
+    """持续热度分析：找出连续多天在榜的话题。
+
+    核心价值：
+    - 单次榜单只能看到"现在什么火"
+    - 持续在榜说明不是昙花一现，是真正值得追的话题
+    - 跨平台共振 = 社会级话题，最值得写
+
+    返回按天数+平台数排序的话题列表。
+    """
+    from app.services.trending_snapshot import analyze_persistent_topics
+
+    topics = await analyze_persistent_topics(db, min_days, min_sources, days_back)
+    return {
+        "total": len(topics),
+        "topics": topics,
+    }
+
+
 # ── 角度推荐 API ────────────────────────────────────────────────────────
 
 class AngleRecommendOut(BaseModel):

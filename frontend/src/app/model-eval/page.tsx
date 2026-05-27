@@ -1,12 +1,141 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ArrowRight, Beaker } from 'lucide-react';
+import {
+  ArrowRight,
+  Beaker,
+  BrainCircuit,
+  CheckCircle2,
+  Clock3,
+  FlaskConical,
+  History,
+  KeyRound,
+  Layers3,
+  Play,
+  Plus,
+  Power,
+  RefreshCw,
+  Settings2,
+  ShieldCheck,
+  SlidersHorizontal,
+  Star,
+  Trash2,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import { modelsApi } from '@/lib/api';
 import type { LlmModelItem, EvalRun, EvalResult } from '@/lib/api';
 
 type Tab = 'models' | 'evaluate' | 'history';
+
+function Surface({
+  title,
+  icon: Icon,
+  hint,
+  children,
+  style,
+}: {
+  title: string;
+  icon: LucideIcon;
+  hint?: string;
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <section style={{
+      background: T.white,
+      border: `1px solid ${T.gray200}`,
+      borderRadius: T.radius,
+      padding: '18px 20px',
+      ...style,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <Icon size={16} color={T.primary} strokeWidth={2.2} />
+          <span style={{ fontSize: 14, fontWeight: 800, color: T.gray900 }}>{title}</span>
+        </div>
+        {hint && <span style={{ fontSize: 11, color: T.gray400, whiteSpace: 'nowrap' }}>{hint}</span>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  color,
+  tone = 'neutral',
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string | number;
+  hint: string;
+  color: string;
+  tone?: 'primary' | 'teal' | 'amber' | 'neutral';
+}) {
+  const toneStyle = {
+    primary: { bg: T.primaryLight, border: T.primaryBorder },
+    teal: { bg: T.tealLight, border: T.tealBorder },
+    amber: { bg: T.amberLight, border: T.amberBorder },
+    neutral: { bg: T.gray50, border: T.gray200 },
+  }[tone];
+
+  return (
+    <div style={{
+      background: toneStyle.bg,
+      border: `1px solid ${toneStyle.border}`,
+      borderRadius: T.radiusSm,
+      padding: '13px 14px',
+      minWidth: 0,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 9 }}>
+        <Icon size={14} color={color} strokeWidth={2.2} />
+        <span style={{ fontSize: 11, fontWeight: 800, color: T.gray500 }}>{label}</span>
+      </div>
+      <div style={{ fontSize: 25, lineHeight: 1, fontWeight: 900, color, fontFamily: T.mono }}>
+        {value}
+      </div>
+      <div style={{ marginTop: 5, fontSize: 10.5, color: T.gray400 }}>{hint}</div>
+    </div>
+  );
+}
+
+function StatusPill({
+  children,
+  tone = 'neutral',
+}: {
+  children: React.ReactNode;
+  tone?: 'primary' | 'teal' | 'amber' | 'red' | 'neutral';
+}) {
+  const styleMap = {
+    primary: { bg: T.primaryLight, border: T.primaryBorder, color: T.primary },
+    teal: { bg: T.tealLight, border: T.tealBorder, color: T.teal },
+    amber: { bg: T.amberLight, border: T.amberBorder, color: T.amber },
+    red: { bg: T.redLight, border: '#FCA5A5', color: T.red },
+    neutral: { bg: T.gray50, border: T.gray200, color: T.gray500 },
+  }[tone];
+
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 5,
+      padding: '3px 8px',
+      borderRadius: 999,
+      background: styleMap.bg,
+      border: `1px solid ${styleMap.border}`,
+      color: styleMap.color,
+      fontSize: 11,
+      fontWeight: 800,
+      whiteSpace: 'nowrap',
+    }}>
+      {children}
+    </span>
+  );
+}
 
 export default function ModelEvalPage() {
   const [tab, setTab] = useState<Tab>('models');
@@ -23,36 +152,125 @@ export default function ModelEvalPage() {
 
   useEffect(() => { fetchModels(); }, [fetchModels]);
 
-  const tabStyle = (active: boolean) => ({
-    padding: '8px 16px',
-    fontSize: 13,
-    fontWeight: active ? 600 : 400,
-    color: active ? T.primary : T.gray500,
-    borderWidth: 0,
-    borderStyle: 'solid' as const,
-    borderColor: 'transparent',
-    borderBottomWidth: active ? 2 : 0,
-    borderBottomColor: active ? T.primary : 'transparent',
-    cursor: 'pointer',
-    background: 'none',
-  } as React.CSSProperties);
+  const enabledCount = models.filter(m => m.enabled).length;
+  const runnableCount = models.filter(m => m.enabled && (m.api_key_set || !m.api_base)).length;
+  const primaryModel = models.find(m => m.is_primary);
+  const fallbackModel = models.find(m => m.is_fallback);
 
   return (
-    <div style={{ padding: '24px 32px', maxWidth: 1200, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-        <Beaker size={22} color={T.primary} strokeWidth={2} />
-        <h1 style={{ fontSize: 20, fontWeight: 700, color: T.text, margin: 0 }}>AI 引擎</h1>
-      </div>
+    <div style={{ padding: '28px 40px 64px', maxWidth: 1480, margin: '0 auto' }}>
+      <section style={{
+        position: 'relative',
+        overflow: 'hidden',
+        background: T.white,
+        border: `1px solid ${T.gray200}`,
+        borderRadius: T.radius,
+        padding: '22px 24px',
+        marginBottom: 18,
+        boxShadow: '0 14px 36px rgba(15, 23, 42, 0.06)',
+      }}>
+        <div style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          top: 0,
+          height: 4,
+          background: `linear-gradient(90deg, ${T.primary}, ${T.teal})`,
+        }} />
+        <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 20, alignItems: 'start' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginBottom: 12 }}>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 11,
+                fontWeight: 900,
+                color: T.primary,
+                background: T.primaryLight,
+                border: `1px solid ${T.primaryBorder}`,
+                borderRadius: 999,
+                padding: '4px 10px',
+                fontFamily: T.mono,
+              }}>
+                <BrainCircuit size={13} strokeWidth={2.4} />
+                AI ENGINE
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: T.gray500 }}>模型配置与测评</span>
+            </div>
+            <h1 style={{ fontSize: 28, lineHeight: 1.12, fontWeight: 900, color: T.gray900, margin: 0 }}>
+              AI 引擎工作台
+            </h1>
+            <p style={{ fontSize: 13, lineHeight: 1.7, color: T.gray500, margin: '8px 0 0', maxWidth: 760 }}>
+              管理内容分析、日报、周刊和分类任务使用的模型，定期做 A/B 测评，保留人工评分作为模型选择依据。
+            </p>
+          </div>
+          <button
+            onClick={fetchModels}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 7,
+              padding: '9px 15px',
+              fontSize: 13,
+              fontWeight: 800,
+              background: T.white,
+              color: T.gray600,
+              border: `1px solid ${T.gray200}`,
+              borderRadius: T.radiusSm,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <RefreshCw size={14} strokeWidth={2.2} />
+            刷新模型
+          </button>
+        </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${T.gray200}`, marginBottom: 24 }}>
-        <button style={tabStyle(tab === 'models')} onClick={() => setTab('models')}>模型配置</button>
-        <button style={tabStyle(tab === 'evaluate')} onClick={() => setTab('evaluate')}>A/B 测评</button>
-        <button style={tabStyle(tab === 'history')} onClick={() => setTab('history')}>测评历史</button>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginTop: 18 }}>
+          <StatTile icon={Layers3} label="模型配置" value={models.length} hint={`${enabledCount} 个启用`} color={T.primary} tone="primary" />
+          <StatTile icon={KeyRound} label="可测模型" value={runnableCount} hint="具备调用条件" color={T.teal} tone="teal" />
+          <StatTile icon={ShieldCheck} label="主模型" value={primaryModel ? 1 : 0} hint={primaryModel?.name || '未设置'} color={T.amber} tone="amber" />
+          <StatTile icon={Clock3} label="备用模型" value={fallbackModel ? 1 : 0} hint={fallbackModel?.name || '未设置'} color={T.gray700} />
+        </div>
+      </section>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginBottom: 18 }}>
+        {[
+          { key: 'models' as const, label: '模型配置', desc: '主备模型、密钥和限流参数', icon: Settings2 },
+          { key: 'evaluate' as const, label: 'A/B 测评', desc: '多模型同题测试并人工评分', icon: FlaskConical },
+          { key: 'history' as const, label: '测评历史', desc: '查看历史运行与评分记录', icon: History },
+        ].map(item => {
+          const Icon = item.icon;
+          const active = tab === item.key;
+          return (
+            <button
+              key={item.key}
+              onClick={() => setTab(item.key)}
+              style={{
+                textAlign: 'left',
+                padding: '13px 14px',
+                borderRadius: T.radius,
+                border: `1px solid ${active ? T.primaryBorder : T.gray200}`,
+                background: active ? T.primaryLight : T.white,
+                cursor: 'pointer',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                <Icon size={15} color={active ? T.primary : T.gray500} strokeWidth={2.2} />
+                <span style={{ fontSize: 13, fontWeight: 850, color: active ? T.primary : T.gray800 }}>{item.label}</span>
+              </div>
+              <div style={{ fontSize: 11, lineHeight: 1.45, color: T.gray500 }}>{item.desc}</div>
+            </button>
+          );
+        })}
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', color: T.gray400, padding: 60 }}>加载中...</div>
+        <Surface title="加载状态" icon={Beaker}>
+          <div style={{ textAlign: 'center', color: T.gray400, padding: 48 }}>加载中...</div>
+        </Surface>
       ) : (
         <>
           {tab === 'models' && <ModelsTab models={models} onRefresh={fetchModels} />}
@@ -104,60 +322,92 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
     onRefresh();
   };
 
+  const enabledCount = models.filter(m => m.enabled).length;
+  const keyedCount = models.filter(m => m.api_key_set || !m.api_base).length;
+
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <span style={{ fontSize: 13, color: T.gray500 }}>已配置 {models.length} 个模型</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <Surface title="模型配置" icon={Settings2} hint={`${models.length} 个模型 · ${enabledCount} 个启用 · ${keyedCount} 个可调用`}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <div style={{ fontSize: 13, color: T.gray500, lineHeight: 1.7 }}>
+            维护主模型、备用模型和可参与测评的候选模型。禁用模型不会参与自动任务和 A/B 测评。
+          </div>
         <button
           onClick={() => setShowAdd(true)}
-          style={{ padding: '6px 14px', fontSize: 13, background: T.primary, color: '#fff', border: 'none', borderRadius: T.radiusSm, cursor: 'pointer', fontWeight: 600 }}
-        >+ 添加模型</button>
-      </div>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', fontSize: 13, background: T.primary, color: '#fff', border: 'none', borderRadius: T.radiusSm, cursor: 'pointer', fontWeight: 800, whiteSpace: 'nowrap' }}
+        >
+          <Plus size={14} strokeWidth={2.2} />
+          添加模型
+        </button>
+        </div>
+      </Surface>
 
       {showAdd && <ModelEditForm onClose={() => { setShowAdd(false); onRefresh(); }} />}
 
       {editing && <ModelEditForm model={editing} onClose={() => { setEditing(null); onRefresh(); }} />}
 
       {/* Model Cards */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 12 }}>
         {models.map(m => (
           <div key={m.id} style={{
-            background: T.white, borderRadius: T.radius, border: `1px solid ${T.gray200}`,
-            padding: 16, display: 'flex', alignItems: 'center', gap: 16,
-            opacity: m.enabled ? 1 : 0.5,
+            background: T.white,
+            borderRadius: T.radius,
+            border: `1px solid ${m.is_primary ? T.primaryBorder : m.is_fallback ? T.tealBorder : T.gray200}`,
+            padding: 18,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 14,
+            opacity: m.enabled ? 1 : 0.62,
+            boxShadow: m.is_primary ? '0 12px 28px rgba(255, 107, 53, 0.08)' : 'none',
           }}>
-            {/* Role badge */}
-            <div style={{ width: 60, textAlign: 'center', flexShrink: 0 }}>
-              {m.is_primary ? (
-                <span style={{ fontSize: 11, fontWeight: 600, color: T.primary, background: T.primaryLight, padding: '2px 8px', borderRadius: 4 }}>主模型</span>
-              ) : m.is_fallback ? (
-                <span style={{ fontSize: 11, fontWeight: 600, color: T.teal, background: T.tealLight, padding: '2px 8px', borderRadius: 4 }}>备用</span>
-              ) : (
-                <span style={{ fontSize: 11, color: T.gray400 }}>-</span>
-              )}
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 7 }}>
+                  {m.is_primary && <StatusPill tone="primary"><Star size={11} fill={T.primary} />主模型</StatusPill>}
+                  {m.is_fallback && <StatusPill tone="teal"><ShieldCheck size={11} />备用</StatusPill>}
+                  {!m.enabled && <StatusPill>已禁用</StatusPill>}
+                  {!m.api_key_set && m.api_base && <StatusPill tone="amber"><KeyRound size={11} />缺 Key</StatusPill>}
+                </div>
+                <div style={{ fontWeight: 850, fontSize: 16, color: T.gray900, lineHeight: 1.35 }}>{m.name}</div>
+                <div style={{ fontSize: 11, color: T.gray400, fontFamily: T.mono, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {m.model_id}
+                </div>
+              </div>
+              <StatusPill tone={m.enabled ? 'teal' : 'neutral'}>
+                <Power size={11} />
+                {m.enabled ? '启用' : '停用'}
+              </StatusPill>
             </div>
 
-            {/* Info */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 600, fontSize: 14, color: T.text }}>{m.name}</span>
-                <span style={{ fontSize: 11, color: T.gray400, fontFamily: T.mono }}>{m.model_id}</span>
-              </div>
-              <div style={{ fontSize: 12, color: T.gray500, marginTop: 4 }}>
-                Provider: {m.provider} · Temp: {m.temperature} · MaxTokens: {m.max_tokens} · RPM: {m.requests_per_minute}
-                {m.description && ` · ${m.description}`}
-              </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
+              {[
+                ['Provider', m.provider],
+                ['Temp', m.temperature],
+                ['Tokens', m.max_tokens],
+                ['RPM', m.requests_per_minute],
+              ].map(([label, value]) => (
+                <div key={label} style={{ background: T.gray50, border: `1px solid ${T.gray200}`, borderRadius: T.radiusXs, padding: '8px 9px', minWidth: 0 }}>
+                  <div style={{ fontSize: 10, color: T.gray400, marginBottom: 3 }}>{label}</div>
+                  <div style={{ fontSize: 12, color: T.gray800, fontWeight: 800, fontFamily: typeof value === 'number' ? T.mono : T.sans, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
+                </div>
+              ))}
             </div>
+
+            {m.description && (
+              <div style={{ fontSize: 12, lineHeight: 1.6, color: T.gray500 }}>
+                {m.description}
+              </div>
+            )}
 
             {/* Test result */}
             {testResult[m.id] && (
-              <div style={{ maxWidth: 200, fontSize: 11, color: testResult[m.id].status === 'success' ? T.teal : T.red, padding: '4px 8px', background: testResult[m.id].status === 'success' ? T.tealLight : T.redLight, borderRadius: T.radiusXs, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div style={{ fontSize: 11, color: testResult[m.id].status === 'success' ? T.teal : T.red, padding: '7px 10px', background: testResult[m.id].status === 'success' ? T.tealLight : T.redLight, border: `1px solid ${testResult[m.id].status === 'success' ? T.tealBorder : '#FCA5A5'}`, borderRadius: T.radiusXs, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {testResult[m.id].status === 'success' ? `${testResult[m.id].duration_ms}ms: ${(testResult[m.id].response || '').slice(0, 40)}...` : `失败: ${(testResult[m.id].error || '').slice(0, 30)}`}
               </div>
             )}
 
             {/* Actions */}
-            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', borderTop: `1px solid ${T.gray100}`, paddingTop: 12 }}>
               {!m.is_primary && <button onClick={() => handleSetPrimary(m.id)} style={actionBtnStyle}>设为主模型</button>}
               {!m.is_primary && !m.is_fallback && <button onClick={() => handleSetFallback(m.id)} style={actionBtnStyle}>设为备用</button>}
               <button onClick={() => handleToggle(m)} style={actionBtnStyle}>{m.enabled ? '禁用' : '启用'}</button>
@@ -165,24 +415,29 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
                 {testing === m.id ? '测试中...' : '测试'}
               </button>
               <button onClick={() => setEditing(m)} style={actionBtnStyle}>编辑</button>
-              <button onClick={() => handleDelete(m.id)} style={{ ...actionBtnStyle, color: T.red }}>删除</button>
+              <button onClick={() => handleDelete(m.id)} style={{ ...actionBtnStyle, color: T.red }}>
+                <Trash2 size={12} strokeWidth={2.2} />
+                删除
+              </button>
             </div>
           </div>
         ))}
       </div>
 
       {models.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 60, color: T.gray400 }}>
+        <Surface title="空模型库" icon={Settings2}>
+        <div style={{ textAlign: 'center', padding: 42, color: T.gray400 }}>
           还没有配置任何模型，点击"添加模型"开始
         </div>
+        </Surface>
       )}
     </div>
   );
 }
 
 const actionBtnStyle: React.CSSProperties = {
-  padding: '4px 10px', fontSize: 12, border: `1px solid ${T.gray200}`, borderRadius: 6,
-  background: T.white, color: T.gray600, cursor: 'pointer', whiteSpace: 'nowrap',
+  display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px', fontSize: 12, border: `1px solid ${T.gray200}`, borderRadius: 6,
+  background: T.white, color: T.gray600, cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: 700,
 };
 
 /* ─── Model Edit/Add Form ────────────────────────────────────────── */
@@ -227,10 +482,14 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
 
   return (
     <div style={{
-      background: T.gray50, borderRadius: T.radius, border: `1px solid ${T.gray200}`,
-      padding: 20, marginBottom: 16,
+      background: T.white, borderRadius: T.radius, border: `1px solid ${T.primaryBorder}`,
+      padding: 20, marginBottom: 2,
+      boxShadow: '0 12px 28px rgba(255, 107, 53, 0.08)',
     }}>
-      <h3 style={{ fontSize: 14, fontWeight: 600, margin: '0 0 16px' }}>{isEdit ? '编辑模型' : '添加模型'}</h3>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+        <Settings2 size={15} color={T.primary} strokeWidth={2.2} />
+        <h3 style={{ fontSize: 14, fontWeight: 800, color: T.gray900, margin: 0 }}>{isEdit ? '编辑模型' : '添加模型'}</h3>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <div>
           <label style={labelStyle}>显示名称 *</label>
@@ -271,7 +530,7 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-        <button onClick={handleSave} disabled={saving || !form.name || !form.model_id} style={{ padding: '8px 20px', fontSize: 13, background: T.primary, color: '#fff', border: 'none', borderRadius: T.radiusSm, cursor: 'pointer', fontWeight: 600 }}>
+        <button onClick={handleSave} disabled={saving || !form.name || !form.model_id} style={{ padding: '8px 20px', fontSize: 13, background: T.primary, color: '#fff', border: 'none', borderRadius: T.radiusSm, cursor: 'pointer', fontWeight: 800 }}>
           {saving ? '保存中...' : '保存'}
         </button>
         <button onClick={onClose} style={{ padding: '8px 20px', fontSize: 13, background: T.white, color: T.gray600, border: `1px solid ${T.gray200}`, borderRadius: T.radiusSm, cursor: 'pointer' }}>
@@ -352,10 +611,9 @@ function EvaluateTab({ models }: { models: LlmModelItem[] }) {
   ];
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Model Selection */}
-      <div style={{ marginBottom: 20 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>选择要对比的模型</h3>
+      <Surface title="选择测评模型" icon={Layers3} hint={`${selected.size} / ${runnableModelIds.size} 已选`}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {enabledModels.map(m => (
             <button
@@ -363,11 +621,11 @@ function EvaluateTab({ models }: { models: LlmModelItem[] }) {
               onClick={() => toggleModel(m.id)}
               disabled={!runnableModelIds.has(m.id)}
               style={{
-                padding: '8px 14px', fontSize: 13, borderRadius: T.radiusSm, cursor: runnableModelIds.has(m.id) ? 'pointer' : 'not-allowed',
+                padding: '9px 13px', fontSize: 13, borderRadius: T.radiusSm, cursor: runnableModelIds.has(m.id) ? 'pointer' : 'not-allowed',
                 border: `1px solid ${selected.has(m.id) ? T.primary : T.gray200}`,
                 background: selected.has(m.id) ? T.primaryLight : T.white,
                 color: !runnableModelIds.has(m.id) ? T.gray400 : selected.has(m.id) ? T.primary : T.gray600,
-                fontWeight: selected.has(m.id) ? 600 : 400,
+                fontWeight: selected.has(m.id) ? 800 : 650,
                 opacity: runnableModelIds.has(m.id) ? 1 : 0.55,
               }}
               title={runnableModelIds.has(m.id) ? undefined : '该模型缺少 API Key，暂不能参与测评'}
@@ -379,53 +637,63 @@ function EvaluateTab({ models }: { models: LlmModelItem[] }) {
           ))}
         </div>
         {selected.size < 2 && <div style={{ fontSize: 12, color: T.amber, marginTop: 8 }}>请至少选择 2 个模型</div>}
-      </div>
+      </Surface>
 
       {/* Prompt Type */}
-      <div style={{ marginBottom: 20 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>测评类型</h3>
-        <div style={{ display: 'flex', gap: 8 }}>
+      <Surface title="测评任务" icon={FlaskConical}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
           {promptTypes.map(pt => (
             <button
               key={pt.value}
               onClick={() => setPromptType(pt.value)}
               style={{
-                padding: '6px 12px', fontSize: 13, borderRadius: T.radiusXs, cursor: 'pointer',
+                padding: '7px 12px', fontSize: 13, borderRadius: T.radiusXs, cursor: 'pointer',
                 border: `1px solid ${promptType === pt.value ? T.primary : T.gray200}`,
                 background: promptType === pt.value ? T.primaryLight : T.white,
                 color: promptType === pt.value ? T.primary : T.gray600,
+                fontWeight: promptType === pt.value ? 800 : 650,
               }}
             >{pt.label}</button>
           ))}
         </div>
-      </div>
 
       {/* Run Button */}
       <button
         onClick={handleRun}
         disabled={running || selected.size < 2}
         style={{
-          padding: '10px 28px', fontSize: 14, fontWeight: 600,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 7,
+          width: 'fit-content',
+          padding: '10px 22px', fontSize: 14, fontWeight: 800,
           background: running ? T.gray300 : T.primary, color: '#fff',
           border: 'none', borderRadius: T.radiusSm, cursor: running ? 'not-allowed' : 'pointer',
         }}
-      >{running ? '测评进行中...' : '开始 A/B 测评'}</button>
+      >
+        <Play size={15} strokeWidth={2.2} />
+        {running ? '测评进行中...' : '开始 A/B 测评'}
+      </button>
+      </Surface>
 
       {/* Results */}
       {result && (
-        <div style={{ marginTop: 24 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>
-            测评结果 <span style={{ fontSize: 12, color: T.gray400, fontWeight: 400 }}>{result.eval_run_id}</span>
-          </h3>
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(result.results.length, 3)}, 1fr)`, gap: 16 }}>
+        <Surface title="测评结果" icon={CheckCircle2} hint={result.eval_run_id}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(result.results.length, 3)}, minmax(0, 1fr))`, gap: 14 }}>
             {result.results.map(r => (
               <div key={r.id} style={{
-                background: T.white, borderRadius: T.radius, border: `1px solid ${T.gray200}`, padding: 16,
+                background: T.white, borderRadius: T.radius, border: `1px solid ${r.status === 'DONE' ? T.tealBorder : '#FCA5A5'}`, padding: 16,
                 display: 'flex', flexDirection: 'column', gap: 8,
               }}>
-                <div style={{ fontWeight: 600, fontSize: 14, color: T.text }}>{r.model_name}</div>
-                <div style={{ fontSize: 12, color: r.status === 'DONE' ? T.teal : T.red }}>
-                  {r.status === 'DONE' ? `完成 · ${r.duration_ms}ms` : `失败 · ${r.error_message?.slice(0, 60)}`}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                  <div style={{ fontWeight: 800, fontSize: 14, color: T.gray900 }}>{r.model_name}</div>
+                  <StatusPill tone={r.status === 'DONE' ? 'teal' : 'red'}>
+                    {r.status === 'DONE' ? '完成' : '失败'}
+                  </StatusPill>
+                </div>
+                <div style={{ fontSize: 12, color: T.gray500 }}>
+                  {r.status === 'DONE' ? `${r.duration_ms}ms` : r.error_message?.slice(0, 60)}
                 </div>
                 {r.tokens_input && (
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: T.gray400 }}>
@@ -443,7 +711,7 @@ function EvaluateTab({ models }: { models: LlmModelItem[] }) {
                 )}
                 {r.auto_score !== null && <div style={{ fontSize: 11, color: T.gray500 }}>自动评分: {r.auto_score}/5</div>}
                 {/* Human score */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 11, color: T.gray500 }}>人工评分:</span>
                   {[1, 2, 3, 4, 5].map(s => (
                     <button
@@ -463,7 +731,7 @@ function EvaluateTab({ models }: { models: LlmModelItem[] }) {
               </div>
             ))}
           </div>
-        </div>
+        </Surface>
       )}
     </div>
   );
@@ -492,13 +760,20 @@ function HistoryTab() {
     analysis: '选题分析', daily_report: 'AI 日报', weekly_digest: 'AI 周刊', classification: '内容分类', custom: '自定义',
   };
 
-  if (loading) return <div style={{ textAlign: 'center', color: T.gray400, padding: 60 }}>加载中...</div>;
+  if (loading) return (
+    <Surface title="测评历史" icon={History}>
+      <div style={{ textAlign: 'center', color: T.gray400, padding: 48 }}>加载中...</div>
+    </Surface>
+  );
 
   return (
     <div>
       {runs.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 60, color: T.gray400 }}>暂无测评记录，去 A/B 测评页开始第一次测评</div>
+        <Surface title="测评历史" icon={History}>
+          <div style={{ textAlign: 'center', padding: 48, color: T.gray400 }}>暂无测评记录，去 A/B 测评页开始第一次测评</div>
+        </Surface>
       ) : (
+        <Surface title="测评历史" icon={History} hint={`${runs.length} 条记录`}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {runs.map(run => (
             <div key={run.eval_run_id}>
@@ -511,14 +786,14 @@ function HistoryTab() {
                 }}
               >
                 <div>
-                  <span style={{ fontWeight: 600, fontSize: 13, color: T.text }}>{promptTypeLabel[run.prompt_type] || run.prompt_type}</span>
+                  <span style={{ fontWeight: 800, fontSize: 13, color: T.gray900 }}>{promptTypeLabel[run.prompt_type] || run.prompt_type}</span>
                   <span style={{ fontSize: 11, color: T.gray400, marginLeft: 8 }}>
                     {run.model_count} 个模型 · {run.created_at?.slice(0, 19).replace('T', ' ')}
                   </span>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <span style={{ fontSize: 11, color: T.teal }}>{run.done_count} 成功</span>
-                  {run.fail_count > 0 && <span style={{ fontSize: 11, color: T.red }}>{run.fail_count} 失败</span>}
+                  <StatusPill tone="teal">{run.done_count} 成功</StatusPill>
+                  {run.fail_count > 0 && <StatusPill tone="red">{run.fail_count} 失败</StatusPill>}
                 </div>
               </button>
               {expandedRun === run.eval_run_id && runDetail && (
@@ -539,6 +814,7 @@ function HistoryTab() {
             </div>
           ))}
         </div>
+        </Surface>
       )}
     </div>
   );

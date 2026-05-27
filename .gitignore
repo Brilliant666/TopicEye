@@ -47,3 +47,5 @@ htmlcov/
 .mavis/
 .skill-metrics/
 .skill-harness/
+.lazyweb/
+.playwright-mcp/

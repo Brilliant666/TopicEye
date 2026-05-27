@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Flame, Inbox } from 'lucide-react';
 import { T, CATEGORIES } from '@/lib/design-tokens';
 import { viralApi } from '@/lib/api';
 import { useAppContext } from '@/components/ClientLayout';
@@ -69,7 +70,10 @@ export default function LowFollowerViralPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
           <div>
             <h1 style={{ fontSize: 20, fontWeight: 700, color: T.gray900, margin: 0 }}>
-              低粉爆文发现 🔥
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <Flame size={20} color={T.primary} strokeWidth={2.1} />
+                低粉爆文发现
+              </span>
             </h1>
             <p style={{ fontSize: 13, color: T.gray500, margin: '4px 0 0' }}>
               找到小号高爆发内容 — 低粉丝作者发布的爆款选题
@@ -149,7 +153,7 @@ export default function LowFollowerViralPage() {
         {/* Empty */}
         {!loading && items.length === 0 && (
           <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
+            <Inbox size={30} color={T.gray400} strokeWidth={1.9} style={{ marginBottom: 8 }} />
             暂无低粉爆文数据
           </div>
         )}

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { Settings } from 'lucide-react';
 import { motherTopicsApi, type MotherTopic } from '@/lib/api';
 
 /* ── helpers ── */
@@ -306,7 +307,10 @@ export default function MotherTopicsConfigPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111827', marginBottom: 4 }}>
-            ⚙️ 母题配置
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <Settings size={20} color="#6366f1" strokeWidth={2.1} />
+              母题配置
+            </span>
           </h1>
           <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
             配置你的公众号内容支柱，调整关键词以精准匹配你的写作方向

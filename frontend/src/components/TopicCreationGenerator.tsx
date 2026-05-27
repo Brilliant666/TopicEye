@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
+import { BookOpen, FileText, PenLine, Video } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import SectionTitle from '@/components/SectionTitle';
 import CreationPlanDisplay, { type CreationPlan } from '@/components/CreationPlanDisplay';
@@ -14,6 +16,12 @@ export default function TopicCreationGenerator({ contentId }: TopicCreationGener
   const [creating, setCreating] = useState(false);
   const [creatingPlatform, setCreatingPlatform] = useState<string | null>(null);
   const [creationError, setCreationError] = useState<string | null>(null);
+
+  const platforms: Array<{ id: string; name: string; icon: LucideIcon }> = [
+    { id: 'xiaohongshu', name: '小红书', icon: BookOpen },
+    { id: 'wechat', name: '公众号', icon: FileText },
+    { id: 'short_video', name: '短视频', icon: Video },
+  ];
 
   const handleGeneratePlan = async (platform: string) => {
     if (!contentId) return;
@@ -44,42 +52,46 @@ export default function TopicCreationGenerator({ contentId }: TopicCreationGener
         border: `1px solid ${T.gray100}`,
       }}
     >
-      <SectionTitle>✍️ 生成创作方案</SectionTitle>
+      <SectionTitle>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+          <PenLine size={15} strokeWidth={2} />
+          生成创作方案
+        </span>
+      </SectionTitle>
       <p style={{ fontSize: 13, color: T.gray500, marginBottom: 16 }}>
-        选择平台，AI 将基于此内容生成完整的创作方案
+        选择平台，基于此内容生成完整的创作方案
       </p>
 
       {/* Platform buttons */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        {[
-          { id: 'xiaohongshu', name: '小红书', icon: '📕' },
-          { id: 'wechat', name: '公众号', icon: '📝' },
-          { id: 'short_video', name: '短视频', icon: '🎬' },
-        ].map((p) => (
-          <button
-            key={p.id}
-            onClick={() => handleGeneratePlan(p.id)}
-            disabled={creating}
-            style={{
-              padding: '10px 18px',
-              fontSize: 13,
-              fontWeight: 500,
-              background: creatingPlatform === p.id ? T.primaryLight : T.gray50,
-              color: creatingPlatform === p.id ? T.primary : T.gray700,
-              border: `1px solid ${creatingPlatform === p.id ? T.primaryBorder : T.gray200}`,
-              borderRadius: T.radiusSm,
-              cursor: creating ? 'wait' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              transition: 'all 0.15s',
-              opacity: creating && creatingPlatform !== p.id ? 0.5 : 1,
-            }}
-          >
-            <span>{p.icon}</span>
-            {creatingPlatform === p.id ? '生成中...' : p.name}
-          </button>
-        ))}
+        {platforms.map((p) => {
+          const Icon = p.icon;
+          return (
+            <button
+              key={p.id}
+              onClick={() => handleGeneratePlan(p.id)}
+              disabled={creating}
+              style={{
+                padding: '10px 18px',
+                fontSize: 13,
+                fontWeight: 500,
+                background: creatingPlatform === p.id ? T.primaryLight : T.gray50,
+                color: creatingPlatform === p.id ? T.primary : T.gray700,
+                border: `1px solid ${creatingPlatform === p.id ? T.primaryBorder : T.gray200}`,
+                borderRadius: T.radiusSm,
+                cursor: creating ? 'wait' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                transition: 'all 0.15s',
+                opacity: creating && creatingPlatform !== p.id ? 0.5 : 1,
+              }}
+            >
+              <Icon size={14} strokeWidth={2} />
+              {creatingPlatform === p.id ? '生成中...' : p.name}
+            </button>
+          );
+        })}
       </div>
 
       {/* Creation error */}

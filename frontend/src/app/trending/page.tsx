@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import { Lightbulb } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import {
   trendingApi,
@@ -325,12 +326,14 @@ function AnglePanel({ cluster }: { cluster: CrossPlatformCluster }) {
       {/* 角度洞察 */}
       {angles && angles.angle_note && (
         <div style={{
+          display: 'flex', alignItems: 'flex-start', gap: 6,
           marginTop: 6, padding: '4px 8px',
           background: '#F0FDF4', borderRadius: T.radiusXs,
           fontSize: 10, color: '#166534',
           fontStyle: 'italic',
         }}>
-          💡 {angles.angle_note}
+          <Lightbulb size={12} strokeWidth={2} style={{ marginTop: 1, flexShrink: 0 }} />
+          <span>{angles.angle_note}</span>
         </div>
       )}
 

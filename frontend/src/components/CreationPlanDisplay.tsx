@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { Check, Clipboard, MessageSquare, MousePointer2, Music2, Paperclip, Pin, Video } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import { formatPlanText } from '@/lib/utils';
 
@@ -64,7 +65,10 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
             border: 'none', borderRadius: 4, cursor: 'pointer',
           }}
         >
-          {copied ? '✓ 已复制' : '📋 复制全文'}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {copied ? <Check size={12} strokeWidth={2.4} /> : <Clipboard size={12} strokeWidth={2.2} />}
+            {copied ? '已复制' : '复制全文'}
+          </span>
         </button>
       </div>
 
@@ -97,8 +101,9 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
           <div>
             <div style={{ fontSize: 11, fontWeight: 600, color: T.gray500, marginBottom: 6 }}>正文结构</div>
             {plan.structure.hook && (
-              <div style={{ fontSize: 13, color: T.gray700, lineHeight: 1.6, marginBottom: 6, paddingLeft: 12, borderLeft: `2px solid ${T.primary}` }}>
-                🎯 <b>Hook:</b> {plan.structure.hook}
+              <div style={{ display: 'flex', gap: 7, fontSize: 13, color: T.gray700, lineHeight: 1.6, marginBottom: 6, paddingLeft: 12, borderLeft: `2px solid ${T.primary}` }}>
+                <MousePointer2 size={14} color={T.primary} strokeWidth={2} style={{ marginTop: 3, flexShrink: 0 }} />
+                <span><b>Hook:</b> {plan.structure.hook}</span>
               </div>
             )}
             {plan.structure.points?.map((p: string, i: number) => (
@@ -107,8 +112,9 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
               </div>
             ))}
             {plan.structure.cta && (
-              <div style={{ fontSize: 13, color: T.gray700, lineHeight: 1.6, paddingLeft: 12, borderLeft: '2px solid #F59E0B' }}>
-                💬 <b>互动引导:</b> {plan.structure.cta}
+              <div style={{ display: 'flex', gap: 7, fontSize: 13, color: T.gray700, lineHeight: 1.6, paddingLeft: 12, borderLeft: '2px solid #F59E0B' }}>
+                <MessageSquare size={14} color="#F59E0B" strokeWidth={2} style={{ marginTop: 3, flexShrink: 0 }} />
+                <span><b>互动引导:</b> {plan.structure.cta}</span>
               </div>
             )}
           </div>
@@ -139,14 +145,18 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
                   <span style={{ fontSize: 12, fontWeight: 700, color: T.primary }}>镜头 {scene.seq}</span>
                   <span style={{ fontSize: 11, color: T.gray400 }}>{scene.seconds}s</span>
                 </div>
-                <div style={{ fontSize: 12, color: T.gray500, marginBottom: 2 }}>🎬 {scene.visual}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: T.gray500, marginBottom: 2 }}>
+                  <Video size={13} strokeWidth={2} />
+                  {scene.visual}
+                </div>
                 <div style={{ fontSize: 13, color: T.gray700 }}>{scene.narration}</div>
               </div>
             ))}
           </div>
           {plan.bgm_suggestion && (
-            <div style={{ fontSize: 12, color: T.gray500, padding: '8px 12px', background: T.gray50, borderRadius: 6 }}>
-              🎵 BGM建议：{plan.bgm_suggestion}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: T.gray500, padding: '8px 12px', background: T.gray50, borderRadius: 6 }}>
+              <Music2 size={13} strokeWidth={2} />
+              BGM建议：{plan.bgm_suggestion}
             </div>
           )}
         </>
@@ -168,7 +178,10 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
                   <div key={j} style={{ fontSize: 12, color: T.gray600, lineHeight: 1.6, paddingLeft: 8 }}>• {p}</div>
                 ))}
                 {section.evidence && (
-                  <div style={{ fontSize: 11, color: T.gray400, marginTop: 4, fontStyle: 'italic' }}>📎 {section.evidence}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: T.gray400, marginTop: 4, fontStyle: 'italic' }}>
+                    <Paperclip size={12} strokeWidth={2} />
+                    {section.evidence}
+                  </div>
                 )}
               </div>
             ))}
@@ -180,8 +193,9 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
             </div>
           )}
           {plan.closing && (
-            <div style={{ fontSize: 13, color: T.gray600, padding: '10px 14px', background: T.gray50, borderRadius: 6 }}>
-              📌 结尾：{plan.closing}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: T.gray600, padding: '10px 14px', background: T.gray50, borderRadius: 6 }}>
+              <Pin size={13} strokeWidth={2} />
+              结尾：{plan.closing}
             </div>
           )}
         </>

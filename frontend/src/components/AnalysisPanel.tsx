@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
+import { BookOpen, Loader2, PenLine, Video, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import { creationApi } from '@/lib/api';
 import type { ContentAnalysis } from '@/types';
@@ -16,6 +18,10 @@ export default function AnalysisPanel({ analysis, onClose }: AnalysisPanelProps)
   const [creationPlan, setCreationPlan] = useState<Record<string, unknown> | null>(null);
   const [generating, setGenerating] = useState(false);
   const [activePlatform, setActivePlatform] = useState<string | null>(null);
+  const platforms: Array<{ id: string; label: string; icon: LucideIcon }> = [
+    { id: 'xiaohongshu', label: '小红书图文', icon: BookOpen },
+    { id: 'short_video', label: '短视频脚本', icon: Video },
+  ];
 
   const handleGenerate = async (platform: string) => {
     if (!contentId) return;
@@ -41,7 +47,9 @@ export default function AnalysisPanel({ analysis, onClose }: AnalysisPanelProps)
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <h2 style={{ fontSize: 18, fontWeight: 700, color: T.gray900 }}>AI 分析报告</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: T.gray400, padding: 4 }}>✕</button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.gray400, padding: 4 }} title="关闭">
+            <X size={18} strokeWidth={2} />
+          </button>
         </div>
 
         <div style={{ marginBottom: 24 }}>
@@ -124,38 +132,41 @@ export default function AnalysisPanel({ analysis, onClose }: AnalysisPanelProps)
           marginTop: 28, padding: '20px', background: `linear-gradient(135deg, ${T.primary}06, #8B5CF606)`,
           borderRadius: T.radius, border: `1px solid ${T.primary}20`,
         }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: T.gray900, marginBottom: 4 }}>
-            ✍️ 生成创作方案
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 14, fontWeight: 700, color: T.gray900, marginBottom: 4 }}>
+            <PenLine size={15} strokeWidth={2} />
+            生成创作方案
           </h3>
-          <p style={{ fontSize: 12, color: T.gray500, marginBottom: 14 }}>基于该内容 AI 生成平台专属创作方案</p>
+          <p style={{ fontSize: 12, color: T.gray500, marginBottom: 14 }}>基于该内容生成平台专属创作方案</p>
 
           <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            {[
-              { id: 'xiaohongshu', label: '小红书图文', emoji: '📕' },
-              { id: 'short_video', label: '短视频脚本', emoji: '🎬' },
-            ].map((p) => (
-              <button
-                key={p.id}
-                onClick={() => handleGenerate(p.id)}
-                disabled={generating}
-                style={{
-                  flex: 1, padding: '10px 8px', fontSize: 12, fontWeight: 600,
-                  background: activePlatform === p.id && creationPlan ? T.primary : T.white,
-                  color: activePlatform === p.id && creationPlan ? T.white : T.gray700,
-                  border: `1px solid ${activePlatform === p.id && creationPlan ? T.primary : T.gray200}`,
-                  borderRadius: T.radiusSm, cursor: generating ? 'wait' : 'pointer',
-                  transition: 'all 0.15s',
-                }}
-              >
-                {p.emoji} {p.label}
-              </button>
-            ))}
+            {platforms.map((p) => {
+              const Icon = p.icon;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => handleGenerate(p.id)}
+                  disabled={generating}
+                  style={{
+                    flex: 1, padding: '10px 8px', fontSize: 12, fontWeight: 600,
+                    background: activePlatform === p.id && creationPlan ? T.primary : T.white,
+                    color: activePlatform === p.id && creationPlan ? T.white : T.gray700,
+                    border: `1px solid ${activePlatform === p.id && creationPlan ? T.primary : T.gray200}`,
+                    borderRadius: T.radiusSm, cursor: generating ? 'wait' : 'pointer',
+                    transition: 'all 0.15s',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  }}
+                >
+                  <Icon size={14} strokeWidth={2} />
+                  {p.label}
+                </button>
+              );
+            })}
           </div>
 
           {generating && (
             <div style={{ textAlign: 'center', padding: 24, color: T.gray400, fontSize: 13 }}>
-              <div style={{ fontSize: 20, marginBottom: 8, animation: 'pulse 1.5s infinite' }}>🤖</div>
-              AI 正在生成创作方案...
+              <Loader2 size={20} strokeWidth={2} style={{ marginBottom: 8, animation: 'pulse 1.5s infinite' }} />
+              创作方案生成中...
             </div>
           )}
 

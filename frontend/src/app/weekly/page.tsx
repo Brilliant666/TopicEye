@@ -1,9 +1,40 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import {
+  AlertTriangle,
+  BarChart3,
+  CalendarDays,
+  CheckCircle2,
+  ClipboardList,
+  FileText,
+  Folder,
+  Flame,
+  Inbox,
+  KeyRound,
+  Lightbulb,
+  Loader2,
+  Newspaper,
+  Pin,
+  RadioTower,
+  RefreshCw,
+  Smartphone,
+  Target,
+  TrendingUp,
+} from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import { weeklyDigestApi } from '@/lib/api';
 import type { WeeklyDigest, WeeklyDigestWeekSummary } from '@/types';
+import {
+  CurrentPeriodButton,
+  PlatformHeading,
+  ReportActionButton,
+  ReportBadge,
+  ReportFooterStat,
+  ReportSectionTitle,
+  ReportSidebarHeader,
+  ReportStatusPanel,
+} from '@/components/ReportLayout';
 
 interface TrendItem {
   title: string;
@@ -157,41 +188,17 @@ export default function WeeklyDigestPage() {
         overflow: 'hidden',
       }}>
         {/* Sidebar header */}
-        <div style={{
-          padding: '20px 20px 12px',
-          borderBottom: `1px solid ${T.gray100}`,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 18, lineHeight: 1 }}>📖</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: T.gray900 }}>历史周刊</span>
-          </div>
-          <p style={{ fontSize: 11, color: T.gray400, marginTop: 4 }}>
-            共 {weeks.length} 期
-          </p>
-        </div>
+        <ReportSidebarHeader icon={ClipboardList} title="历史周刊" countText={`共 ${weeks.length} 期`} />
 
         {/* Current week button */}
         <div style={{ padding: '8px 12px 4px' }}>
-          <button
+          <CurrentPeriodButton
+            active={isCurrentWeek || !selectedWeek}
+            icon={Pin}
             onClick={() => fetchDigest()}
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              fontSize: 13,
-              fontWeight: 600,
-              color: isCurrentWeek || !selectedWeek ? T.white : T.primary,
-              background: isCurrentWeek || !selectedWeek
-                ? T.primary
-                : T.primaryLight,
-              border: `1px solid ${isCurrentWeek || !selectedWeek ? T.primary : T.primaryBorder}`,
-              borderRadius: T.radiusSm,
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-              textAlign: 'left',
-            }}
           >
-            📌 本周
-          </button>
+            本周
+          </CurrentPeriodButton>
         </div>
 
         {/* Weeks list */}
@@ -270,22 +277,9 @@ export default function WeeklyDigestPage() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
               <h1 style={{ fontSize: 26, fontWeight: 700, color: T.gray900 }}>AI 周刊</h1>
-              <span style={{
-                fontSize: 10, fontWeight: 700, color: T.white,
-                background: 'linear-gradient(135deg, #8B5CF6, #EC4899)',
-                padding: '3px 10px', borderRadius: 20,
-              }}>
-                WEEKLY
-              </span>
+              <ReportBadge>WEEKLY DIGEST</ReportBadge>
               {!isCurrentWeek && digest && (
-                <span style={{
-                  fontSize: 10, fontWeight: 600, color: T.purple,
-                  background: T.purpleLight,
-                  padding: '3px 10px', borderRadius: 20,
-                  border: `1px solid ${T.purpleBorder}`,
-                }}>
-                  历史回顾
-                </span>
+                <ReportBadge tone="history">历史回顾</ReportBadge>
               )}
             </div>
             <p style={{ fontSize: 13, color: T.gray400 }}>
@@ -293,52 +287,35 @@ export default function WeeklyDigestPage() {
               {digest?.content_count ? ` · 基于 ${digest.content_count} 条内容分析` : ''}
             </p>
           </div>
-          <button
+          <ReportActionButton
             onClick={() => handleRegenerate(digest?.week_key)}
-            disabled={generating}
-            style={{
-              padding: '8px 16px', fontSize: 13, fontWeight: 500,
-              background: generating ? T.gray100 : T.primary,
-              color: generating ? T.gray400 : T.white,
-              border: 'none', borderRadius: T.radiusSm,
-              cursor: generating ? 'wait' : 'pointer',
-              transition: 'all 0.15s',
-            }}
+            loading={generating}
+            icon={RefreshCw}
           >
-            {generating ? '生成中...' : '🔄 重新生成'}
-          </button>
+            重新生成
+          </ReportActionButton>
         </div>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>📖</div>
-            正在加载 AI 周刊...
-          </div>
+          <ReportStatusPanel icon={ClipboardList}>正在加载周刊...</ReportStatusPanel>
         ) : error ? (
-          <div style={{ textAlign: 'center', padding: 80, color: T.red, fontSize: 14 }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
-            {error}
-          </div>
+          <ReportStatusPanel icon={AlertTriangle} tone="error">{error}</ReportStatusPanel>
         ) : digest?.status === 'ERROR' ? (
           <div style={{ textAlign: 'center', padding: 80 }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+            <AlertTriangle size={30} color={T.red} strokeWidth={1.9} style={{ marginBottom: 12 }} />
             <div style={{ color: T.gray500, fontSize: 14, marginBottom: 12 }}>{digest.overview}</div>
-            <button
+            <ReportActionButton
               onClick={() => handleRegenerate(digest.week_key)}
-              style={{
-                padding: '8px 20px', fontSize: 13, fontWeight: 500,
-                background: T.primary, color: T.white,
-                border: 'none', borderRadius: T.radiusSm, cursor: 'pointer',
-              }}
+              loading={generating}
+              icon={RefreshCw}
             >
               重试生成
-            </button>
+            </ReportActionButton>
           </div>
         ) : digest?.status === 'GENERATING' || digest?.status === 'PENDING' ? (
-          <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
-            AI 正在生成周刊，请稍候...
-            <div style={{ marginTop: 16 }}>
+          <ReportStatusPanel
+            icon={Loader2}
+            action={(
               <button
                 onClick={() => fetchDigest(digest.week_key)}
                 style={{
@@ -349,8 +326,10 @@ export default function WeeklyDigestPage() {
               >
                 刷新状态
               </button>
-            </div>
-          </div>
+            )}
+          >
+            周刊生成中，请稍候...
+          </ReportStatusPanel>
         ) : digest ? (
           <div style={{ maxWidth: 860 }}>
             {/* Takeaway */}
@@ -372,7 +351,7 @@ export default function WeeklyDigestPage() {
             {/* Overview */}
             {digest.overview && (
               <div style={{ marginBottom: 28 }}>
-                <SectionTitle icon="📰" title="本周概述" />
+                <ReportSectionTitle icon={Newspaper} title="本周概述" />
                 <p style={{ fontSize: 14, color: T.gray600, lineHeight: 1.8 }}>{digest.overview}</p>
               </div>
             )}
@@ -380,7 +359,7 @@ export default function WeeklyDigestPage() {
             {/* Keywords */}
             {(keywords || []).length > 0 && (
               <div style={{ marginBottom: 28 }}>
-                <SectionTitle icon="🔑" title="本周关键词" />
+                <ReportSectionTitle icon={KeyRound} title="本周关键词" />
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {keywords.map((kw: string, i: number) => (
                     <span key={i} style={{
@@ -398,7 +377,7 @@ export default function WeeklyDigestPage() {
             {/* Trends */}
             {(trends || []).length > 0 && (
               <div style={{ marginBottom: 28 }}>
-                <SectionTitle icon="📈" title="内容趋势" />
+                <ReportSectionTitle icon={TrendingUp} title="内容趋势" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {trends.map((trend: TrendItem, i: number) => (
                     <div key={i} style={{
@@ -433,7 +412,7 @@ export default function WeeklyDigestPage() {
             {/* Topic Clusters */}
             {(topicClusters || []).length > 0 && (
               <div style={{ marginBottom: 28 }}>
-                <SectionTitle icon="🔥" title="热门话题聚类" />
+                <ReportSectionTitle icon={Flame} title="热门话题聚类" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
                   {topicClusters.map((cluster: ClusterItem, i: number) => (
                     <div key={i} style={{
@@ -476,7 +455,7 @@ export default function WeeklyDigestPage() {
             {/* Top Picks */}
             {(topPicks || []).length > 0 && (
               <div style={{ marginBottom: 28 }}>
-                <SectionTitle icon="🎯" title="精选选题 TOP 5" />
+                <ReportSectionTitle icon={Target} title="精选选题 TOP 5" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {topPicks.map((pick: PickItem, i: number) => (
                     <div key={i} style={{
@@ -500,7 +479,7 @@ export default function WeeklyDigestPage() {
                         <div style={{ display: 'flex', gap: 6, marginTop: 6, marginLeft: 30, alignItems: 'center' }}>
                           {pick.source && (
                             <span style={{ fontSize: 10, color: T.gray400 }}>
-                              📡 {pick.source}
+                              信源 {pick.source}
                             </span>
                           )}
                           {pick.category && (
@@ -535,7 +514,7 @@ export default function WeeklyDigestPage() {
             {/* Category Summary */}
             {categorySummary && typeof categorySummary === 'object' && Object.keys(categorySummary).length > 0 && (
               <div style={{ marginBottom: 28 }}>
-                <SectionTitle icon="📊" title="分类概览" />
+                <ReportSectionTitle icon={BarChart3} title="分类概览" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
                   {Object.entries(categorySummary || {}).map(([cat, info]) => {
                     return (
@@ -579,7 +558,7 @@ export default function WeeklyDigestPage() {
             {/* Action Items */}
             {(actionItems || []).length > 0 && (
               <div style={{ marginBottom: 28 }}>
-                <SectionTitle icon="✅" title="下周创作行动清单" />
+                <ReportSectionTitle icon={CheckCircle2} title="下周创作行动清单" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {actionItems.map((item: ActionItem, i: number) => (
                     <div key={i} style={{
@@ -631,16 +610,14 @@ export default function WeeklyDigestPage() {
             {/* Platform Tips */}
             {platformTips && typeof platformTips === 'object' && Object.keys(platformTips).length > 0 && (
               <div style={{ marginBottom: 28 }}>
-                <SectionTitle icon="💡" title="平台创作建议" />
+                <ReportSectionTitle icon={Lightbulb} title="平台创作建议" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
                   {Object.entries(platformTips || {}).map(([platform, tips]) => (
                     <div key={platform} style={{
                       padding: '16px 20px', background: T.white,
                       borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
                     }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: T.gray900, marginBottom: 10 }}>
-                        📱 {platform}
-                      </div>
+                      <PlatformHeading icon={Smartphone} label={platform} />
                       {(Array.isArray(tips) ? tips : []).map((tip: string, j: number) => (
                         <div key={j} style={{ fontSize: 12, color: T.gray500, lineHeight: 1.6, marginBottom: 4, paddingLeft: 10, borderLeft: `2px solid ${T.gray200}` }}>
                           {tip}
@@ -658,28 +635,18 @@ export default function WeeklyDigestPage() {
               display: 'flex', gap: 24, fontSize: 12, color: T.gray400,
               flexWrap: 'wrap',
             }}>
-              <span>📅 {digest.week_label}</span>
-              <span>📊 分析 {digest.analyzed_count} 条内容</span>
-              <span>📡 来自 {digest.source_count} 个信源</span>
-              <span>📂 覆盖 {digest.category_count} 个分类</span>
+              <ReportFooterStat icon={CalendarDays}>{digest.week_label}</ReportFooterStat>
+              <ReportFooterStat icon={BarChart3}>分析 {digest.analyzed_count} 条内容</ReportFooterStat>
+              <ReportFooterStat icon={RadioTower}>来自 {digest.source_count} 个信源</ReportFooterStat>
+              <ReportFooterStat icon={Folder}>覆盖 {digest.category_count} 个分类</ReportFooterStat>
             </div>
           </div>
         ) : (
-          <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>📭</div>
+          <ReportStatusPanel icon={Inbox}>
             暂无周刊数据
-          </div>
+          </ReportStatusPanel>
         )}
       </div>
-    </div>
-  );
-}
-
-function SectionTitle({ icon, title }: { icon: string; title: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-      <span style={{ fontSize: 16 }}>{icon}</span>
-      <h2 style={{ fontSize: 16, fontWeight: 700, color: T.gray900 }}>{title}</h2>
     </div>
   );
 }

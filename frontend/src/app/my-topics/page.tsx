@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Pin } from 'lucide-react';
 import { useAppContext } from '@/components/ClientLayout';
 import { motherTopicsApi, contentsApi, type MotherTopic, type ContentItem } from '@/lib/api';
 
@@ -253,7 +254,10 @@ export default function MyTopicsPage() {
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111827', marginBottom: 4 }}>
-          📌 我的母题
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <Pin size={20} color="#6366f1" strokeWidth={2.1} />
+            我的母题
+          </span>
         </h1>
         <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
           根据你的公众号定位精选的内容，只展示匹配母题的高质量候选

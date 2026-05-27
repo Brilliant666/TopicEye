@@ -1,8 +1,34 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import {
+  AlertTriangle,
+  BarChart3,
+  CalendarDays,
+  FileText,
+  Inbox,
+  KeyRound,
+  Lightbulb,
+  Loader2,
+  Newspaper,
+  Pin,
+  RefreshCw,
+  Smartphone,
+  Target,
+  TrendingUp,
+} from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import { dailyReportApi } from '@/lib/api';
+import {
+  CurrentPeriodButton,
+  PlatformHeading,
+  ReportActionButton,
+  ReportBadge,
+  ReportFooterStat,
+  ReportSectionTitle,
+  ReportSidebarHeader,
+  ReportStatusPanel,
+} from '@/components/ReportLayout';
 
 interface DailyReportData {
   id: number;
@@ -132,41 +158,17 @@ export default function DailyReportPage() {
         overflow: 'hidden',
       }}>
         {/* Sidebar header */}
-        <div style={{
-          padding: '20px 20px 12px',
-          borderBottom: `1px solid ${T.gray100}`,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 18, lineHeight: 1 }}>📅</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: T.gray900 }}>历史日报</span>
-          </div>
-          <p style={{ fontSize: 11, color: T.gray400, marginTop: 4 }}>
-            共 {dates.length} 期
-          </p>
-        </div>
+        <ReportSidebarHeader icon={CalendarDays} title="历史日报" countText={`共 ${dates.length} 期`} />
 
         {/* Today button */}
         <div style={{ padding: '8px 12px 4px' }}>
-          <button
+          <CurrentPeriodButton
+            active={selectedDate === todayStr || !selectedDate}
+            icon={Pin}
             onClick={() => fetchReport()}
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              fontSize: 13,
-              fontWeight: 600,
-              color: selectedDate === todayStr || !selectedDate ? T.white : T.primary,
-              background: selectedDate === todayStr || !selectedDate
-                ? T.primary
-                : T.primaryLight,
-              border: `1px solid ${selectedDate === todayStr || !selectedDate ? T.primary : T.primaryBorder}`,
-              borderRadius: T.radiusSm,
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-              textAlign: 'left',
-            }}
           >
-            📌 今天
-          </button>
+            今天
+          </CurrentPeriodButton>
         </div>
 
         {/* Date list */}
@@ -242,22 +244,9 @@ export default function DailyReportPage() {
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
               <h1 style={{ fontSize: 26, fontWeight: 700, color: T.gray900 }}>AI 日报</h1>
-              <span style={{
-                fontSize: 10, fontWeight: 700, color: T.white,
-                background: 'linear-gradient(135deg, #3B82F6, #8B5CF6)',
-                padding: '3px 10px', borderRadius: 20,
-              }}>
-                AI GENERATED
-              </span>
+              <ReportBadge>DAILY REPORT</ReportBadge>
               {!isToday && report && (
-                <span style={{
-                  fontSize: 10, fontWeight: 600, color: T.purple,
-                  background: T.purpleLight,
-                  padding: '3px 10px', borderRadius: 20,
-                  border: `1px solid ${T.purpleBorder}`,
-                }}>
-                  历史回顾
-                </span>
+                <ReportBadge tone="history">历史回顾</ReportBadge>
               )}
             </div>
             <p style={{ fontSize: 13, color: T.gray400 }}>
@@ -266,53 +255,34 @@ export default function DailyReportPage() {
             </p>
           </div>
           {report && (
-            <button
+            <ReportActionButton
               onClick={handleRegenerate}
-              disabled={generating}
-              style={{
-                padding: '8px 16px', fontSize: 13, fontWeight: 500,
-                background: generating ? T.gray100 : T.primary,
-                color: generating ? T.gray400 : T.white,
-                border: 'none', borderRadius: T.radiusSm,
-                cursor: generating ? 'wait' : 'pointer',
-                transition: 'all 0.15s',
-              }}
+              loading={generating}
+              icon={RefreshCw}
             >
-              {generating ? '生成中...' : '🔄 重新生成'}
-            </button>
+              重新生成
+            </ReportActionButton>
           )}
         </div>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>📝</div>
-            正在加载 AI 日报...
-          </div>
+          <ReportStatusPanel icon={FileText}>正在加载日报...</ReportStatusPanel>
         ) : error ? (
-          <div style={{ textAlign: 'center', padding: 80, color: T.red, fontSize: 14 }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
-            {error}
-          </div>
+          <ReportStatusPanel icon={AlertTriangle} tone="error">{error}</ReportStatusPanel>
         ) : report?.status === 'ERROR' ? (
           <div style={{ textAlign: 'center', padding: 80 }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+            <AlertTriangle size={30} color={T.red} strokeWidth={1.9} style={{ marginBottom: 12 }} />
             <div style={{ color: T.gray500, fontSize: 14, marginBottom: 12 }}>{report.overview}</div>
-            <button
+            <ReportActionButton
               onClick={handleRegenerate}
-              style={{
-                padding: '8px 20px', fontSize: 13, fontWeight: 500,
-                background: T.primary, color: T.white,
-                border: 'none', borderRadius: T.radiusSm, cursor: 'pointer',
-              }}
+              loading={generating}
+              icon={RefreshCw}
             >
               重试生成
-            </button>
+            </ReportActionButton>
           </div>
         ) : report?.status === 'GENERATING' ? (
-          <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>⏳</div>
-            AI 正在生成日报，请稍候...
-          </div>
+          <ReportStatusPanel icon={Loader2}>日报生成中，请稍候...</ReportStatusPanel>
         ) : report ? (
           <div style={{ maxWidth: 800 }}>
             {/* Takeaway */}
@@ -334,7 +304,7 @@ export default function DailyReportPage() {
             {/* Overview */}
             {report.overview && (
               <div style={{ marginBottom: 28 }}>
-                <SectionTitle icon="📰" title="今日概述" />
+                <ReportSectionTitle icon={Newspaper} title="今日概述" />
                 <p style={{ fontSize: 14, color: T.gray600, lineHeight: 1.8 }}>{report.overview}</p>
               </div>
             )}
@@ -342,7 +312,7 @@ export default function DailyReportPage() {
             {/* Keywords */}
             {keywords?.length > 0 && (
               <div style={{ marginBottom: 28 }}>
-                <SectionTitle icon="🔑" title="今日关键词" />
+                <ReportSectionTitle icon={KeyRound} title="今日关键词" />
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {keywords.map((kw: string, i: number) => (
                     <span key={i} style={{
@@ -360,7 +330,7 @@ export default function DailyReportPage() {
             {/* Trends */}
             {trends?.length > 0 && (
               <div style={{ marginBottom: 28 }}>
-                <SectionTitle icon="📈" title="内容趋势" />
+                <ReportSectionTitle icon={TrendingUp} title="内容趋势" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {trends.map((trend: { title: string; desc: string; color?: string }, i: number) => (
                     <div key={i} style={{
@@ -385,7 +355,7 @@ export default function DailyReportPage() {
             {/* Top Picks */}
             {topPicks?.length > 0 && (
               <div style={{ marginBottom: 28 }}>
-                <SectionTitle icon="🎯" title="精选选题推荐" />
+                <ReportSectionTitle icon={Target} title="精选选题推荐" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {topPicks.map((pick: { title: string; reason: string; score?: number; platforms?: string[]; source_url?: string }, i: number) => (
                     <div key={i} style={{
@@ -452,16 +422,14 @@ export default function DailyReportPage() {
             {/* Platform Tips */}
             {platformTips && typeof platformTips === 'object' && (
               <div style={{ marginBottom: 40 }}>
-                <SectionTitle icon="💡" title="平台创作建议" />
+                <ReportSectionTitle icon={Lightbulb} title="平台创作建议" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
                   {Object.entries(platformTips).map(([platform, tips]: [string, unknown]) => (
                     <div key={platform} style={{
                       padding: '16px 20px', background: T.white,
                       borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
                     }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: T.gray900, marginBottom: 10 }}>
-                        📱 {platform}
-                      </div>
+                      <PlatformHeading icon={Smartphone} label={platform} />
                       {(Array.isArray(tips) ? tips : []).map((tip: string, j: number) => (
                         <div key={j} style={{ fontSize: 12, color: T.gray500, lineHeight: 1.6, marginBottom: 4, paddingLeft: 10, borderLeft: `2px solid ${T.gray200}` }}>
                           {tip}
@@ -478,42 +446,28 @@ export default function DailyReportPage() {
               padding: '16px 20px', background: T.gray50, borderRadius: T.radiusSm,
               display: 'flex', gap: 24, fontSize: 12, color: T.gray400,
             }}>
-              <span>📅 {report.report_date} {report.weekday}</span>
-              <span>📊 分析 {report.analyzed_count} 条内容</span>
-              <span>🎯 推荐 {report.topic_count} 个选题</span>
+              <ReportFooterStat icon={CalendarDays}>{report.report_date} {report.weekday}</ReportFooterStat>
+              <ReportFooterStat icon={BarChart3}>分析 {report.analyzed_count} 条内容</ReportFooterStat>
+              <ReportFooterStat icon={Target}>推荐 {report.topic_count} 个选题</ReportFooterStat>
             </div>
           </div>
         ) : (
-          <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-            <div style={{ fontSize: 32, marginBottom: 12 }}>📭</div>
-            暂无日报数据
-            <div style={{ marginTop: 16 }}>
-              <button
+          <ReportStatusPanel
+            icon={Inbox}
+            action={(
+              <ReportActionButton
                 onClick={handleRegenerate}
-                disabled={generating}
-                style={{
-                  padding: '8px 20px', fontSize: 13, fontWeight: 500,
-                  background: generating ? T.gray100 : T.primary,
-                  color: generating ? T.gray400 : T.white,
-                  border: 'none', borderRadius: T.radiusSm,
-                  cursor: generating ? 'wait' : 'pointer',
-                }}
+                loading={generating}
+                icon={FileText}
               >
-                {generating ? '生成中...' : '📝 生成今日日报'}
-              </button>
-            </div>
-          </div>
+                生成今日日报
+              </ReportActionButton>
+            )}
+          >
+            暂无日报数据
+          </ReportStatusPanel>
         )}
       </div>
-    </div>
-  );
-}
-
-function SectionTitle({ icon, title }: { icon: string; title: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-      <span style={{ fontSize: 16 }}>{icon}</span>
-      <h2 style={{ fontSize: 16, fontWeight: 700, color: T.gray900 }}>{title}</h2>
     </div>
   );
 }

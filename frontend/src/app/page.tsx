@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Ban, Check, ChevronDown, Clock3, Flame, ThumbsDown, ThumbsUp } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { T, SOURCE_TYPE_COLOR_MAP } from '@/lib/design-tokens';
 import { useAppContext } from '@/components/ClientLayout';
 import Header from '@/components/Header';
@@ -731,12 +733,12 @@ function CurationScoreBadge({ score }: { score: number | null | undefined }) {
 
 // ── Feedback Buttons ──
 
-const FEEDBACK_OPTIONS: { type: FeedbackType; icon: string; label: string; color: string }[] = [
-  { type: 'great_pick', icon: '🔥', label: '精选好文', color: '#16a34a' },
-  { type: 'like', icon: '👍', label: '有价值', color: '#2563eb' },
-  { type: 'dislike', icon: '👎', label: '不感兴趣', color: '#dc2626' },
-  { type: 'not_relevant', icon: '🚫', label: '不相关', color: '#9ca3af' },
-  { type: 'outdated', icon: '⏰', label: '过时了', color: '#d97706' },
+const FEEDBACK_OPTIONS: { type: FeedbackType; icon: LucideIcon; label: string; color: string }[] = [
+  { type: 'great_pick', icon: Flame, label: '精选好文', color: '#16a34a' },
+  { type: 'like', icon: ThumbsUp, label: '有价值', color: '#2563eb' },
+  { type: 'dislike', icon: ThumbsDown, label: '不感兴趣', color: '#dc2626' },
+  { type: 'not_relevant', icon: Ban, label: '不相关', color: '#9ca3af' },
+  { type: 'outdated', icon: Clock3, label: '过时了', color: '#d97706' },
 ];
 
 function FeedbackButtons({ contentId }: { contentId: number }) {
@@ -760,7 +762,7 @@ function FeedbackButtons({ contentId }: { contentId: number }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative' }}>
       {/* Quick feedback: thumbs up/down */}
-      {FEEDBACK_OPTIONS.slice(0, 2).map(({ type, icon, label, color }) => (
+      {FEEDBACK_OPTIONS.slice(0, 2).map(({ type, icon: Icon, label, color }) => (
         <button
           key={type}
           onClick={(e) => {
@@ -772,15 +774,16 @@ function FeedbackButtons({ contentId }: { contentId: number }) {
             background: activeFeedback === type ? `${color}15` : 'none',
             border: 'none',
             cursor: activeFeedback === type ? 'default' : 'pointer',
-            fontSize: 13,
             padding: '2px 4px',
             borderRadius: 4,
-            lineHeight: 1,
             opacity: activeFeedback && activeFeedback !== type ? 0.3 : 1,
             transition: 'all 0.15s',
+            color: activeFeedback === type ? color : T.gray400,
+            display: 'inline-flex',
+            alignItems: 'center',
           }}
         >
-          {icon}
+          <Icon size={13} strokeWidth={2.2} />
         </button>
       ))}
       
@@ -795,16 +798,16 @@ function FeedbackButtons({ contentId }: { contentId: number }) {
             background: showMore ? T.gray100 : 'none',
             border: 'none',
             cursor: 'pointer',
-            fontSize: 11,
             padding: '2px 6px',
             borderRadius: 4,
             color: T.gray400,
-            lineHeight: 1,
             transition: 'all 0.15s',
+            display: 'inline-flex',
+            alignItems: 'center',
           }}
           title="更多反馈"
         >
-          ▾
+          <ChevronDown size={13} strokeWidth={2.2} />
         </button>
         {showMore && (
           <>
@@ -824,7 +827,7 @@ function FeedbackButtons({ contentId }: { contentId: number }) {
                 minWidth: 120,
               }}
             >
-              {FEEDBACK_OPTIONS.map(({ type, icon, label, color }) => (
+              {FEEDBACK_OPTIONS.map(({ type, icon: Icon, label, color }) => (
                 <button
                   key={type}
                   onClick={(e) => {
@@ -848,9 +851,9 @@ function FeedbackButtons({ contentId }: { contentId: number }) {
                     textAlign: 'left' as const,
                   }}
                 >
-                  <span>{icon}</span>
+                  <Icon size={13} strokeWidth={2.2} />
                   <span>{label}</span>
-                  {activeFeedback === type && <span style={{ marginLeft: 'auto', fontSize: 10 }}>✓</span>}
+                  {activeFeedback === type && <Check size={12} strokeWidth={2.4} style={{ marginLeft: 'auto' }} />}
                 </button>
               ))}
             </div>

@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import { AlertTriangle } from 'lucide-react';
 import { T, LEVEL_CONFIG } from '@/lib/design-tokens';
 import { useAppContext } from '@/components/ClientLayout';
 import { contentsApi, analysesApi } from '@/lib/api';
@@ -135,7 +136,7 @@ export default function TopicDetailPage() {
               textAlign: 'center', border: '1px solid #FECACA',
             }}
           >
-            <div style={{ fontSize: 40, marginBottom: 12 }}>😕</div>
+            <AlertTriangle size={34} color={T.red} strokeWidth={1.9} style={{ marginBottom: 12 }} />
             <div style={{ fontSize: 16, fontWeight: 600, color: T.gray800, marginBottom: 8 }}>
               内容加载失败
             </div>

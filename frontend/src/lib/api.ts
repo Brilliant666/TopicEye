@@ -343,6 +343,32 @@ export const dailyReportApi = {
     return request('/daily-reports/dates');
   },
 
+  /** 获取最近一段时间的日报状态地图 */
+  calendar(days: number = 30): Promise<{
+    days: Array<{
+      report_date: string;
+      weekday: string;
+      status: string;
+      edition: string | null;
+      generated_at: string | null;
+      cutoff_at: string | null;
+      takeaway: string | null;
+      content_count: number;
+      analyzed_count: number;
+      topic_count: number;
+      has_report: boolean;
+      can_generate: boolean;
+      is_today: boolean;
+    }>;
+    total_days: number;
+    done_count: number;
+    error_count: number;
+    missing_count: number;
+    generating_count: number;
+  }> {
+    return request(`/daily-reports/calendar?days=${days}`);
+  },
+
   /** 日报列表 */
   list(limit: number = 7): Promise<{ items: Record<string, unknown>[]; total: number }> {
     return request(`/daily-reports?limit=${limit}`);

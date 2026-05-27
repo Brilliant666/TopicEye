@@ -82,3 +82,30 @@ class DailyReportDateSummary(BaseModel):
 class DailyReportDatesResponse(BaseModel):
     """Response for the dates-list endpoint."""
     dates: list[DailyReportDateSummary]
+
+
+class DailyReportCalendarDay(BaseModel):
+    """One day in the report recovery calendar."""
+    report_date: str
+    weekday: str
+    status: str = "MISSING"
+    edition: Optional[str] = None
+    generated_at: Optional[datetime] = None
+    cutoff_at: Optional[datetime] = None
+    takeaway: Optional[str] = None
+    content_count: int = 0
+    analyzed_count: int = 0
+    topic_count: int = 0
+    has_report: bool = False
+    can_generate: bool = True
+    is_today: bool = False
+
+
+class DailyReportCalendarResponse(BaseModel):
+    """Response for the daily-report date map."""
+    days: list[DailyReportCalendarDay]
+    total_days: int
+    done_count: int
+    error_count: int
+    missing_count: int
+    generating_count: int

@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const path = require('path');
 
+const backendApiUrl = process.env.BACKEND_API_URL || 'http://localhost:8000';
+
 const nextConfig = {
   reactStrictMode: true,
   turbopack: {
@@ -10,7 +12,7 @@ const nextConfig = {
     return [
       {
         source: '/api/:path*',
-        destination: 'http://localhost:8000/api/:path*',
+        destination: `${backendApiUrl}/api/:path*`,
       },
     ];
   },

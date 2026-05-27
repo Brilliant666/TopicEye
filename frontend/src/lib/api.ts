@@ -22,7 +22,7 @@ import type {
 export type { ContentItem, CreateSourceRequest, UpdateSourceRequest };
 export type FeedbackType = 'like' | 'dislike' | 'skip' | 'not_relevant' | 'outdated' | 'great_pick';
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
 
 /** Generic fetch wrapper with error handling */
 async function request<T>(

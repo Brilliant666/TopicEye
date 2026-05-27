@@ -134,10 +134,10 @@ export default function TrendsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const base = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
       const [tRes, kRes] = await Promise.all([
-        fetch(`${base}/api/v1/trends/topics?days=${days}`),
-        fetch(`${base}/api/v1/trends/keywords?days=${days}&limit=60`),
+        fetch(`${base}/trends/topics?days=${days}`),
+        fetch(`${base}/trends/keywords?days=${days}&limit=60`),
       ]);
       if (tRes.ok) { const d = await tRes.json(); setTrends(d.trends || []); }
       if (kRes.ok) { const d = await kRes.json(); setKeywords(d.keywords || []); }

@@ -343,9 +343,9 @@ async def _sync_zhihu() -> None:
 # ── NEW: AI 日报 & 周刊定时任务 ──────────────────────────────────────
 
 @track_job("daily_report", name="AI日报生成", timeout=300,
-           description="每日早8点生成AI日报，基于当日已分析内容")
+           description="按时间窗口生成日报快照/最终版，基于精选内容")
 async def _generate_daily_report() -> None:
-    """Generate AI daily report at 08:00."""
+    """Generate current-day daily report snapshot."""
     logger.info("Scheduler: daily report generation started")
     try:
         from app.services.daily_report import generate_daily_report
@@ -355,6 +355,21 @@ async def _generate_daily_report() -> None:
         return f"date={report.report_date}, status={report.status}"
     except Exception:
         logger.exception("Scheduler: daily report generation failed")
+
+
+@track_job("daily_report_final", name="AI日报完整复盘", timeout=300,
+           description="每日凌晨生成前一天完整日报")
+async def _generate_daily_report_final() -> None:
+    """Generate previous day's full final daily report."""
+    logger.info("Scheduler: daily final report generation started")
+    try:
+        from app.services.daily_report import generate_previous_day_final_report
+        async with async_session() as db:
+            report = await generate_previous_day_final_report(db)
+        logger.info("Scheduler: daily final report generated — %s (%s)", report.report_date, report.status)
+        return f"date={report.report_date}, edition={report.edition}, status={report.status}"
+    except Exception:
+        logger.exception("Scheduler: daily final report generation failed")
 
 
 @track_job("weekly_digest", name="AI周刊生成", timeout=300,
@@ -434,12 +449,26 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
-    # AI日报：每日早8点生成
+    # AI日报：午间、晚间生成当日快照
     scheduler.add_job(
         _generate_daily_report,
-        trigger=CronTrigger(hour=8, minute=0),
-        id="daily_report",
-        name="AI日报生成",
+        trigger=CronTrigger(hour=12, minute=0),
+        id="daily_report_noon",
+        name="AI日报午间快照",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _generate_daily_report,
+        trigger=CronTrigger(hour=20, minute=0),
+        id="daily_report_evening",
+        name="AI日报晚间快照",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _generate_daily_report_final,
+        trigger=CronTrigger(hour=0, minute=30),
+        id="daily_report_final",
+        name="AI日报完整复盘",
         replace_existing=True,
     )
 
@@ -485,7 +514,7 @@ def start_scheduler() -> None:
 
     logger.info(
         "Scheduler started: per-source sync + 10min rescan + cleanup + "
-        "daily_report(08:00) + weekly_digest(Mon 09:00)"
+        "daily_report(12:00/20:00 + final 00:30) + weekly_digest(Mon 09:00)"
     )
 
 

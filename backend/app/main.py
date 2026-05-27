@@ -40,6 +40,116 @@ async def ensure_source_sort_order_column(conn) -> None:
     await conn.execute(text("UPDATE sources SET sort_order = id * 10 WHERE sort_order = 0 OR sort_order IS NULL"))
 
 
+async def ensure_daily_report_version_schema(conn) -> None:
+    """SQLite create_all does not remove old unique constraints; rebuild daily_reports if needed."""
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return
+
+    table_exists = await conn.execute(text(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='daily_reports'"
+    ))
+    if table_exists.scalar_one_or_none() is None:
+        return
+
+    result = await conn.execute(text("PRAGMA table_info(daily_reports)"))
+    columns = {row[1] for row in result.fetchall()}
+    required = {"edition", "generated_at", "window_start", "window_end", "cutoff_at", "source_scope", "source_item_ids"}
+
+    index_rows = await conn.execute(text("PRAGMA index_list(daily_reports)"))
+    has_report_date_unique = False
+    for row in index_rows.fetchall():
+        index_name = row[1]
+        is_unique = bool(row[2])
+        if not is_unique:
+            continue
+        info_rows = await conn.execute(text(f"PRAGMA index_info('{index_name}')"))
+        index_cols = [info[2] for info in info_rows.fetchall()]
+        if index_cols == ["report_date"]:
+            has_report_date_unique = True
+            break
+
+    if required.issubset(columns) and not has_report_date_unique:
+        return
+
+    logger.info("Rebuilding daily_reports table for versioned report schema")
+    missing_column_sql = {
+        "edition": "ALTER TABLE daily_reports ADD COLUMN edition VARCHAR(20) DEFAULT 'legacy'",
+        "generated_at": "ALTER TABLE daily_reports ADD COLUMN generated_at DATETIME",
+        "window_start": "ALTER TABLE daily_reports ADD COLUMN window_start DATETIME",
+        "window_end": "ALTER TABLE daily_reports ADD COLUMN window_end DATETIME",
+        "cutoff_at": "ALTER TABLE daily_reports ADD COLUMN cutoff_at DATETIME",
+        "source_scope": "ALTER TABLE daily_reports ADD COLUMN source_scope VARCHAR(20) DEFAULT 'curated'",
+        "source_item_ids": "ALTER TABLE daily_reports ADD COLUMN source_item_ids TEXT",
+    }
+    for column, sql in missing_column_sql.items():
+        if column not in columns:
+            await conn.execute(text(sql))
+
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS daily_reports_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            report_date VARCHAR(10) NOT NULL,
+            weekday VARCHAR(10) NOT NULL,
+            edition VARCHAR(20) NOT NULL DEFAULT 'snapshot',
+            generated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            window_start DATETIME,
+            window_end DATETIME,
+            cutoff_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            source_scope VARCHAR(20) NOT NULL DEFAULT 'curated',
+            source_item_ids TEXT,
+            overview TEXT,
+            takeaway TEXT,
+            keywords TEXT,
+            trends TEXT,
+            top_picks TEXT,
+            platform_tips TEXT,
+            topic_count INTEGER NOT NULL DEFAULT 0,
+            content_count INTEGER NOT NULL DEFAULT 0,
+            analyzed_count INTEGER NOT NULL DEFAULT 0,
+            status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+            created_at DATETIME,
+            updated_at DATETIME,
+            CONSTRAINT uq_daily_report_version UNIQUE (report_date, edition, cutoff_at)
+        )
+    """))
+    await conn.execute(text("""
+        INSERT OR IGNORE INTO daily_reports_new (
+            id, report_date, weekday, edition, generated_at, window_start, window_end, cutoff_at,
+            source_scope, source_item_ids, overview, takeaway, keywords, trends, top_picks,
+            platform_tips, topic_count, content_count, analyzed_count, status, created_at, updated_at
+        )
+        SELECT
+            id,
+            report_date,
+            weekday,
+            COALESCE(NULLIF(edition, ''), 'legacy'),
+            COALESCE(generated_at, updated_at, created_at, CURRENT_TIMESTAMP),
+            COALESCE(window_start, report_date || ' 00:00:00'),
+            COALESCE(window_end, report_date || ' 23:59:59'),
+            COALESCE(cutoff_at, updated_at, created_at, CURRENT_TIMESTAMP),
+            COALESCE(source_scope, 'curated'),
+            source_item_ids,
+            overview,
+            takeaway,
+            keywords,
+            trends,
+            top_picks,
+            platform_tips,
+            COALESCE(topic_count, 0),
+            COALESCE(content_count, 0),
+            COALESCE(analyzed_count, 0),
+            COALESCE(status, 'PENDING'),
+            created_at,
+            updated_at
+        FROM daily_reports
+    """))
+    await conn.execute(text("DROP TABLE daily_reports"))
+    await conn.execute(text("ALTER TABLE daily_reports_new RENAME TO daily_reports"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_reports_report_date ON daily_reports(report_date)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_reports_edition ON daily_reports(edition)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_reports_cutoff_at ON daily_reports(cutoff_at)"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create all SQLite tables
@@ -47,6 +157,7 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             await ensure_source_sort_order_column(conn)
+            await ensure_daily_report_version_schema(conn)
     else:
         logger.info("Startup table creation skipped by config")
 

@@ -352,6 +352,16 @@ export const dailyReportApi = {
   regenerate(): Promise<Record<string, unknown>> {
     return request('/daily-reports/generate', { method: 'POST' });
   },
+
+  /** 生成指定日报版本 */
+  generateVersion(params: { target_date?: string; edition?: string; cutoff_at?: string; force?: boolean } = {}): Promise<Record<string, unknown>> {
+    const query = new URLSearchParams(
+      Object.entries(params)
+        .filter(([, v]) => v !== undefined)
+        .map(([k, v]) => [k, String(v)])
+    ).toString();
+    return request(`/daily-reports/generate-version${query ? `?${query}` : ''}`, { method: 'POST' });
+  },
 };
 
 export const creationApi = {

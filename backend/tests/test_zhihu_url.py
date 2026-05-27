@@ -54,9 +54,13 @@ def test_daily_report_response_parses_and_normalizes_top_pick_urls():
         id=1,
         report_date="2026-01-01",
         weekday="周四",
+        edition="final",
+        source_item_ids="[1,2]",
         top_picks='[{"title":"t","source_url":"https://api.zhihu.com/questions/123"}]',
     )
 
     assert response.model_dump()["top_picks"] == [
         {"title": "t", "source_url": "https://www.zhihu.com/question/123"}
     ]
+    assert response.model_dump()["edition"] == "final"
+    assert response.model_dump()["source_item_ids"] == [1, 2]

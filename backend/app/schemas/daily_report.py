@@ -32,6 +32,13 @@ class DailyReportResponse(BaseModel):
     id: int
     report_date: str
     weekday: str
+    edition: str = "snapshot"
+    generated_at: Optional[datetime] = None
+    window_start: Optional[datetime] = None
+    window_end: Optional[datetime] = None
+    cutoff_at: Optional[datetime] = None
+    source_scope: str = "curated"
+    source_item_ids: Optional[Any] = None
     overview: Optional[str] = None
     takeaway: Optional[str] = None
     keywords: Optional[Any] = None      # parsed JSON array
@@ -47,7 +54,7 @@ class DailyReportResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
-    @field_serializer("keywords", "trends", "platform_tips")
+    @field_serializer("keywords", "trends", "platform_tips", "source_item_ids")
     def serialize_json_fields(self, value: Any) -> Any:
         return _parse_json_value(value)
 
@@ -67,6 +74,9 @@ class DailyReportDateSummary(BaseModel):
     weekday: str
     takeaway: Optional[str] = None
     status: str = "PENDING"
+    edition: str = "snapshot"
+    generated_at: Optional[datetime] = None
+    cutoff_at: Optional[datetime] = None
 
 
 class DailyReportDatesResponse(BaseModel):

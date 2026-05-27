@@ -291,6 +291,33 @@ class ContentRepo(BaseRepository[ContentItem]):
         result = await self.db.execute(stmt)
         return result.scalars().unique().all()
 
+    async def list_for_report_window(
+        self,
+        *,
+        window_start: datetime,
+        window_end: datetime,
+        category: Optional[str] = None,
+    ) -> Sequence[ContentItem]:
+        """Fetch analyzed items in a precise report window for daily report snapshots."""
+        from app.models.analysis import AiAnalysis
+
+        stmt = (
+            select(self.model)
+            .options(
+                selectinload(self.model.analyses),
+                selectinload(self.model.source),
+            )
+            .join(AiAnalysis, AiAnalysis.content_id == self.model.id)
+            .where(self.model.crawled_at >= window_start)
+            .where(self.model.crawled_at <= window_end)
+            .where(AiAnalysis.risk_score <= 70)
+            .where(AiAnalysis.curation_score.isnot(None))
+        )
+        if category:
+            stmt = stmt.where(self.model.category == category)
+        result = await self.db.execute(stmt)
+        return result.scalars().unique().all()
+
     # ── Scoring candidates (generic, reusable) ─────────────────────────
 
     async def list_for_scoring(

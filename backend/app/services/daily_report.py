@@ -1,29 +1,40 @@
 """
-Daily Report service — generate AI-powered daily briefing.
+Daily Report service — generate versioned daily snapshots and final editions.
 """
 from __future__ import annotations
 
 import json
-from datetime import datetime, date
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models.daily_report import DailyReport
-from app.models.content import ContentItem
-from app.models.analysis import AiAnalysis
+from app.repositories.content_repo import ContentRepo
 from app.services.llm import call_llm_json
+from app.services.scoring_engine import score_items
+from app.services.scoring_inputs import build_scoring_inputs
 from app.services.zhihu_url import normalize_zhihu_url
 
 
 WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+VALID_EDITIONS = {"snapshot", "noon", "evening", "final", "manual", "legacy"}
+LOCAL_TZ = ZoneInfo("Asia/Shanghai")
 
-REPORT_PROMPT = """你是一位资深内容策划顾问。请根据以下今日精选内容数据，生成一份面向创作者的每日选题简报。
+REPORT_PROMPT = """你是一位资深内容策划顾问。请根据以下「精选内容」和「全天候选背景」，生成一份面向创作者的日报。
 
-## 今日内容数据（{date}）
-{items_text}
+## 日报窗口
+- 日期：{date}（{weekday}）
+- 版本：{edition_label}
+- 统计窗口：{window_start} ~ {window_end}
+
+## 精选内容（用于 top_picks，只能从这里选）
+{curated_items_text}
+
+## 今日候选背景（用于 overview / trends / keywords，不要直接作为 top_picks）
+{background_items_text}
 
 ## 请严格按以下 JSON 格式输出：
 {{
@@ -44,132 +55,253 @@ REPORT_PROMPT = """你是一位资深内容策划顾问。请根据以下今日�
 }}
 
 要求：
-- trends 给出 2-3 个今日内容趋势
-- top_picks 从上面数据中选 3-5 个最值得写的选题，source_url 必须从上面数据中复制原始URL，不要编造
-- platform_tips 给出各平台今天的创作建议
+- top_picks 从「精选内容」中选 3-5 个最值得写的选题，source_url 必须复制原始URL，不要编造
+- overview / trends / keywords 可以结合候选背景判断今天的整体方向
+- 如果精选内容较少，就少选，不要从候选背景中硬凑
 - 所有文本用中文
 - 只输出 JSON，不要其他内容"""
 
 
-async def _fetch_recently_analyzed(db: AsyncSession) -> list[dict]:
-    """Fetch recently analyzed content items with scores (48h window).
+def _local_now() -> datetime:
+    return datetime.now(LOCAL_TZ).replace(tzinfo=None, microsecond=0)
 
-    Tries DuckDB analytical layer first for better performance.
-    Falls back to SQLite if DuckDB has not been synced yet.
-    """
-    # ── Try DuckDB fast path ──
-    try:
-        from app.services.duckdb_service import query_content_for_report
-        data = query_content_for_report(hours=48)
-        if data:
-            return data
-    except Exception:
-        pass  # Fall through to SQLite
 
-    # ── SQLite fallback ──
-    from datetime import date, timedelta
-    fallback_start = datetime.combine(date.today() - timedelta(days=2), datetime.min.time())
+def _local_today() -> date:
+    return _local_now().date()
 
-    query = (
-        select(ContentItem)
-        .options(selectinload(ContentItem.analyses))
-        .where(ContentItem.crawled_at >= fallback_start)
+
+def _as_local_naive(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(microsecond=0)
+    return value.astimezone(LOCAL_TZ).replace(tzinfo=None, microsecond=0)
+
+
+def _local_window_to_utc_naive(start: datetime, end: datetime) -> tuple[datetime, datetime]:
+    """Convert local report-display window to storage/query window."""
+    return (
+        start.replace(tzinfo=LOCAL_TZ).astimezone(timezone.utc).replace(tzinfo=None),
+        end.replace(tzinfo=LOCAL_TZ).astimezone(timezone.utc).replace(tzinfo=None),
     )
-    result = await db.execute(query)
-    items = result.scalars().unique().all()
 
-    data = []
-    for item in items:
-        if not item.analyses:
+
+def _day_window(target: date, cutoff_at: Optional[datetime], edition: str) -> tuple[datetime, datetime]:
+    start = datetime.combine(target, time.min)
+    if edition == "final":
+        return start, datetime.combine(target, time.max).replace(microsecond=0)
+
+    if cutoff_at is None:
+        cutoff_at = _local_now()
+    cutoff_at = _as_local_naive(cutoff_at)
+    # A same-day snapshot is always bounded to that date.
+    end = min(cutoff_at.replace(microsecond=0), datetime.combine(target, time.max).replace(microsecond=0))
+    if end < start:
+        end = datetime.combine(target, time.max).replace(microsecond=0)
+    return start, end
+
+
+def _edition_for_now(now: Optional[datetime] = None) -> str:
+    now = _as_local_naive(now) or _local_now()
+    if now.hour < 14:
+        return "noon"
+    if now.hour < 22:
+        return "evening"
+    return "snapshot"
+
+
+def _edition_label(edition: str) -> str:
+    return {
+        "noon": "午间快照",
+        "evening": "晚间快照",
+        "final": "完整复盘",
+        "manual": "手动快照",
+        "snapshot": "实时快照",
+        "legacy": "历史日报",
+    }.get(edition, edition)
+
+
+def _normalize_edition(edition: Optional[str], target: date, cutoff_at: Optional[datetime]) -> str:
+    if edition:
+        normalized = edition.lower()
+        if normalized not in VALID_EDITIONS:
+            raise ValueError(f"Unsupported daily report edition: {edition}")
+        return normalized
+
+    today = _local_today()
+    if target < today:
+        return "final"
+    return _edition_for_now(cutoff_at)
+
+
+async def _fetch_report_inputs(
+    db: AsyncSession,
+    *,
+    window_start: datetime,
+    window_end: datetime,
+) -> tuple[list[dict], list[dict]]:
+    repo = ContentRepo(db)
+    query_start, query_end = _local_window_to_utc_naive(window_start, window_end)
+    items = list(await repo.list_for_report_window(window_start=query_start, window_end=query_end))
+    scoring_inputs, item_map, _ = await build_scoring_inputs(db, items)
+    scored = score_items(scoring_inputs) if scoring_inputs else []
+
+    curated: list[dict] = []
+    for breakdown, si in scored:
+        item = item_map.get(si.content_id)
+        if not item or not item.analyses:
             continue
-        a = item.analyses[-1]
-        data.append({
-            "id": item.id,
-            "title": item.title,
-            "url": normalize_zhihu_url(item.url),
-            "category": item.category,
-            "source_name": item.source_name,
-            "creator_score": a.creator_score,
-            "viral_score": a.viral_score,
-            "quality_score": a.quality_score,
-            "risk_score": a.risk_score,
-            "summary": a.summary or "",
-            "recommended_reason": a.recommended_reason or "",
-        })
+        analysis = item.analyses[-1]
+        record = _item_to_report_dict(item, analysis, breakdown.final_score)
+        if breakdown.selected:
+            curated.append(record)
 
-    # Sort by creator_score + viral_score descending
-    data.sort(key=lambda x: x["creator_score"] + x["viral_score"], reverse=True)
-    return data
+    # If the window is sparse, still provide a few high-quality analyzed items as context,
+    # but top_picks will be instructed to use only selected curated items.
+    background = [
+        _item_to_report_dict(item, item.analyses[-1], item.analyses[-1].curation_score or 0)
+        for item in items
+        if item.analyses
+    ]
+    background.sort(key=lambda x: (x["curation_score"], x["creator_score"]), reverse=True)
+    curated.sort(key=lambda x: (x["adjusted_score"], x["curation_score"]), reverse=True)
+    return curated, background
 
 
-async def generate_daily_report(db: AsyncSession) -> DailyReport:
-    """Generate (or regenerate) today's AI daily report."""
-    today = date.today().isoformat()  # YYYY-MM-DD
-    weekday = WEEKDAYS[date.today().weekday()]
+def _item_to_report_dict(item, analysis, adjusted_score: float) -> dict:
+    return {
+        "id": item.id,
+        "title": item.title,
+        "url": normalize_zhihu_url(item.url),
+        "category": item.category or "未分类",
+        "source_name": item.source_name or "",
+        "creator_score": analysis.creator_score or 0,
+        "viral_score": analysis.viral_score or 0,
+        "quality_score": analysis.quality_score or 0,
+        "risk_score": analysis.risk_score or 0,
+        "curation_score": analysis.curation_score or 0,
+        "adjusted_score": round(float(adjusted_score or 0), 1),
+        "summary": analysis.summary or item.summary or "",
+        "recommendation": analysis.recommendation or analysis.recommended_reason or "",
+    }
 
-    # Check if report already exists for today
+
+def _format_items(items: list[dict], *, limit: int, selected: bool) -> str:
+    if not items:
+        return "暂无"
+
+    lines: list[str] = []
+    for idx, item in enumerate(items[:limit], 1):
+        score = item.get("adjusted_score") if selected else item.get("curation_score")
+        lines.append(f"\n{idx}. [{item['category']}] {item['title']}")
+        lines.append(
+            "   "
+            f"来源: {item['source_name']} | URL: {item.get('url', '')} | "
+            f"精选:{score:.1f} 创作:{item['creator_score']:.1f} "
+            f"爆文:{item['viral_score']:.1f} 质量:{item['quality_score']:.1f} 风险:{item['risk_score']:.1f}"
+        )
+        if item.get("recommendation"):
+            lines.append(f"   推荐: {str(item['recommendation'])[:100]}")
+        if item.get("summary"):
+            lines.append(f"   摘要: {str(item['summary'])[:120]}")
+    return "\n".join(lines)
+
+
+async def get_latest_today_report(db: AsyncSession) -> DailyReport:
+    """Return today's newest report, generating a snapshot if none exists."""
+    today = _local_today().isoformat()
+    result = await db.execute(
+        select(DailyReport)
+        .where(DailyReport.report_date == today)
+        .order_by(DailyReport.cutoff_at.desc(), DailyReport.updated_at.desc())
+        .limit(1)
+    )
+    report = result.scalar_one_or_none()
+    if report:
+        return report
+    return await generate_daily_report(db, target_date=_local_today(), edition=_edition_for_now())
+
+
+async def generate_daily_report(
+    db: AsyncSession,
+    *,
+    target_date: Optional[date] = None,
+    edition: Optional[str] = None,
+    cutoff_at: Optional[datetime] = None,
+    force: bool = False,
+) -> DailyReport:
+    """Generate a versioned daily report for a precise time window."""
+    target = target_date or _local_today()
+    normalized_edition = _normalize_edition(edition, target, cutoff_at)
+    window_start, window_end = _day_window(target, cutoff_at, normalized_edition)
+    report_date = target.isoformat()
+    weekday = WEEKDAYS[target.weekday()]
+
     existing = await db.execute(
-        select(DailyReport).where(DailyReport.report_date == today)
+        select(DailyReport)
+        .where(DailyReport.report_date == report_date)
+        .where(DailyReport.edition == normalized_edition)
+        .where(DailyReport.cutoff_at == window_end)
     )
     report = existing.scalar_one_or_none()
-
-    if report and report.status == "DONE":
-        report.updated_at = datetime.utcnow()
-        await db.commit()
+    if report and report.status == "DONE" and not force:
         return report
 
-    # Fetch today's analyzed content
-    items_data = await _fetch_recently_analyzed(db)
+    curated_items, background_items = await _fetch_report_inputs(
+        db,
+        window_start=window_start,
+        window_end=window_end,
+    )
 
-    if not items_data:
-        # No content today, create empty report
-        if not report:
-            report = DailyReport(
-                report_date=today,
-                weekday=weekday,
-                status="ERROR",
-                overview="今日暂无分析数据，请先同步信源并等待 AI 分析完成。",
-            )
-            db.add(report)
-            await db.flush()
-            await db.commit()
-            return report
-        return report
-
-    # Build prompt
-    items_text = ""
-    # Build a title→url mapping for fallback matching
-    title_url_map: dict[str, str] = {}
-    for i, item in enumerate(items_data[:50], 1):  # limit to top 50
-        items_text += f"\n{i}. [{item['category']}] {item['title']}"
-        items_text += f"\n   来源: {item['source_name']} | URL: {item.get('url', '')} | 创作:{item['creator_score']} 爆文:{item['viral_score']} 质量:{item['quality_score']} 风险:{item['risk_score']}"
-        if item['summary']:
-            items_text += f"\n   摘要: {item['summary'][:100]}"
-        title_url_map[item['title']] = normalize_zhihu_url(item.get('url', ''))
-
-    prompt = REPORT_PROMPT.format(date=today, items_text=items_text)
-
-    # Update or create report record
     if not report:
         report = DailyReport(
-            report_date=today,
+            report_date=report_date,
             weekday=weekday,
+            edition=normalized_edition,
+            generated_at=_local_now(),
+            window_start=window_start,
+            window_end=window_end,
+            cutoff_at=window_end,
+            source_scope="curated",
             status="GENERATING",
-            content_count=len(items_data),
-            analyzed_count=len(items_data),
+            content_count=len(background_items),
+            analyzed_count=len(background_items),
         )
         db.add(report)
         await db.flush()
     else:
         report.status = "GENERATING"
-        report.content_count = len(items_data)
-        report.analyzed_count = len(items_data)
+        report.generated_at = _local_now()
+        report.window_start = window_start
+        report.window_end = window_end
+        report.cutoff_at = window_end
+        report.content_count = len(background_items)
+        report.analyzed_count = len(background_items)
         await db.flush()
+
+    if not background_items:
+        report.status = "ERROR"
+        report.overview = "当前窗口暂无分析数据，请先同步信源并等待 AI 分析完成。"
+        report.source_item_ids = json.dumps([], ensure_ascii=False)
+        await db.commit()
+        return report
+
+    curated_text = _format_items(curated_items, limit=50, selected=True)
+    background_text = _format_items(background_items, limit=80, selected=False)
+    title_url_map = {item["title"]: normalize_zhihu_url(item.get("url", "")) for item in curated_items}
+
+    prompt = REPORT_PROMPT.format(
+        date=report_date,
+        weekday=weekday,
+        edition_label=_edition_label(normalized_edition),
+        window_start=window_start.strftime("%Y-%m-%d %H:%M"),
+        window_end=window_end.strftime("%Y-%m-%d %H:%M"),
+        curated_items_text=curated_text,
+        background_items_text=background_text,
+    )
 
     try:
         result = await call_llm_json([{"role": "user", "content": prompt}])
-
-        # Validate LLM returned useful content — empty dict is a failure
         overview = result.get("overview", "")
         if not overview or "raw_response" in result:
             raise ValueError(f"LLM返回空内容或格式无效: {str(result)[:200]}")
@@ -179,46 +311,70 @@ async def generate_daily_report(db: AsyncSession) -> DailyReport:
         report.keywords = json.dumps(result.get("keywords", []), ensure_ascii=False)
         report.trends = json.dumps(result.get("trends", []), ensure_ascii=False)
 
-        # Enrich top_picks with source_url via title matching fallback
-        picks = result.get("top_picks", [])
-        for pick in picks:
+        raw_picks = result.get("top_picks", [])
+        picks = []
+        curated_by_title = {item["title"]: item for item in curated_items}
+        curated_by_url = {
+            normalize_zhihu_url(item.get("url", "")): item
+            for item in curated_items
+            if item.get("url")
+        }
+        curated_titles = set(curated_by_title)
+        selected_source_ids: list[int] = []
+        for pick in raw_picks:
+            if not curated_titles:
+                break
+            pick_title = pick.get("title", "")
             pick_url = normalize_zhihu_url(pick.get("source_url", ""))
+            matched_title = next(
+                (title for title in curated_titles if pick_title and (pick_title in title or title in pick_title)),
+                None,
+            )
+            matched_item = curated_by_title.get(matched_title) if matched_title else curated_by_url.get(pick_url)
+            if not matched_item:
+                continue
             if pick_url:
                 pick["source_url"] = pick_url
             if not pick_url or not pick_url.startswith("http"):
-                # Fuzzy match: find the best matching title
-                pick_title = pick.get("title", "")
-                best_url = ""
-                best_len = 0
-                for t, u in title_url_map.items():
-                    if u and (pick_title in t or t in pick_title):
-                        if len(t) > best_len:
-                            best_url = u
-                            best_len = len(t)
-                if best_url:
-                    pick["source_url"] = best_url
+                fallback_url = normalize_zhihu_url(matched_item.get("url", ""))
+                if fallback_url:
+                    pick["source_url"] = fallback_url
+            picks.append(pick)
+            if matched_item["id"] not in selected_source_ids:
+                selected_source_ids.append(matched_item["id"])
 
         report.top_picks = json.dumps(picks, ensure_ascii=False)
         report.platform_tips = json.dumps(result.get("platform_tips", {}), ensure_ascii=False)
-        report.topic_count = len(result.get("top_picks", []))
+        report.topic_count = len(picks)
+        report.source_item_ids = json.dumps(selected_source_ids or [item["id"] for item in curated_items], ensure_ascii=False)
         report.status = "DONE"
-        report.updated_at = datetime.utcnow()
+        report.updated_at = _local_now()
         await db.commit()
-        # 通知：日报生成成功
         try:
             from app.services.notification_service import push_notification
-            await push_notification("success", "daily_report", "AI日报生成完成", f"共 {report.topic_count} 个选题")
+            await push_notification(
+                "success",
+                "daily_report",
+                "日报生成完成",
+                f"{report_date} {_edition_label(normalized_edition)}，共 {report.topic_count} 个选题",
+            )
         except Exception:
             pass
-    except Exception as e:
+    except Exception as exc:
         report.status = "ERROR"
-        report.overview = f"生成失败: {str(e)[:200]}"
+        report.overview = f"生成失败: {str(exc)[:200]}"
+        report.source_item_ids = json.dumps([item["id"] for item in curated_items], ensure_ascii=False)
         await db.commit()
-        # 通知：日报生成失败
         try:
             from app.services.notification_service import push_notification
-            await push_notification("error", "daily_report", "AI日报生成失败", str(e)[:200])
+            await push_notification("error", "daily_report", "日报生成失败", str(exc)[:200])
         except Exception:
             pass
 
     return report
+
+
+async def generate_previous_day_final_report(db: AsyncSession, *, force: bool = False) -> DailyReport:
+    """Generate yesterday's final full-day edition."""
+    yesterday = _local_today() - timedelta(days=1)
+    return await generate_daily_report(db, target_date=yesterday, edition="final", force=force)

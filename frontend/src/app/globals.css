@@ -153,11 +153,23 @@ main {
 }
 
 .fanqie-layout {
-  grid-template-columns: 286px minmax(0, 1fr);
+  grid-template-columns: 286px minmax(0, 980px);
+  justify-content: center;
+  overflow: hidden;
+}
+
+.fanqie-filter-panel,
+.fanqie-main-panel {
+  height: 100%;
+  overflow: hidden;
+}
+
+.fanqie-filter-panel {
+  overflow-y: auto;
 }
 
 .fanqie-book-grid {
-  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .fanqie-platform-tabs {
@@ -167,8 +179,17 @@ main {
 @media (max-width: 900px) {
   .fanqie-layout {
     grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: auto;
+    flex: none !important;
     overflow-y: auto;
     align-content: start;
+    justify-content: stretch;
+  }
+
+  .fanqie-filter-panel,
+  .fanqie-main-panel {
+    height: auto;
+    overflow: visible;
   }
 
   .fanqie-platform-tabs {
@@ -177,6 +198,13 @@ main {
 
   .fanqie-book-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fanqie-book-card {
+    --fanqie-card-cols: 34px 58px minmax(0, 1fr);
+    --fanqie-card-gap: 10px;
+    --fanqie-cover-w: 58px;
+    --fanqie-cover-h: 78px;
   }
 }
 

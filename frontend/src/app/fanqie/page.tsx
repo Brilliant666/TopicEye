@@ -15,6 +15,7 @@ import {
   Search,
   Sparkles,
   TrendingUp,
+  X,
 } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import {
@@ -105,6 +106,11 @@ function getItemCover(item: BookItem): string | null {
   return item.thumb_uri;
 }
 
+function getItemUrl(item: BookItem): string | null {
+  if ('url' in item && item.url) return item.url;
+  return null;
+}
+
 function getPositionChange(item: BookItem): number | null {
   if ('rank_pos_diff' in item && typeof item.rank_pos_diff === 'number') return item.rank_pos_diff;
   if ('index_change' in item && typeof item.index_change === 'number') return item.index_change;
@@ -143,12 +149,18 @@ function LoadingState({ label }: { label: string }) {
   );
 }
 
-function EmptyState() {
+function EmptyState({
+  title = '暂无榜单数据',
+  desc = '可以先同步当前平台，或切换榜单筛选。',
+}: {
+  title?: string;
+  desc?: string;
+}) {
   return (
     <div style={{ padding: 48, textAlign: 'center', color: T.gray400 }}>
       <BookOpen size={28} strokeWidth={1.8} />
-      <div style={{ marginTop: 10, fontSize: 14, fontWeight: 700, color: T.gray500 }}>暂无榜单数据</div>
-      <div style={{ marginTop: 4, fontSize: 12 }}>可以先同步当前平台，或切换榜单筛选。</div>
+      <div style={{ marginTop: 10, fontSize: 14, fontWeight: 700, color: T.gray500 }}>{title}</div>
+      <div style={{ marginTop: 4, fontSize: 12 }}>{desc}</div>
     </div>
   );
 }
@@ -159,6 +171,7 @@ function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platf
   const author = getItemAuthor(item);
   const cover = getItemCover(item);
   const abstract = getItemAbstract(item);
+  const itemUrl = getItemUrl(item);
   const diff = getPositionChange(item);
   const isTop = pos <= 3;
 
@@ -206,10 +219,10 @@ function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platf
   })();
 
   return (
-    <article style={{
+    <article className="fanqie-book-card" style={{
       display: 'grid',
-      gridTemplateColumns: '44px 72px minmax(0, 1fr)',
-      gap: 14,
+      gridTemplateColumns: 'var(--fanqie-card-cols, 44px 82px minmax(0, 1fr))',
+      gap: 'var(--fanqie-card-gap, 16px)',
       padding: 16,
       background: T.white,
       border: `1px solid ${isTop ? '#FCD34D' : T.gray200}`,
@@ -243,22 +256,29 @@ function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platf
       <img
         src={cover || '/placeholder.png'}
         alt={title}
-        style={{ width: 72, height: 96, objectFit: 'cover', borderRadius: 8, background: T.gray100, boxShadow: '0 8px 18px rgba(15, 23, 42, 0.14)' }}
+        style={{
+          width: 'var(--fanqie-cover-w, 82px)',
+          height: 'var(--fanqie-cover-h, 108px)',
+          objectFit: 'cover',
+          borderRadius: 8,
+          background: T.gray100,
+          boxShadow: '0 8px 18px rgba(15, 23, 42, 0.14)',
+        }}
         onError={(event) => {
-          (event.currentTarget as HTMLImageElement).src = `https://via.placeholder.com/72x96?text=${encodeURIComponent(title.slice(0, 2) || '书')}`;
+          (event.currentTarget as HTMLImageElement).src = `https://via.placeholder.com/82x108?text=${encodeURIComponent(title.slice(0, 2) || '书')}`;
         }}
       />
 
       <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <h2 style={{ margin: 0, color: T.gray900, fontSize: 16, lineHeight: 1.35, fontWeight: 850, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
+            <h2 style={{ margin: 0, color: T.gray900, fontSize: 17, lineHeight: 1.35, fontWeight: 850, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
             <div style={{ marginTop: 3, color: T.gray500, fontSize: 12 }}>
               {author}{categoryText && <span style={{ color: T.gray400 }}> · {categoryText}</span>}
             </div>
           </div>
-          {platform === 'zhihu' && 'url' in item && item.url && (
-            <a href={item.url} target="_blank" rel="noreferrer" title="打开原链接" style={{ color: T.gray400, padding: 4, borderRadius: 6 }}>
+          {itemUrl && (
+            <a href={itemUrl} target="_blank" rel="noreferrer" title="打开官网原文" style={{ color: T.gray400, padding: 4, borderRadius: 6 }}>
               <ExternalLink size={16} />
             </a>
           )}
@@ -267,7 +287,7 @@ function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platf
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{meta}</div>
 
         {abstract && (
-          <p style={{ margin: 0, color: T.gray500, fontSize: 12, lineHeight: 1.55, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          <p style={{ margin: 0, color: T.gray500, fontSize: 12, lineHeight: 1.65, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
             {abstract}
           </p>
         )}
@@ -488,7 +508,7 @@ export default function FanqiePage() {
       </div>
 
       <div className="fanqie-layout" style={{ flex: 1, minHeight: 0, display: 'grid', gap: 16, padding: 18 }}>
-        <aside style={{ minHeight: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <aside className="fanqie-filter-panel" style={{ minHeight: 0, paddingRight: 2, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
               <Filter size={16} color={platformMeta.color} />
@@ -508,14 +528,27 @@ export default function FanqiePage() {
                   ))}
                 </FilterGroup>
                 <FilterGroup title={`分类 · ${categories.filter((cat) => cat.group === groupTab).length}`}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, maxHeight: 260, overflowY: 'auto', paddingRight: 2 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 320, overflowY: 'auto', paddingRight: 4, width: '100%' }}>
                     {categories.filter((cat) => cat.group === groupTab).map((cat) => (
-                      <button key={cat.fanqie_id} onClick={() => setActiveCat(cat.fanqie_id)} style={{
-                        ...chipStyle(activeCat === cat.fanqie_id, T.gray900),
-                        padding: '7px 8px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}>{cat.name}</button>
+                      <button
+                        key={cat.fanqie_id}
+                        title={cat.name}
+                        onClick={() => setActiveCat(cat.fanqie_id)}
+                        style={{
+                          ...chipStyle(activeCat === cat.fanqie_id, T.gray900),
+                          width: '100%',
+                          minHeight: 32,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          padding: '8px 10px',
+                          overflow: 'hidden',
+                          textAlign: 'center',
+                          minWidth: 0,
+                        }}
+                      >
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{cat.name}</span>
+                      </button>
                     ))}
                   </div>
                 </FilterGroup>
@@ -545,9 +578,9 @@ export default function FanqiePage() {
                   ))}
                 </FilterGroup>
                 <FilterGroup title="故事分类">
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, width: '100%' }}>
                     {ZHIHU_SUBCATS.map((cat) => (
-                      <button key={cat.key} onClick={() => setZhihuSubcat(cat.key)} style={chipStyle(zhihuSubcat === cat.key, '#0066F5')}>{cat.label}</button>
+                      <button key={cat.key} onClick={() => setZhihuSubcat(cat.key)} style={{ ...chipStyle(zhihuSubcat === cat.key, '#0066F5'), minWidth: 0 }}>{cat.label}</button>
                     ))}
                   </div>
                 </FilterGroup>
@@ -577,7 +610,7 @@ export default function FanqiePage() {
           </div>
         </aside>
 
-        <main style={{ minHeight: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <main className="fanqie-main-panel" style={{ minHeight: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ minWidth: 220, flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: platformMeta.color, fontSize: 12, fontWeight: 900 }}>
@@ -585,6 +618,9 @@ export default function FanqiePage() {
                 {platformMeta.label}
               </div>
               <div style={{ marginTop: 3, color: T.gray900, fontSize: 18, fontWeight: 900 }}>{contextLabel}</div>
+              <div style={{ marginTop: 4, color: T.gray400, fontSize: 12 }}>
+                {query.trim() ? `筛出 ${filteredBooks.length} / ${currentBooks.length} 条` : `${currentBooks.length} 条榜单记录`}
+              </div>
             </div>
             <div style={{ position: 'relative', width: 280, maxWidth: '100%' }}>
               <Search size={15} color={T.gray400} style={{ position: 'absolute', left: 11, top: 10 }} />
@@ -594,7 +630,7 @@ export default function FanqiePage() {
                 placeholder="搜索书名、作者、简介"
                 style={{
                   width: '100%',
-                  padding: '9px 12px 9px 34px',
+                  padding: '9px 36px 9px 34px',
                   border: `1px solid ${T.gray200}`,
                   borderRadius: T.radiusSm,
                   outline: 'none',
@@ -602,6 +638,29 @@ export default function FanqiePage() {
                   fontSize: 13,
                 }}
               />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  title="清空搜索"
+                  style={{
+                    position: 'absolute',
+                    right: 8,
+                    top: 7,
+                    width: 26,
+                    height: 26,
+                    border: 'none',
+                    borderRadius: 6,
+                    background: T.gray100,
+                    color: T.gray500,
+                    display: 'grid',
+                    placeItems: 'center',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
           </div>
 
@@ -613,7 +672,11 @@ export default function FanqiePage() {
             {loading ? (
               <LoadingState label="正在拉取榜单" />
             ) : filteredBooks.length === 0 ? (
-              <EmptyState />
+              query.trim() ? (
+                <EmptyState title="没有匹配的作品" desc="换一个书名、作者或简介关键词试试。" />
+              ) : (
+                <EmptyState />
+              )
             ) : (
               <div className="fanqie-book-grid" style={{ display: 'grid', gap: 10 }}>
                 {filteredBooks.map((item) => (
@@ -637,7 +700,7 @@ function FilterGroup({ title, children }: { title: string; children: React.React
   return (
     <div>
       <div style={{ color: T.gray500, fontSize: 11, fontWeight: 800, marginBottom: 7 }}>{title}</div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{children}</div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', width: '100%' }}>{children}</div>
     </div>
   );
 }

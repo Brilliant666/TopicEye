@@ -19,10 +19,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/fanqie", tags=["番茄小说"])
 
 
+def _book_url(book_id: str) -> str:
+    return f"https://fanqienovel.com/page/{book_id}"
+
+
 # ── Pydantic 模型 ──────────────────────────────────────────────
 
 class BookItem(BaseModel):
     book_id: str
+    url: str
     book_name: str
     author: str
     abstract: Optional[str]
@@ -109,6 +114,7 @@ async def list_rankings(
             "books": [
                 {
                     "book_id": b.book_id,
+                    "url": _book_url(b.book_id),
                     "book_name": b.book_name,
                     "author": b.author,
                     "abstract": b.abstract,
@@ -167,6 +173,7 @@ async def category_books(
         "books": [
             {
                 "book_id": b.book_id,
+                "url": _book_url(b.book_id),
                 "book_name": b.book_name,
                 "author": b.author,
                 "abstract": b.abstract,

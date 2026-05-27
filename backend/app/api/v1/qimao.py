@@ -14,6 +14,10 @@ from app.models.qimao import QimaoBook
 router = APIRouter(prefix="/qimao", tags=["qimao"])
 
 
+def _book_url(book_id: str) -> str:
+    return f"https://www.qimao.com/shuku/{book_id}/"
+
+
 @router.get("/rankings")
 async def rankings(
     db: AsyncSession = Depends(get_db),
@@ -108,6 +112,7 @@ async def list_books(
         "books": [
             {
                 "book_id": b.book_id,
+                "url": _book_url(b.book_id),
                 "title": b.title,
                 "author": b.author,
                 "abstract": b.abstract,

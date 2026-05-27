@@ -808,6 +808,7 @@ export interface FanqieCategory {
 
 export interface FanqieBook {
   book_id: string;
+  url: string;
   book_name: string;
   author: string;
   abstract: string;
@@ -860,6 +861,7 @@ export const fanqieApi = {
 
 export interface QimaoBook {
   book_id: string;
+  url: string;
   title: string;
   author: string;
   abstract: string;

@@ -5,7 +5,7 @@
 
 // ─── Source (信源) ───
 
-export type SourceType = 'RSS' | 'RSSHub' | 'Reddit' | '公众号' | '网站' | 'Zhihu' | 'X' | 'TwitterRSS' | 'YouTube' | '小红书' | 'B站' | '自定义';
+export type SourceType = 'RSS' | 'RSSHub' | 'Reddit' | '公众号' | '网站' | 'Zhihu' | 'X' | 'TwitterRSS' | 'YouTube' | '小红书' | 'B站' | 'DouyinHot' | '自定义';
 export type SourceStatus = 'active' | 'error' | 'disabled';
 
 export interface Source {
@@ -253,6 +253,7 @@ export interface ContentFilterParams {
   page_size?: number;
   pageSize?: number;
   hours?: number;
+  include_trend_sources?: boolean;
   source_type?: string;
   keyword?: string;
   [key: string]: unknown; // allow any extra params for URLSearchParams

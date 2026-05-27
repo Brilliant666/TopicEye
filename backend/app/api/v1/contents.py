@@ -16,6 +16,7 @@ router = APIRouter(prefix="/contents", tags=["contents"])
 
 # Large batch size for scoring — enough for diversity penalty to work well
 _SCORING_BATCH_SIZE = 500
+_TREND_SOURCE_TYPES = {"DouyinHot"}
 
 
 def _with_analysis(item) -> dict:
@@ -35,6 +36,7 @@ async def _score_content_page(
     filters: dict,
     ignored_ids: list[int],
     time_cutoff: datetime | None,
+    exclude_source_types: set[str] | None,
     page: int,
     page_size: int,
     score_fn,
@@ -45,6 +47,7 @@ async def _score_content_page(
     scored_items, total = await ContentRepo(db).list_for_scoring(
         filters=filters,
         exclude_ids=ignored_ids,
+        exclude_source_types=exclude_source_types,
         time_cutoff=time_cutoff,
         limit=_SCORING_BATCH_SIZE,
     )
@@ -90,6 +93,7 @@ async def list_contents(
     source_type: Optional[str] = None, platform: Optional[str] = None,
     status: Optional[str] = None, category: Optional[str] = None,
     keyword: Optional[str] = None, source_id: Optional[int] = None,
+    include_trend_sources: bool = Query(False, description="Include榜单/趋势源 such as DouyinHot"),
     hours: Optional[int] = Query(None, description="Time range in hours, e.g. 24, 48, 168"),
     sort_by: str = Query("created_at",
                           pattern=r"^(created_at|published_at|crawled_at|curation_score|low_follower_viral)$"),
@@ -111,6 +115,7 @@ async def list_contents(
         time_cutoff = datetime.utcnow() - timedelta(hours=hours)
 
     ignored_ids = await IgnoredRepo(db).list_ignored_ids()
+    exclude_source_types = None if include_trend_sources else _TREND_SOURCE_TYPES
 
     # ── Curation-score ranking path ────────────────────────────────────
     if sort_by == "curation_score":
@@ -121,6 +126,7 @@ async def list_contents(
             filters=filters,
             ignored_ids=ignored_ids,
             time_cutoff=time_cutoff,
+            exclude_source_types=exclude_source_types,
             page=page,
             page_size=page_size,
             score_fn=score_items,
@@ -136,6 +142,7 @@ async def list_contents(
             filters=filters,
             ignored_ids=ignored_ids,
             time_cutoff=time_cutoff,
+            exclude_source_types=exclude_source_types,
             page=page,
             page_size=page_size,
             score_fn=score_low_follower_viral,
@@ -146,7 +153,7 @@ async def list_contents(
     items, total = await repo.list_paginated_with_analyses(
         page=page, page_size=page_size,
         filters=filters or None, sort_by=sort_by, sort_order=sort_order,
-        exclude_ids=ignored_ids, time_cutoff=time_cutoff)
+        exclude_ids=ignored_ids, exclude_source_types=exclude_source_types, time_cutoff=time_cutoff)
     return {"items": [_with_analysis(i) for i in items],
             "total": total, "page": page, "page_size": page_size}
 

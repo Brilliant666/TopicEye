@@ -193,6 +193,7 @@ class ContentRepo(BaseRepository[ContentItem]):
         sort_by: str = "created_at",
         sort_order: str = "desc",
         exclude_ids: Optional[set] = None,
+        exclude_source_types: Optional[set[str]] = None,
         time_cutoff: Optional[datetime] = None,
     ) -> tuple[Sequence[ContentItem], int]:
         """Like list_paginated but eager-loads analyses relation."""
@@ -217,6 +218,9 @@ class ContentRepo(BaseRepository[ContentItem]):
         if exclude_ids:
             stmt = stmt.where(self.model.id.notin_(exclude_ids))
             count_stmt = count_stmt.where(self.model.id.notin_(exclude_ids))
+        if exclude_source_types:
+            stmt = stmt.where(self.model.source_type.notin_(exclude_source_types))
+            count_stmt = count_stmt.where(self.model.source_type.notin_(exclude_source_types))
 
         # Time range filter
         if time_cutoff:
@@ -325,6 +329,7 @@ class ContentRepo(BaseRepository[ContentItem]):
         *,
         filters: Optional[dict] = None,
         exclude_ids: Optional[set] = None,
+        exclude_source_types: Optional[set[str]] = None,
         time_cutoff: Optional[datetime] = None,
         limit: int = 500,
     ) -> tuple[Sequence[ContentItem], int]:
@@ -369,6 +374,9 @@ class ContentRepo(BaseRepository[ContentItem]):
         if exclude_ids:
             count_stmt = count_stmt.where(self.model.id.notin_(exclude_ids))
             data_stmt = data_stmt.where(self.model.id.notin_(exclude_ids))
+        if exclude_source_types:
+            count_stmt = count_stmt.where(self.model.source_type.notin_(exclude_source_types))
+            data_stmt = data_stmt.where(self.model.source_type.notin_(exclude_source_types))
         if time_cutoff:
             count_stmt = count_stmt.where(self.model.crawled_at >= time_cutoff)
             data_stmt = data_stmt.where(self.model.crawled_at >= time_cutoff)

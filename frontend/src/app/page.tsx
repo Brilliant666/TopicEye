@@ -96,18 +96,6 @@ function formatTimelineDate(dateStr: string): string {
   }
 }
 
-function getTimelineBucket(item: ContentItem): string {
-  const dateStr = getContentTime(item);
-  try {
-    const d = parseUTC(dateStr);
-    if (Number.isNaN(d.getTime())) return '未知时间';
-    const hour = String(d.getHours()).padStart(2, '0');
-    return `${formatTimelineDate(dateStr)} ${hour}:00`;
-  } catch {
-    return '未知时间';
-  }
-}
-
 // ── Page Component ──
 
 export default function HomePage() {
@@ -133,6 +121,7 @@ export default function HomePage() {
           page_size: 50,
           hours: activeTimeRange === '全部' ? undefined : parseInt(activeTimeRange),
           source_type: activeSourceType === '全部' ? undefined : activeSourceType,
+          include_trend_sources: false,
         });
         if (!cancelled) {
           setItems(res.items || []);
@@ -192,21 +181,19 @@ export default function HomePage() {
   }, [items, activeCategory, searchQuery]);
 
   const timelineGroups = useMemo(() => {
-    const groups = new Map<string, ContentItem[]>();
+    const groups = new Map<string, Array<{ item: ContentItem; level: RecommendLevel }>>();
     filtered.forEach((item) => {
-      const key = getTimelineBucket(item);
+      const key = formatTimelineDate(getContentTime(item));
       if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(item);
+      groups.get(key)!.push({
+        item,
+        level: item.analysis ? getRecommendLevel(item.analysis) : '值得观察',
+      });
     });
-    return Array.from(groups.entries()).map(([label, groupItems]) => ({
-      label,
-      items: groupItems,
-      topItem: groupItems[0],
-      hotCount: groupItems.filter((item) => item.analysis && getRecommendLevel(item.analysis) === '强烈建议写').length,
-    }));
+    return Array.from(groups.entries()).map(([dateLabel, entries]) => ({ dateLabel, entries }));
   }, [filtered]);
 
-  const grouped = useMemo(() => {
+  const levelSummary = useMemo(() => {
     const groups: Array<{ level: RecommendLevel; title: string; items: ContentItem[] }> = [
       { level: '强烈建议写', title: '主编推荐', items: [] },
       { level: '值得观察', title: '值得观察', items: [] },
@@ -370,46 +357,20 @@ export default function HomePage() {
           paddingBottom: 60,
         }}>
           <div style={{ minWidth: 0 }}>
-            {grouped.map((group) => (
-              <section key={group.level} style={{ marginBottom: 28 }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingBottom: 10,
-                  marginBottom: 12,
-                  borderBottom: `1px solid ${T.gray200}`,
-                }}>
-                  <h2 style={{ fontSize: 15, fontWeight: 800, color: T.gray900 }}>
-                    {group.title}
-                  </h2>
-                  <span style={{ fontSize: 12, color: T.gray400, fontFamily: T.mono }}>
-                    {group.items.length}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {group.items.map((item) => (
-                    <EditorialItem
-                      key={item.id}
-                      item={item}
-                      isFav={favorites.has(item.id)}
-                      onToggleFav={toggleFavorite}
-                      onIgnore={handleIgnore}
-                      time={formatTime(getContentTime(item))}
-                      timeLabel={timeAgo(getContentTime(item))}
-                      onShowAnalysis={(a) => setSelectedAnalysis(a)}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
+            <ContentTimeline
+              groups={timelineGroups}
+              favorites={favorites}
+              onToggleFav={toggleFavorite}
+              onIgnore={handleIgnore}
+              onShowAnalysis={(a) => setSelectedAnalysis(a)}
+            />
             {filtered.length === 0 && (
               <div style={{ textAlign: 'center', padding: 60, color: T.gray400, fontSize: 14 }}>
                 当前筛选条件下没有内容
               </div>
             )}
           </div>
-          <TimelinePanel groups={timelineGroups} />
+          <TimelineSummary groups={levelSummary} total={filtered.length} />
         </div>
       )}
 
@@ -438,32 +399,106 @@ export default function HomePage() {
   );
 }
 
-function TimelinePanel({
+function ContentTimeline({
   groups,
+  favorites,
+  onToggleFav,
+  onIgnore,
+  onShowAnalysis,
 }: {
-  groups: Array<{ label: string; items: ContentItem[]; topItem: ContentItem; hotCount: number }>;
+  groups: Array<{ dateLabel: string; entries: Array<{ item: ContentItem; level: RecommendLevel }> }>;
+  favorites: Set<number>;
+  onToggleFav: (id: number) => void;
+  onIgnore: (id: number) => void;
+  onShowAnalysis: (analysis: ContentAnalysis) => void;
 }) {
   if (groups.length === 0) {
-    return (
-      <aside style={{ position: 'sticky', top: 24 }}>
-        <div style={{
-          background: T.white,
-          border: `1px solid ${T.gray100}`,
-          borderRadius: T.radius,
-          padding: '18px 18px',
-          color: T.gray400,
-          fontSize: 13,
-        }}>
-          暂无时间轴
-        </div>
-      </aside>
-    );
+    return null;
   }
 
-  const jumpToItem = (id: number) => {
-    document.getElementById(`topic-item-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
+      {groups.map((group) => (
+        <section key={group.dateLabel}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            marginBottom: 12,
+            color: T.gray500,
+          }}>
+            <Clock3 size={15} color={T.primary} strokeWidth={2.2} />
+            <h2 style={{ fontSize: 14, fontWeight: 800, color: T.gray900 }}>
+              {group.dateLabel}
+            </h2>
+            <span style={{ fontSize: 12, color: T.gray400, fontFamily: T.mono }}>{group.entries.length}</span>
+          </div>
+          <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{
+              position: 'absolute',
+              left: 58,
+              top: 9,
+              bottom: 9,
+              width: 1,
+              background: T.gray200,
+            }} />
+            {group.entries.map(({ item, level }) => (
+              <div key={item.id} style={{
+                position: 'relative',
+                display: 'grid',
+                gridTemplateColumns: '50px 18px minmax(0, 1fr)',
+                gap: 10,
+                alignItems: 'start',
+              }}>
+                <div style={{
+                  paddingTop: 2,
+                  fontSize: 12,
+                  fontWeight: 800,
+                  color: T.gray700,
+                  fontFamily: T.mono,
+                  textAlign: 'right',
+                }}>
+                  {formatTime(getContentTime(item))}
+                </div>
+                <span style={{
+                  position: 'relative',
+                  zIndex: 1,
+                  width: 12,
+                  height: 12,
+                  marginTop: 4,
+                  marginLeft: 3,
+                  borderRadius: 999,
+                  background: T.white,
+                  border: `3px solid ${levelColor(level)}`,
+                  boxSizing: 'border-box',
+                }} />
+                <EditorialItem
+                  item={item}
+                  isFav={favorites.has(item.id)}
+                  onToggleFav={onToggleFav}
+                  onIgnore={onIgnore}
+                  time={formatTime(getContentTime(item))}
+                  timeLabel={timeAgo(getContentTime(item))}
+                  level={level}
+                  compact
+                  onShowAnalysis={onShowAnalysis}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
 
+function TimelineSummary({
+  groups,
+  total,
+}: {
+  groups: Array<{ level: RecommendLevel; title: string; items: ContentItem[] }>;
+  total: number;
+}) {
   return (
     <aside style={{ position: 'sticky', top: 24 }}>
       <div style={{
@@ -473,89 +508,47 @@ function TimelinePanel({
         padding: '18px 18px',
         boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <Clock3 size={15} color={T.primary} strokeWidth={2.2} />
-            <span style={{ fontSize: 14, fontWeight: 800, color: T.gray900 }}>时间轴</span>
-          </div>
-          <span style={{ fontSize: 11, color: T.gray400, fontFamily: T.mono }}>{groups.length}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 14 }}>
+          <Clock3 size={15} color={T.primary} strokeWidth={2.2} />
+          <span style={{ fontSize: 14, fontWeight: 800, color: T.gray900 }}>内容时间流</span>
+          <span style={{ marginLeft: 'auto', fontSize: 11, color: T.gray400, fontFamily: T.mono }}>{total}</span>
         </div>
-        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {groups.map((group) => (
+            <div key={group.level} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                width: 8,
+                height: 8,
+                borderRadius: 999,
+                background: levelColor(group.level),
+                flexShrink: 0,
+              }} />
+              <span style={{ flex: 1, fontSize: 12, color: T.gray600 }}>{group.title}</span>
+              <span style={{ fontSize: 12, fontWeight: 800, color: T.gray900, fontFamily: T.mono }}>{group.items.length}</span>
+            </div>
+          ))}
           <div style={{
-            position: 'absolute',
-            left: 6,
-            top: 8,
-            bottom: 8,
-            width: 1,
-            background: T.gray200,
-          }} />
-          {groups.map((group) => {
-            const level = group.topItem.analysis ? getRecommendLevel(group.topItem.analysis) : '值得观察';
-            const levelTone = level === '强烈建议写' ? T.primary : level === '适合深挖' ? T.purple : T.teal;
-            return (
-              <button
-                key={group.label}
-                onClick={() => jumpToItem(group.topItem.id)}
-                style={{
-                  position: 'relative',
-                  display: 'grid',
-                  gridTemplateColumns: '18px minmax(0, 1fr)',
-                  gap: 10,
-                  width: '100%',
-                  textAlign: 'left',
-                  border: 'none',
-                  background: 'transparent',
-                  padding: 0,
-                  cursor: 'pointer',
-                }}
-              >
-                <span style={{
-                  position: 'relative',
-                  zIndex: 1,
-                  width: 13,
-                  height: 13,
-                  marginTop: 3,
-                  borderRadius: 999,
-                  background: T.white,
-                  border: `3px solid ${levelTone}`,
-                  boxSizing: 'border-box',
-                }} />
-                <span style={{ minWidth: 0 }}>
-                  <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                    <span style={{ fontSize: 12, fontWeight: 800, color: T.gray800, fontFamily: T.mono }}>
-                      {group.label}
-                    </span>
-                    <span style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: group.hotCount > 0 ? T.primary : T.gray400,
-                      background: group.hotCount > 0 ? T.primaryLight : T.gray100,
-                      padding: '2px 6px',
-                      borderRadius: 999,
-                    }}>
-                      {group.items.length}条
-                    </span>
-                  </span>
-                  <span style={{
-                    display: 'block',
-                    marginTop: 4,
-                    fontSize: 12,
-                    lineHeight: 1.5,
-                    color: T.gray500,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {group.topItem.title}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
+            marginTop: 6,
+            paddingTop: 12,
+            borderTop: `1px solid ${T.gray100}`,
+            fontSize: 12,
+            lineHeight: 1.7,
+            color: T.gray500,
+          }}>
+            榜单型热搜已从今日内容流排除，可在「趋势雷达」查看。
+          </div>
         </div>
       </div>
     </aside>
   );
+}
+
+function levelColor(level: RecommendLevel): string {
+  if (level === '强烈建议写') return T.primary;
+  if (level === '适合深挖') return T.purple;
+  if (level === '适合蹭热点') return T.amber;
+  if (level === '不建议追') return T.gray400;
+  return T.teal;
 }
 
 // ── Spinner ──
@@ -585,6 +578,8 @@ function EditorialItem({
   onIgnore,
   time,
   timeLabel,
+  level,
+  compact = false,
   onShowAnalysis,
 }: {
   item: ContentItem;
@@ -593,6 +588,8 @@ function EditorialItem({
   onIgnore: (id: number) => void;
   time: string;
   timeLabel: string;
+  level?: RecommendLevel;
+  compact?: boolean;
   onShowAnalysis: (analysis: ContentAnalysis) => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -619,7 +616,7 @@ function EditorialItem({
           overflow: 'hidden',
           background: T.white,
           borderRadius: T.radius,
-          padding: '18px 22px',
+          padding: compact ? '14px 18px' : '18px 22px',
           cursor: item.url ? 'pointer' : 'default',
           transition: 'all 0.2s ease',
           boxShadow: hovered
@@ -643,6 +640,7 @@ function EditorialItem({
             </span>
             <span style={{ fontSize: 12, color: T.gray300 }}>/</span>
             <span style={{ fontSize: 12, color: T.gray400 }}>{timeLabel || time}</span>
+            {level && <RecommendBadge level={level} />}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {item.category && (

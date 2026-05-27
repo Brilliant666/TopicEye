@@ -146,7 +146,6 @@ async def _sync_all_trending() -> None:
     try:
         async with async_session() as db:
             results = await sync_all_trending(db)
-            await db.commit()
         total = sum(r.get("fetched", 0) for r in results.values())
         logger.info("Scheduler: trending sync done — %d items from %d sources", total, len(results))
         return f"fetched={total}, sources={len(results)}"

@@ -81,9 +81,15 @@ async def sync_trending_source(source_name: str, db: AsyncSession) -> Dict[str, 
 
 
 async def sync_all_trending(db: AsyncSession) -> Dict[str, Dict[str, int]]:
-    """同步所有趋势源。"""
+    """同步所有趋势源。
+
+    SQLite has a single writer lock. Commit after each source so network fetches
+    and the next source do not keep earlier writes open and block lightweight
+    user actions such as favoriting content.
+    """
     results = {}
     for source_name in get_all_trending_sources():
         result = await sync_trending_source(source_name, db)
+        await db.commit()
         results[source_name] = result
     return results

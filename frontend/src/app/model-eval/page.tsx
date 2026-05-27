@@ -28,6 +28,34 @@ import type { LlmModelItem, EvalRun, EvalResult } from '@/lib/api';
 
 type Tab = 'models' | 'evaluate' | 'history';
 
+const PROVIDER_PRESETS: Record<string, { label: string; baseUrl: string; modelPlaceholder: string }> = {
+  openai: {
+    label: 'OpenAI',
+    baseUrl: 'https://api.openai.com/v1',
+    modelPlaceholder: 'gpt-4.1-mini',
+  },
+  deepseek: {
+    label: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com',
+    modelPlaceholder: 'deepseek-chat',
+  },
+  minimax: {
+    label: 'MiniMax',
+    baseUrl: 'https://api.minimaxi.com/v1',
+    modelPlaceholder: 'MiniMax-Text-01',
+  },
+  zhipu: {
+    label: '智谱 GLM',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4/',
+    modelPlaceholder: 'glm-4-plus',
+  },
+  custom: {
+    label: '自定义 OpenAI 兼容',
+    baseUrl: '',
+    modelPlaceholder: 'provider/model-name',
+  },
+};
+
 function Surface({
   title,
   icon: Icon,
@@ -444,12 +472,13 @@ const actionBtnStyle: React.CSSProperties = {
 
 function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClose: () => void }) {
   const isEdit = !!model;
+  const initialPreset = PROVIDER_PRESETS[model?.provider || 'openai'] || PROVIDER_PRESETS.openai;
   const [form, setForm] = useState({
     name: model?.name || '',
     provider: model?.provider || 'openai',
     model_id: model?.model_id || '',
     api_key: '',
-    api_base: model?.api_base || '',
+    api_base: model?.api_base || initialPreset.baseUrl,
     temperature: model?.temperature ?? 0.3,
     max_tokens: model?.max_tokens ?? 2000,
     requests_per_minute: model?.requests_per_minute ?? 60,
@@ -480,6 +509,17 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
     borderRadius: T.radiusXs, outline: 'none', boxSizing: 'border-box',
   };
 
+  const handleProviderChange = (provider: string) => {
+    const preset = PROVIDER_PRESETS[provider] || PROVIDER_PRESETS.custom;
+    setForm(f => ({
+      ...f,
+      provider,
+      api_base: preset.baseUrl,
+    }));
+  };
+
+  const currentPreset = PROVIDER_PRESETS[form.provider] || PROVIDER_PRESETS.custom;
+
   return (
     <div style={{
       background: T.white, borderRadius: T.radius, border: `1px solid ${T.primaryBorder}`,
@@ -497,24 +537,48 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
         </div>
         <div>
           <label style={labelStyle}>Provider *</label>
-          <select style={inputStyle} value={form.provider} onChange={e => setForm(f => ({ ...f, provider: e.target.value }))}>
-            <option value="openai">openai</option>
-            <option value="custom">custom</option>
-            <option value="deepseek">deepseek</option>
-            <option value="minimax">minimax</option>
+          <select style={inputStyle} value={form.provider} onChange={e => handleProviderChange(e.target.value)}>
+            {Object.entries(PROVIDER_PRESETS).map(([value, preset]) => (
+              <option key={value} value={value}>{preset.label}</option>
+            ))}
           </select>
         </div>
         <div>
           <label style={labelStyle}>Model ID *</label>
-          <input style={inputStyle} value={form.model_id} onChange={e => setForm(f => ({ ...f, model_id: e.target.value }))} placeholder="如 openai/glm-5.1" />
+          <input style={inputStyle} value={form.model_id} onChange={e => setForm(f => ({ ...f, model_id: e.target.value }))} placeholder={`如 ${currentPreset.modelPlaceholder}`} />
         </div>
         <div>
           <label style={labelStyle}>API Key {isEdit ? '(留空不修改)' : '*'}</label>
           <input style={inputStyle} type="password" value={form.api_key} onChange={e => setForm(f => ({ ...f, api_key: e.target.value }))} />
         </div>
         <div>
-          <label style={labelStyle}>API Base URL</label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+            <label style={{ ...labelStyle, marginBottom: 0 }}>API Base URL</label>
+            {currentPreset.baseUrl && (
+              <button
+                type="button"
+                onClick={() => setForm(f => ({ ...f, api_base: currentPreset.baseUrl }))}
+                style={{
+                  padding: '1px 7px',
+                  borderRadius: 999,
+                  border: `1px solid ${T.primaryBorder}`,
+                  background: T.primaryLight,
+                  color: T.primary,
+                  fontSize: 10,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                }}
+              >
+                使用内置
+              </button>
+            )}
+          </div>
           <input style={inputStyle} value={form.api_base} onChange={e => setForm(f => ({ ...f, api_base: e.target.value }))} placeholder="https://api.example.com/v1" />
+          {currentPreset.baseUrl && (
+            <div style={{ marginTop: 4, fontSize: 10, color: T.gray400, lineHeight: 1.45 }}>
+              内置默认：{currentPreset.baseUrl}
+            </div>
+          )}
         </div>
         <div>
           <label style={labelStyle}>描述</label>

@@ -11,7 +11,7 @@ class ModelLike(Protocol):
     api_base: Optional[str]
 
 
-OPENAI_COMPATIBLE_PROVIDER = {"openai", "custom"}
+OPENAI_COMPATIBLE_PROVIDER = {"openai", "custom", "deepseek", "minimax", "zhipu"}
 
 
 def resolve_litellm_model(model: ModelLike) -> str:

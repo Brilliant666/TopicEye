@@ -28,6 +28,7 @@ from tenacity import (
     retry_if_exception_type,
 )
 from app.config import settings
+from app.services.llm.model_resolver import resolve_litellm_model
 
 logger = logging.getLogger(__name__)
 
@@ -245,16 +246,8 @@ async def _call_llm_single(
     """Make a single LLM call (no retry)."""
     await _rate_limiter.acquire()
 
-    # Resolve model name: if api_base points to open.bigmodel.cn,
-    # use openai/ prefix (compatible endpoint); otherwise use bare model name.
-    resolved_model = model
-    if api_base and "open.bigmodel.cn" in api_base:
-        # Z.AI / BigModel uses OpenAI-compatible endpoint
-        if "/" not in model:
-            resolved_model = f"openai/{model}"
-
     kwargs: dict[str, Any] = {
-        "model": resolved_model,
+        "model": model,
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
@@ -266,7 +259,7 @@ async def _call_llm_single(
     if response_format:
         kwargs["response_format"] = response_format
 
-    logger.info("LLM call: model=%s, messages=%d", resolved_model, len(messages))
+    logger.info("LLM call: model=%s, messages=%d", model, len(messages))
 
     response = await asyncio.to_thread(completion, **kwargs)
     content = response.choices[0].message.content
@@ -313,7 +306,7 @@ async def call_llm(
     db_fallback = await _model_cache.get_fallback()
 
     if db_primary:
-        primary_model = db_primary.model_id
+        primary_model = resolve_litellm_model(db_primary)
         primary_key = db_primary.api_key or settings.get_primary_api_key()
         primary_base = db_primary.api_base or settings.get_primary_base_url()
         temperature = temperature or db_primary.temperature
@@ -324,7 +317,7 @@ async def call_llm(
         primary_base = settings.get_primary_base_url()
 
     if db_fallback:
-        fallback_model = db_fallback.model_id
+        fallback_model = resolve_litellm_model(db_fallback)
         fallback_key = db_fallback.api_key
         fallback_base = db_fallback.api_base
     else:

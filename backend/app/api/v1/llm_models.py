@@ -33,32 +33,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.llm_model import LlmModel, ModelEvaluation
+from app.services.llm.model_resolver import resolve_litellm_model
 
 router = APIRouter(prefix="/models", tags=["models"])
 
 
-OPENAI_COMPATIBLE_PROVIDER = {"openai", "custom"}
-
-
 def _resolve_litellm_model(model: LlmModel) -> str:
-    """Return a LiteLLM model string that includes a provider when needed."""
-    model_id = (model.model_id or "").strip()
-    provider = (model.provider or "").strip().lower()
-    api_base = model.api_base or ""
-
-    if "/" in model_id:
-        return model_id
-
-    if "open.bigmodel.cn" in api_base:
-        return f"openai/{model_id}"
-
-    if model.api_base and provider in OPENAI_COMPATIBLE_PROVIDER:
-        return f"openai/{model_id}"
-
-    if provider:
-        return f"{provider}/{model_id}"
-
-    return model_id
+    return resolve_litellm_model(model)
 
 
 def _missing_explicit_api_key(model: LlmModel) -> bool:

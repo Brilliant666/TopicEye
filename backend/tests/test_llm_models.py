@@ -5,6 +5,7 @@ from app.api.v1.llm_models import (
     _resolve_litellm_model,
     _sample_payload,
 )
+from app.services.llm.model_resolver import resolve_litellm_model
 
 
 def test_resolve_litellm_model_adds_provider_prefix_for_plain_model_id():
@@ -21,6 +22,12 @@ def test_resolve_litellm_model_uses_openai_prefix_for_bigmodel_endpoint():
     )
 
     assert _resolve_litellm_model(model) == "openai/glm-5.1"
+
+
+def test_shared_model_resolver_preserves_already_prefixed_model_id():
+    model = SimpleNamespace(provider="deepseek", model_id="deepseek/deepseek-chat", api_base=None)
+
+    assert resolve_litellm_model(model) == "deepseek/deepseek-chat"
 
 
 def test_sample_payload_parses_title_and_content_from_json():

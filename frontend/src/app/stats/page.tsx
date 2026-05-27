@@ -163,89 +163,229 @@ function HorizontalBarChart({
   );
 }
 
-function AreaChart({ data }: { data: StatsTrendItem[] }) {
-  if (!data || data.length === 0)
-    return <div style={{ color: T.gray400, fontSize: 13, padding: '12px 0' }}>暂无趋势数据</div>;
+function formatDayKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
-  const maxCount = Math.max(...data.map(d => d.content_count), 1);
-  const barW = Math.max(20, Math.min(48, Math.floor(600 / data.length) - 8));
+function formatShortDate(dateKey: string) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  return `${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+function getHeatColor(value: number, max: number) {
+  if (value <= 0) return T.gray100;
+  const ratio = value / Math.max(max, 1);
+  if (ratio >= 0.82) return T.teal;
+  if (ratio >= 0.56) return T.primary;
+  if (ratio >= 0.28) return T.primaryBorder;
+  return T.primaryLight;
+}
+
+function ContributionHeatmap({ data, days }: { data: StatsTrendItem[]; days: number }) {
+  const byDate = new Map(data.map(day => [day.date, day]));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const sortedDates = data
+    .map(day => new Date(`${day.date}T00:00:00`))
+    .filter(date => !Number.isNaN(date.getTime()))
+    .sort((a, b) => a.getTime() - b.getTime());
+  const start = sortedDates[0] ? new Date(sortedDates[0]) : new Date(today);
+  if (!sortedDates[0]) {
+    start.setDate(today.getDate() - Math.max(days - 1, 0));
+  }
+  const end = sortedDates[sortedDates.length - 1] ? new Date(sortedDates[sortedDates.length - 1]) : new Date(today);
+  if (end.getTime() < today.getTime()) {
+    end.setTime(today.getTime());
+  }
+
+  const cells: Array<{ date: string; item: StatsTrendItem | null; empty?: boolean }> = [];
+  const startWeekday = start.getDay();
+  for (let i = 0; i < startWeekday; i += 1) {
+    cells.push({ date: `empty-${i}`, item: null, empty: true });
+  }
+  const spanDays = Math.max(1, Math.floor((end.getTime() - start.getTime()) / 86400000) + 1);
+  for (let i = 0; i < spanDays; i += 1) {
+    const date = new Date(start);
+    date.setDate(start.getDate() + i);
+    const dateKey = formatDayKey(date);
+    cells.push({ date: dateKey, item: byDate.get(dateKey) ?? null });
+  }
+
+  const total = data.reduce((sum, day) => sum + day.content_count, 0);
+  const curated = data.reduce((sum, day) => sum + day.curated_count, 0);
+  const maxCount = Math.max(...data.map(day => day.content_count), 1);
+  const peak = data.reduce<StatsTrendItem | null>(
+    (current, day) => (!current || day.content_count > current.content_count ? day : current),
+    null,
+  );
 
   return (
     <div>
-      {/* Chart area */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 120, marginBottom: 8 }}>
-        {data.map((day, i) => {
-          const totalPct = (day.content_count / maxCount) * 100;
-          return (
-            <div
-              key={i}
-              style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 3,
-                minWidth: barW,
-              }}
-            >
-              {/* Tooltip numbers */}
-              <div style={{ fontSize: 10, fontFamily: T.mono, color: T.gray400 }}>
-                {day.content_count}
-              </div>
-
-              {/* Stacked bar: total + curated overlay */}
-              <div
-                style={{
-                  width: '100%',
-                  height: `${Math.max(totalPct, 4)}%`,
-                  background: i === data.length - 1 ? T.primary + '30' : T.gray200,
-                  borderRadius: '3px 3px 0 0',
-                  position: 'relative',
-                  minHeight: 6,
-                }}
-              >
-                {/* curated portion (from bottom) */}
-                {day.curated_count > 0 && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      bottom: 0,
-                      left: 0,
-                      right: 0,
-                      height: `${maxCount > 0 ? (day.curated_count / day.content_count) * 100 : 0}%`,
-                      background: i === data.length - 1 ? T.primary : T.teal,
-                      borderRadius: '3px 3px 0 0',
-                      minHeight: 3,
-                    }}
-                  />
-                )}
-              </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(118px, 1fr))', gap: 10, marginBottom: 14 }}>
+        {[
+          { label: '入库总量', value: total, color: T.primary },
+          { label: '精选内容', value: curated, color: T.teal },
+          { label: '峰值日期', value: peak ? peak.content_count : 0, color: T.gray700, sub: peak ? formatShortDate(peak.date) : '-' },
+        ].map(item => (
+          <div
+            key={item.label}
+            style={{
+              border: `1px solid ${T.gray200}`,
+              borderRadius: T.radiusSm,
+              background: T.gray50,
+              padding: '10px 12px',
+              minWidth: 0,
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 800, color: T.gray500, marginBottom: 4 }}>{item.label}</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
+              <span style={{ fontSize: 22, lineHeight: 1, fontWeight: 900, fontFamily: T.mono, color: item.color }}>
+                {item.value}
+              </span>
+              <span style={{ fontSize: 11, color: T.gray400 }}>{item.sub ?? '条'}</span>
             </div>
-          );
-        })}
-      </div>
-
-      {/* Date labels */}
-      <div style={{ display: 'flex', gap: 6 }}>
-        {data.map((day, i) => {
-          const d = new Date(day.date + 'T00:00:00');
-          const label = `${d.getMonth() + 1}/${d.getDate()}`;
-          return (
-            <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 10, color: T.gray400, minWidth: barW }}>
-              {label}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Analyzed row */}
-      <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-        {data.map((day, i) => (
-          <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 9, color: T.teal, minWidth: barW }}>
-            {day.curated_count > 0 ? `${day.curated_count}精` : '-'}
           </div>
         ))}
       </div>
+
+      {cells.length > 0 ? (
+        <div style={{ overflowX: 'auto', paddingBottom: 2 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateRows: 'repeat(7, 14px)',
+              gridAutoFlow: 'column',
+              gridAutoColumns: 14,
+              gap: 4,
+              width: 'max-content',
+              minWidth: '100%',
+            }}
+          >
+            {cells.map(cell => {
+              const count = cell.item?.content_count ?? 0;
+              const curatedCount = cell.item?.curated_count ?? 0;
+              const analyzedCount = cell.item?.analyzed_count ?? 0;
+              return (
+                <div
+                  key={cell.date}
+                  title={
+                    cell.empty
+                      ? ''
+                      : `${cell.date}: 入库 ${count} 条，精选 ${curatedCount} 条，已分析 ${analyzedCount} 条`
+                  }
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: 3,
+                    background: cell.empty ? 'transparent' : getHeatColor(count, maxCount),
+                    border: cell.empty ? '1px solid transparent' : `1px solid ${count > 0 ? 'rgba(255,107,53,0.16)' : T.gray200}`,
+                  }}
+                />
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div style={{ color: T.gray400, fontSize: 13, padding: '12px 0' }}>暂无趋势数据</div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 14, fontSize: 11, color: T.gray500, flexWrap: 'wrap' }}>
+          <span>起始 {formatShortDate(formatDayKey(start))}</span>
+          <span>结束 {formatShortDate(formatDayKey(today))}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: T.gray400 }}>
+          <span>少</span>
+          {[0, 1, 3, 6, 9].map(level => (
+            <span
+              key={level}
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: 3,
+                border: `1px solid ${level === 0 ? T.gray200 : 'rgba(255,107,53,0.16)'}`,
+                background: getHeatColor(level, 9),
+              }}
+            />
+          ))}
+          <span>多</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatSyncLabel(lastSync: string | null) {
+  if (!lastSync) return '未同步';
+  try {
+    const dt = new Date(lastSync);
+    const now = new Date();
+    const diffMs = now.getTime() - dt.getTime();
+    const diffMin = Math.max(0, Math.floor(diffMs / 60000));
+    if (diffMin < 60) return `${diffMin}分钟前`;
+    if (diffMin < 1440) return `${Math.floor(diffMin / 60)}小时前`;
+    return `${Math.floor(diffMin / 1440)}天前`;
+  } catch {
+    return lastSync;
+  }
+}
+
+function NovelPlatformStats({ platforms }: { platforms: StatsNovelPlatform[] }) {
+  if (platforms.length === 0) {
+    return <div style={{ color: T.gray400, fontSize: 13 }}>暂无数据</div>;
+  }
+
+  const platformColors = [
+    { bg: '#FFF4EE', color: T.primary, border: T.primaryBorder },
+    { bg: '#E6FAF5', color: T.teal, border: T.tealBorder },
+    { bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
+  ];
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
+      {platforms.map((platform, i) => {
+        const pc = platformColors[i % platformColors.length];
+        return (
+          <div
+            key={platform.table}
+            style={{
+              background: pc.bg,
+              border: `1px solid ${pc.border}`,
+              borderRadius: T.radiusSm,
+              padding: '14px 16px',
+              display: 'flex',
+              flexDirection: 'column',
+              minWidth: 0,
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 850, color: pc.color, marginBottom: 8 }}>
+              {platform.name}
+            </div>
+            <div style={{ fontSize: 30, fontWeight: 900, color: pc.color, fontFamily: T.mono, lineHeight: 1 }}>
+              {platform.count}
+              <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 3, color: T.gray400 }}>条</span>
+            </div>
+            <div style={{ fontSize: 11, color: T.gray500, marginTop: 10, display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: platform.last_sync ? T.teal : T.gray300,
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                最近同步: {formatSyncLabel(platform.last_sync)}
+              </span>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -493,7 +633,28 @@ export default function StatsPage() {
         {!loading && (
           <>
             {/* ═══════════════════════════════════════════════════
-                A. 内容总览 KPI Cards
+                A. 入库趋势 + 网文雷达
+                ═══════════════════════════════════════════════════ */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))',
+                gap: 14,
+                marginBottom: 14,
+                alignItems: 'start',
+              }}
+            >
+              <Surface title="每日入库趋势" icon={CalendarDays} hint={`最近 ${days} 天`}>
+                <ContributionHeatmap data={trend} days={days} />
+              </Surface>
+
+              <Surface title="网文雷达统计" icon={BookOpen}>
+                <NovelPlatformStats platforms={novelPlatforms} />
+              </Surface>
+            </div>
+
+            {/* ═══════════════════════════════════════════════════
+                B. 内容总览 KPI Cards
                 ═══════════════════════════════════════════════════ */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
               {[
@@ -537,7 +698,7 @@ export default function StatsPage() {
             </div>
 
             {/* ═══════════════════════════════════════════════════
-                B. 信源分布 + C. 分类分布 (side by side)
+                C. 信源分布 + D. 分类分布 (side by side)
                 ═══════════════════════════════════════════════════ */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 14, marginBottom: 14, alignItems: 'start' }}>
               {/* B. 信源分布 */}
@@ -620,96 +781,6 @@ export default function StatsPage() {
                 />
               </Surface>
             </div>
-
-            {/* ═══════════════════════════════════════════════════
-                D. 时间趋势
-                ═══════════════════════════════════════════════════ */}
-            <Surface title="每日入库趋势" icon={CalendarDays} hint={`最近 ${days} 天`} style={{ marginBottom: 14 }}>
-              <div style={{ display: 'flex', gap: 16, marginBottom: 12, fontSize: 11, color: T.gray500 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: T.gray200 }} />
-                  总内容
-                </span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: T.teal }} />
-                  精选
-                </span>
-              </div>
-              <AreaChart data={trend} />
-            </Surface>
-
-            {/* ═══════════════════════════════════════════════════
-                E. 网文雷达统计
-                ═══════════════════════════════════════════════════ */}
-            <Surface title="网文雷达统计" icon={BookOpen}>
-              {novelPlatforms.length === 0 ? (
-                <div style={{ color: T.gray400, fontSize: 13 }}>暂无数据</div>
-              ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
-                  {novelPlatforms.map((p, i) => {
-                    const platformColors = [
-                      { bg: '#FFF4EE', color: T.primary, border: T.primaryBorder },
-                      { bg: '#E6FAF5', color: T.teal, border: T.tealBorder },
-                      { bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
-                    ];
-                    const pc = platformColors[i % platformColors.length];
-
-                    let syncLabel = '未同步';
-                    if (p.last_sync) {
-                      try {
-                        const dt = new Date(p.last_sync);
-                        const now = new Date();
-                        const diffMs = now.getTime() - dt.getTime();
-                        const diffMin = Math.floor(diffMs / 60000);
-                        if (diffMin < 60) {
-                          syncLabel = `${diffMin}分钟前`;
-                        } else if (diffMin < 1440) {
-                          syncLabel = `${Math.floor(diffMin / 60)}小时前`;
-                        } else {
-                          syncLabel = `${Math.floor(diffMin / 1440)}天前`;
-                        }
-                      } catch {
-                        syncLabel = p.last_sync;
-                      }
-                    }
-
-                    return (
-                      <div
-                        key={p.table}
-                        style={{
-                          background: pc.bg,
-                          border: `1px solid ${pc.border}`,
-                          borderRadius: T.radiusSm,
-                          padding: '16px 18px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                        }}
-                      >
-                        <div style={{ fontSize: 13, fontWeight: 800, color: pc.color, marginBottom: 8 }}>
-                          {p.name}
-                        </div>
-                        <div style={{ fontSize: 32, fontWeight: 900, color: pc.color, fontFamily: T.mono, lineHeight: 1 }}>
-                          {p.count}
-                          <span style={{ fontSize: 13, fontWeight: 400, marginLeft: 2, color: T.gray400 }}>条</span>
-                        </div>
-                        <div style={{ fontSize: 11, color: T.gray400, marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              width: 6,
-                              height: 6,
-                              borderRadius: '50%',
-                              background: p.last_sync ? T.teal : T.gray300,
-                            }}
-                          />
-                          最近同步: {syncLabel}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </Surface>
           </>
         )}
       </div>

@@ -109,7 +109,7 @@ function SourceMapView({
                 <span style={{ fontSize: 11, fontFamily: T.mono, color: T.gray400 }}>{sourceMap.tiers[key].length}</span>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {sourceMap.tiers[key].slice(0, 12).map((source) => (
+                {sourceMap.tiers[key].map((source) => (
                   <div key={source.id} style={{ background: T.white, border: `1px solid ${source.sync_error ? T.redLight : T.gray200}`, borderRadius: T.radiusSm, padding: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                       <div style={{ minWidth: 0 }}>
@@ -199,14 +199,34 @@ export default function SourcesPage() {
 
   const fetchSourceMap = useCallback(async () => {
     try {
-      const res = await sourcesApi.list({
+      const pageSizeForMap = 100;
+      const firstPage = await sourcesApi.list({
         page: 1,
-        page_size: 100,
+        page_size: pageSizeForMap,
         source_type: filterType || undefined,
         enabled: filterEnabled,
         keyword: searchKeyword || undefined,
       });
-      setMapSources((res?.items || []) as BackendSource[]);
+      const allItems = [...((firstPage?.items || []) as BackendSource[])];
+      const totalItems = firstPage?.total ?? allItems.length;
+      const totalPages = Math.ceil(totalItems / pageSizeForMap);
+
+      if (totalPages > 1) {
+        const rest = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, idx) =>
+            sourcesApi.list({
+              page: idx + 2,
+              page_size: pageSizeForMap,
+              source_type: filterType || undefined,
+              enabled: filterEnabled,
+              keyword: searchKeyword || undefined,
+            })
+          )
+        );
+        rest.forEach((res) => allItems.push(...((res?.items || []) as BackendSource[])));
+      }
+
+      setMapSources(allItems);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '加载信源地图失败');
     }
@@ -459,11 +479,18 @@ export default function SourcesPage() {
     });
 
     const sortEntries = (entries: [string, number][]) => entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    Object.values(tiers).forEach((items) => {
+      items.sort((a, b) => {
+        const weightDiff = (b.weight ?? 3) - (a.weight ?? 3);
+        if (weightDiff !== 0) return weightDiff;
+        return a.name.localeCompare(b.name);
+      });
+    });
 
     return {
       tiers,
-      categories: sortEntries([...categoryCount.entries()]).slice(0, 10),
-      types: sortEntries([...typeCount.entries()]).slice(0, 8),
+      categories: sortEntries([...categoryCount.entries()]),
+      types: sortEntries([...typeCount.entries()]),
       attentionCount: tiers.attention.length,
       coreCount: tiers.core.length,
     };
@@ -600,7 +627,7 @@ export default function SourcesPage() {
           })}
         </div>
         <span style={{ fontSize: 12, color: T.gray400 }}>
-          地图统计前 {mapSources.length} 个匹配信源
+          地图统计全部 {mapSources.length} 个匹配信源
         </span>
       </div>
 

@@ -15,6 +15,7 @@ from app.models.daily_report import DailyReport
 from app.models.content import ContentItem
 from app.models.analysis import AiAnalysis
 from app.services.llm import call_llm_json
+from app.services.zhihu_url import normalize_zhihu_url
 
 
 WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
@@ -85,7 +86,7 @@ async def _fetch_recently_analyzed(db: AsyncSession) -> list[dict]:
         data.append({
             "id": item.id,
             "title": item.title,
-            "url": item.url,
+            "url": normalize_zhihu_url(item.url),
             "category": item.category,
             "source_name": item.source_name,
             "creator_score": a.creator_score,
@@ -144,7 +145,7 @@ async def generate_daily_report(db: AsyncSession) -> DailyReport:
         items_text += f"\n   来源: {item['source_name']} | URL: {item.get('url', '')} | 创作:{item['creator_score']} 爆文:{item['viral_score']} 质量:{item['quality_score']} 风险:{item['risk_score']}"
         if item['summary']:
             items_text += f"\n   摘要: {item['summary'][:100]}"
-        title_url_map[item['title']] = item.get('url', '')
+        title_url_map[item['title']] = normalize_zhihu_url(item.get('url', ''))
 
     prompt = REPORT_PROMPT.format(date=today, items_text=items_text)
 
@@ -181,7 +182,9 @@ async def generate_daily_report(db: AsyncSession) -> DailyReport:
         # Enrich top_picks with source_url via title matching fallback
         picks = result.get("top_picks", [])
         for pick in picks:
-            pick_url = pick.get("source_url", "")
+            pick_url = normalize_zhihu_url(pick.get("source_url", ""))
+            if pick_url:
+                pick["source_url"] = pick_url
             if not pick_url or not pick_url.startswith("http"):
                 # Fuzzy match: find the best matching title
                 pick_title = pick.get("title", "")

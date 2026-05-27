@@ -1,8 +1,9 @@
 from datetime import datetime
 from typing import Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from app.schemas.analysis import AiAnalysisResponse
+from app.services.zhihu_url import normalize_zhihu_url
 
 
 class ContentResponse(BaseModel):
@@ -30,6 +31,10 @@ class ContentResponse(BaseModel):
     analysis: Optional[AiAnalysisResponse] = None
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("url")
+    def serialize_url(self, value: str) -> str:
+        return normalize_zhihu_url(value)
 
 
 class ContentMetricsResponse(BaseModel):

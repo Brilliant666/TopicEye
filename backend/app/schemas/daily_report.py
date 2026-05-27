@@ -1,10 +1,31 @@
 """
 Daily Report schema — request/response models.
 """
+import json
 from datetime import datetime
 from typing import Optional, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
+
+from app.services.zhihu_url import normalize_zhihu_url
+
+
+def _parse_json_value(value: Any) -> Any:
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
+
+
+def _normalize_top_pick_urls(value: Any) -> Any:
+    parsed = _parse_json_value(value)
+    if isinstance(parsed, list):
+        for pick in parsed:
+            if isinstance(pick, dict) and "source_url" in pick:
+                pick["source_url"] = normalize_zhihu_url(pick.get("source_url"))
+    return parsed
 
 
 class DailyReportResponse(BaseModel):
@@ -25,6 +46,14 @@ class DailyReportResponse(BaseModel):
     updated_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+    @field_serializer("keywords", "trends", "platform_tips")
+    def serialize_json_fields(self, value: Any) -> Any:
+        return _parse_json_value(value)
+
+    @field_serializer("top_picks")
+    def serialize_top_picks(self, value: Any) -> Any:
+        return _normalize_top_pick_urls(value)
 
 
 class DailyReportListResponse(BaseModel):

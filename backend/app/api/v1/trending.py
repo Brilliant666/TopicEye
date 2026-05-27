@@ -8,12 +8,14 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from pydantic import field_serializer
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.trending import TrendingItem, TrendingCategory, TrendingSource
 from app.services.trending_pipeline import sync_trending_source, sync_all_trending
+from app.services.zhihu_url import normalize_zhihu_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/trending", tags=["trending"])
@@ -34,6 +36,10 @@ class TrendingItemOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @field_serializer("url")
+    def serialize_url(self, value: str) -> str:
+        return normalize_zhihu_url(value)
 
 
 class TrendingSourceInfo(BaseModel):
@@ -145,7 +151,7 @@ async def get_cross_platform(
             "category": it.category.name if hasattr(it.category, "name") else str(it.category),
             "rank": it.rank,
             "title": it.title,
-            "url": it.url,
+            "url": normalize_zhihu_url(it.url),
             "hot_value": it.hot_value,
             "hot_value_raw": it.hot_value_raw,
             "trend": it.trend,

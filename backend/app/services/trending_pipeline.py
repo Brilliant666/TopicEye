@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.trending import TrendingItem
 from app.services.trending_scrapers import get_trending_cls, get_all_trending_sources
+from app.services.zhihu_url import normalize_zhihu_url
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ async def sync_trending_source(source_name: str, db: AsyncSession) -> Dict[str, 
                 category=scraper.CATEGORY,
                 rank=entry.get("rank", 0),
                 title=entry.get("title", ""),
-                url=entry.get("url", ""),
+                url=normalize_zhihu_url(entry.get("url", "")),
                 hot_value=entry.get("hot_value", 0),
                 hot_value_raw=entry.get("hot_value_raw", ""),
                 trend=entry.get("trend"),

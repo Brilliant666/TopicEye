@@ -25,6 +25,7 @@ from urllib.parse import urlencode
 import httpx
 
 from . import BaseScraper, register_scraper
+from app.services.zhihu_url import normalize_zhihu_url
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +175,7 @@ class ZhihuScraper(BaseScraper):
             return None
 
         title = target.get("title", "")
-        url = target.get("url", "")
+        url = normalize_zhihu_url(target.get("url", ""))
         excerpt = target.get("excerpt", "")
         detail_text = item.get("detail_text", "")
 

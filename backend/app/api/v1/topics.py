@@ -19,6 +19,7 @@ from app.database import get_db
 from app.models.topic import TopicGroup
 from app.models.content import ContentItem
 from app.services.topic_clustering import cluster_and_dedup
+from app.services.zhihu_url import normalize_zhihu_url
 
 router = APIRouter(prefix="/topics", tags=["topics"])
 
@@ -93,7 +94,7 @@ async def get_topic(
             {
                 "id": it.id,
                 "title": it.title,
-                "url": it.url,
+                "url": normalize_zhihu_url(it.url),
                 "source_name": it.source_name,
                 "duplicate_of": it.duplicate_of,
                 "similarity_score": it.similarity_score,

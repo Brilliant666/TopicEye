@@ -16,6 +16,7 @@ from typing import List, Dict, Any
 
 import jieba
 import jieba.analyse
+from app.services.zhihu_url import normalize_zhihu_url
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +162,7 @@ def cluster_trending_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     "rank": by_source[s]["rank"],
                     "hot_value": by_source[s].get("hot_value", 0),
                     "hot_value_raw": by_source[s].get("hot_value_raw", ""),
-                    "url": by_source[s].get("url", ""),
+                    "url": normalize_zhihu_url(by_source[s].get("url", "")),
                     "trend": by_source[s].get("trend"),
                 }
                 for s in sorted(sources_set)

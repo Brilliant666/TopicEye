@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.trending import TrendingItem, TrendingSnapshot, TrendingSource
 from app.services.trending_scrapers import get_all_trending_sources
+from app.services.zhihu_url import normalize_zhihu_url
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ async def save_snapshot(db: AsyncSession, source: str) -> int:
         {
             "rank": it.rank,
             "title": it.title,
-            "url": it.url,
+            "url": normalize_zhihu_url(it.url),
             "hot_value": it.hot_value,
             "hot_value_raw": it.hot_value_raw,
             "trend": it.trend,

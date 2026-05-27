@@ -6,6 +6,7 @@ from typing import List
 
 import httpx
 from . import BaseTrendingScraper, register_trending, TrendingEntry
+from app.services.zhihu_url import normalize_zhihu_url
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ class ZhihuTrending(BaseTrendingScraper):
                 except (ValueError, TypeError):
                     pass
 
-            link = target.get("link", {}).get("url", "")
+            link = normalize_zhihu_url(target.get("link", {}).get("url", ""))
             excerpt = target.get("excerpt_area", {}).get("text", "")
 
             # 趋势判断

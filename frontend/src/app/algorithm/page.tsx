@@ -85,15 +85,19 @@ export default function AlgorithmPage() {
             <SummaryGrid data={data} />
             <Funnel data={data} selectedKey={selectedKey} />
 
-            <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]">
-              <div className="min-w-0 space-y-4">
-                <div className="grid gap-4 md:grid-cols-2">
+            <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[280px_minmax(560px,1fr)_380px]">
+              <div className="order-3 min-w-0 space-y-4 lg:col-start-1 lg:row-start-2 2xl:order-none 2xl:col-start-1 2xl:row-start-1">
+                <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-1">
                   <MixList title="类别混排压力" items={data.category_mix} tone="purple" />
                   <MixList title="来源混排压力" items={data.source_mix} tone="teal" />
                 </div>
+              </div>
+              <div className="order-1 min-w-0 lg:col-start-1 lg:row-start-1 2xl:order-none 2xl:col-start-2 2xl:row-start-1">
                 <SampleList samples={data.samples} selectedId={selected?.id} onSelect={setSelected} />
               </div>
-              <PathPanel sample={selected} onFeedback={handleFeedback} feedbacking={feedbacking} />
+              <div className="order-2 min-w-0 lg:sticky lg:top-4 lg:col-start-2 lg:row-span-2 lg:row-start-1 2xl:order-none 2xl:col-start-3 2xl:row-start-1">
+                <PathPanel sample={selected} onFeedback={handleFeedback} feedbacking={feedbacking} />
+              </div>
             </div>
           </>
         ) : null}

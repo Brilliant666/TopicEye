@@ -103,12 +103,30 @@ function SourceMapView({
         {tierKeys.map((key) => {
           const meta = sourceTierMeta[key];
           return (
-            <section key={key} style={{ minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <section key={key} style={{ minWidth: 0, display: 'flex', flexDirection: 'column', maxHeight: 'min(620px, calc(100vh - 360px))' }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 8,
+                padding: '0 2px',
+                flexShrink: 0,
+              }}>
                 <h3 style={{ fontSize: 13, fontWeight: 700, color: meta.color, margin: 0 }}>{meta.label}</h3>
-                <span style={{ fontSize: 11, fontFamily: T.mono, color: T.gray400 }}>{sourceMap.tiers[key].length}</span>
+                <span style={{ fontSize: 11, fontFamily: T.mono, color: T.gray400 }}>{sourceMap.tiers[key].length} 条</span>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div
+                className="source-map-column-scroll"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  overflowY: 'auto',
+                  minHeight: 180,
+                  paddingRight: 4,
+                  overscrollBehavior: 'contain',
+                }}
+              >
                 {sourceMap.tiers[key].map((source) => (
                   <div key={source.id} style={{ background: T.white, border: `1px solid ${source.sync_error ? T.redLight : T.gray200}`, borderRadius: T.radiusSm, padding: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>

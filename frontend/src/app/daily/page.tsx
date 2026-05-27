@@ -365,21 +365,20 @@ export default function DailyReportPage() {
             <section style={{
               position: 'relative',
               overflow: 'hidden',
-              background: '#111827',
-              border: '1px solid #1F2937',
+              background: T.white,
+              border: `1px solid ${T.gray200}`,
               borderRadius: T.radius,
               padding: '24px 28px 22px',
-              color: T.white,
-              boxShadow: '0 22px 60px rgba(15, 23, 42, 0.16)',
+              color: T.gray900,
+              boxShadow: '0 18px 48px rgba(15, 23, 42, 0.06)',
             }}>
               <div style={{
                 position: 'absolute',
-                right: -90,
-                top: -130,
-                width: 260,
-                height: 260,
-                borderRadius: '50%',
-                background: 'radial-gradient(circle, rgba(255, 107, 53, 0.32), rgba(255, 107, 53, 0) 66%)',
+                left: 0,
+                right: 0,
+                top: 0,
+                height: 4,
+                background: `linear-gradient(90deg, ${T.primary}, ${T.teal})`,
               }} />
               <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', gap: 18, alignItems: 'flex-start' }}>
                 <div>
@@ -387,16 +386,17 @@ export default function DailyReportPage() {
                     <span style={{
                       fontSize: 11,
                       fontWeight: 800,
-                      color: '#FDBA74',
-                      border: '1px solid rgba(253, 186, 116, 0.36)',
+                      color: T.primary,
+                      background: T.primaryLight,
+                      border: `1px solid ${T.primaryBorder}`,
                       borderRadius: 999,
                       padding: '4px 9px',
                       fontFamily: T.mono,
                     }}>
                       TOPIC RADAR DAILY
                     </span>
-                    <span style={{ fontSize: 12, color: '#CBD5E1' }}>{report.weekday}</span>
-                    <span style={{ fontSize: 12, color: '#CBD5E1' }}>{editionLabel}</span>
+                    <span style={{ fontSize: 12, color: T.gray500 }}>{report.weekday}</span>
+                    <span style={{ fontSize: 12, color: T.gray500 }}>{editionLabel}</span>
                   </div>
                   <h2 style={{
                     fontSize: 34,
@@ -412,7 +412,7 @@ export default function DailyReportPage() {
                     fontSize: 16,
                     lineHeight: 1.65,
                     fontWeight: 700,
-                    color: '#F8FAFC',
+                    color: T.gray700,
                   }}>
                     {report.takeaway || report.overview || '今日内容已完成归档，等待进一步分析。'}
                   </p>
@@ -420,14 +420,14 @@ export default function DailyReportPage() {
                 <div style={{
                   minWidth: 112,
                   padding: '12px 14px',
-                  border: '1px solid rgba(148, 163, 184, 0.28)',
+                  border: `1px solid ${T.primaryBorder}`,
                   borderRadius: T.radiusSm,
-                  background: 'rgba(15, 23, 42, 0.62)',
+                  background: T.primaryLight,
                   textAlign: 'right',
                 }}>
-                  <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 6 }}>ISSUE DATE</div>
-                  <div style={{ fontSize: 22, fontFamily: T.mono, fontWeight: 700 }}>{report.report_date.slice(5)}</div>
-                  <div style={{ fontSize: 11, color: '#CBD5E1', marginTop: 4 }}>{windowText || report.report_date.slice(0, 4)}</div>
+                  <div style={{ fontSize: 11, color: T.gray500, marginBottom: 6 }}>ISSUE DATE</div>
+                  <div style={{ fontSize: 22, fontFamily: T.mono, fontWeight: 800, color: T.primary }}>{report.report_date.slice(5)}</div>
+                  <div style={{ fontSize: 11, color: T.gray500, marginTop: 4 }}>{windowText || report.report_date.slice(0, 4)}</div>
                 </div>
               </div>
               <div style={{
@@ -446,11 +446,11 @@ export default function DailyReportPage() {
                   <div key={stat.label} style={{
                     padding: '10px 12px',
                     borderRadius: T.radiusSm,
-                    background: 'rgba(255, 255, 255, 0.08)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    background: T.gray50,
+                    border: `1px solid ${T.gray200}`,
                   }}>
-                    <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 5 }}>{stat.label}</div>
-                    <div style={{ fontSize: 19, fontWeight: 800, fontFamily: T.mono }}>{stat.value}</div>
+                    <div style={{ fontSize: 11, color: T.gray500, marginBottom: 5 }}>{stat.label}</div>
+                    <div style={{ fontSize: 19, fontWeight: 800, fontFamily: T.mono, color: T.gray900 }}>{stat.value}</div>
                   </div>
                 ))}
               </div>

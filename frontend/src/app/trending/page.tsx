@@ -1,7 +1,23 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
-import { ArrowDown, ArrowRight, ArrowUp, ExternalLink, Lightbulb, Star } from 'lucide-react';
+import {
+  Activity,
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  BarChart3,
+  Clock3,
+  ExternalLink,
+  Filter,
+  Gauge,
+  Layers3,
+  Lightbulb,
+  Radar,
+  RefreshCw,
+  Rss,
+  Star,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import {
@@ -22,6 +38,79 @@ if (typeof document !== 'undefined' && !document.getElementById('trending-scroll
     .trending-scroll::-webkit-scrollbar-track { background: transparent; }
     .trending-scroll::-webkit-scrollbar-thumb { background: ${T.gray300}; border-radius: 4px; }
     .trending-scroll::-webkit-scrollbar-thumb:hover { background: ${T.gray400}; }
+    .trending-page {
+      padding: 28px 36px 80px;
+      max-width: 1480px;
+      margin: 0 auto;
+      min-height: 100%;
+      box-sizing: border-box;
+    }
+    .trending-hero {
+      position: relative;
+      overflow: hidden;
+      background: ${T.white};
+      border: 1px solid ${T.gray200};
+      border-radius: ${T.radius}px;
+      padding: 22px 24px;
+      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.06);
+    }
+    .trending-hero::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 4px;
+      background: linear-gradient(90deg, ${T.primary}, ${T.teal});
+    }
+    .trending-hero-grid {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 20px;
+      align-items: start;
+    }
+    .trending-stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .trending-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      gap: 18px;
+      align-items: start;
+      margin-top: 18px;
+    }
+    .trending-main {
+      min-width: 0;
+    }
+    .trending-sidebar {
+      position: sticky;
+      top: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      min-width: 0;
+    }
+    .trending-source-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 14px;
+      align-content: start;
+    }
+    @media (max-width: 1120px) {
+      .trending-layout { grid-template-columns: 1fr; }
+      .trending-sidebar { position: static; grid-row: 1; }
+    }
+    @media (max-width: 760px) {
+      .trending-page { padding: 18px 14px 64px; }
+      .trending-hero { padding: 18px; }
+      .trending-hero-grid { grid-template-columns: 1fr; }
+      .trending-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .trending-source-grid { grid-template-columns: 1fr; }
+    }
   `;
   document.head.appendChild(style);
 }
@@ -144,6 +233,87 @@ function CategoryTag({ category }: { category: string }) {
     }}>
       {category}
     </span>
+  );
+}
+
+function Surface({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <section style={{
+      background: T.white,
+      border: `1px solid ${T.gray200}`,
+      borderRadius: T.radius,
+      padding: 16,
+      ...style,
+    }}>
+      {children}
+    </section>
+  );
+}
+
+function PanelTitle({
+  icon: Icon,
+  title,
+  hint,
+}: {
+  icon: LucideIcon;
+  title: string;
+  hint?: string;
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <Icon size={15} color={T.primary} strokeWidth={2.2} />
+        <span style={{ fontSize: 13, fontWeight: 800, color: T.gray900 }}>{title}</span>
+      </div>
+      {hint && <span style={{ fontSize: 11, color: T.gray400, whiteSpace: 'nowrap' }}>{hint}</span>}
+    </div>
+  );
+}
+
+function StatTile({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  color,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string | number;
+  hint: string;
+  color: string;
+}) {
+  return (
+    <div style={{
+      background: T.gray50,
+      border: `1px solid ${T.gray200}`,
+      borderRadius: T.radiusSm,
+      padding: '13px 14px',
+      minWidth: 0,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 9 }}>
+        <Icon size={14} color={color} strokeWidth={2.2} />
+        <span style={{ fontSize: 11, fontWeight: 800, color: T.gray500 }}>{label}</span>
+      </div>
+      <div style={{ fontSize: 25, lineHeight: 1, fontWeight: 900, color: T.gray900, fontFamily: T.mono }}>
+        {value}
+      </div>
+      <div style={{ marginTop: 5, fontSize: 10.5, color: T.gray400 }}>{hint}</div>
+    </div>
+  );
+}
+
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return (
+    <Surface style={{ textAlign: 'center', padding: 72, color: T.gray400, fontSize: 14 }}>
+      {children}
+    </Surface>
   );
 }
 
@@ -404,7 +574,9 @@ function ClusterCard({ cluster }: { cluster: CrossPlatformCluster }) {
       border: `1px solid ${T.gray200}`,
       borderRadius: T.radius,
       overflow: 'hidden',
-      transition: 'box-shadow 0.15s ease',
+      background: T.white,
+      boxShadow: '0 10px 26px rgba(15, 23, 42, 0.04)',
+      transition: 'box-shadow 0.15s ease, border-color 0.15s ease',
     }}>
       {/* 卡片头部 */}
       <div
@@ -412,7 +584,7 @@ function ClusterCard({ cluster }: { cluster: CrossPlatformCluster }) {
         style={{
           padding: '14px 16px',
           cursor: 'pointer',
-          background: expanded ? T.gray50 : T.white,
+          background: expanded ? '#FFFBF8' : T.white,
         }}
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -421,6 +593,7 @@ function ClusterCard({ cluster }: { cluster: CrossPlatformCluster }) {
             width: 44, height: 44, borderRadius: 10,
             background: RESONANCE_COLORS[cluster.resonance]?.bg || T.gray100,
             color: RESONANCE_COLORS[cluster.resonance]?.color || T.gray500,
+            border: `1px solid ${T.gray100}`,
             display: 'flex', flexDirection: 'column',
             alignItems: 'center', justifyContent: 'center',
             flexShrink: 0,
@@ -471,7 +644,7 @@ function ClusterCard({ cluster }: { cluster: CrossPlatformCluster }) {
             <span key={i} style={{
               fontSize: 10, fontWeight: 500,
               padding: '2px 7px', borderRadius: 12,
-              background: T.gray100, color: T.gray600,
+              background: T.tealLight, color: T.teal,
               whiteSpace: 'nowrap', flexShrink: 0,
             }}>
               {label}
@@ -487,7 +660,7 @@ function ClusterCard({ cluster }: { cluster: CrossPlatformCluster }) {
       {expanded && (
         <div style={{
           padding: '10px 16px 14px',
-          background: T.gray50,
+          background: '#FFFBF8',
           borderTop: `1px solid ${T.gray100}`,
         }}>
           <ClusterCardExpanded cluster={cluster} />
@@ -604,264 +777,223 @@ function TrendingPage() {
     groupedItems[item.source].push(item);
   }
 
+  const activeLabel = tab === 'list' ? '榜单扫描' : tab === 'resonance' ? '共振发现' : '持续热度';
+  const topSources = Object.entries(groupedItems)
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, 8);
+
   return (
-    <div style={{ padding: '32px 40px', maxWidth: 1400, margin: '0 auto', paddingBottom: 80, minHeight: '100%', boxSizing: 'border-box' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: T.gray900, margin: 0 }}>
-            趋势雷达
-          </h1>
-          <p style={{ fontSize: 13, color: T.gray400, margin: '4px 0 0' }}>
-            {tab === 'list'
-              ? `多平台热搜实时榜单 · ${items.length} 条`
-              : `跨平台热点交叉发现 · ${clusters.length} 个共振话题`}
-          </p>
-        </div>
-        <button
-          onClick={handleSyncAll}
-          disabled={syncing}
-          style={{
-            padding: '8px 20px', fontSize: 13, fontWeight: 600,
-            background: syncing ? T.gray200 : T.primary, color: T.white,
-            border: 'none', borderRadius: T.radiusSm, cursor: syncing ? 'wait' : 'pointer',
-            transition: 'all 0.15s ease',
-          }}
-        >
-          {syncing ? '同步中...' : '立即刷新'}
-        </button>
-      </div>
-
-      {/* Tab Switcher */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderBottom: `2px solid ${T.gray100}` }}>
-        {[
-          { key: 'list' as const, label: '榜单' },
-          { key: 'resonance' as const, label: '共振发现' },
-          { key: 'persistent' as const, label: '持续热度' },
-        ].map(t => {
-          const active = tab === t.key;
-          return (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              style={{
-                padding: '8px 20px', fontSize: 14, fontWeight: active ? 600 : 400,
-                background: 'transparent', color: active ? T.primary : T.gray500,
-                border: 'none',
-                borderBottom: active ? `2px solid ${T.primary}` : '2px solid transparent',
-                marginBottom: -2, cursor: 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {t.label}
-              {t.key === 'resonance' && (
-                <span style={{
-                  marginLeft: 6, fontSize: 10, fontWeight: 700,
-                  background: '#FEE2E2', color: '#EF4444',
-                  padding: '1px 5px', borderRadius: 8,
-                }}>NEW</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Resonance Filter (only on resonance tab) */}
-      {tab === 'resonance' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-          <span style={{ fontSize: 13, color: T.gray500 }}>最低共振：</span>
-          {[1, 2, 3, 4, 5].map(r => {
-            const active = minResonance === r;
-            return (
-              <button
-                key={r}
-                onClick={() => setMinResonance(r)}
-                style={{
-                  padding: '4px 12px', fontSize: 12, fontWeight: active ? 600 : 400,
-                  background: active
-                    ? (RESONANCE_COLORS[r]?.bg || T.gray100)
-                    : T.white,
-                  color: active
-                    ? (RESONANCE_COLORS[r]?.color || T.gray900)
-                    : T.gray600,
-                  border: `1px solid ${active ? (RESONANCE_COLORS[r]?.color || T.primary) : T.gray200}`,
-                  borderRadius: 12, cursor: 'pointer',
-                }}
-              >
-                {r}平台+
-              </button>
-            );
-          })}
-          <span style={{ fontSize: 11, color: T.gray400, marginLeft: 4 }}>
-            共 {clusters.length} 个话题
-          </span>
-        </div>
-      )}
-
-      {/* Loading */}
-      {loading && (
-        <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-          加载中...
-        </div>
-      )}
-
-      {/* Resonance Tab Content */}
-      {!loading && tab === 'resonance' && (
-        <div>
-          {clusters.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-              暂无共振数据，切换「1平台+」试试
+    <div className="trending-page">
+      <section className="trending-hero">
+        <div className="trending-hero-grid">
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginBottom: 12 }}>
+              <span style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 11,
+                fontWeight: 900,
+                color: T.primary,
+                background: T.primaryLight,
+                border: `1px solid ${T.primaryBorder}`,
+                borderRadius: 999,
+                padding: '4px 10px',
+                fontFamily: T.mono,
+              }}>
+                <Radar size={13} strokeWidth={2.4} />
+                TREND RADAR
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: T.gray500 }}>{activeLabel}</span>
             </div>
-          ) : (
+            <h1 style={{ fontSize: 28, lineHeight: 1.12, fontWeight: 900, color: T.gray900, margin: 0 }}>
+              趋势雷达工作台
+            </h1>
+            <p style={{ fontSize: 13, lineHeight: 1.7, color: T.gray500, margin: '8px 0 0', maxWidth: 760 }}>
+              把多平台榜单、跨平台共振和持续热度放在同一个扫描台里，优先看到正在扩散、已经共振、还在持续的内容信号。
+            </p>
+          </div>
+          <button
+            onClick={handleSyncAll}
+            disabled={syncing}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 7,
+              padding: '9px 17px',
+              fontSize: 13,
+              fontWeight: 800,
+              background: syncing ? T.gray200 : T.primary,
+              color: T.white,
+              border: 'none',
+              borderRadius: T.radiusSm,
+              cursor: syncing ? 'wait' : 'pointer',
+              transition: 'all 0.15s ease',
+              whiteSpace: 'nowrap',
+              boxShadow: syncing ? 'none' : '0 10px 22px rgba(255, 107, 53, 0.18)',
+            }}
+          >
+            <RefreshCw size={14} strokeWidth={2.3} />
+            {syncing ? '同步中...' : '刷新全量'}
+          </button>
+        </div>
+        <div className="trending-stats">
+          <StatTile icon={Rss} label="信源" value={filteredSources.length || sources.length} hint="当前可扫描平台" color={T.primary} />
+          <StatTile icon={Layers3} label="样本" value={items.length} hint="榜单候选内容" color={T.teal} />
+          <StatTile icon={Activity} label="共振" value={clusters.length} hint={`最低 ${minResonance} 平台`} color={T.red} />
+          <StatTile icon={Clock3} label="持续" value={persistentTopics.length} hint="近 7 天持续话题" color={T.amber} />
+        </div>
+      </section>
+
+      <div className="trending-layout">
+        <main className="trending-main">
+          {loading && <EmptyState>加载中...</EmptyState>}
+
+          {!loading && tab === 'resonance' && (
+            clusters.length === 0 ? (
+              <EmptyState>暂无共振数据，切换「1平台+」试试</EmptyState>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {clusters.map((cluster, idx) => (
+                  <ClusterCard key={`${cluster.topic}-${idx}`} cluster={cluster} />
+                ))}
+              </div>
+            )
+          )}
+
+          {!loading && tab === 'persistent' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {clusters.map((cluster, idx) => (
-                <ClusterCard key={`${cluster.topic}-${idx}`} cluster={cluster} />
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Persistent Hot Tab Content */}
-      {!loading && tab === 'persistent' && (
-        <div>
-          <p style={{ fontSize: 13, color: T.gray500, margin: '0 0 16px 0' }}>
-            连续多天在榜的话题 = 不是昙花一现，真正值得关注 · 跨平台共振 = 社会级话题
-          </p>
-          {persistentTopics.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-              暂无持续热度数据，需积累多天快照
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {persistentTopics.map((topic, idx) => {
-                const brand0 = sourceBrand(topic.sources[0] || 'weibo');
-                return (
-                  <div key={idx} style={{
-                    display: 'flex', alignItems: 'center', gap: 16,
-                    padding: '14px 18px', background: T.white,
-                    border: `1px solid ${T.gray100}`, borderRadius: T.radiusMd,
-                  }}>
-                    {/* 在榜天数 badge */}
-                    <div style={{
-                      minWidth: 52, height: 52, borderRadius: 12,
-                      display: 'flex', flexDirection: 'column',
-                      alignItems: 'center', justifyContent: 'center',
-                      background: topic.days_on_list >= 3 ? '#FEE2E2' : topic.days_on_list >= 2 ? '#FEF3C7' : '#F0FDF4',
-                      color: topic.days_on_list >= 3 ? '#DC2626' : topic.days_on_list >= 2 ? '#D97706' : '#16A34A',
-                      fontWeight: 700, fontSize: 18, lineHeight: 1,
-                    }}>
-                      {topic.days_on_list}
-                      <span style={{ fontSize: 9, fontWeight: 500, marginTop: 2 }}>天在榜</span>
-                    </div>
-
-                    {/* 主体 */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 15, fontWeight: 600, color: T.gray800,
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {topic.title}
-                      </div>
-                      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                        {topic.sources.map(s => {
-                          const b = sourceBrand(s);
-                          return (
-                            <span key={s} style={{
-                              fontSize: 11, color: b.color, background: b.bg,
-                              padding: '2px 8px', borderRadius: 10, fontWeight: 500,
-                            }}>
-                              {SOURCE_LABELS[s] || s}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* 右侧指标 */}
-                    <div style={{ display: 'flex', gap: 20, flexShrink: 0 }}>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 18, fontWeight: 700, color: T.gray700 }}>
-                          {topic.source_count}
+              <Surface style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px', background: T.tealLight, borderColor: T.tealBorder }}>
+                <Gauge size={16} color={T.teal} strokeWidth={2.3} />
+                <span style={{ fontSize: 13, color: T.gray700, fontWeight: 700 }}>
+                  连续多天在榜的话题代表热度韧性，适合沉淀成复盘、观察和解释型选题。
+                </span>
+              </Surface>
+              {persistentTopics.length === 0 ? (
+                <EmptyState>暂无持续热度数据，需积累多天快照</EmptyState>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {persistentTopics.map((topic, idx) => {
+                    const brand0 = sourceBrand(topic.sources[0] || 'weibo');
+                    return (
+                      <div key={idx} style={{
+                        display: 'grid',
+                        gridTemplateColumns: '64px minmax(0, 1fr) auto',
+                        alignItems: 'center',
+                        gap: 16,
+                        padding: '15px 18px',
+                        background: T.white,
+                        border: `1px solid ${T.gray200}`,
+                        borderRadius: T.radius,
+                        boxShadow: '0 8px 22px rgba(15, 23, 42, 0.035)',
+                      }}>
+                        <div style={{
+                          minWidth: 58,
+                          height: 58,
+                          borderRadius: 14,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: topic.days_on_list >= 3 ? T.primaryLight : topic.days_on_list >= 2 ? T.amberLight : T.tealLight,
+                          color: topic.days_on_list >= 3 ? T.primary : topic.days_on_list >= 2 ? T.amber : T.teal,
+                          border: `1px solid ${topic.days_on_list >= 3 ? T.primaryBorder : topic.days_on_list >= 2 ? T.amberBorder : T.tealBorder}`,
+                          fontWeight: 900,
+                          fontSize: 20,
+                          lineHeight: 1,
+                          fontFamily: T.mono,
+                        }}>
+                          {topic.days_on_list}
+                          <span style={{ fontSize: 9, fontWeight: 800, marginTop: 4, fontFamily: T.sans }}>天在榜</span>
                         </div>
-                        <div style={{ fontSize: 10, color: T.gray400 }}>平台</div>
-                      </div>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 18, fontWeight: 700, color: T.gray700 }}>
-                          #{topic.best_rank || '-'}
-                        </div>
-                        <div style={{ fontSize: 10, color: T.gray400 }}>最佳排名</div>
-                      </div>
-                      {/* 排名趋势迷你图 */}
-                      {topic.rank_trend && topic.rank_trend.length > 1 && (
-                        <div style={{ width: 80, height: 36, position: 'relative' }}>
-                          <svg viewBox="0 0 80 36" style={{ width: '100%', height: '100%' }}>
-                            {(() => {
-                              const vals = topic.rank_trend.filter(v => v > 0);
-                              if (vals.length < 2) return null;
-                              const maxR = Math.max(...vals);
-                              const minR = Math.min(...vals);
-                              const range = maxR - minR || 1;
-                              const pts = vals.map((v, i) => {
-                                const x = (i / (vals.length - 1)) * 76 + 2;
-                                const y = 34 - ((v - minR) / range) * 30;
-                                return `${x},${y}`;
-                              });
+
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{
+                            fontSize: 15,
+                            fontWeight: 800,
+                            color: T.gray900,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}>
+                            {topic.title}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, marginTop: 7, flexWrap: 'wrap' }}>
+                            {topic.sources.map(s => {
+                              const b = sourceBrand(s);
                               return (
-                                <polyline
-                                  points={pts.join(' ')}
-                                  fill="none" stroke={brand0.color}
-                                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                                />
+                                <span key={s} style={{
+                                  fontSize: 11,
+                                  color: b.color,
+                                  background: b.bg,
+                                  padding: '2px 8px',
+                                  borderRadius: 10,
+                                  fontWeight: 700,
+                                }}>
+                                  {SOURCE_LABELS[s] || s}
+                                </span>
                               );
-                            })()}
-                          </svg>
+                            })}
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0 }}>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: 18, fontWeight: 900, color: T.gray800, fontFamily: T.mono }}>
+                              {topic.source_count}
+                            </div>
+                            <div style={{ fontSize: 10, color: T.gray400 }}>平台</div>
+                          </div>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: 18, fontWeight: 900, color: T.gray800, fontFamily: T.mono }}>
+                              #{topic.best_rank || '-'}
+                            </div>
+                            <div style={{ fontSize: 10, color: T.gray400 }}>最佳</div>
+                          </div>
+                          {topic.rank_trend && topic.rank_trend.length > 1 && (
+                            <div style={{ width: 84, height: 38, position: 'relative' }}>
+                              <svg viewBox="0 0 84 38" style={{ width: '100%', height: '100%' }}>
+                                {(() => {
+                                  const vals = topic.rank_trend.filter(v => v > 0);
+                                  if (vals.length < 2) return null;
+                                  const maxR = Math.max(...vals);
+                                  const minR = Math.min(...vals);
+                                  const range = maxR - minR || 1;
+                                  const pts = vals.map((v, i) => {
+                                    const x = (i / (vals.length - 1)) * 78 + 3;
+                                    const y = 35 - ((v - minR) / range) * 30;
+                                    return `${x},${y}`;
+                                  });
+                                  return (
+                                    <polyline
+                                      points={pts.join(' ')}
+                                      fill="none"
+                                      stroke={brand0.color}
+                                      strokeWidth="2"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  );
+                                })()}
+                              </svg>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
 
-      {/* Category Filter (only on list tab) */}
-      {!loading && tab === 'list' && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-          {CATEGORIES.map(c => {
-            const active = selectedCategory === c.value;
-            const catColor = c.value ? (CATEGORY_COLORS[c.value] || { bg: T.gray100, color: T.gray600 }) : { bg: T.primaryLight, color: T.primary };
-            return (
-              <button
-                key={c.value}
-                onClick={() => setSelectedCategory(c.value)}
-                style={{
-                  padding: '4px 14px', fontSize: 12, fontWeight: active ? 600 : 400,
-                  background: active ? (catColor.bg) : T.white,
-                  color: active ? (catColor.color) : T.gray600,
-                  border: `1px solid ${active ? (catColor.color) : T.gray200}`,
-                  borderRadius: 14, cursor: 'pointer',
-                  transition: 'all 0.12s ease',
-                }}
-              >
-                {c.label}
-              </button>
-            );
-          })}
-          <span style={{ fontSize: 11, color: T.gray400, marginLeft: 4 }}>
-            {Object.keys(groupedItems).length} 个信源 · {items.length} 条
-          </span>
-        </div>
-      )}
+          {!loading && tab === 'list' && items.length === 0 && (
+            <EmptyState>暂无趋势数据，点击右上角「刷新全量」同步</EmptyState>
+          )}
 
-      {/* List Tab Content: NewsNow-style card grid */}
-      {!loading && tab === 'list' && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))',
-          gap: 16,
-          alignContent: 'start',
-        }}>
+          {!loading && tab === 'list' && items.length > 0 && (
+            <div className="trending-source-grid">
           {Object.entries(groupedItems).map(([source, srcItems]) => {
             const brand = sourceBrand(source);
             const sourceInfo = sources.find(s => s.source === source);
@@ -910,14 +1042,6 @@ function TrendingPage() {
                   <span style={{ fontSize: 13, fontWeight: 700, color: brand.color, flex: 1 }}>
                     {SOURCE_LABELS[source] || source}
                   </span>
-                  {/* Category tag */}
-                  <span style={{
-                    fontSize: 9, fontWeight: 600,
-                    background: T.white, color: brand.color,
-                    padding: '2px 6px', borderRadius: 6,
-                    textTransform: 'uppercase', letterSpacing: '0.04em',
-                  }}>
-                  </span>
                   {/* Count badge */}
                   <span style={{
                     fontSize: 9, color: brand.color,
@@ -932,7 +1056,6 @@ function TrendingPage() {
                       e.stopPropagation();
                       const btn = e.currentTarget as HTMLButtonElement;
                       btn.disabled = true;
-                      btn.textContent = '...';
                       try {
                         const res = await fetch(`/api/v1/trending/sync/${source}`, { method: 'POST' });
                         const data = await res.json();
@@ -941,17 +1064,24 @@ function TrendingPage() {
                         }
                       } finally {
                         btn.disabled = false;
-                        btn.textContent = '↻';
                       }
                     }}
                     style={{
-                      fontSize: 12, color: brand.color, background: T.white,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: 24,
+                      height: 22,
+                      color: brand.color,
+                      background: T.white,
                       border: `1px solid ${T.gray200}`, borderRadius: 6,
-                      cursor: 'pointer', padding: '1px 6px', lineHeight: '18px',
-                      fontWeight: 700,
+                      cursor: 'pointer',
+                      padding: 0,
                     }}
                     title="刷新此榜单"
-                  >↻</button>
+                  >
+                    <RefreshCw size={12} strokeWidth={2.2} />
+                  </button>
                   {/* Last synced time */}
                   {lastSynced && (
                     <span style={{
@@ -1035,15 +1165,169 @@ function TrendingPage() {
               </div>
             );
           })}
-        </div>
-      )}
+            </div>
+          )}
+        </main>
 
-      {/* Empty */}
-      {!loading && tab === 'list' && items.length === 0 && (
-        <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-          暂无趋势数据，点击右上角「立即刷新」同步
-        </div>
-      )}
+        <aside className="trending-sidebar">
+          <Surface>
+            <PanelTitle icon={BarChart3} title="视图切换" hint={activeLabel} />
+            <div style={{ display: 'grid', gap: 8 }}>
+              {[
+                { key: 'list' as const, label: '榜单扫描', desc: '按信源查看实时榜单' },
+                { key: 'resonance' as const, label: '共振发现', desc: '同一主题跨平台出现' },
+                { key: 'persistent' as const, label: '持续热度', desc: '多天仍在扩散的话题' },
+              ].map(t => {
+                const active = tab === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    onClick={() => setTab(t.key)}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '10px 11px',
+                      borderRadius: T.radiusSm,
+                      border: `1px solid ${active ? T.primaryBorder : T.gray200}`,
+                      background: active ? T.primaryLight : T.white,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: active ? T.primary : T.gray800 }}>{t.label}</span>
+                      {active && <span style={{ width: 7, height: 7, borderRadius: 999, background: T.primary }} />}
+                    </div>
+                    <div style={{ marginTop: 3, fontSize: 11, lineHeight: 1.45, color: T.gray400 }}>{t.desc}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </Surface>
+
+          {tab === 'list' && (
+            <Surface>
+              <PanelTitle icon={Filter} title="榜单筛选" hint={`${Object.keys(groupedItems).length} 个信源`} />
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 13 }}>
+                {CATEGORIES.map(c => {
+                  const active = selectedCategory === c.value;
+                  const catColor = c.value ? (CATEGORY_COLORS[c.value] || { bg: T.gray100, color: T.gray600 }) : { bg: T.primaryLight, color: T.primary };
+                  return (
+                    <button
+                      key={c.value}
+                      onClick={() => {
+                        setSelectedCategory(c.value);
+                        setSelectedSource('');
+                      }}
+                      style={{
+                        padding: '5px 10px',
+                        fontSize: 12,
+                        fontWeight: active ? 800 : 600,
+                        background: active ? catColor.bg : T.white,
+                        color: active ? catColor.color : T.gray600,
+                        border: `1px solid ${active ? catColor.color : T.gray200}`,
+                        borderRadius: 999,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {c.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 270, overflowY: 'auto' }}>
+                {filteredSources.slice(0, 16).map(src => {
+                  const brand = sourceBrand(src.source);
+                  const active = selectedSource === src.source;
+                  return (
+                    <button
+                      key={src.source}
+                      onClick={() => setSelectedSource(active ? '' : src.source)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        width: '100%',
+                        padding: '7px 8px',
+                        borderRadius: T.radiusXs,
+                        border: `1px solid ${active ? brand.color : T.gray100}`,
+                        background: active ? brand.bg : T.gray50,
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                      }}
+                    >
+                      <span style={{ width: 8, height: 8, borderRadius: 999, background: brand.color, flexShrink: 0 }} />
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: T.gray700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {brand.label}
+                      </span>
+                      <span style={{ fontSize: 10, color: T.gray400, fontFamily: T.mono }}>
+                        {(groupedItems[src.source] || []).length}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Surface>
+          )}
+
+          {tab === 'resonance' && (
+            <Surface>
+              <PanelTitle icon={Activity} title="共振阈值" hint={`${clusters.length} 个话题`} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 7 }}>
+                {[1, 2, 3, 4, 5].map(r => {
+                  const active = minResonance === r;
+                  return (
+                    <button
+                      key={r}
+                      onClick={() => setMinResonance(r)}
+                      style={{
+                        padding: '8px 0',
+                        fontSize: 12,
+                        fontWeight: active ? 900 : 700,
+                        background: active ? (RESONANCE_COLORS[r]?.bg || T.gray100) : T.white,
+                        color: active ? (RESONANCE_COLORS[r]?.color || T.gray900) : T.gray500,
+                        border: `1px solid ${active ? (RESONANCE_COLORS[r]?.color || T.primary) : T.gray200}`,
+                        borderRadius: T.radiusXs,
+                        cursor: 'pointer',
+                        fontFamily: T.mono,
+                      }}
+                    >
+                      {r}+
+                    </button>
+                  );
+                })}
+              </div>
+              <p style={{ fontSize: 11, color: T.gray400, lineHeight: 1.6, margin: '12px 0 0' }}>
+                阈值越高，越偏向社会级话题；阈值越低，更适合捕捉早期扩散苗头。
+              </p>
+            </Surface>
+          )}
+
+          <Surface>
+            <PanelTitle icon={Rss} title="信源构成" hint={`${items.length} 条`} />
+            {topSources.length === 0 ? (
+              <div style={{ fontSize: 12, color: T.gray400 }}>暂无样本</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {topSources.map(([source, srcItems]) => {
+                  const brand = sourceBrand(source);
+                  const width = Math.max(8, Math.round((srcItems.length / Math.max(items.length, 1)) * 100));
+                  return (
+                    <div key={source}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: T.gray700 }}>{brand.label}</span>
+                        <span style={{ fontSize: 11, color: T.gray400, fontFamily: T.mono }}>{srcItems.length}</span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 999, background: T.gray100, overflow: 'hidden' }}>
+                        <div style={{ width: `${width}%`, height: '100%', borderRadius: 999, background: brand.color }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Surface>
+        </aside>
+      </div>
     </div>
   );
 }

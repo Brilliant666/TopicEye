@@ -360,49 +360,68 @@ function LeadPick({
     <section style={{
       position: 'relative',
       overflow: 'hidden',
-      background: '#111827',
-      color: T.white,
+      background: T.white,
+      color: T.gray900,
       borderRadius: T.radius,
-      border: '1px solid #1F2937',
+      border: `1px solid ${T.gray200}`,
       padding: '22px 24px',
       marginBottom: 16,
-      boxShadow: '0 18px 50px rgba(15, 23, 42, 0.16)',
+      boxShadow: '0 16px 38px rgba(15, 23, 42, 0.06)',
     }}>
+      <div style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        bottom: 0,
+        width: 4,
+        background: `linear-gradient(180deg, ${T.primary}, ${T.teal})`,
+      }} />
       <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 110px', gap: 20 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 800, color: '#FDBA74' }}>
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              fontSize: 11,
+              fontWeight: 800,
+              color: T.primary,
+              background: T.primaryLight,
+              border: `1px solid ${T.primaryBorder}`,
+              padding: '3px 8px',
+              borderRadius: 999,
+            }}>
               <Flame size={13} /> 今日主推
             </span>
-            <span style={{ fontSize: 11, color: '#94A3B8' }}>{item.source_name}</span>
+            <span style={{ fontSize: 11, color: T.gray500 }}>{item.source_name}</span>
             {tags.slice(0, 3).map((tag) => (
-              <span key={tag} style={{ fontSize: 10, fontWeight: 700, color: '#CBD5E1', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', padding: '2px 7px', borderRadius: 999 }}>
+              <span key={tag} style={{ fontSize: 10, fontWeight: 700, color: T.gray600, background: T.gray50, border: `1px solid ${T.gray200}`, padding: '2px 7px', borderRadius: 999 }}>
                 {tag}
               </span>
             ))}
           </div>
-          <h2 style={{ fontSize: 23, lineHeight: 1.38, fontWeight: 900, marginBottom: 10 }}>
+          <h2 style={{ fontSize: 23, lineHeight: 1.38, fontWeight: 900, marginBottom: 10, color: T.gray900 }}>
             {item.title}
           </h2>
           {recommendation && (
-            <p style={{ fontSize: 13, lineHeight: 1.75, color: '#CBD5E1', maxWidth: 680 }}>
+            <p style={{ fontSize: 13, lineHeight: 1.75, color: T.gray600, maxWidth: 680 }}>
               {recommendation}
             </p>
           )}
-          <PickActions item={item} analysis={analysis} isFav={isFav} onFav={onFav} onOpen={onOpen} dark />
+          <PickActions item={item} analysis={analysis} isFav={isFav} onFav={onFav} onOpen={onOpen} />
         </div>
         <div style={{
           alignSelf: 'stretch',
-          border: '1px solid rgba(255,255,255,0.12)',
+          border: `1px solid ${T.primaryBorder}`,
           borderRadius: T.radiusSm,
-          background: 'rgba(255,255,255,0.07)',
+          background: T.primaryLight,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
         }}>
-          <div style={{ fontSize: 11, color: '#94A3B8', marginBottom: 5 }}>SCORE</div>
-          <div style={{ fontSize: 40, fontWeight: 900, fontFamily: T.mono, color: '#FDBA74' }}>{Math.round(score)}</div>
+          <div style={{ fontSize: 11, color: T.gray500, marginBottom: 5 }}>SCORE</div>
+          <div style={{ fontSize: 40, fontWeight: 900, fontFamily: T.mono, color: T.primary }}>{Math.round(score)}</div>
         </div>
       </div>
     </section>

@@ -5,6 +5,7 @@ import re
 import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
@@ -12,7 +13,7 @@ from app.core.exceptions import NotFoundError
 from app.models.source import Source, SourceType, SourceStatus
 from app.schemas.source import (
     SourceCreate, SourceUpdate, SourceResponse, SourceListResponse,
-    SyncResultResponse,
+    SourceReorderRequest, SyncResultResponse,
 )
 from app.repositories.source_repo import SourceRepository
 from app.services.content_pipeline import ingest_from_source
@@ -23,7 +24,11 @@ router = APIRouter(prefix="/sources", tags=["sources"])
 @router.post("", response_model=SourceResponse, status_code=201)
 async def create_source(data: SourceCreate, db: AsyncSession = Depends(get_db)):
     repo = SourceRepository(db)
-    return await repo.create(**data.model_dump())
+    payload = data.model_dump()
+    if payload.get("sort_order") is None:
+        max_order = await db.scalar(select(func.max(Source.sort_order)))
+        payload["sort_order"] = (max_order or 0) + 10
+    return await repo.create(**payload)
 
 
 @router.get("", response_model=SourceListResponse)
@@ -48,9 +53,29 @@ async def list_sources(
     items, total = await repo.list_paginated(
         page=page, page_size=page_size,
         filters={k: v for k, v in filters.items() if v is not None},
-        sort_by="created_at", sort_order="desc",
+        sort_by="sort_order", sort_order="asc",
     )
     return SourceListResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.post("/reorder")
+async def reorder_sources(data: SourceReorderRequest, db: AsyncSession = Depends(get_db)):
+    """Persist source order for one kanban lane or the current ordered subset."""
+    unique_ids = list(dict.fromkeys(data.ordered_ids))
+    if not unique_ids:
+        raise HTTPException(status_code=400, detail="ordered_ids cannot be empty")
+
+    result = await db.execute(select(Source).where(Source.id.in_(unique_ids)))
+    sources_by_id = {source.id: source for source in result.scalars().all()}
+    missing_ids = [source_id for source_id in unique_ids if source_id not in sources_by_id]
+    if missing_ids:
+        raise HTTPException(status_code=404, detail=f"Sources not found: {missing_ids}")
+
+    for index, source_id in enumerate(unique_ids):
+        sources_by_id[source_id].sort_order = (index + 1) * 10
+
+    await db.flush()
+    return {"message": "信源顺序已保存", "updated": len(unique_ids)}
 
 
 @router.post("/import-opml")

@@ -40,6 +40,7 @@ class Source(Base):
     platform: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     weight: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(Enum(SourceStatus), nullable=False, default=SourceStatus.ACTIVE)
     last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     fetch_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)

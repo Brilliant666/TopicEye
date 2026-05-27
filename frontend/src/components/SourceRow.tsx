@@ -15,6 +15,7 @@ export interface BackendSource {
   platform?: string;
   category: string;
   weight: number;
+  sort_order?: number;
   fetch_interval_minutes: number;
   status: string;
   last_sync_at: string | null;

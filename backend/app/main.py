@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import logging
+from sqlalchemy import text
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -27,12 +28,25 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+async def ensure_source_sort_order_column(conn) -> None:
+    """SQLite create_all does not add columns to existing tables."""
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return
+
+    result = await conn.execute(text("PRAGMA table_info(sources)"))
+    columns = {row[1] for row in result.fetchall()}
+    if "sort_order" not in columns:
+        await conn.execute(text("ALTER TABLE sources ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"))
+    await conn.execute(text("UPDATE sources SET sort_order = id * 10 WHERE sort_order = 0 OR sort_order IS NULL"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create all SQLite tables
     if settings.AUTO_CREATE_TABLES_ON_STARTUP:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await ensure_source_sort_order_column(conn)
     else:
         logger.info("Startup table creation skipped by config")
 

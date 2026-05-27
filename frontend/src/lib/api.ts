@@ -92,6 +92,14 @@ export const sourcesApi = {
     });
   },
 
+  /** 保存信源排序（用于信源地图看板拖拽） */
+  reorder(ordered_ids: number[]): Promise<{ message: string; updated: number }> {
+    return request('/sources/reorder', {
+      method: 'POST',
+      body: JSON.stringify({ ordered_ids }),
+    });
+  },
+
   /** 删除信源 */
   delete(id: number): Promise<void> {
     return request(`/sources/${id}`, { method: 'DELETE' });

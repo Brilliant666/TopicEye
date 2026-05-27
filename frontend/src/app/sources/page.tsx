@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { List, Network, Plus, Upload } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import { sourcesApi, settingsApi } from '@/lib/api';
-import type { RSSHubInstance, CreateSourceRequest } from '@/lib/api';
+import type { RSSHubInstance, CreateSourceRequest, UpdateSourceRequest } from '@/lib/api';
 import { timeAgo } from '@/lib/utils';
 import SourceForm, { FormState, emptyForm } from '@/components/SourceForm';
 import SourceRowComponent, { type BackendSource } from '@/components/SourceRow';
@@ -13,6 +13,7 @@ import { Spinner } from '@/components/SourceRow';
 // ─── Page Component ───
 
 type SourceTierKey = 'core' | 'stable' | 'watch' | 'attention';
+type DropTarget = { tier: SourceTierKey; beforeId: number | null };
 
 const sourceTierMeta: Record<SourceTierKey, { label: string; desc: string; color: string; bg: string }> = {
   core: { label: '核心信源', desc: '高权重、正常采集，影响精选排序', color: T.primary, bg: T.primaryLight },
@@ -44,6 +45,7 @@ function SourceMapView({
   syncingIds,
   onEdit,
   onSync,
+  onMove,
 }: {
   sourceMap: {
     tiers: Record<SourceTierKey, BackendSource[]>;
@@ -55,8 +57,31 @@ function SourceMapView({
   syncingIds: Set<number>;
   onEdit: (source: BackendSource) => void;
   onSync: (id: number) => void;
+  onMove: (source: BackendSource, targetTier: SourceTierKey, orderedIds: number[]) => void;
 }) {
   const tierKeys: SourceTierKey[] = ['core', 'stable', 'watch', 'attention'];
+  const [draggedId, setDraggedId] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+
+  const handleDrop = (targetTier: SourceTierKey, beforeId: number | null) => {
+    if (!draggedId) return;
+    const allSources = Object.values(sourceMap.tiers).flatMap((items) => items);
+    const draggedSource = allSources.find((item) => item.id === draggedId);
+    if (!draggedSource) return;
+
+    const targetItems = sourceMap.tiers[targetTier].filter((item) => item.id !== draggedId);
+    const beforeIndex = beforeId === null ? -1 : targetItems.findIndex((item) => item.id === beforeId);
+    const nextItems = [...targetItems];
+    if (beforeIndex >= 0) {
+      nextItems.splice(beforeIndex, 0, draggedSource);
+    } else {
+      nextItems.push(draggedSource);
+    }
+
+    onMove(draggedSource, targetTier, nextItems.map((item) => item.id));
+    setDropTarget(null);
+    setDraggedId(null);
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -102,8 +127,9 @@ function SourceMapView({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
         {tierKeys.map((key) => {
           const meta = sourceTierMeta[key];
+          const isDragOver = dropTarget?.tier === key;
           return (
-            <section key={key} style={{ minWidth: 0, display: 'flex', flexDirection: 'column', maxHeight: 'min(620px, calc(100vh - 360px))' }}>
+            <section key={key} style={{ minWidth: 0, display: 'flex', flexDirection: 'column', height: 'clamp(420px, calc(100vh - 300px), 760px)' }}>
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -117,6 +143,21 @@ function SourceMapView({
               </div>
               <div
                 className="source-map-column-scroll"
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  if (dropTarget?.tier !== key || dropTarget.beforeId !== null) {
+                    setDropTarget({ tier: key, beforeId: null });
+                  }
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                    setDropTarget(null);
+                  }
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  handleDrop(key, null);
+                }}
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
@@ -125,10 +166,51 @@ function SourceMapView({
                   minHeight: 180,
                   paddingRight: 4,
                   overscrollBehavior: 'contain',
+                  border: `1px dashed ${isDragOver ? meta.color : 'transparent'}`,
+                  borderRadius: T.radiusSm,
+                  background: isDragOver ? meta.bg : 'transparent',
+                  padding: isDragOver ? 8 : '0 4px 0 0',
+                  transition: 'background 0.15s, border-color 0.15s, padding 0.15s',
                 }}
               >
                 {sourceMap.tiers[key].map((source) => (
-                  <div key={source.id} style={{ background: T.white, border: `1px solid ${source.sync_error ? T.redLight : T.gray200}`, borderRadius: T.radiusSm, padding: 12 }}>
+                  <div
+                    key={source.id}
+                    draggable
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      if (draggedId !== source.id) {
+                        setDropTarget({ tier: key, beforeId: source.id });
+                      }
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      handleDrop(key, source.id);
+                    }}
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData('text/plain', String(source.id));
+                      event.dataTransfer.effectAllowed = 'move';
+                      setDraggedId(source.id);
+                    }}
+                    onDragEnd={() => {
+                      setDraggedId(null);
+                      setDropTarget(null);
+                    }}
+                    style={{
+                      background: T.white,
+                      border: `1px solid ${source.sync_error ? T.redLight : T.gray200}`,
+                      borderRadius: T.radiusSm,
+                      padding: 12,
+                      cursor: 'grab',
+                      opacity: draggedId === source.id ? 0.45 : 1,
+                      boxShadow: draggedId === source.id ? '0 8px 20px rgba(15, 23, 42, 0.12)' : 'none',
+                      borderTopColor: dropTarget?.tier === key && dropTarget.beforeId === source.id ? meta.color : undefined,
+                      borderTopWidth: dropTarget?.tier === key && dropTarget.beforeId === source.id ? 3 : 1,
+                    }}
+                    title="拖动到其他分组可调整信源等级"
+                  >
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.gray800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{source.name}</div>
@@ -478,6 +560,44 @@ export default function SourcesPage() {
     }
   };
 
+  const handleMoveSourceTier = async (source: BackendSource, targetTier: SourceTierKey, orderedIds: number[]) => {
+    const currentTier = getSourceTier(source);
+    const orderLookup = new Map(orderedIds.map((id, index) => [id, (index + 1) * 10]));
+
+    const patchByTier: Record<SourceTierKey, UpdateSourceRequest> = {
+      core: { weight: 5, enabled: true, status: 'active', sync_error: null },
+      stable: { weight: 3, enabled: true, status: 'active', sync_error: null },
+      watch: { weight: 1, enabled: true, status: 'active', sync_error: null },
+      attention: { enabled: false, status: 'disabled' },
+    };
+    const patch = currentTier === targetTier ? {} : patchByTier[targetTier];
+    const applyPatch = (item: BackendSource) => {
+      const sort_order = orderLookup.get(item.id);
+      const tierPatch = item.id === source.id ? patch : {};
+      return sort_order !== undefined || item.id === source.id
+        ? { ...item, ...tierPatch, ...(sort_order !== undefined ? { sort_order } : {}) }
+        : item;
+    };
+    const previousSources = sources;
+    const previousMapSources = mapSources;
+
+    setSources((prev) => prev.map(applyPatch));
+    setMapSources((prev) => prev.map(applyPatch));
+
+    try {
+      if (currentTier !== targetTier) {
+        await sourcesApi.update(source.id, patch);
+      }
+      await sourcesApi.reorder(orderedIds);
+      await fetchSources(page);
+      await fetchSourceMap();
+    } catch (err: unknown) {
+      setSources(previousSources);
+      setMapSources(previousMapSources);
+      setError(err instanceof Error ? err.message : '移动信源分组失败');
+    }
+  };
+
   // ─── Stats ───
   const activeCount = sources.filter((s) => s.status === 'active' && s.enabled).length;
   const sourceMap = useMemo(() => {
@@ -499,8 +619,8 @@ export default function SourcesPage() {
     const sortEntries = (entries: [string, number][]) => entries.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     Object.values(tiers).forEach((items) => {
       items.sort((a, b) => {
-        const weightDiff = (b.weight ?? 3) - (a.weight ?? 3);
-        if (weightDiff !== 0) return weightDiff;
+        const orderDiff = (a.sort_order ?? a.id * 10) - (b.sort_order ?? b.id * 10);
+        if (orderDiff !== 0) return orderDiff;
         return a.name.localeCompare(b.name);
       });
     });
@@ -670,6 +790,7 @@ export default function SourcesPage() {
           syncingIds={syncingIds}
           onEdit={openEditModal}
           onSync={handleSync}
+          onMove={handleMoveSourceTier}
         />
       )}
 

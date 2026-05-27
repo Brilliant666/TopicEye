@@ -14,6 +14,7 @@ class SourceCreate(BaseModel):
     platform: Optional[str] = None
     category: Optional[str] = None
     weight: int = Field(default=3, ge=1, le=5)
+    sort_order: Optional[int] = Field(default=None, ge=0)
     fetch_interval_minutes: int = Field(default=60, ge=5, le=1440)
     enabled: bool = True
 
@@ -26,8 +27,10 @@ class SourceUpdate(BaseModel):
     platform: Optional[str] = None
     category: Optional[str] = None
     weight: Optional[int] = Field(default=None, ge=1, le=5)
+    sort_order: Optional[int] = Field(default=None, ge=0)
     fetch_interval_minutes: Optional[int] = Field(default=None, ge=5, le=1440)
     status: Optional[SourceStatus] = None
+    sync_error: Optional[str] = None
     enabled: Optional[bool] = None
 
 
@@ -40,6 +43,7 @@ class SourceResponse(BaseModel):
     platform: Optional[str] = None
     category: Optional[str] = None
     weight: int
+    sort_order: int
     fetch_interval_minutes: int
     status: str
     last_sync_at: Optional[datetime] = None
@@ -56,6 +60,10 @@ class SourceListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class SourceReorderRequest(BaseModel):
+    ordered_ids: list[int] = Field(..., min_length=1)
 
 
 class SyncResultResponse(BaseModel):

@@ -17,6 +17,7 @@ export interface Source {
   platform?: string | null;
   category: string;
   weight: number; // 1-5
+  sort_order?: number;
   status: SourceStatus;
   last_sync_at: string;
   sync_error?: string | null;
@@ -31,6 +32,7 @@ export interface CreateSourceRequest {
   url: string;
   category: string;
   enabled?: boolean;
+  sort_order?: number;
 }
 
 export interface UpdateSourceRequest {
@@ -38,8 +40,10 @@ export interface UpdateSourceRequest {
   url?: string;
   category?: string;
   weight?: number;
+  sort_order?: number;
   fetch_interval_minutes?: number;
   status?: SourceStatus;
+  sync_error?: string | null;
   enabled?: boolean;
 }
 

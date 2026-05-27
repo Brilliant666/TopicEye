@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import {
   statsApi,
@@ -10,8 +11,6 @@ import {
   type StatsTrendItem,
   type StatsNovelPlatform,
 } from '@/lib/api';
-import { useAppContext } from '@/components/ClientLayout';
-import Header from '@/components/Header';
 
 // ── Color helpers ──────────────────────────────────────────────
 const BAR_COLORS = [T.primary, T.teal, T.purple, T.amber, '#6366F1', '#EC4899', '#14B8A6', '#F59E0B'];
@@ -118,7 +117,6 @@ function AreaChart({ data }: { data: StatsTrendItem[] }) {
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 120, marginBottom: 8 }}>
         {data.map((day, i) => {
           const totalPct = (day.content_count / maxCount) * 100;
-          const curatedPct = maxCount > 0 ? (day.curated_count / maxCount) * 100 : 0;
           return (
             <div
               key={i}
@@ -199,13 +197,45 @@ function Card({ title, children, style }: { title: string; children: React.React
       style={{
         background: T.white,
         border: `1px solid ${T.gray200}`,
-        borderRadius: 12,
+        borderRadius: T.radiusSm,
         padding: 20,
         ...style,
       }}
     >
-      <div style={{ fontSize: 14, fontWeight: 600, color: T.gray700, marginBottom: 16 }}>{title}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: T.gray800, marginBottom: 16 }}>{title}</div>
       {children}
+    </div>
+  );
+}
+
+function KpiCard({
+  label,
+  value,
+  unit,
+  color,
+  sub,
+}: {
+  label: string;
+  value: number;
+  unit: string;
+  color: string;
+  sub: string;
+}) {
+  return (
+    <div
+      style={{
+        background: T.white,
+        border: `1px solid ${T.gray200}`,
+        borderRadius: T.radiusSm,
+        padding: '16px 18px',
+      }}
+    >
+      <div style={{ fontSize: 12, color: T.gray500, marginBottom: 8 }}>{label}</div>
+      <div style={{ fontSize: 28, fontWeight: 800, color, fontFamily: T.mono, lineHeight: 1.05 }}>
+        {value}
+        <span style={{ fontSize: 13, fontWeight: 500, marginLeft: 4, color: T.gray400 }}>{unit}</span>
+      </div>
+      <div style={{ fontSize: 11, color: T.gray400, marginTop: 6 }}>{sub}</div>
     </div>
   );
 }
@@ -213,7 +243,6 @@ function Card({ title, children, style }: { title: string; children: React.React
 // ── Main page ──────────────────────────────────────────────────
 
 export default function StatsPage() {
-  const { topicCount: _topicCount } = useAppContext(); // eslint-disable-line @typescript-eslint/no-unused-vars
   const [days, setDays] = useState(7);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -252,8 +281,6 @@ export default function StatsPage() {
     fetchAll();
   }, [fetchAll]);
 
-  const dateStr = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
-
   const curatedRate = overview && overview.total > 0 ? Math.round((overview.curated / overview.total) * 100) : 0;
 
   // ── Donut chart approximation via CSS ──
@@ -265,8 +292,7 @@ export default function StatsPage() {
     // Build a horizontal stacked bar as a "pie" approximation
     return (
       <div>
-        {/* Stacked bar */}
-        <div style={{ display: 'flex', height: 28, borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
+        <div style={{ display: 'flex', height: 18, borderRadius: 4, overflow: 'hidden', marginBottom: 14 }}>
           {sources.map((src, i) => {
             const pct = (src.content_count / total) * 100;
             if (pct < 0.5) return null;
@@ -297,7 +323,7 @@ export default function StatsPage() {
                   flexShrink: 0,
                 }}
               />
-              <span style={{ color: T.gray600 }}>{src.source_name}</span>
+              <span style={{ color: T.gray600, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{src.source_name}</span>
               <span style={{ fontFamily: T.mono, color: T.gray400, fontSize: 11 }}>{src.content_count}</span>
             </div>
           ))}
@@ -307,48 +333,54 @@ export default function StatsPage() {
   }
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto' }}>
-      <div style={{ maxWidth: 860, margin: '0 auto', padding: '24px 20px' }}>
-        <Header title="数据统计" subtitle={`统计周期：最近 ${days} 天`} date={dateStr} />
-
-        {/* ── Time range selector ── */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
-          {[7, 14, 30].map(d => (
+    <div style={{ flex: 1, overflowY: 'auto', background: T.bg }}>
+      <div style={{ padding: '30px 40px 40px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 20, marginBottom: 22 }}>
+          <div>
+            <h1 style={{ fontSize: 26, fontWeight: 800, color: T.gray900, marginBottom: 6 }}>数据统计</h1>
+            <p style={{ fontSize: 13, color: T.gray500 }}>
+              内容入库、精选效率、信源结构和分类覆盖。
+            </p>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {[7, 14, 30].map(d => (
+              <button
+                key={d}
+                onClick={() => setDays(d)}
+                style={{
+                  padding: '7px 12px',
+                  borderRadius: T.radiusSm,
+                  border: `1px solid ${days === d ? T.primary : T.gray200}`,
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  background: days === d ? T.primaryLight : T.white,
+                  color: days === d ? T.primary : T.gray600,
+                  transition: 'all 0.15s',
+                }}
+              >
+                {d} 天
+              </button>
+            ))}
             <button
-              key={d}
-              onClick={() => setDays(d)}
+              onClick={fetchAll}
+              title="刷新"
               style={{
-                padding: '4px 14px',
-                borderRadius: 20,
-                border: 'none',
+                width: 34,
+                height: 34,
+                borderRadius: T.radiusSm,
+                border: `1px solid ${T.gray200}`,
                 cursor: 'pointer',
-                fontSize: 13,
-                fontWeight: days === d ? 600 : 400,
-                background: days === d ? T.primary : T.gray100,
-                color: days === d ? T.white : T.gray600,
-                transition: 'all 0.15s',
+                background: T.white,
+                color: T.gray600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
             >
-              {d} 天
+              <RefreshCw size={15} />
             </button>
-          ))}
-          <button
-            onClick={fetchAll}
-            style={{
-              marginLeft: 'auto',
-              padding: '4px 14px',
-              borderRadius: 20,
-              border: `1px solid ${T.gray200}`,
-              cursor: 'pointer',
-              fontSize: 13,
-              fontWeight: 400,
-              background: T.white,
-              color: T.gray600,
-              transition: 'all 0.15s',
-            }}
-          >
-            刷新
-          </button>
+          </div>
         </div>
 
         {loading && (
@@ -366,7 +398,7 @@ export default function StatsPage() {
             {/* ═══════════════════════════════════════════════════
                 A. 内容总览 KPI Cards
                 ═══════════════════════════════════════════════════ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
               {[
                 {
                   label: '总内容数',
@@ -396,30 +428,13 @@ export default function StatsPage() {
                   color: T.purple,
                   sub: `${overview?.curated ?? 0} / ${overview?.total ?? 0}`,
                 },
-              ].map(card => (
-                <div
-                  key={card.label}
-                  style={{
-                    background: T.white,
-                    border: `1px solid ${T.gray200}`,
-                    borderRadius: 12,
-                    padding: '16px 18px',
-                  }}
-                >
-                  <div style={{ fontSize: 12, color: T.gray500, marginBottom: 6 }}>{card.label}</div>
-                  <div style={{ fontSize: 28, fontWeight: 700, color: card.color, fontFamily: T.mono, lineHeight: 1.1 }}>
-                    {card.value}
-                    <span style={{ fontSize: 14, fontWeight: 400, marginLeft: 2, color: T.gray400 }}>{card.unit}</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: T.gray400, marginTop: 4 }}>{card.sub}</div>
-                </div>
-              ))}
+              ].map(card => <KpiCard key={card.label} {...card} />)}
             </div>
 
             {/* ═══════════════════════════════════════════════════
                 B. 信源分布 + C. 分类分布 (side by side)
                 ═══════════════════════════════════════════════════ */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 14, marginBottom: 14, alignItems: 'start' }}>
               {/* B. 信源分布 */}
               <Card title="信源分布">
                 <SourcePieChart />
@@ -504,7 +519,7 @@ export default function StatsPage() {
             {/* ═══════════════════════════════════════════════════
                 D. 时间趋势
                 ═══════════════════════════════════════════════════ */}
-            <Card title="每日入库趋势" style={{ marginBottom: 24 }}>
+            <Card title="每日入库趋势" style={{ marginBottom: 14 }}>
               <div style={{ display: 'flex', gap: 16, marginBottom: 12, fontSize: 11, color: T.gray500 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: T.gray200 }} />

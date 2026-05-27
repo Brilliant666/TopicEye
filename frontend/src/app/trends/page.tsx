@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { BarChart3, Loader2, Tags } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 
 /* ── Types ── */
@@ -225,7 +226,15 @@ export default function TrendsPage() {
                 transition: 'all 0.15s',
               }}
             >
-              {tab === 'topics' ? '📊 话题热度' : '☁️ 关键词云'}
+              {tab === 'topics' ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <BarChart3 size={13} /> 话题热度
+                </span>
+              ) : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Tags size={13} /> 关键词
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -256,7 +265,7 @@ export default function TrendsPage() {
       }}>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-            <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.3 }}>⏳</div>
+            <Loader2 size={26} style={{ marginBottom: 12, opacity: 0.45 }} />
             加载中...
           </div>
         ) : activeTab === 'topics' ? (

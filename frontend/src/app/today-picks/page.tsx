@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { Clock3, Columns3, FileText, Folder, Lightbulb, List, Target } from 'lucide-react';
 import { T, CATEGORIES, RECOMMEND_LEVELS, LEVEL_CONFIG } from '@/lib/design-tokens';
 import { contentsApi } from '@/lib/api';
 import { useAppContext } from '@/components/ClientLayout';
@@ -114,11 +115,14 @@ const analysis = (item.analysis || item.analyses?.[0]) as ContentAnalysis | null
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
           <h1 style={{ fontSize: 26, fontWeight: 700, color: T.gray900 }}>当日精选</h1>
           <span style={{ fontSize: 10, fontWeight: 700, color: T.white, background: 'linear-gradient(135deg, #FF6B35, #FF8F65)', padding: '3px 10px', borderRadius: 20 }}>
-            AI PICKED
+            CURATED
           </span>
           <button onClick={() => setGroupByTopic(!groupByTopic)}
             style={{ marginLeft: 'auto', fontSize: 11, padding: '4px 12px', borderRadius: 6, border: `1px solid ${groupByTopic ? T.primary : T.gray200}`, background: groupByTopic ? `${T.primary}10` : T.white, color: groupByTopic ? T.primary : T.gray500, cursor: 'pointer', fontWeight: 600 }}>
-            {groupByTopic ? '📊 话题分组' : '📋 平铺列表'}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {groupByTopic ? <Columns3 size={13} /> : <List size={13} />}
+              {groupByTopic ? '话题分组' : '平铺列表'}
+            </span>
           </button>
         </div>
         <p style={{ fontSize: 13, color: T.gray400 }}>
@@ -131,7 +135,9 @@ const analysis = (item.analysis || item.analyses?.[0]) as ContentAnalysis | null
       {/* Filter Bar */}
       <div style={{ background: T.white, borderRadius: T.radius, border: `1px solid ${T.gray100}`, padding: '14px 18px', marginBottom: 20 }}>
         <div style={{ marginBottom: 10 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: T.gray500, marginRight: 8, verticalAlign: 'middle' }}>📂 分类</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: T.gray500, marginRight: 8, verticalAlign: 'middle', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Folder size={12} /> 分类
+          </span>
           <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', verticalAlign: 'middle' }}>
             {(CATEGORIES as readonly string[]).map((cat) => (
               <CategoryChip key={cat} name={cat} active={selectedCategory === cat || (!selectedCategory && cat === '全部')} onClick={() => setCategory(cat === '全部' ? '' : cat)} />
@@ -140,7 +146,9 @@ const analysis = (item.analysis || item.analyses?.[0]) as ContentAnalysis | null
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: T.gray500 }}>🎯 等级</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: T.gray500, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Target size={12} /> 等级
+            </span>
             {RECOMMEND_LEVELS.map((level) => {
               const cfg = LEVEL_CONFIG[level];
               const isActive = selectedLevel === level;
@@ -153,7 +161,9 @@ const analysis = (item.analysis || item.analyses?.[0]) as ContentAnalysis | null
             })}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: T.gray500 }}>🕐 时间</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: T.gray500, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Clock3 size={12} /> 时间
+            </span>
             {TIME_RANGES.map((tr) => {
               const isActive = selectedTimeRange === tr.value;
               return (
@@ -177,7 +187,7 @@ const analysis = (item.analysis || item.analyses?.[0]) as ContentAnalysis | null
         <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>加载中...</div>
       ) : filteredItems.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-          <div style={{ fontSize: 40, marginBottom: 16, opacity: 0.3 }}>🎯</div>
+          <FileText size={34} style={{ marginBottom: 16, opacity: 0.35 }} />
           <div>{activeFilterCount > 0 ? '当前筛选条件无匹配结果' : '今日暂无精选内容'}</div>
           {activeFilterCount > 0 && (
             <button onClick={() => { setSelectedCategory(''); setSelectedLevel(''); setSelectedTimeRange(''); updateURL('', '', ''); }}
@@ -270,8 +280,9 @@ function renderCard(
           </div>
           <h3 style={{ fontSize: 14, fontWeight: 600, color: T.gray900, lineHeight: 1.5, marginBottom: 8 }}>{item.title}</h3>
           {recommendation && (
-            <div style={{ fontSize: 12, color: T.primary, lineHeight: 1.6, padding: '6px 10px', marginBottom: 8, background: `${T.primary}06`, borderRadius: 6, borderLeft: `3px solid ${T.primary}` }}>
-              💡 {recommendation}
+            <div style={{ fontSize: 12, color: T.primary, lineHeight: 1.6, padding: '6px 10px', marginBottom: 8, background: `${T.primary}06`, borderRadius: 6, borderLeft: `3px solid ${T.primary}`, display: 'flex', gap: 6 }}>
+              <Lightbulb size={13} style={{ flexShrink: 0, marginTop: 2 }} />
+              <span>{recommendation}</span>
             </div>
           )}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

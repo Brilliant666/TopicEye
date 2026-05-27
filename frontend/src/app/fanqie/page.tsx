@@ -166,14 +166,21 @@ function EmptyState({
 }
 
 function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platform; rankTab: string }) {
+  const [coverFailed, setCoverFailed] = useState(false);
   const pos = item.position;
   const title = getItemTitle(item);
   const author = getItemAuthor(item);
   const cover = getItemCover(item);
+  const coverSrc = cover && !coverFailed ? cover : null;
   const abstract = getItemAbstract(item);
   const itemUrl = getItemUrl(item);
   const diff = getPositionChange(item);
   const isTop = pos <= 3;
+  const platformMeta = PLATFORM_META[platform];
+
+  useEffect(() => {
+    setCoverFailed(false);
+  }, [cover]);
 
   const meta = (() => {
     if (platform === 'fanqie' && 'read_count' in item) {
@@ -253,21 +260,43 @@ function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platf
         )}
       </div>
 
-      <img
-        src={cover || '/placeholder.png'}
-        alt={title}
-        style={{
-          width: 'var(--fanqie-cover-w, 82px)',
-          height: 'var(--fanqie-cover-h, 108px)',
-          objectFit: 'cover',
-          borderRadius: 8,
-          background: T.gray100,
-          boxShadow: '0 8px 18px rgba(15, 23, 42, 0.14)',
-        }}
-        onError={(event) => {
-          (event.currentTarget as HTMLImageElement).src = `https://via.placeholder.com/82x108?text=${encodeURIComponent(title.slice(0, 2) || '书')}`;
-        }}
-      />
+      {coverSrc ? (
+        <img
+          src={coverSrc}
+          alt={title}
+          style={{
+            width: 'var(--fanqie-cover-w, 82px)',
+            height: 'var(--fanqie-cover-h, 108px)',
+            objectFit: 'cover',
+            borderRadius: 8,
+            background: T.gray100,
+            boxShadow: '0 8px 18px rgba(15, 23, 42, 0.14)',
+          }}
+          onError={() => setCoverFailed(true)}
+        />
+      ) : (
+        <div
+          aria-label={`${title} 封面占位`}
+          style={{
+            width: 'var(--fanqie-cover-w, 82px)',
+            height: 'var(--fanqie-cover-h, 108px)',
+            borderRadius: 8,
+            background: `linear-gradient(160deg, ${platformMeta.bg}, ${T.gray50})`,
+            border: `1px solid ${T.gray200}`,
+            color: platformMeta.color,
+            display: 'grid',
+            placeItems: 'center',
+            textAlign: 'center',
+            padding: 8,
+            fontSize: 13,
+            lineHeight: 1.25,
+            fontWeight: 900,
+            boxShadow: '0 8px 18px rgba(15, 23, 42, 0.08)',
+          }}
+        >
+          {title.slice(0, 2) || '书'}
+        </div>
+      )}
 
       <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>

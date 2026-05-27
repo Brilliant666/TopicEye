@@ -13,11 +13,11 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 import httpx
-from sqlalchemy import select, func
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.database import async_session
-from app.models.zhihu import ZhihuAlbum, ZhihuCategory, ZhihuRankSnapshot
+from app.models.zhihu import ZhihuAlbum, ZhihuCategory
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,8 @@ SORT_LABELS = {
 }
 
 # 故事分类下的 9 个子分类 ID
+STORY_CATEGORY_ID = '1512'
+STORY_ALL_LABEL = '故事全部'
 STORY_SUBCATS = [
     ('故事', '1513', '爱情'),
     ('故事', '1514', '科幻'),
@@ -52,6 +54,13 @@ STORY_SUBCATS = [
     ('故事', '1520', '校园'),
     ('故事', '1521', '悬疑'),
 ]
+
+STORY_SUBCAT_IDS = {name: cat_id for _, cat_id, name in STORY_SUBCATS}
+
+
+def storage_sort_type(sort_type: str, category_id: str) -> str:
+    """Scope ranking rows by category while keeping the public sort_type unchanged."""
+    return f'{sort_type}__{category_id}'
 
 # 每个分类 + 排序的组合
 # 故事默认热门用 HTML 嵌入数据（无需额外请求）
@@ -253,7 +262,7 @@ async def _fetch_and_save_albums(
         return 0
 
     async with async_session() as db:
-        for pos, item in enumerate(reversed(items), 1):
+        for pos, item in enumerate(items, 1):
             rec = parse_album_item(item)
             rec['sort_type'] = sort_type
             rec['category1_name'] = category1
@@ -357,24 +366,30 @@ async def sync_zhihu_ranks() -> dict:
     cat_count = len(records)
     logger.info(f'Zhihu story categories saved: {cat_count}')
 
+    async with async_session() as db:
+        await db.execute(
+            delete(ZhihuAlbum).where(ZhihuAlbum.category1_name == '故事')
+        )
+        await db.commit()
+
     # 故事默认热门 + 3 种排序（category_id=1512）
     total = 0
     combos = [
-        ('1512', '故事全部', 'hottest'),
-        ('1512', '故事全部', 'newest'),
-        ('1512', '故事全部', 'monthly_hottest'),
+        (STORY_CATEGORY_ID, STORY_ALL_LABEL, 'hottest'),
+        (STORY_CATEGORY_ID, STORY_ALL_LABEL, 'newest'),
+        (STORY_CATEGORY_ID, STORY_ALL_LABEL, 'monthly_hottest'),
     ]
     for cat_id, sort_label, sort_type in combos:
         items = await _fetch_api(sort_type, limit=20, category_id=cat_id)
-        n = await _fetch_and_save_albums(items, sort_type, '故事', sort_label)
+        n = await _fetch_and_save_albums(items, storage_sort_type(sort_type, cat_id), '故事', sort_label)
         total += n
         await asyncio.sleep(0.8)
 
     # 9 个子分类 × 3 种排序
-    for cat_name, cat_id, _ in STORY_SUBCATS:
+    for _, cat_id, subcat_name in STORY_SUBCATS:
         for sort_type in SORT_TYPES:
             items = await _fetch_api(sort_type, limit=20, category_id=cat_id)
-            n = await _fetch_and_save_albums(items, sort_type, '故事', cat_name)
+            n = await _fetch_and_save_albums(items, storage_sort_type(sort_type, cat_id), '故事', subcat_name)
             total += n
             await asyncio.sleep(0.8)
 

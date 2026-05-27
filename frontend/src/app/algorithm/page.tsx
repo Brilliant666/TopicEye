@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { T } from '@/lib/design-tokens';
 import { contentsApi, feedbackApi, type FeedbackType, type ScoringFlowResponse, type ScoringFlowSample } from '@/lib/api';
 import {
   AlgorithmHeader,
@@ -62,39 +61,41 @@ export default function AlgorithmPage() {
   const selectedKey = useMemo(() => selectedStageKey(selected), [selected]);
 
   return (
-    <div className="fade-in" style={{ padding: '28px 32px', height: '100%', overflowY: 'auto', background: T.bg }}>
-      <AlgorithmHeader
-        hours={hours}
-        loading={loading}
-        onHoursChange={setHours}
-        onRefresh={() => void fetchFlow()}
-      />
+    <div className="fade-in h-full overflow-y-auto bg-page px-6 py-6 lg:px-10 lg:py-8">
+      <div className="mx-auto max-w-[1480px]">
+        <AlgorithmHeader
+          hours={hours}
+          loading={loading}
+          onHoursChange={setHours}
+          onRefresh={() => void fetchFlow()}
+        />
 
-      {error && (
-        <div style={{ background: T.redLight, color: T.red, border: `1px solid ${T.red}22`, borderRadius: T.radiusSm, padding: 14, marginBottom: 18, fontSize: 13 }}>
-          {error}
-        </div>
-      )}
+        {error && (
+          <div className="mb-4 rounded-sm border border-red/20 bg-red-light px-4 py-3 text-sm text-red">
+            {error}
+          </div>
+        )}
 
-      {loading && !data ? (
-        <div style={{ color: T.gray400, fontSize: 13 }}>加载算法流程...</div>
-      ) : data ? (
-        <>
-          <SummaryGrid data={data} />
-          <div style={{ marginBottom: 14 }}>
+        {loading && !data ? (
+          <div className="rounded-lg border border-gray-200 bg-white px-6 py-12 text-center text-sm text-gray-400">
+            加载算法流程...
+          </div>
+        ) : data ? (
+          <>
+            <SummaryGrid data={data} />
             <Funnel data={data} selectedKey={selectedKey} />
-          </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 0.95fr) minmax(420px, 1.25fr) minmax(340px, 0.95fr)', gap: 14, alignItems: 'start' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <MixList title="类别混排压力" items={data.category_mix} color={T.purple} />
-              <MixList title="来源混排压力" items={data.source_mix} color={T.teal} />
+            <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(260px,0.82fr)_minmax(420px,1.22fr)_minmax(340px,0.96fr)]">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
+                <MixList title="类别混排压力" items={data.category_mix} tone="purple" />
+                <MixList title="来源混排压力" items={data.source_mix} tone="teal" />
+              </div>
+              <SampleList samples={data.samples} selectedId={selected?.id} onSelect={setSelected} />
+              <PathPanel sample={selected} onFeedback={handleFeedback} feedbacking={feedbacking} />
             </div>
-            <SampleList samples={data.samples} selectedId={selected?.id} onSelect={setSelected} />
-            <PathPanel sample={selected} onFeedback={handleFeedback} feedbacking={feedbacking} />
-          </div>
-        </>
-      ) : null}
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }

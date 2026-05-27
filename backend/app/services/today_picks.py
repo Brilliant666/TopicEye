@@ -28,6 +28,8 @@ async def build_today_picks(
     # ── Build scoring inputs ──
     scoring_inputs: list[ScoringInput] = []
     item_map: dict[int, ContentItem] = {}
+    from app.services.feedback_signal import get_feedback_scores
+    feedback_scores = await get_feedback_scores(db, [item.id for item in items])
 
     for item in items:
         if not item.analyses:
@@ -39,6 +41,7 @@ async def build_today_picks(
         si = ScoringInput(
             content_id=item.id,
             title=item.title,
+            category=item.category,
             source_id=item.source_id,
             source_name=item.source_name,
             published_at=item.published_at,
@@ -56,6 +59,7 @@ async def build_today_picks(
             risk_score=a.risk_score or 0,
             # Source
             source_weight_db=src_w,
+            feedback_score=feedback_scores.get(item.id, 0),
         )
         scoring_inputs.append(si)
         item_map[item.id] = item

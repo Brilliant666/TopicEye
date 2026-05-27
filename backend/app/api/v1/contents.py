@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Optional
 from datetime import datetime
+from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,63 @@ def _with_analysis(item) -> dict:
     if item.analyses:
         d["analysis"] = AiAnalysisResponse.model_validate(item.analyses[-1]).model_dump()
     return d
+
+
+def _build_scoring_input(item, feedback_score: float = 0) -> "ScoringInput":
+    from app.services.scoring_engine import ScoringInput
+
+    a = item.analyses[-1]
+    src_w = item.source.weight if item.source else 3
+    return ScoringInput(
+        content_id=item.id,
+        title=item.title,
+        category=item.category,
+        source_id=item.source_id,
+        source_name=item.source_name,
+        published_at=item.published_at,
+        crawled_at=item.crawled_at,
+        curation_score=a.curation_score or 0,
+        info_density=a.info_density or 50,
+        actionability=a.actionability or 50,
+        source_weight=a.source_weight or 50,
+        creator_score=a.creator_score or 0,
+        viral_score=a.viral_score or 0,
+        freshness_score=a.freshness_score or 0,
+        quality_score=a.quality_score or 0,
+        hot_score=a.hot_score or 0,
+        risk_score=a.risk_score or 0,
+        source_weight_db=src_w,
+        feedback_score=feedback_score,
+    )
+
+
+def _stage_counts(scored: list[tuple]) -> list[dict]:
+    total = len(scored)
+    quality = sum(1 for bd, _ in scored if bd.quality_factor > 0.55)
+    risk = sum(1 for bd, _ in scored if bd.risk_factor > 0.55)
+    fresh = sum(1 for bd, _ in scored if bd.time_decay >= 0.6)
+    diverse = sum(1 for bd, _ in scored if bd.diversity_factor >= 0.85)
+    selected = sum(1 for bd, _ in scored if bd.selected)
+    stages = [
+        ("候选样本", total),
+        ("质量门槛", quality),
+        ("风险降权", risk),
+        ("时效衰减", fresh),
+        ("多样性混排", diverse),
+        ("精选输出", selected),
+    ]
+    return [
+        {
+            "key": key,
+            "label": label,
+            "count": count,
+            "retention": round(count / total, 4) if total else 0,
+        }
+        for key, (label, count) in zip(
+            ["candidates", "quality", "risk", "freshness", "diversity", "selected"],
+            stages,
+        )
+    ]
 
 
 @router.get("")
@@ -71,30 +129,12 @@ async def list_contents(
         # Build scoring inputs
         scoring_inputs: list[ScoringInput] = []
         item_map: dict[int, ContentItem] = {}
+        from app.services.feedback_signal import get_feedback_scores
+        feedback_scores = await get_feedback_scores(db, [item.id for item in scored_items])
         for item in scored_items:
             if not item.analyses:
                 continue
-            a = item.analyses[-1]
-            src_w = item.source.weight if item.source else 3
-            si = ScoringInput(
-                content_id=item.id,
-                title=item.title,
-                source_id=item.source_id,
-                source_name=item.source_name,
-                published_at=item.published_at,
-                crawled_at=item.crawled_at,
-                curation_score=a.curation_score or 0,
-                info_density=a.info_density or 50,
-                actionability=a.actionability or 50,
-                source_weight=a.source_weight or 50,
-                creator_score=a.creator_score or 0,
-                viral_score=a.viral_score or 0,
-                freshness_score=a.freshness_score or 0,
-                quality_score=a.quality_score or 0,
-                hot_score=a.hot_score or 0,
-                risk_score=a.risk_score or 0,
-                source_weight_db=src_w,
-            )
+            si = _build_scoring_input(item, feedback_scores.get(item.id, 0))
             scoring_inputs.append(si)
             item_map[item.id] = item
 
@@ -148,30 +188,12 @@ async def list_contents(
 
         scoring_inputs: list[ScoringInput] = []
         item_map: dict[int, ContentItem] = {}
+        from app.services.feedback_signal import get_feedback_scores
+        feedback_scores = await get_feedback_scores(db, [item.id for item in scored_items])
         for item in scored_items:
             if not item.analyses:
                 continue
-            a = item.analyses[-1]
-            src_w = item.source.weight if item.source else 3
-            si = ScoringInput(
-                content_id=item.id,
-                title=item.title,
-                source_id=item.source_id,
-                source_name=item.source_name,
-                published_at=item.published_at,
-                crawled_at=item.crawled_at,
-                curation_score=a.curation_score or 0,
-                info_density=a.info_density or 50,
-                actionability=a.actionability or 50,
-                source_weight=a.source_weight or 50,
-                creator_score=a.creator_score or 0,
-                viral_score=a.viral_score or 0,
-                freshness_score=a.freshness_score or 0,
-                quality_score=a.quality_score or 0,
-                hot_score=a.hot_score or 0,
-                risk_score=a.risk_score or 0,
-                source_weight_db=src_w,
-            )
+            si = _build_scoring_input(item, feedback_scores.get(item.id, 0))
             scoring_inputs.append(si)
             item_map[item.id] = item
 
@@ -222,6 +244,76 @@ async def today_picks(
     from app.services.today_picks import build_today_picks
     return await build_today_picks(db, category=category,
                                    hours={"24h": 24, "7d": 168}.get(time_range or "", 48))
+
+
+@router.get("/scoring-flow")
+async def scoring_flow(
+    hours: int = Query(48, ge=1, le=720),
+    limit: int = Query(120, ge=20, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return a read-only explanation payload for the content scoring funnel."""
+    from app.repositories.ignored_repo import IgnoredRepo
+    from app.services.scoring_engine import score_items
+    from datetime import timedelta
+
+    time_cutoff = datetime.utcnow() - timedelta(hours=hours)
+    ignored_ids = await IgnoredRepo(db).list_ignored_ids()
+    repo = ContentRepo(db)
+    items, total = await repo.list_for_scoring(
+        exclude_ids=ignored_ids,
+        time_cutoff=time_cutoff,
+        limit=limit,
+    )
+
+    scoring_inputs = []
+    item_map = {}
+    from app.services.feedback_signal import get_feedback_scores
+    feedback_scores = await get_feedback_scores(db, [item.id for item in items])
+    for item in items:
+        if not item.analyses:
+            continue
+        scoring_input = _build_scoring_input(item, feedback_scores.get(item.id, 0))
+        scoring_inputs.append(scoring_input)
+        item_map[item.id] = item
+
+    scored = score_items(scoring_inputs)
+    category_counts = Counter((item.category or "未分类") for _, item in scored)
+    source_counts = Counter((item.source_name or "未知来源") for _, item in scored)
+
+    samples = []
+    for breakdown, scoring_input in scored[:80]:
+        item = item_map.get(scoring_input.content_id)
+        if not item:
+            continue
+        samples.append({
+            "id": item.id,
+            "title": item.title,
+            "url": item.url,
+            "source_name": item.source_name,
+            "category": item.category or "未分类",
+            "selected": breakdown.selected,
+            "final_score": breakdown.final_score,
+            "threshold_used": breakdown.threshold_used,
+            "base_score": breakdown.base_score,
+            "source_bonus": breakdown.source_bonus,
+            "quality_factor": breakdown.quality_factor,
+            "risk_factor": breakdown.risk_factor,
+            "time_decay": breakdown.time_decay,
+            "diversity_factor": breakdown.diversity_factor,
+            "feedback_score": feedback_scores.get(item.id, 0),
+            "dimension_scores": breakdown.dimension_scores,
+        })
+
+    return {
+        "total": total,
+        "scored": len(scored),
+        "hours": hours,
+        "stages": _stage_counts(scored),
+        "samples": samples,
+        "category_mix": [{"label": k, "count": v} for k, v in category_counts.most_common(8)],
+        "source_mix": [{"label": k, "count": v} for k, v in source_counts.most_common(8)],
+    }
 
 
 @router.get("/favorites/list", response_model=ContentListResponse)

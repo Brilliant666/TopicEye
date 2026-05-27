@@ -128,6 +128,8 @@ export interface ScoreBreakdown {
   content_id: number;
   base_score: number;
   source_bonus: number;
+  quality_factor?: number;
+  risk_factor?: number;
   time_decay: number;
   diversity_factor: number;
   final_score: number;

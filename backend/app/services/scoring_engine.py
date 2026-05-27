@@ -3,9 +3,10 @@ Scoring engine for content curation — multi-signal weighted ranking.
 
 Design inspired by multi-stage recommendation pipelines:
   1. Base score: 6-dimension weighted sum + source quality bonus
-  2. Time decay: exponential decay favouring fresher content
-  3. Source diversity penalty: down-rank when same source dominates
-  4. Risk filter: hard-exclude high-risk items (risk_score > 70)
+  2. Quality gates: down-rank thin, low-actionability, or low-creator-value items
+  3. Time decay: exponential decay favouring fresher content
+  4. Diversity: down-rank when same source/category dominates
+  5. Risk controls: hard-exclude high-risk items and softly penalize mid-risk items
 
 All tuning constants live in the CONFIG dict at the top for easy adjustment.
 """
@@ -34,12 +35,23 @@ CONFIG = {
     "time_decay_lambda": 0.02,  # decay rate: exp(-lambda * hours)
     "time_decay_floor": 0.3,    # minimum time decay (never fully kill)
 
+    # Content quality gates
+    "quality_gate_min": 45,          # below this, content is probably too thin for curation
+    "quality_gate_strong": 70,       # full trust above this composite quality level
+    "quality_gate_floor": 0.55,      # lowest multiplier for weak-but-not-risky content
+    "min_selected_base_score": 58,   # do not select weak items just because a batch is weak
+
     # Source diversity
     "diversity_penalty_base": 0.85,  # multiplier per same-source duplicate in top-N
+    "category_diversity_penalty_base": 0.92,
     "diversity_top_n": 50,           # count diversity within top-N candidates
+    "same_source_grace": 1,          # first item per source is free
+    "same_category_grace": 3,        # first few items per category are free
 
     # Risk
-    "risk_threshold": 70,  # hard-exclude above this
+    "risk_threshold": 82,          # hard-exclude above this
+    "risk_soft_start": 45,         # risk starts reducing rank after this
+    "risk_soft_floor": 0.55,       # minimum multiplier before hard exclusion
 
     # Curation threshold (minimum final score to be selected)
     "curation_threshold": 55,  # slightly lower than before, because scores are now more calibrated
@@ -62,7 +74,7 @@ class ScoringInput:
     """Lightweight input for the scorer — avoids ORM coupling."""
 
     __slots__ = (
-        "content_id", "title", "source_id", "source_name", "published_at",
+        "content_id", "title", "category", "source_id", "source_name", "published_at",
         "crawled_at",
         # Analysis dimensions
         "curation_score", "info_density", "actionability", "source_weight",
@@ -92,6 +104,8 @@ class ScoreBreakdown:
         "content_id",
         "base_score",           # weighted 6-dim sum
         "source_bonus",         # source.weight adjustment
+        "quality_factor",       # thin/low-value content penalty multiplier
+        "risk_factor",          # soft risk multiplier
         "time_decay",           # time decay multiplier (0-1)
         "diversity_factor",     # diversity penalty multiplier (0-1)
         "final_score",          # base_score + source_bonus) * time_decay * diversity
@@ -163,6 +177,46 @@ def _compute_source_bonus(item: ScoringInput) -> float:
     return (w - 3) * cfg["source_weight_bonus_factor"]
 
 
+def _compute_quality_factor(item: ScoringInput) -> tuple[float, dict]:
+    """Reward content that has enough substance before popularity signals are considered."""
+    cfg = CONFIG
+    composite = (
+        (item.info_density or 50) * 0.30
+        + (item.actionability or 50) * 0.25
+        + (item.quality_score or 50) * 0.20
+        + (item.creator_score or 50) * 0.25
+    )
+
+    if composite >= cfg["quality_gate_strong"]:
+        factor = 1.0
+    elif composite <= cfg["quality_gate_min"]:
+        factor = cfg["quality_gate_floor"]
+    else:
+        span = cfg["quality_gate_strong"] - cfg["quality_gate_min"]
+        progress = (composite - cfg["quality_gate_min"]) / span
+        factor = cfg["quality_gate_floor"] + progress * (1.0 - cfg["quality_gate_floor"])
+
+    details = {
+        "quality_gate_score": round(composite, 2),
+        "quality_factor": round(factor, 4),
+    }
+    return factor, details
+
+
+def _compute_risk_factor(item: ScoringInput) -> float:
+    """Apply a soft risk penalty below the hard risk threshold."""
+    cfg = CONFIG
+    risk = item.risk_score or 0
+    if risk <= cfg["risk_soft_start"]:
+        return 1.0
+    if risk >= cfg["risk_threshold"]:
+        return 0.0
+
+    span = cfg["risk_threshold"] - cfg["risk_soft_start"]
+    progress = (risk - cfg["risk_soft_start"]) / span
+    return cfg["risk_soft_floor"] + (1.0 - progress) * (1.0 - cfg["risk_soft_floor"])
+
+
 def _compute_percentile_threshold(base_scores: list[float], percentile: float) -> float:
     """
     Compute the value at the given percentile from a list of base scores.
@@ -199,7 +253,7 @@ def _compute_diversity_penalty(
     items: list[ScoringInput],
     prelim_scores: list[float],
 ) -> list[float]:
-    """Down-rank items from sources that appear too often in top-N."""
+    """Down-rank items from sources/categories that appear too often in top-N."""
     cfg = CONFIG
     top_n = cfg["diversity_top_n"]
 
@@ -207,6 +261,7 @@ def _compute_diversity_penalty(
     indexed = sorted(enumerate(prelim_scores), key=lambda x: x[1], reverse=True)
 
     source_counts: dict[Optional[int], int] = {}
+    category_counts: dict[str, int] = {}
     factors = [1.0] * len(items)
 
     for rank, (idx, score) in enumerate(indexed):
@@ -214,10 +269,18 @@ def _compute_diversity_penalty(
             break
         src_id = items[idx].source_id
         count = source_counts.get(src_id, 0)
-        if count > 0:
+        if count >= cfg["same_source_grace"]:
             # Each additional item from the same source gets progressively penalized
-            factors[idx] = cfg["diversity_penalty_base"] ** count
+            factors[idx] *= cfg["diversity_penalty_base"] ** (count - cfg["same_source_grace"] + 1)
         source_counts[src_id] = count + 1
+
+        category = (items[idx].category or "").strip() or "uncategorized"
+        cat_count = category_counts.get(category, 0)
+        if cat_count >= cfg["same_category_grace"]:
+            factors[idx] *= cfg["category_diversity_penalty_base"] ** (
+                cat_count - cfg["same_category_grace"] + 1
+            )
+        category_counts[category] = cat_count + 1
 
     return factors
 
@@ -231,25 +294,31 @@ def score_items(items: list[ScoringInput]) -> list[tuple[ScoreBreakdown, Scoring
     cfg = CONFIG
     now = datetime.utcnow()
 
-    # Phase 1: Filter high-risk items
+    # Phase 1: Filter extreme-risk items
     safe_items = [it for it in items if (it.risk_score or 0) <= cfg["risk_threshold"]]
 
-    # Phase 2: Compute base score + source bonus + time decay
+    # Phase 2: Compute base score + source bonus + quality/risk/time factors
     prelim_scores: list[float] = []
     breakdowns: list[ScoreBreakdown] = []
 
     for item in safe_items:
         base, dims = _compute_base_score(item)
         source_bonus = _compute_source_bonus(item)
+        quality_factor, quality_dims = _compute_quality_factor(item)
+        risk_factor = _compute_risk_factor(item)
         time_decay = _compute_time_decay(item, now)
 
-        prelim = (base + source_bonus) * time_decay
+        prelim = (base + source_bonus) * quality_factor * risk_factor * time_decay
         prelim_scores.append(prelim)
+        dims.update(quality_dims)
+        dims["risk_factor"] = risk_factor
 
         bd = ScoreBreakdown(
             content_id=item.content_id,
             base_score=round(base, 2),
             source_bonus=round(source_bonus, 2),
+            quality_factor=round(quality_factor, 4),
+            risk_factor=round(risk_factor, 4),
             time_decay=round(time_decay, 4),
             diversity_factor=1.0,  # placeholder, filled in phase 3
             final_score=0.0,
@@ -276,17 +345,24 @@ def score_items(items: list[ScoringInput]) -> list[tuple[ScoreBreakdown, Scoring
     # Phase 5: Determine threshold and mark selected
     if cfg["curation_mode"] == "percentile":
         # Use final_score ranking: top (100 - percentile)% are selected
-        # e.g. curation_percentile=70 → top 30% selected
+        # e.g. curation_percentile=70 -> top 30% selected, bounded by quality floor
         final_scores = [bd.final_score for bd, _ in results]
-        actual_threshold = _compute_percentile_threshold(
-            final_scores, cfg["curation_percentile"]
+        percentile_threshold = _compute_percentile_threshold(
+            final_scores,
+            cfg["curation_percentile"],
         )
+        actual_threshold = max(percentile_threshold, cfg["curation_threshold"])
     else:
         actual_threshold = cfg["curation_threshold"]
 
     for bd, item in results:
         bd.threshold_used = round(actual_threshold, 2)
-        bd.selected = bd.final_score >= actual_threshold
+        bd.selected = (
+            bd.final_score >= actual_threshold
+            and bd.base_score >= cfg["min_selected_base_score"]
+            and bd.quality_factor > cfg["quality_gate_floor"]
+            and bd.risk_factor > cfg["risk_soft_floor"]
+        )
 
     return results
 

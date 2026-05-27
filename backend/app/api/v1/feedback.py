@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import delete, select, func
 
 from app.core.dependencies import get_db
 from app.models.feedback import (
@@ -26,7 +26,7 @@ async def submit_feedback(
 ):
     """Submit feedback for a content item.
 
-    Prevents duplicate feedback of the same type on the same content.
+    Keeps one active feedback record per content item, allowing users to revise it.
     """
     # Validate feedback_type
     try:
@@ -38,20 +38,24 @@ async def submit_feedback(
             detail=f"Invalid feedback_type. Must be one of: {valid}",
         )
 
-    # Check for duplicate: same content_id + same feedback_type
-    dup_check = await db.execute(
-        select(UserFeedback).where(
-            UserFeedback.content_id == data.content_id,
-            UserFeedback.feedback_type == fb_type,
-        )
+    existing_result = await db.execute(
+        select(UserFeedback)
+        .where(UserFeedback.content_id == data.content_id)
+        .order_by(UserFeedback.created_at.desc(), UserFeedback.id.desc())
     )
-    if dup_check.scalar_one_or_none() is not None:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Feedback type '{fb_type.value}' already exists for content_id {data.content_id}",
-        )
-
     score_delta = FEEDBACK_SCORE_DELTAS[fb_type]
+    existing_feedback = list(existing_result.scalars().all())
+    existing = existing_feedback[0] if existing_feedback else None
+    if existing is not None:
+        existing.feedback_type = fb_type
+        existing.score_delta = score_delta
+        existing.comment = data.comment
+        stale_ids = [feedback.id for feedback in existing_feedback[1:]]
+        if stale_ids:
+            await db.execute(delete(UserFeedback).where(UserFeedback.id.in_(stale_ids)))
+        await db.flush()
+        await db.refresh(existing)
+        return existing
 
     feedback = UserFeedback(
         content_id=data.content_id,

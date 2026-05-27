@@ -20,6 +20,7 @@ import type {
 } from '@/types';
 
 export type { ContentItem, CreateSourceRequest, UpdateSourceRequest };
+export type FeedbackType = 'like' | 'dislike' | 'skip' | 'not_relevant' | 'outdated' | 'great_pick';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
@@ -40,12 +41,29 @@ async function request<T>(
   const response = await fetch(url, config);
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: response.statusText }));
+    const errorText = await response.text().catch(() => '');
+    let error: { detail?: unknown; message?: string } = { message: response.statusText };
+    if (errorText) {
+      try {
+        error = JSON.parse(errorText);
+      } catch {
+        error = { message: errorText };
+      }
+    }
     const detail = typeof error.detail === 'string' ? error.detail : undefined;
     throw new Error(detail || error.message || `API Error: ${response.status}`);
   }
 
-  return response.json();
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const text = await response.text();
+  if (!text) {
+    return undefined as T;
+  }
+
+  return JSON.parse(text) as T;
 }
 
 // ─── Sources API ───
@@ -174,6 +192,17 @@ export const contentsApi = {
     return request(`/contents/today-picks${query}`);
   },
 
+  scoringFlow(params?: { hours?: number; limit?: number }): Promise<ScoringFlowResponse> {
+    const query = params
+      ? '?' + new URLSearchParams(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)])
+        ).toString()
+      : '';
+    return request(`/contents/scoring-flow${query}`);
+  },
+
   /** 忽略/不感兴趣 */
   ignore(id: number, reason: string = 'not_interested'): Promise<{ content_id: number; ignored: boolean; reason: string }> {
     return request(`/contents/${id}/ignore?reason=${encodeURIComponent(reason)}`, { method: 'POST' });
@@ -184,6 +213,42 @@ export const contentsApi = {
     return request(`/contents/${id}/ignore`, { method: 'DELETE' });
   },
 };
+
+export interface ScoringFlowStage {
+  key: string;
+  label: string;
+  count: number;
+  retention: number;
+}
+
+export interface ScoringFlowSample {
+  id: number;
+  title: string;
+  url: string;
+  source_name: string | null;
+  category: string;
+  selected: boolean;
+  final_score: number;
+  threshold_used: number;
+  base_score: number;
+  source_bonus: number;
+  quality_factor: number;
+  risk_factor: number;
+  time_decay: number;
+  diversity_factor: number;
+  feedback_score: number;
+  dimension_scores: Record<string, number>;
+}
+
+export interface ScoringFlowResponse {
+  total: number;
+  scored: number;
+  hours: number;
+  stages: ScoringFlowStage[];
+  samples: ScoringFlowSample[];
+  category_mix: Array<{ label: string; count: number }>;
+  source_mix: Array<{ label: string; count: number }>;
+}
 
 // ─── Topics API ───
 
@@ -428,8 +493,6 @@ export const statsApi = {
 };
 
 // ─── Feedback API ───
-
-export type FeedbackType = 'like' | 'dislike' | 'skip' | 'not_relevant' | 'outdated' | 'great_pick';
 
 export const feedbackApi = {
   /** 提交反馈 */

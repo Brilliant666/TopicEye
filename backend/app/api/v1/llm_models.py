@@ -135,6 +135,9 @@ class ModelCreateRequest(BaseModel):
     description: Optional[str] = None
     cost_per_1k_input: Optional[float] = None
     cost_per_1k_output: Optional[float] = None
+    cost_per_1m_input: Optional[float] = None
+    cost_per_1m_input_cache_hit: Optional[float] = None
+    cost_per_1m_output: Optional[float] = None
     extra_params: Optional[dict] = None
 
 
@@ -153,6 +156,9 @@ class ModelUpdateRequest(BaseModel):
     description: Optional[str] = None
     cost_per_1k_input: Optional[float] = None
     cost_per_1k_output: Optional[float] = None
+    cost_per_1m_input: Optional[float] = None
+    cost_per_1m_input_cache_hit: Optional[float] = None
+    cost_per_1m_output: Optional[float] = None
     extra_params: Optional[dict] = None
 
 
@@ -180,6 +186,64 @@ def _estimate_cost(
     return round(input_cost + output_cost, 6)
 
 
+def _per_1k_to_1m(value: Optional[float]) -> Optional[float]:
+    return round(value * 1000, 6) if value is not None else None
+
+
+def _per_1m_to_1k(value: Optional[float]) -> Optional[float]:
+    return round(value / 1000, 9) if value is not None else None
+
+
+def _pricing_extra_params(extra_params: Optional[dict], cache_hit_price: Optional[float]) -> Optional[dict]:
+    params = dict(extra_params or {})
+    if cache_hit_price is None:
+        params.pop("cost_per_1m_input_cache_hit", None)
+    else:
+        params["cost_per_1m_input_cache_hit"] = cache_hit_price
+    if any(key.startswith("cost_per_1m_") for key in params):
+        params.setdefault("pricing_unit", "per_1m_tokens")
+    return params or None
+
+
+def _model_cost_input(req: ModelCreateRequest | ModelUpdateRequest) -> Optional[float]:
+    if req.cost_per_1m_input is not None:
+        return _per_1m_to_1k(req.cost_per_1m_input)
+    return req.cost_per_1k_input
+
+
+def _model_cost_output(req: ModelCreateRequest | ModelUpdateRequest) -> Optional[float]:
+    if req.cost_per_1m_output is not None:
+        return _per_1m_to_1k(req.cost_per_1m_output)
+    return req.cost_per_1k_output
+
+
+def _model_payload(m: LlmModel) -> dict:
+    extra_params = m.extra_params if isinstance(m.extra_params, dict) else {}
+    return {
+        "id": m.id,
+        "name": m.name,
+        "provider": m.provider,
+        "model_id": m.model_id,
+        "api_base": m.api_base,
+        "api_key_set": bool(m.api_key),
+        "enabled": m.enabled,
+        "is_primary": m.is_primary,
+        "is_fallback": m.is_fallback,
+        "temperature": m.temperature,
+        "max_tokens": m.max_tokens,
+        "requests_per_minute": m.requests_per_minute,
+        "description": m.description,
+        "cost_per_1k_input": m.cost_per_1k_input,
+        "cost_per_1k_output": m.cost_per_1k_output,
+        "cost_per_1m_input": _per_1k_to_1m(m.cost_per_1k_input),
+        "cost_per_1m_input_cache_hit": extra_params.get("cost_per_1m_input_cache_hit"),
+        "cost_per_1m_output": _per_1k_to_1m(m.cost_per_1k_output),
+        "extra_params": m.extra_params,
+        "created_at": m.created_at.isoformat() if m.created_at else None,
+        "updated_at": m.updated_at.isoformat() if m.updated_at else None,
+    }
+
+
 # ── Model Config CRUD ─────────────────────────────────────────────────
 
 @router.get("")
@@ -189,29 +253,7 @@ async def list_models(db: AsyncSession = Depends(get_db)):
     models = result.scalars().all()
     await _normalize_model_roles(db, models)
     return {
-        "models": [
-            {
-                "id": m.id,
-                "name": m.name,
-                "provider": m.provider,
-                "model_id": m.model_id,
-                "api_base": m.api_base,
-                "api_key_set": bool(m.api_key),
-                "enabled": m.enabled,
-                "is_primary": m.is_primary,
-                "is_fallback": m.is_fallback,
-                "temperature": m.temperature,
-                "max_tokens": m.max_tokens,
-                "requests_per_minute": m.requests_per_minute,
-                "description": m.description,
-                "cost_per_1k_input": m.cost_per_1k_input,
-                "cost_per_1k_output": m.cost_per_1k_output,
-                "extra_params": m.extra_params,
-                "created_at": m.created_at.isoformat() if m.created_at else None,
-                "updated_at": m.updated_at.isoformat() if m.updated_at else None,
-            }
-            for m in models
-        ],
+        "models": [_model_payload(m) for m in models],
         "total": len(models),
     }
 
@@ -230,9 +272,9 @@ async def create_model(req: ModelCreateRequest, db: AsyncSession = Depends(get_d
         max_tokens=req.max_tokens,
         requests_per_minute=req.requests_per_minute,
         description=req.description,
-        cost_per_1k_input=req.cost_per_1k_input,
-        cost_per_1k_output=req.cost_per_1k_output,
-        extra_params=req.extra_params,
+        cost_per_1k_input=_model_cost_input(req),
+        cost_per_1k_output=_model_cost_output(req),
+        extra_params=_pricing_extra_params(req.extra_params, req.cost_per_1m_input_cache_hit),
     )
     db.add(model)
     await db.flush()
@@ -302,6 +344,13 @@ async def get_usage_summary(
                 "avg_duration_ms": 0,
                 "cost_per_1k_input": model.cost_per_1k_input if model else None,
                 "cost_per_1k_output": model.cost_per_1k_output if model else None,
+                "cost_per_1m_input": _per_1k_to_1m(model.cost_per_1k_input) if model else None,
+                "cost_per_1m_input_cache_hit": (
+                    model.extra_params.get("cost_per_1m_input_cache_hit")
+                    if model and isinstance(model.extra_params, dict)
+                    else None
+                ),
+                "cost_per_1m_output": _per_1k_to_1m(model.cost_per_1k_output) if model else None,
             }
         model_stats = by_model[model_key]
         model_stats["calls"] += 1
@@ -370,6 +419,17 @@ async def update_model(model_id: int, req: ModelUpdateRequest, db: AsyncSession 
         raise HTTPException(404, f"Model {model_id} not found")
 
     update_data = req.model_dump(exclude_unset=True)
+    for api_only_key in ("cost_per_1m_input", "cost_per_1m_input_cache_hit", "cost_per_1m_output"):
+        update_data.pop(api_only_key, None)
+    if "cost_per_1m_input" in req.model_fields_set:
+        update_data["cost_per_1k_input"] = _per_1m_to_1k(req.cost_per_1m_input)
+    if "cost_per_1m_output" in req.model_fields_set:
+        update_data["cost_per_1k_output"] = _per_1m_to_1k(req.cost_per_1m_output)
+    if "cost_per_1m_input_cache_hit" in req.model_fields_set:
+        update_data["extra_params"] = _pricing_extra_params(
+            update_data.get("extra_params", model.extra_params),
+            req.cost_per_1m_input_cache_hit,
+        )
     for key, value in update_data.items():
         setattr(model, key, value)
 

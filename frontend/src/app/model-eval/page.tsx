@@ -31,7 +31,17 @@ import type { LlmModelItem, EvalRun, EvalResult, ModelUsageSummary } from '@/lib
 
 type Tab = 'models' | 'evaluate' | 'usage' | 'history';
 
-const PROVIDER_PRESETS: Record<string, { label: string; baseUrl: string; modelPlaceholder: string }> = {
+type ProviderPreset = {
+  label: string;
+  baseUrl: string;
+  modelPlaceholder: string;
+  costPer1MInput?: number;
+  costPer1MInputCacheHit?: number;
+  costPer1MOutput?: number;
+  pricingNote?: string;
+};
+
+const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
   openai: {
     label: 'OpenAI',
     baseUrl: 'https://api.openai.com/v1',
@@ -41,6 +51,10 @@ const PROVIDER_PRESETS: Record<string, { label: string; baseUrl: string; modelPl
     label: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com',
     modelPlaceholder: 'deepseek-chat',
+    costPer1MInput: 1,
+    costPer1MInputCacheHit: 0.02,
+    costPer1MOutput: 2,
+    pricingNote: 'DeepSeek 按百万 tokens 计费；V4 Flash 默认 ¥1/¥0.02/¥2，V4 Pro 当前优惠价 ¥3/¥0.025/¥6',
   },
   minimax: {
     label: 'MiniMax',
@@ -58,6 +72,25 @@ const PROVIDER_PRESETS: Record<string, { label: string; baseUrl: string; modelPl
     modelPlaceholder: 'provider/model-name',
   },
 };
+
+function deepSeekPricingForModel(modelId: string) {
+  const normalized = modelId.toLowerCase();
+  if (normalized.includes('v4-pro')) {
+    return { input: 3, cacheHit: 0.025, output: 6 };
+  }
+  return { input: 1, cacheHit: 0.02, output: 2 };
+}
+
+function pricingForProviderModel(provider: string, modelId: string) {
+  if (provider === 'deepseek') return deepSeekPricingForModel(modelId);
+  const preset = PROVIDER_PRESETS[provider];
+  if (!preset?.costPer1MInput && !preset?.costPer1MOutput && !preset?.costPer1MInputCacheHit) return null;
+  return {
+    input: preset.costPer1MInput,
+    cacheHit: preset.costPer1MInputCacheHit,
+    output: preset.costPer1MOutput,
+  };
+}
 
 const promptTypeLabel: Record<string, string> = {
   analysis: '选题分析',
@@ -79,6 +112,10 @@ function formatTokens(value: number): string {
 
 function formatCurrency(value: number): string {
   return `¥${(value || 0).toFixed(value >= 10 ? 2 : 4)}`;
+}
+
+function formatPerMillion(value: number | null | undefined): string {
+  return value !== null && value !== undefined ? `${formatCurrency(value)} / 百万` : '未配置';
 }
 
 function parseOptionalNumber(value: string): number | null {
@@ -474,8 +511,8 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
               {[
-                ['输入单价', m.cost_per_1k_input !== null ? `${formatCurrency(m.cost_per_1k_input)} / 1K` : '未配置'],
-                ['输出单价', m.cost_per_1k_output !== null ? `${formatCurrency(m.cost_per_1k_output)} / 1K` : '未配置'],
+                ['输入未命中', formatPerMillion(m.cost_per_1m_input)],
+                ['输出单价', formatPerMillion(m.cost_per_1m_output)],
               ].map(([label, value]) => (
                 <div key={label} style={{ background: T.gray50, border: `1px solid ${T.gray200}`, borderRadius: T.radiusXs, padding: '8px 9px', minWidth: 0 }}>
                   <div style={{ fontSize: 10, color: T.gray400, marginBottom: 3 }}>{label}</div>
@@ -483,6 +520,25 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
                 </div>
               ))}
             </div>
+
+            {m.cost_per_1m_input_cache_hit !== null && m.cost_per_1m_input_cache_hit !== undefined && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+                background: T.tealLight,
+                border: `1px solid ${T.tealBorder}`,
+                borderRadius: T.radiusXs,
+                padding: '7px 9px',
+                fontSize: 11,
+              }}>
+                <span style={{ color: T.gray500, fontWeight: 800 }}>输入缓存命中</span>
+                <span style={{ color: T.teal, fontWeight: 900, fontFamily: T.mono }}>
+                  {formatPerMillion(m.cost_per_1m_input_cache_hit)}
+                </span>
+              </div>
+            )}
 
             {m.description && (
               <div style={{ fontSize: 12, lineHeight: 1.6, color: T.gray500 }}>
@@ -547,8 +603,9 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
     requests_per_minute: model?.requests_per_minute ?? 60,
     description: model?.description || '',
     enabled: model?.enabled ?? true,
-    cost_per_1k_input: model?.cost_per_1k_input?.toString() ?? '',
-    cost_per_1k_output: model?.cost_per_1k_output?.toString() ?? '',
+    cost_per_1m_input: model?.cost_per_1m_input?.toString() ?? initialPreset.costPer1MInput?.toString() ?? '',
+    cost_per_1m_input_cache_hit: model?.cost_per_1m_input_cache_hit?.toString() ?? initialPreset.costPer1MInputCacheHit?.toString() ?? '',
+    cost_per_1m_output: model?.cost_per_1m_output?.toString() ?? initialPreset.costPer1MOutput?.toString() ?? '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -556,8 +613,9 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
     setSaving(true);
     try {
       const payload: Record<string, unknown> = { ...form };
-      payload.cost_per_1k_input = parseOptionalNumber(form.cost_per_1k_input);
-      payload.cost_per_1k_output = parseOptionalNumber(form.cost_per_1k_output);
+      payload.cost_per_1m_input = parseOptionalNumber(form.cost_per_1m_input);
+      payload.cost_per_1m_input_cache_hit = parseOptionalNumber(form.cost_per_1m_input_cache_hit);
+      payload.cost_per_1m_output = parseOptionalNumber(form.cost_per_1m_output);
       if (!payload.api_key) delete payload.api_key;
       if (!payload.api_base) delete payload.api_base;
       if (!payload.description) delete payload.description;
@@ -578,10 +636,27 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
 
   const handleProviderChange = (provider: string) => {
     const preset = PROVIDER_PRESETS[provider] || PROVIDER_PRESETS.custom;
+    const pricing = pricingForProviderModel(provider, form.model_id);
     setForm(f => ({
       ...f,
       provider,
       api_base: preset.baseUrl,
+      cost_per_1m_input: pricing?.input?.toString() ?? f.cost_per_1m_input,
+      cost_per_1m_input_cache_hit: pricing?.cacheHit?.toString() ?? f.cost_per_1m_input_cache_hit,
+      cost_per_1m_output: pricing?.output?.toString() ?? f.cost_per_1m_output,
+    }));
+  };
+
+  const handleModelIdChange = (modelId: string) => {
+    const pricing = pricingForProviderModel(form.provider, modelId);
+    setForm(f => ({
+      ...f,
+      model_id: modelId,
+      ...(pricing ? {
+        cost_per_1m_input: pricing.input?.toString() ?? f.cost_per_1m_input,
+        cost_per_1m_input_cache_hit: pricing.cacheHit?.toString() ?? f.cost_per_1m_input_cache_hit,
+        cost_per_1m_output: pricing.output?.toString() ?? f.cost_per_1m_output,
+      } : {}),
     }));
   };
 
@@ -612,7 +687,7 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
         </div>
         <div>
           <label style={labelStyle}>Model ID *</label>
-          <input style={inputStyle} value={form.model_id} onChange={e => setForm(f => ({ ...f, model_id: e.target.value }))} placeholder={`如 ${currentPreset.modelPlaceholder}`} />
+          <input style={inputStyle} value={form.model_id} onChange={e => handleModelIdChange(e.target.value)} placeholder={`如 ${currentPreset.modelPlaceholder}`} />
         </div>
         <div>
           <label style={labelStyle}>API Key {isEdit ? '(留空不修改)' : '*'}</label>
@@ -660,12 +735,30 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
           <input style={inputStyle} type="number" value={form.max_tokens} onChange={e => setForm(f => ({ ...f, max_tokens: parseInt(e.target.value) || 2000 }))} />
         </div>
         <div>
-          <label style={labelStyle}>输入单价 / 1K Token</label>
-          <input style={inputStyle} type="number" step="0.0001" value={form.cost_per_1k_input} onChange={e => setForm(f => ({ ...f, cost_per_1k_input: e.target.value }))} placeholder="如 0.001" />
+          <label style={labelStyle}>输入未命中单价 / 百万 Tokens</label>
+          <input style={inputStyle} type="number" step="0.001" value={form.cost_per_1m_input} onChange={e => setForm(f => ({ ...f, cost_per_1m_input: e.target.value }))} placeholder="如 1" />
         </div>
         <div>
-          <label style={labelStyle}>输出单价 / 1K Token</label>
-          <input style={inputStyle} type="number" step="0.0001" value={form.cost_per_1k_output} onChange={e => setForm(f => ({ ...f, cost_per_1k_output: e.target.value }))} placeholder="如 0.002" />
+          <label style={labelStyle}>输出单价 / 百万 Tokens</label>
+          <input style={inputStyle} type="number" step="0.001" value={form.cost_per_1m_output} onChange={e => setForm(f => ({ ...f, cost_per_1m_output: e.target.value }))} placeholder="如 2" />
+        </div>
+        <div>
+          <label style={labelStyle}>输入缓存命中 / 百万 Tokens</label>
+          <input style={inputStyle} type="number" step="0.001" value={form.cost_per_1m_input_cache_hit} onChange={e => setForm(f => ({ ...f, cost_per_1m_input_cache_hit: e.target.value }))} placeholder="如 0.02" />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'end' }}>
+          <div style={{
+            width: '100%',
+            padding: '8px 10px',
+            borderRadius: T.radiusXs,
+            border: `1px solid ${currentPreset.pricingNote ? T.tealBorder : T.gray200}`,
+            background: currentPreset.pricingNote ? T.tealLight : T.gray50,
+            color: currentPreset.pricingNote ? T.teal : T.gray400,
+            fontSize: 11,
+            lineHeight: 1.45,
+          }}>
+            {currentPreset.pricingNote || '费用估算按输入未命中价和输出价计算。'}
+          </div>
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>

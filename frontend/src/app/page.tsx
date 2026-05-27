@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Clock3,
   Eye,
+  ExternalLink,
   Flame,
   Star,
   ThumbsDown,
@@ -759,6 +760,32 @@ function EditorialItem({
                 <Eye size={13} strokeWidth={2} />
                 分析
               </button>
+            )}
+            {item.url && (
+              <a
+                href={item.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  border: `1px solid ${T.tealBorder}`,
+                  background: T.tealLight,
+                  color: T.teal,
+                  borderRadius: T.radiusXs,
+                  padding: '4px 8px',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  textDecoration: 'none',
+                }}
+                title="查看原文"
+              >
+                <ExternalLink size={13} strokeWidth={2} />
+                原文
+              </a>
             )}
             {/* Feedback buttons */}
             <FeedbackButtons contentId={item.id} />

@@ -989,6 +989,9 @@ export interface LlmModelItem {
   description: string | null;
   cost_per_1k_input: number | null;
   cost_per_1k_output: number | null;
+  cost_per_1m_input: number | null;
+  cost_per_1m_input_cache_hit: number | null;
+  cost_per_1m_output: number | null;
   extra_params: Record<string, unknown> | null;
   created_at: string | null;
   updated_at: string | null;
@@ -1035,6 +1038,9 @@ export interface ModelUsageByModel extends ModelUsageBucket {
   avg_duration_ms: number;
   cost_per_1k_input: number | null;
   cost_per_1k_output: number | null;
+  cost_per_1m_input?: number | null;
+  cost_per_1m_input_cache_hit?: number | null;
+  cost_per_1m_output?: number | null;
 }
 
 export interface ModelUsageByPrompt extends ModelUsageBucket {

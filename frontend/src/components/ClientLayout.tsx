@@ -47,7 +47,7 @@ function saveFavoritesToStorage(favSet: Set<number>): void {
 }
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
-  const [favorites, setFavorites] = useState<Set<number>>(() => loadFavoritesFromStorage());
+  const [favorites, setFavorites] = useState<Set<number>>(new Set());
   const [contentCount, setContentCount] = useState(0);
   const [sourceCount, setSourceCount] = useState(0);
   const [compactNav, setCompactNav] = useState(false);
@@ -69,6 +69,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   }, []);
 
   useEffect(() => {
+    setFavorites(loadFavoritesFromStorage());
     void refreshCounts();
   }, [refreshCounts]);
 

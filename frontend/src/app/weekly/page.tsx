@@ -75,6 +75,58 @@ interface CategoryInfo {
   avg_score?: number;
 }
 
+function WeeklyPanel({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <section style={{
+      background: T.white,
+      border: `1px solid ${T.gray200}`,
+      borderRadius: T.radius,
+      padding: '20px 22px',
+      ...style,
+    }}>
+      {children}
+    </section>
+  );
+}
+
+function WeeklyStat({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: React.ReactNode;
+  tone?: 'primary' | 'teal' | 'amber' | 'neutral';
+}) {
+  const toneMap = {
+    primary: { bg: T.primaryLight, border: T.primaryBorder, color: T.primary },
+    teal: { bg: T.tealLight, border: T.tealBorder, color: T.teal },
+    amber: { bg: T.amberLight, border: T.amberBorder, color: T.amber },
+    neutral: { bg: T.gray50, border: T.gray200, color: T.gray900 },
+  }[tone];
+
+  return (
+    <div style={{
+      padding: '12px 13px',
+      borderRadius: T.radiusSm,
+      background: toneMap.bg,
+      border: `1px solid ${toneMap.border}`,
+      minWidth: 0,
+    }}>
+      <div style={{ fontSize: 11, color: T.gray500, marginBottom: 5 }}>{label}</div>
+      <div style={{ fontSize: 21, lineHeight: 1, fontWeight: 900, color: toneMap.color, fontFamily: T.mono }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
 export default function WeeklyDigestPage() {
   const [digest, setDigest] = useState<WeeklyDigest | null>(null);
   const [weeks, setWeeks] = useState<WeeklyDigestWeekSummary[]>([]);
@@ -274,18 +326,18 @@ export default function WeeklyDigestPage() {
       </div>
 
       {/* Main Content */}
-      <div style={{ flex: 1, padding: '32px 40px', overflowY: 'auto' }}>
+      <div style={{ flex: 1, padding: '28px 40px 64px', overflowY: 'auto' }}>
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 18, marginBottom: 18 }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
-              <h1 style={{ fontSize: 26, fontWeight: 700, color: T.gray900 }}>AI 周刊</h1>
-              <ReportBadge>WEEKLY DIGEST</ReportBadge>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 7 }}>
+              <h1 style={{ fontSize: 26, fontWeight: 900, color: T.gray900, margin: 0 }}>AI 周刊</h1>
+              <ReportBadge>WEEKLY REVIEW</ReportBadge>
               {!isCurrentWeek && digest && (
                 <ReportBadge tone="history">历史回顾</ReportBadge>
               )}
             </div>
-            <p style={{ fontSize: 13, color: T.gray400 }}>
+            <p style={{ fontSize: 13, color: T.gray500, margin: 0 }}>
               {digest ? `${digest.week_label}（${digest.week_start} ~ ${digest.week_end}）` : '加载中...'}
               {digest?.content_count ? ` · 基于 ${digest.content_count} 条内容分析` : ''}
             </p>
@@ -334,67 +386,151 @@ export default function WeeklyDigestPage() {
             周刊生成中，请稍候...
           </ReportStatusPanel>
         ) : digest ? (
-          <div style={{ maxWidth: 860 }}>
-            {/* Takeaway */}
-            {digest.takeaway && (
+          <article style={{ maxWidth: 900 }}>
+            <section style={{
+              position: 'relative',
+              overflow: 'hidden',
+              background: T.white,
+              border: `1px solid ${T.gray200}`,
+              borderRadius: T.radius,
+              padding: '24px 28px 22px',
+              color: T.gray900,
+              boxShadow: '0 18px 48px rgba(15, 23, 42, 0.06)',
+              marginBottom: 18,
+            }}>
               <div style={{
-                background: `linear-gradient(135deg, ${T.purple}10, ${T.primary}10)`,
-                borderRadius: T.radius, padding: '20px 24px',
-                marginBottom: 24, borderLeft: `4px solid ${T.purple}`,
-              }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: T.purple, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  本周要点
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                top: 0,
+                height: 4,
+                background: `linear-gradient(90deg, ${T.primary}, ${T.teal})`,
+              }} />
+              <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 132px', gap: 20, alignItems: 'start' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+                    <span style={{
+                      fontSize: 11,
+                      fontWeight: 800,
+                      color: T.primary,
+                      background: T.primaryLight,
+                      border: `1px solid ${T.primaryBorder}`,
+                      borderRadius: 999,
+                      padding: '4px 9px',
+                      fontFamily: T.mono,
+                    }}>
+                      TOPIC RADAR WEEKLY
+                    </span>
+                    <span style={{ fontSize: 12, color: T.gray500 }}>{digest.week_label}</span>
+                  </div>
+                  <h2 style={{
+                    fontSize: 34,
+                    lineHeight: 1,
+                    fontWeight: 900,
+                    letterSpacing: 0,
+                    marginBottom: 14,
+                  }}>
+                    选题雷达<br />周刊
+                  </h2>
+                  <p style={{
+                    maxWidth: 620,
+                    fontSize: 16,
+                    lineHeight: 1.65,
+                    fontWeight: 700,
+                    color: T.gray700,
+                  }}>
+                    {digest.takeaway || digest.overview || '本周内容已完成归档，等待进一步分析。'}
+                  </p>
                 </div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: T.gray900, lineHeight: 1.6 }}>
-                  {digest.takeaway}
+                <div style={{
+                  minWidth: 122,
+                  padding: '12px 14px',
+                  border: `1px solid ${T.primaryBorder}`,
+                  borderRadius: T.radiusSm,
+                  background: T.primaryLight,
+                  textAlign: 'right',
+                }}>
+                  <div style={{ fontSize: 11, color: T.gray500, marginBottom: 6 }}>WEEK</div>
+                  <div style={{ fontSize: 22, fontFamily: T.mono, fontWeight: 900, color: T.primary }}>{digest.week_key}</div>
+                  <div style={{ fontSize: 11, color: T.gray500, marginTop: 4 }}>{digest.week_start} ~ {digest.week_end}</div>
                 </div>
               </div>
-            )}
+              <div style={{
+                position: 'relative',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                gap: 10,
+                marginTop: 20,
+              }}>
+                <WeeklyStat label="内容样本" value={digest.content_count || 0} tone="primary" />
+                <WeeklyStat label="完成分析" value={digest.analyzed_count || 0} tone="teal" />
+                <WeeklyStat label="推荐选题" value={topPicks.length || 0} tone="amber" />
+                <WeeklyStat label="信源覆盖" value={digest.source_count || 0} />
+              </div>
+            </section>
 
             {/* Overview */}
             {digest.overview && (
-              <div style={{ marginBottom: 28 }}>
+              <WeeklyPanel style={{ marginBottom: 18 }}>
                 <ReportSectionTitle icon={Newspaper} title="本周概述" />
-                <p style={{ fontSize: 14, color: T.gray600, lineHeight: 1.8 }}>{digest.overview}</p>
-              </div>
+                <p style={{ fontSize: 14, color: T.gray600, lineHeight: 1.85 }}>{digest.overview}</p>
+              </WeeklyPanel>
             )}
 
             {/* Keywords */}
             {(keywords || []).length > 0 && (
-              <div style={{ marginBottom: 28 }}>
+              <WeeklyPanel style={{ marginBottom: 18 }}>
                 <ReportSectionTitle icon={KeyRound} title="本周关键词" />
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {keywords.map((kw: string, i: number) => (
                     <span key={i} style={{
-                      fontSize: 13, fontWeight: 500, color: T.gray700,
-                      background: T.gray50, border: `1px solid ${T.gray200}`,
-                      padding: '4px 14px', borderRadius: 20,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: T.gray700,
+                      background: i === 0 ? T.primaryLight : T.gray50,
+                      border: `1px solid ${i === 0 ? T.primaryBorder : T.gray200}`,
+                      padding: '5px 10px',
+                      borderRadius: 999,
                     }}>
                       {kw}
                     </span>
                   ))}
                 </div>
-              </div>
+              </WeeklyPanel>
             )}
 
             {/* Trends */}
             {(trends || []).length > 0 && (
-              <div style={{ marginBottom: 28 }}>
+              <WeeklyPanel style={{ marginBottom: 18 }}>
                 <ReportSectionTitle icon={TrendingUp} title="内容趋势" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {trends.map((trend: TrendItem, i: number) => (
                     <div key={i} style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 12,
-                      padding: '14px 18px', background: T.white,
-                      borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
+                      display: 'grid',
+                      gridTemplateColumns: '34px minmax(0, 1fr) auto',
+                      alignItems: 'start',
+                      gap: 12,
+                      padding: '14px 0',
+                      borderTop: i === 0 ? 'none' : `1px solid ${T.gray100}`,
                     }}>
                       <div style={{
-                        width: 8, height: 8, borderRadius: '50%',
-                        background: trend.color || T.purple, marginTop: 5, flexShrink: 0,
-                      }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: T.gray900, marginBottom: 2 }}>{trend.title}</div>
-                        <div style={{ fontSize: 13, color: T.gray500 }}>{trend.desc}</div>
+                        width: 28,
+                        height: 28,
+                        borderRadius: 8,
+                        background: trend.color || T.primary,
+                        color: T.white,
+                        fontSize: 12,
+                        fontWeight: 900,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontFamily: T.mono,
+                      }}>
+                        {String(i + 1).padStart(2, '0')}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: T.gray900, marginBottom: 4 }}>{trend.title}</div>
+                        <div style={{ fontSize: 13, color: T.gray500, lineHeight: 1.7 }}>{trend.desc}</div>
                       </div>
                       {trend.momentum && (
                         <span style={{
@@ -418,29 +554,37 @@ export default function WeeklyDigestPage() {
                     </div>
                   ))}
                 </div>
-              </div>
+              </WeeklyPanel>
             )}
 
             {/* Topic Clusters */}
             {(topicClusters || []).length > 0 && (
-              <div style={{ marginBottom: 28 }}>
+              <WeeklyPanel style={{ marginBottom: 18 }}>
                 <ReportSectionTitle icon={Flame} title="热门话题聚类" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
                   {topicClusters.map((cluster: ClusterItem, i: number) => (
                     <div key={i} style={{
-                      padding: '14px 18px', background: T.white,
-                      borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
+                      padding: '15px 16px',
+                      background: i === 0 ? T.primaryLight : T.gray50,
+                      borderRadius: T.radiusSm,
+                      border: `1px solid ${i === 0 ? T.primaryBorder : T.gray200}`,
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: T.gray900 }}>{cluster.name}</span>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: T.gray900 }}>{cluster.name}</span>
                         <span style={{
-                          fontSize: 11, fontFamily: T.mono, fontWeight: 600, color: T.primary,
-                          background: T.primaryLight, padding: '2px 8px', borderRadius: 10,
+                          fontSize: 11,
+                          fontFamily: T.mono,
+                          fontWeight: 800,
+                          color: i === 0 ? T.primary : T.teal,
+                          background: i === 0 ? T.white : T.tealLight,
+                          border: `1px solid ${i === 0 ? T.primaryBorder : T.tealBorder}`,
+                          padding: '2px 8px',
+                          borderRadius: 10,
                         }}>
                           {cluster.count}篇
                         </span>
                       </div>
-                      <div style={{ fontSize: 12, color: T.gray400, lineHeight: 1.5 }}>
+                      <div style={{ fontSize: 12, color: T.gray500, lineHeight: 1.6 }}>
                         代表: {cluster.representative_title}
                       </div>
                       <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -451,7 +595,7 @@ export default function WeeklyDigestPage() {
                           <div style={{
                             width: `${Math.min(cluster.heat, 100)}%`,
                             height: '100%', borderRadius: 2,
-                            background: `linear-gradient(90deg, ${T.primary}, ${T.purple})`,
+                            background: `linear-gradient(90deg, ${T.primary}, ${T.teal})`,
                           }} />
                         </div>
                         <span style={{ fontSize: 10, color: T.gray400, fontFamily: T.mono }}>
@@ -461,34 +605,43 @@ export default function WeeklyDigestPage() {
                     </div>
                   ))}
                 </div>
-              </div>
+              </WeeklyPanel>
             )}
 
             {/* Top Picks */}
             {(topPicks || []).length > 0 && (
-              <div style={{ marginBottom: 28 }}>
+              <WeeklyPanel style={{ marginBottom: 18 }}>
                 <ReportSectionTitle icon={Target} title="精选选题 TOP 5" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {topPicks.map((pick: PickItem, i: number) => (
                     <div key={i} style={{
-                      padding: '16px 20px', background: T.white,
-                      borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '16px 0',
+                      background: T.white,
+                      borderTop: i === 0 ? 'none' : `1px solid ${T.gray100}`,
+                      display: 'grid',
+                      gridTemplateColumns: '32px minmax(0, 1fr) 52px',
+                      gap: 12,
+                      alignItems: 'start',
                     }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                          <span style={{
-                            fontSize: 11, fontWeight: 700, color: T.white,
-                            background: i === 0 ? '#FF6B35' : i === 1 ? '#F59E0B' : i === 2 ? '#8B5CF6' : T.primary,
-                            width: 22, height: 22, borderRadius: '50%',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          }}>
-                            {i + 1}
-                          </span>
-                          <span style={{ fontSize: 14, fontWeight: 600, color: T.gray900 }}>{pick.title}</span>
-                        </div>
-                        <div style={{ fontSize: 12, color: T.gray500, marginLeft: 30 }}>{pick.reason}</div>
-                        <div style={{ display: 'flex', gap: 6, marginTop: 6, marginLeft: 30, alignItems: 'center' }}>
+                      <div style={{
+                        width: 26,
+                        height: 26,
+                        borderRadius: 999,
+                        background: i === 0 ? T.primary : i === 1 ? T.amber : T.gray100,
+                        color: i < 2 ? T.white : T.gray600,
+                        fontSize: 12,
+                        fontWeight: 900,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontFamily: T.mono,
+                      }}>
+                        {i + 1}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 15, fontWeight: 800, color: T.gray900, lineHeight: 1.45 }}>{pick.title}</div>
+                        <div style={{ fontSize: 12, color: T.gray500, lineHeight: 1.65, marginTop: 4 }}>{pick.reason}</div>
+                        <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                           {pick.source && (
                             <span style={{ fontSize: 10, color: T.gray400 }}>
                               信源 {pick.source}
@@ -511,8 +664,11 @@ export default function WeeklyDigestPage() {
                       </div>
                       {pick.score && (
                         <div style={{
-                          fontSize: 22, fontWeight: 800, color: T.primary,
-                          fontFamily: T.mono, marginLeft: 16,
+                          fontSize: 21,
+                          fontWeight: 900,
+                          color: T.primary,
+                          fontFamily: T.mono,
+                          textAlign: 'right',
                         }}>
                           {pick.score}
                         </div>
@@ -520,23 +676,25 @@ export default function WeeklyDigestPage() {
                     </div>
                   ))}
                 </div>
-              </div>
+              </WeeklyPanel>
             )}
 
             {/* Category Summary */}
             {categorySummary && typeof categorySummary === 'object' && Object.keys(categorySummary).length > 0 && (
-              <div style={{ marginBottom: 28 }}>
+              <WeeklyPanel style={{ marginBottom: 18 }}>
                 <ReportSectionTitle icon={BarChart3} title="分类概览" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
                   {Object.entries(categorySummary || {}).map(([cat, info]) => {
                     return (
                     <div key={cat} style={{
-                      padding: '14px 18px', background: T.white,
-                      borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
+                      padding: '14px 16px',
+                      background: T.gray50,
+                      borderRadius: T.radiusSm,
+                      border: `1px solid ${T.gray200}`,
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: T.gray900 }}>{cat}</span>
-                        <span style={{ fontSize: 12, fontFamily: T.mono, color: T.gray400 }}>
+                        <span style={{ fontSize: 14, fontWeight: 800, color: T.gray900 }}>{cat}</span>
+                        <span style={{ fontSize: 12, fontFamily: T.mono, color: T.primary, fontWeight: 800 }}>
                           {info.count}篇
                         </span>
                       </div>
@@ -564,18 +722,20 @@ export default function WeeklyDigestPage() {
                     );
                   })}
                 </div>
-              </div>
+              </WeeklyPanel>
             )}
 
             {/* Action Items */}
             {(actionItems || []).length > 0 && (
-              <div style={{ marginBottom: 28 }}>
+              <WeeklyPanel style={{ marginBottom: 18 }}>
                 <ReportSectionTitle icon={CheckCircle2} title="下周创作行动清单" />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {actionItems.map((item: ActionItem, i: number) => (
                     <div key={i} style={{
-                      padding: '14px 18px', background: T.white,
-                      borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
+                      padding: '14px 16px',
+                      background: i < 3 ? T.primaryLight : T.gray50,
+                      borderRadius: T.radiusSm,
+                      border: `1px solid ${i < 3 ? T.primaryBorder : T.gray200}`,
                       display: 'flex', alignItems: 'flex-start', gap: 12,
                     }}>
                       <div style={{
@@ -616,43 +776,53 @@ export default function WeeklyDigestPage() {
                     </div>
                   ))}
                 </div>
-              </div>
+              </WeeklyPanel>
             )}
 
             {/* Platform Tips */}
             {platformTips && typeof platformTips === 'object' && Object.keys(platformTips).length > 0 && (
-              <div style={{ marginBottom: 28 }}>
+              <WeeklyPanel style={{ marginBottom: 18 }}>
                 <ReportSectionTitle icon={Lightbulb} title="平台创作建议" />
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
                   {Object.entries(platformTips || {}).map(([platform, tips]) => (
                     <div key={platform} style={{
-                      padding: '16px 20px', background: T.white,
-                      borderRadius: T.radiusSm, border: `1px solid ${T.gray100}`,
+                      padding: '16px 18px',
+                      background: T.white,
+                      borderRadius: T.radiusSm,
+                      border: `1px solid ${T.gray200}`,
                     }}>
                       <PlatformHeading icon={Smartphone} label={platform} />
                       {(Array.isArray(tips) ? tips : []).map((tip: string, j: number) => (
-                        <div key={j} style={{ fontSize: 12, color: T.gray500, lineHeight: 1.6, marginBottom: 4, paddingLeft: 10, borderLeft: `2px solid ${T.gray200}` }}>
+                        <div key={j} style={{
+                          fontSize: 12,
+                          color: T.gray500,
+                          lineHeight: 1.65,
+                          marginBottom: 8,
+                          paddingLeft: 10,
+                          borderLeft: `2px solid ${j === 0 ? T.primaryBorder : T.gray200}`,
+                        }}>
                           {tip}
                         </div>
                       ))}
                     </div>
                   ))}
                 </div>
-              </div>
+              </WeeklyPanel>
             )}
 
             {/* Stats footer */}
             <div style={{
-              padding: '16px 20px', background: T.gray50, borderRadius: T.radiusSm,
+              padding: '14px 0 0',
               display: 'flex', gap: 24, fontSize: 12, color: T.gray400,
               flexWrap: 'wrap',
+              borderTop: `1px solid ${T.gray200}`,
             }}>
               <ReportFooterStat icon={CalendarDays}>{digest.week_label}</ReportFooterStat>
               <ReportFooterStat icon={BarChart3}>分析 {digest.analyzed_count} 条内容</ReportFooterStat>
               <ReportFooterStat icon={RadioTower}>来自 {digest.source_count} 个信源</ReportFooterStat>
               <ReportFooterStat icon={Folder}>覆盖 {digest.category_count} 个分类</ReportFooterStat>
             </div>
-          </div>
+          </article>
         ) : (
           <ReportStatusPanel icon={Inbox}>
             暂无周刊数据

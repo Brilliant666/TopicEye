@@ -1,6 +1,5 @@
 'use client';
 
-import React from 'react';
 import {
   CheckCircle2,
   ExternalLink,
@@ -13,6 +12,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { Badge, Button, Metric, Panel, Toolbar } from '@/components/ui';
 import { T } from '@/lib/design-tokens';
 import type { FeedbackType, ScoringFlowResponse, ScoringFlowSample } from '@/lib/api';
 
@@ -36,20 +36,6 @@ function pct(value: number) {
 
 function fmt(value: number | undefined, digits = 1) {
   return Number(value ?? 0).toFixed(digits);
-}
-
-function Panel({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <section className={`min-w-0 rounded-lg border border-gray-200 bg-white ${className}`}>
-      {children}
-    </section>
-  );
-}
-
-function MetricValue({ value, color }: { value: React.ReactNode; color: string }) {
-  return (
-    <div className="font-mono text-2xl font-black leading-none" style={{ color }}>{value}</div>
-  );
 }
 
 function FactorBar({ label, value, color }: { label: string; value: number; color: string }) {
@@ -79,31 +65,6 @@ function ProgressRow({ label, value, color }: { label: string; value: number; co
   );
 }
 
-function FeedbackButton({
-  icon,
-  label,
-  disabled,
-  onClick,
-  palette,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  disabled: boolean;
-  onClick: () => void;
-  palette: { color: string; bg: string; border: string };
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="flex min-h-9 items-center justify-center gap-1.5 rounded-sm border px-3 py-2 text-xs font-bold transition disabled:cursor-wait disabled:opacity-70"
-      style={{ borderColor: palette.border, background: palette.bg, color: palette.color }}
-    >
-      {icon} {label}
-    </button>
-  );
-}
-
 export function AlgorithmHeader({
   hours,
   loading,
@@ -121,10 +82,10 @@ export function AlgorithmHeader({
       <div className="relative grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
         <div className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary-border bg-primary-light px-3 py-1 font-mono text-[11px] font-black text-primary">
+            <Badge tone="primary" className="gap-1.5 font-mono">
               <GitBranch size={13} strokeWidth={2.4} />
               SCORING FLOW
-            </span>
+            </Badge>
             <span className="text-xs font-bold text-gray-500">最近 {hours === 168 ? '7 天' : `${hours} 小时`}</span>
           </div>
           <h1 className="m-0 text-[28px] font-black leading-tight text-gray-900">算法流程</h1>
@@ -133,7 +94,7 @@ export function AlgorithmHeader({
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+        <Toolbar className="lg:justify-end">
           <div className="inline-flex rounded-sm border border-gray-200 bg-gray-100 p-1">
             {[24, 48, 168].map((h) => {
               const active = hours === h;
@@ -150,26 +111,27 @@ export function AlgorithmHeader({
               );
             })}
           </div>
-          <button
+          <Button
             onClick={onRefresh}
             disabled={loading}
             title="刷新"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-sm border border-gray-200 bg-white text-gray-600 transition hover:border-primary-border hover:text-primary disabled:cursor-wait disabled:opacity-60"
+            variant="secondary"
+            className="h-9 w-9 px-0 py-0"
           >
             <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-          </button>
-        </div>
+          </Button>
+        </Toolbar>
       </div>
     </header>
   );
 }
 
 export function SummaryGrid({ data }: { data: ScoringFlowResponse }) {
-  const cards: Array<{ label: string; value: React.ReactNode; icon: LucideIcon; color: string }> = [
-    { label: '数据库候选', value: data.total, icon: SlidersHorizontal, color: T.gray800 },
-    { label: '参与评分', value: data.scored, icon: GitBranch, color: T.teal },
-    { label: '精选输出', value: data.stages.find((s) => s.key === 'selected')?.count || 0, icon: CheckCircle2, color: T.primary },
-    { label: '观察窗口', value: data.hours === 168 ? '7天' : `${data.hours}h`, icon: ShieldAlert, color: T.amber },
+  const cards: Array<{ label: string; value: number | string; icon: LucideIcon; colorClass: string; iconClass: string }> = [
+    { label: '数据库候选', value: data.total, icon: SlidersHorizontal, colorClass: 'text-gray-800', iconClass: 'text-gray-800' },
+    { label: '参与评分', value: data.scored, icon: GitBranch, colorClass: 'text-teal', iconClass: 'text-teal' },
+    { label: '精选输出', value: data.stages.find((s) => s.key === 'selected')?.count || 0, icon: CheckCircle2, colorClass: 'text-primary', iconClass: 'text-primary' },
+    { label: '观察窗口', value: data.hours === 168 ? '7天' : `${data.hours}h`, icon: ShieldAlert, colorClass: 'text-amber', iconClass: 'text-amber' },
   ];
 
   return (
@@ -177,15 +139,13 @@ export function SummaryGrid({ data }: { data: ScoringFlowResponse }) {
       {cards.map((card) => {
         const Icon = card.icon;
         return (
-          <Panel key={card.label} className="p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="text-xs font-bold text-gray-500">{card.label}</div>
-              <div className="flex h-8 w-8 items-center justify-center rounded-sm bg-gray-50">
-                <Icon size={15} color={card.color} />
-              </div>
-            </div>
-            <MetricValue value={card.value} color={card.color} />
-          </Panel>
+          <Metric
+            key={card.label}
+            label={card.label}
+            value={card.value}
+            colorClass={card.colorClass}
+            icon={<Icon size={15} className={card.iconClass} />}
+          />
         );
       })}
     </div>
@@ -241,9 +201,9 @@ export function MixList({ title, items, tone }: { title: string; items: Array<{ 
     <Panel className="p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-sm font-black text-gray-800">{title}</div>
-        <span className="rounded-full border px-2 py-0.5 font-mono text-[10px] font-bold" style={{ color: palette.color, borderColor: palette.border, background: palette.bg }}>
+        <Badge tone={tone} className="font-mono text-[10px]">
           {items.length}
-        </span>
+        </Badge>
       </div>
       <div className="flex flex-col gap-2.5">
         {items.length === 0 ? (
@@ -303,14 +263,14 @@ export function SampleList({
                 <div className="min-w-0 flex-1">
                   <div className="line-clamp-2 text-[13px] font-bold leading-5 text-gray-800">{sample.title}</div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span className="rounded-xs bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">
+                    <Badge tone="neutral" className="rounded-xs px-1.5 py-0.5 text-[10px] font-bold">
                       {sample.category}
-                    </span>
+                    </Badge>
                     <span className="max-w-[150px] truncate text-[10px] text-gray-500">{sample.source_name || '未知来源'}</span>
                     {sample.selected && (
-                      <span className="rounded-xs bg-white px-1.5 py-0.5 text-[10px] font-black text-primary ring-1 ring-primary-border">
+                      <Badge tone="primary" className="rounded-xs bg-white px-1.5 py-0.5 text-[10px]">
                         SELECTED
-                      </span>
+                      </Badge>
                     )}
                   </div>
                 </div>
@@ -352,16 +312,9 @@ export function PathPanel({
         <>
           <div className="mb-4 flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div
-                className="mb-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-black"
-                style={{
-                  color: sample.selected ? T.primary : T.gray500,
-                  background: sample.selected ? T.primaryLight : T.gray50,
-                  borderColor: sample.selected ? T.primaryBorder : T.gray200,
-                }}
-              >
+              <Badge tone={sample.selected ? 'primary' : 'neutral'} className="mb-2">
                 {sample.selected ? '进入精选输出' : '未进入精选'}
-              </div>
+              </Badge>
               <div className="text-lg font-black leading-snug text-gray-900">{sample.title}</div>
             </div>
             {sample.url && (
@@ -398,20 +351,22 @@ export function PathPanel({
               </div>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <FeedbackButton
-                icon={<Plus size={13} />}
-                label="正向加分"
+              <Button
+                variant="success"
                 disabled={feedbacking}
                 onClick={() => onFeedback(sample, 'great_pick')}
-                palette={{ color: T.teal, bg: T.tealLight, border: T.tealBorder }}
-              />
-              <FeedbackButton
-                icon={<Minus size={13} />}
-                label="负向扣分"
+              >
+                <Plus size={13} />
+                正向加分
+              </Button>
+              <Button
+                variant="danger"
                 disabled={feedbacking}
                 onClick={() => onFeedback(sample, 'not_relevant')}
-                palette={{ color: T.red, bg: T.redLight, border: `${T.red}33` }}
-              />
+              >
+                <Minus size={13} />
+                负向扣分
+              </Button>
             </div>
           </div>
 

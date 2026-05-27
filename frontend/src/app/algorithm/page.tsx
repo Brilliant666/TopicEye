@@ -85,12 +85,14 @@ export default function AlgorithmPage() {
             <SummaryGrid data={data} />
             <Funnel data={data} selectedKey={selectedKey} />
 
-            <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(260px,0.82fr)_minmax(420px,1.22fr)_minmax(340px,0.96fr)]">
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
-                <MixList title="类别混排压力" items={data.category_mix} tone="purple" />
-                <MixList title="来源混排压力" items={data.source_mix} tone="teal" />
+            <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[minmax(0,1fr)_380px]">
+              <div className="min-w-0 space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <MixList title="类别混排压力" items={data.category_mix} tone="purple" />
+                  <MixList title="来源混排压力" items={data.source_mix} tone="teal" />
+                </div>
+                <SampleList samples={data.samples} selectedId={selected?.id} onSelect={setSelected} />
               </div>
-              <SampleList samples={data.samples} selectedId={selected?.id} onSelect={setSelected} />
               <PathPanel sample={selected} onFeedback={handleFeedback} feedbacking={feedbacking} />
             </div>
           </>

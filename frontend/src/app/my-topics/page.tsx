@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Pin } from 'lucide-react';
+import { ArrowRight, Pin, Star } from 'lucide-react';
 import { useAppContext } from '@/components/ClientLayout';
 import { motherTopicsApi, contentsApi, type MotherTopic, type ContentItem } from '@/lib/api';
 
@@ -140,13 +140,14 @@ function ContentCard({ item, onToggle }: { item: ScoredContent; onToggle: (id: n
             background: 'none',
             border: 'none',
             cursor: 'pointer',
-            fontSize: 18,
             padding: '2px 6px',
             color: fav ? '#f59e0b' : '#d1d5db',
             flexShrink: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
           }}
         >
-          ★
+          <Star size={18} strokeWidth={2} fill={fav ? '#f59e0b' : 'none'} />
         </button>
       </div>
 
@@ -400,7 +401,10 @@ export default function MyTopicsPage() {
             fontWeight: 500,
           }}
         >
-          去配置 →
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            去配置
+            <ArrowRight size={14} strokeWidth={2} />
+          </span>
         </a>
       </div>
     </div>

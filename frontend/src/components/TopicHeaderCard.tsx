@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { ExternalLink, Star } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import LevelBadge from '@/components/LevelBadge';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
@@ -109,7 +110,10 @@ export default function TopicHeaderCard({
             transition: 'all 0.15s',
           }}
         >
-          {isFav ? '★ 已收藏' : '☆ 收藏选题'}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Star size={14} strokeWidth={2} fill={isFav ? T.primary : 'none'} />
+            {isFav ? '已收藏' : '收藏选题'}
+          </span>
         </button>
 
         {item.url && (
@@ -132,7 +136,8 @@ export default function TopicHeaderCard({
               transition: 'all 0.15s',
             }}
           >
-            查看原文 ↗
+            查看原文
+            <ExternalLink size={13} strokeWidth={2} />
           </a>
         )}
       </div>

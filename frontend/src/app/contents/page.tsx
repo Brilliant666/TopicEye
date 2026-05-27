@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { T, CATEGORIES, SOURCE_TYPE_COLOR_MAP } from '@/lib/design-tokens';
 import { contentsApi } from '@/lib/api';
 import type { ContentItem } from '@/types';
@@ -288,7 +289,10 @@ export default function ContentsPage() {
                 cursor: page <= 1 ? 'not-allowed' : 'pointer',
               }}
             >
-              ← 上一页
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <ChevronLeft size={14} strokeWidth={2} />
+                上一页
+              </span>
             </button>
             <button
               onClick={handleNext}
@@ -304,7 +308,10 @@ export default function ContentsPage() {
                 cursor: page >= totalPages ? 'not-allowed' : 'pointer',
               }}
             >
-              下一页 →
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                下一页
+                <ChevronRight size={14} strokeWidth={2} />
+              </span>
             </button>
           </div>
         </div>

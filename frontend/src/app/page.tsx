@@ -1,7 +1,18 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Ban, Check, ChevronDown, Clock3, Flame, ThumbsDown, ThumbsUp } from 'lucide-react';
+import {
+  Ban,
+  Check,
+  ChevronDown,
+  Clock3,
+  Eye,
+  Flame,
+  Star,
+  ThumbsDown,
+  ThumbsUp,
+  X,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { T, SOURCE_TYPE_COLOR_MAP } from '@/lib/design-tokens';
 import { useAppContext } from '@/components/ClientLayout';
@@ -144,6 +155,22 @@ export default function HomePage() {
     return result;
   }, [items, activeCategory, searchQuery]);
 
+  const grouped = useMemo(() => {
+    const groups: Array<{ level: RecommendLevel; title: string; items: ContentItem[] }> = [
+      { level: '强烈建议写', title: '主编推荐', items: [] },
+      { level: '值得观察', title: '值得观察', items: [] },
+      { level: '适合深挖', title: '适合深挖', items: [] },
+      { level: '适合蹭热点', title: '热点观察', items: [] },
+      { level: '不建议追', title: '低优先级', items: [] },
+    ];
+    const fallback = groups[1];
+    filtered.forEach((item) => {
+      const level = item.analysis ? getRecommendLevel(item.analysis) : '值得观察';
+      (groups.find((g) => g.level === level) || fallback).items.push(item);
+    });
+    return groups.filter((g) => g.items.length > 0);
+  }, [filtered]);
+
   // Stats
   const totalCount = items.length;
   const todayCount = useMemo(() => items.filter((i) => isToday(i.published_at)).length, [items]);
@@ -282,21 +309,41 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Timeline */}
+      {/* Editorial content flow */}
       {!loading && !error && (
         <div style={{ maxWidth: 820, paddingBottom: 60 }}>
-          {filtered.map((item, idx) => (
-            <TimelineItem
-              key={item.id}
-              item={item}
-              isFav={favorites.has(item.id)}
-              onToggleFav={toggleFavorite}
-              onIgnore={handleIgnore}
-              isLast={idx === filtered.length - 1}
-              time={formatTime(item.published_at)}
-              timeLabel={timeAgo(item.published_at)}
-              onShowAnalysis={(a) => setSelectedAnalysis(a)}
-            />
+          {grouped.map((group) => (
+            <section key={group.level} style={{ marginBottom: 28 }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingBottom: 10,
+                marginBottom: 12,
+                borderBottom: `1px solid ${T.gray200}`,
+              }}>
+                <h2 style={{ fontSize: 15, fontWeight: 800, color: T.gray900 }}>
+                  {group.title}
+                </h2>
+                <span style={{ fontSize: 12, color: T.gray400, fontFamily: T.mono }}>
+                  {group.items.length}
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {group.items.map((item) => (
+                  <EditorialItem
+                    key={item.id}
+                    item={item}
+                    isFav={favorites.has(item.id)}
+                    onToggleFav={toggleFavorite}
+                    onIgnore={handleIgnore}
+                    time={formatTime(item.published_at)}
+                    timeLabel={timeAgo(item.published_at)}
+                    onShowAnalysis={(a) => setSelectedAnalysis(a)}
+                  />
+                ))}
+              </div>
+            </section>
           ))}
           {filtered.length === 0 && (
             <div style={{ textAlign: 'center', padding: 60, color: T.gray400, fontSize: 14 }}>
@@ -349,14 +396,13 @@ function Spinner() {
   );
 }
 
-// ── Timeline Item Component ──
+// ── Editorial Item Component ──
 
-function TimelineItem({
+function EditorialItem({
   item,
   isFav,
   onToggleFav,
   onIgnore,
-  isLast,
   time,
   timeLabel,
   onShowAnalysis,
@@ -365,17 +411,11 @@ function TimelineItem({
   isFav: boolean;
   onToggleFav: (id: number) => void;
   onIgnore: (id: number) => void;
-  isLast: boolean;
   time: string;
   timeLabel: string;
   onShowAnalysis: (analysis: ContentAnalysis) => void;
 }) {
   const [hovered, setHovered] = useState(false);
-
-  const sourceTypeStyle = SOURCE_TYPE_COLOR_MAP[item.source_type] || {
-    bg: T.gray100,
-    color: T.gray500,
-  };
 
   const handleCardClick = useCallback(() => {
     if (item.analysis) {
@@ -385,78 +425,9 @@ function TimelineItem({
     }
   }, [item.analysis, item.url, onShowAnalysis]);
 
+  const recommendation = item.analysis?.recommendation || item.analysis?.recommended_reason || item.summary;
+
   return (
-    <div style={{ display: 'flex', gap: 0, minHeight: 0, maxWidth: '100%' }}>
-      {/* Left: time */}
-      <div
-        style={{
-          width: 54,
-          flexShrink: 0,
-          paddingTop: 18,
-          textAlign: 'right',
-          paddingRight: 16,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 13,
-            fontFamily: T.mono,
-            fontWeight: 500,
-            color: hovered ? T.primary : T.gray400,
-            transition: 'color 0.15s',
-            display: 'block',
-          }}
-        >
-          {time}
-        </span>
-        <span
-          style={{
-            fontSize: 10,
-            color: T.gray400,
-            display: 'block',
-            marginTop: 2,
-          }}
-        >
-          {timeLabel}
-        </span>
-      </div>
-
-      {/* Center: rail + dot */}
-      <div
-        style={{
-          width: 24,
-          flexShrink: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-        }}
-      >
-        <div
-          style={{
-            width: 12,
-            height: 12,
-            borderRadius: '50%',
-            marginTop: 20,
-            flexShrink: 0,
-            background: hovered ? T.primary : T.white,
-            border: `2.5px solid ${T.primary}`,
-            transition: 'all 0.2s ease',
-            boxShadow: hovered ? `0 0 0 4px ${T.primaryLight}` : 'none',
-            zIndex: 1,
-          }}
-        />
-        {!isLast && (
-          <div
-            style={{
-              width: 2,
-              flex: 1,
-              background: `linear-gradient(to bottom, ${T.gray200}, ${T.gray100})`,
-            }}
-          />
-        )}
-      </div>
-
-      {/* Right: card */}
       <div
         onClick={handleCardClick}
         onMouseEnter={() => setHovered(true)}
@@ -465,11 +436,9 @@ function TimelineItem({
           flex: 1,
           minWidth: 0,
           overflow: 'hidden',
-          marginLeft: 16,
-          marginBottom: isLast ? 0 : 8,
           background: T.white,
           borderRadius: T.radius,
-          padding: '20px 24px',
+          padding: '18px 22px',
           cursor: item.url ? 'pointer' : 'default',
           transition: 'all 0.2s ease',
           boxShadow: hovered
@@ -484,31 +453,15 @@ function TimelineItem({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            marginBottom: 10,
+            marginBottom: 8,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 12, color: T.gray500, fontWeight: 500 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <span style={{ fontSize: 12, color: T.gray600, fontWeight: 600 }}>
               {item.source_name}
-              <span
-                style={{
-                  fontSize: 10,
-                  color: sourceTypeStyle.color,
-                  fontWeight: 400,
-                  marginLeft: 6,
-                  padding: '1px 5px',
-                  background: sourceTypeStyle.bg,
-                  borderRadius: 3,
-                }}
-              >
-                {item.source_type}
-              </span>
             </span>
-            {item.author && (
-              <span style={{ fontSize: 11, color: T.gray400 }}>
-                {item.author}
-              </span>
-            )}
+            <span style={{ fontSize: 12, color: T.gray300 }}>/</span>
+            <span style={{ fontSize: 12, color: T.gray400 }}>{timeLabel || time}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {item.category && (
@@ -516,8 +469,8 @@ function TimelineItem({
                 style={{
                   fontSize: 11,
                   fontWeight: 600,
-                  color: T.teal,
-                  background: T.tealLight,
+                  color: T.gray600,
+                  background: T.gray100,
                   padding: '2px 8px',
                   borderRadius: 4,
                 }}
@@ -541,13 +494,15 @@ function TimelineItem({
           {item.title}
         </h3>
 
-        {/* Summary */}
-        {item.summary && (
-          <p
+        {/* Editorial reason */}
+        {recommendation && (
+          <div
             style={{
+              borderLeft: `3px solid ${T.primary}`,
+              padding: '6px 0 6px 12px',
               fontSize: 13,
               lineHeight: 1.7,
-              color: T.gray500,
+              color: T.gray600,
               marginBottom: 12,
               display: '-webkit-box',
               WebkitLineClamp: 2,
@@ -555,8 +510,8 @@ function TimelineItem({
               overflow: 'hidden',
             }}
           >
-            {item.summary}
-          </p>
+            推荐理由：{recommendation}
+          </div>
         )}
 
         {/* Footer */}
@@ -575,17 +530,16 @@ function TimelineItem({
               flexWrap: 'wrap',
             }}
           >
-            {/* AI Score badges */}
-            {item.analysis && (
+            {item.analysis && hovered && (
               <>
                 <CurationScoreBadge score={item.analysis.adjusted_curation_score ?? item.analysis.curation_score} />
                 <ScoreBadge label="创作" score={item.analysis.creator_score} color={T.primary} />
-                <ScoreBadge label="爆文" score={item.analysis.viral_score} color="#e74c3c" />
-                <ScoreBadge label="质量" score={item.analysis.quality_score} color="#3498db" />
+                <ScoreBadge label="爆文" score={item.analysis.viral_score} color={T.gray600} />
+                <ScoreBadge label="质量" score={item.analysis.quality_score} color={T.gray600} />
                 <RecommendBadge level={getRecommendLevel(item.analysis)} />
               </>
             )}
-            {item.tags && item.tags.length > 0
+            {hovered && item.tags && item.tags.length > 0
               ? item.tags.slice(0, 5).map((tag) => (
                   <span
                     key={tag}
@@ -604,6 +558,29 @@ function TimelineItem({
               : null}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {item.analysis && hovered && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShowAnalysis(item.analysis as ContentAnalysis);
+                }}
+                style={{
+                  border: `1px solid ${T.gray200}`,
+                  background: T.white,
+                  color: T.gray500,
+                  borderRadius: T.radiusXs,
+                  padding: '4px 8px',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  fontSize: 12,
+                }}
+              >
+                <Eye size={13} strokeWidth={2} />
+                分析
+              </button>
+            )}
             {/* Feedback buttons */}
             <FeedbackButtons contentId={item.id} />
             {/* Favorite */}
@@ -616,15 +593,15 @@ function TimelineItem({
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
-                fontSize: 16,
-                lineHeight: 1,
                 padding: 2,
                 color: isFav ? T.primary : T.gray300,
                 transition: 'color 0.15s',
+                display: 'inline-flex',
+                alignItems: 'center',
               }}
               title={isFav ? '取消收藏' : '收藏'}
             >
-              {isFav ? '★' : '☆'}
+              <Star size={16} strokeWidth={2} fill={isFav ? T.primary : 'none'} />
             </button>
             {/* Ignore */}
             <button
@@ -636,22 +613,21 @@ function TimelineItem({
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
-                fontSize: 14,
-                lineHeight: 1,
                 padding: 2,
                 color: T.gray300,
                 transition: 'color 0.15s',
+                display: 'inline-flex',
+                alignItems: 'center',
               }}
               title="不感兴趣"
               onMouseEnter={(e) => (e.currentTarget.style.color = T.gray500)}
               onMouseLeave={(e) => (e.currentTarget.style.color = T.gray300)}
             >
-              ✕
+              <X size={15} strokeWidth={2} />
             </button>
           </div>
         </div>
       </div>
-    </div>
   );
 }
 
@@ -726,7 +702,7 @@ function CurationScoreBadge({ score }: { score: number | null | undefined }) {
         letterSpacing: '-0.3px',
       }}
     >
-      ★{rounded}
+      {rounded}
     </span>
   );
 }

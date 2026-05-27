@@ -36,28 +36,57 @@ interface NavItem {
   href: string;
   icon: LucideIcon;
   count?: number;
-  badge?: string;
+}
+
+interface NavSpace {
+  id: string;
+  label: string;
+  items: NavItem[];
 }
 
 export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0, compact = false }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
-  const navItems: NavItem[] = [
-    { id: 'lfv', label: '低粉爆文', href: '/low-follower-viral', icon: Flame, badge: 'NEW' },
-    { id: 'picks', label: '当日精选', href: '/today-picks', icon: Star, badge: 'HOT' },
-    { id: 'my-topics', label: '我的母题', href: '/my-topics', icon: Crosshair, badge: '私' },
-    { id: 'today', label: '今日选题', href: '/', icon: Lightbulb, count: topicCount },
-    { id: 'daily', label: 'AI 日报', href: '/daily', icon: Newspaper, badge: 'NEW' },
-    { id: 'weekly', label: 'AI 周刊', href: '/weekly', icon: ClipboardList, badge: 'NEW' },
-    { id: 'algorithm', label: '算法流程', href: '/algorithm', icon: GitBranch, badge: 'NEW' },
-    { id: 'stats', label: '数据统计', href: '/stats', icon: BarChart3 },
-    { id: 'favorites', label: '收藏夹', href: '/favorites', icon: Bookmark, count: favCount },
-    { id: 'sources', label: '信源管理', href: '/sources', icon: RadioTower, count: sourceCount },
-    { id: 'trends', label: '趋势追踪', href: '/trends', icon: TrendingUp, badge: 'NEW' },
-    { id: 'trending', label: '趋势雷达', href: '/trending', icon: Search, badge: 'NEW' },
-    { id: 'fanqie', label: '网文雷达', href: '/fanqie', icon: BookOpen, badge: 'NEW' },
-    { id: 'model-eval', label: 'AI 引擎', href: '/model-eval', icon: BrainCircuit },
+  const navSpaces: NavSpace[] = [
+    {
+      id: 'discover',
+      label: '发现',
+      items: [
+        { id: 'lfv', label: '低粉爆文', href: '/low-follower-viral', icon: Flame },
+        { id: 'trending', label: '趋势雷达', href: '/trending', icon: Search },
+        { id: 'trends', label: '趋势追踪', href: '/trends', icon: TrendingUp },
+      ],
+    },
+    {
+      id: 'today',
+      label: '今日',
+      items: [
+        { id: 'today', label: '今日选题', href: '/', icon: Lightbulb, count: topicCount },
+        { id: 'picks', label: '当日精选', href: '/today-picks', icon: Star },
+        { id: 'daily', label: '日报', href: '/daily', icon: Newspaper },
+        { id: 'weekly', label: '周刊', href: '/weekly', icon: ClipboardList },
+      ],
+    },
+    {
+      id: 'create',
+      label: '创作',
+      items: [
+        { id: 'my-topics', label: '我的母题', href: '/my-topics', icon: Crosshair },
+        { id: 'favorites', label: '收藏夹', href: '/favorites', icon: Bookmark, count: favCount },
+        { id: 'algorithm', label: '算法流程', href: '/algorithm', icon: GitBranch },
+      ],
+    },
+    {
+      id: 'manage',
+      label: '管理',
+      items: [
+        { id: 'stats', label: '数据统计', href: '/stats', icon: BarChart3 },
+        { id: 'sources', label: '信源管理', href: '/sources', icon: RadioTower, count: sourceCount },
+        { id: 'fanqie', label: '网文雷达', href: '/fanqie', icon: BookOpen },
+        { id: 'model-eval', label: 'AI 引擎', href: '/model-eval', icon: BrainCircuit },
+      ],
+    },
   ];
 
   const isActive = (href: string) => {
@@ -127,69 +156,70 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0,
       </div>
 
       {/* Navigation */}
-      <nav style={{ flex: 1, padding: compact ? '0 10px' : '0 12px' }}>
-        {navItems.map((item) => {
-          const active = isActive(item.href);
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.id}
-              title={compact ? item.label : undefined}
-              onClick={() => router.push(item.href)}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: compact ? 'center' : 'space-between',
-                padding: compact ? '10px 0' : '10px 12px',
-                marginBottom: 2,
-                fontSize: 14,
-                fontWeight: active ? 600 : 400,
-                color: active ? T.primary : T.gray600,
-                background: active ? T.primaryLight : 'transparent',
-                border: 'none',
-                borderRadius: T.radiusSm,
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                textAlign: 'left',
-              }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Icon size={16} strokeWidth={active ? 2.2 : 1.8} />
-                {!compact && <span>{item.label}</span>}
-              </span>
-              {!compact && item.badge ? (
-                <span
+      <nav style={{ flex: 1, padding: compact ? '0 10px' : '0 12px', overflowY: 'auto' }}>
+        {navSpaces.map((space) => (
+          <div key={space.id} style={{ marginBottom: compact ? 12 : 18 }}>
+            {!compact && (
+              <div style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: T.gray400,
+                padding: '0 12px 7px',
+                letterSpacing: '0.08em',
+              }}>
+                {space.label}
+              </div>
+            )}
+            {space.items.map((item) => {
+              const active = isActive(item.href);
+              const Icon = item.icon;
+              return (
+                <button
+                  key={item.id}
+                  title={compact ? item.label : undefined}
+                  onClick={() => router.push(item.href)}
                   style={{
-                    fontSize: 9,
-                    fontWeight: 700,
-                    letterSpacing: '0.06em',
-                    color: T.white,
-                    background: T.teal,
-                    padding: '2px 6px',
-                    borderRadius: 4,
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: compact ? 'center' : 'space-between',
+                    padding: compact ? '10px 0' : '9px 12px',
+                    marginBottom: 2,
+                    fontSize: 14,
+                    fontWeight: active ? 600 : 400,
+                    color: active ? T.primary : T.gray600,
+                    background: active ? T.primaryLight : 'transparent',
+                    border: 'none',
+                    borderRadius: T.radiusSm,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    textAlign: 'left',
                   }}
                 >
-                  {item.badge}
-                </span>
-              ) : !compact && (item.count ?? 0) > 0 ? (
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontFamily: T.mono,
-                    fontWeight: 500,
-                    color: active ? T.primary : T.gray400,
-                    background: active ? 'rgba(255,107,53,0.12)' : T.gray100,
-                    padding: '1px 7px',
-                    borderRadius: 10,
-                  }}
-                >
-                  {item.count}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Icon size={16} strokeWidth={active ? 2.2 : 1.8} />
+                    {!compact && <span>{item.label}</span>}
+                  </span>
+                  {!compact && (item.count ?? 0) > 0 ? (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontFamily: T.mono,
+                        fontWeight: 500,
+                        color: active ? T.primary : T.gray400,
+                        background: active ? 'rgba(255,107,53,0.12)' : T.gray100,
+                        padding: '1px 7px',
+                        borderRadius: 10,
+                      }}
+                    >
+                      {item.count}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       {/* Bottom User Area */}

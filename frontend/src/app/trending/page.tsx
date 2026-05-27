@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
-import { Lightbulb } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUp, ExternalLink, Lightbulb, Star } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import {
   trendingApi,
@@ -71,8 +72,8 @@ const CATEGORY_COLORS: Record<string, { bg: string; color: string }> = {
   finance: { bg: '#FEF3C7', color: '#D97706' },
 };
 
-const TREND_ICONS: Record<string, string> = {
-  up: '↑', down: '↓', new: '★', stable: '→',
+const TREND_ICONS: Record<string, LucideIcon> = {
+  up: ArrowUp, down: ArrowDown, new: Star, stable: ArrowRight,
 };
 
 const RESONANCE_COLORS: Record<number, { bg: string; color: string; label: string }> = {
@@ -92,12 +93,14 @@ function TrendBadge({ trend }: { trend: string | null }) {
     new: { bg: '#FFF4EE', color: '#FF6B35' },
   };
   const c = colors[trend] || { bg: T.gray100, color: T.gray600 };
+  const Icon = TREND_ICONS[trend] || ArrowRight;
   return (
     <span style={{
+      display: 'inline-flex', alignItems: 'center',
       fontSize: 10, fontWeight: 700, padding: '1px 5px',
       borderRadius: 4, background: c.bg, color: c.color,
     }}>
-      {TREND_ICONS[trend] || trend}
+      <Icon size={11} strokeWidth={2.2} fill={trend === 'new' ? c.color : 'none'} />
     </span>
   );
 }
@@ -313,7 +316,10 @@ function AnglePanel({ cluster }: { cluster: CrossPlatformCluster }) {
               borderRadius: T.radiusXs,
             }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: '#065F46', marginBottom: 2 }}>
-                → {c.angle}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <ArrowRight size={12} strokeWidth={2} />
+                  {c.angle}
+                </span>
               </div>
               <div style={{ fontSize: 10, color: '#047857' }}>
                 {c.reasoning}
@@ -377,7 +383,10 @@ function ClusterCardExpanded({ cluster }: { cluster: CrossPlatformCluster }) {
             fontWeight: 600,
           }}
         >
-          查看详情 →
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            查看详情
+            <ExternalLink size={12} strokeWidth={2} />
+          </span>
         </a>
       </div>
 
@@ -445,7 +454,10 @@ function ClusterCard({ cluster }: { cluster: CrossPlatformCluster }) {
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
             <ResonanceBadge resonance={cluster.resonance} />
             <span style={{ fontSize: 11, color: T.gray400 }}>
-              {expanded ? '收起↑' : '展开↓'}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                {expanded ? '收起' : '展开'}
+                {expanded ? <ArrowUp size={12} strokeWidth={2} /> : <ArrowDown size={12} strokeWidth={2} />}
+              </span>
             </span>
           </div>
         </div>

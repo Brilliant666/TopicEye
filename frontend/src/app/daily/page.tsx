@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   BarChart3,
   CalendarDays,
+  ExternalLink,
   FileText,
   Inbox,
   KeyRound,
@@ -386,7 +387,7 @@ export default function DailyReportPage() {
                                   cursor: 'pointer',
                                 }}
                               >
-                                ↗
+                                <ExternalLink size={13} strokeWidth={2} />
                               </a>
                             )}
                           </div>

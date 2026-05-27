@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { Star, X } from 'lucide-react';
 import { T, LEVEL_CONFIG } from '@/lib/design-tokens';
 import { contentsApi } from '@/lib/api';
 import { useAppContext } from '@/components/ClientLayout';
@@ -67,7 +68,7 @@ export default function FavoritesPage() {
         </div>
       ) : items.length === 0 ? (
         <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-          <div style={{ fontSize: 40, marginBottom: 16, opacity: 0.3 }}>☆</div>
+          <Star size={38} color={T.gray300} strokeWidth={1.8} style={{ marginBottom: 16, opacity: 0.7 }} />
           <div>还没有收藏任何内容</div>
           <div style={{ fontSize: 12, marginTop: 4 }}>在今日选题中点击星标即可收藏</div>
         </div>
@@ -111,15 +112,15 @@ export default function FavoritesPage() {
                     style={{
                       background: 'none',
                       border: 'none',
-                      fontSize: 18,
                       cursor: 'pointer',
                       color: '#F59E0B',
                       padding: '4px 8px',
-                      lineHeight: 1,
+                      display: 'inline-flex',
+                      alignItems: 'center',
                     }}
                     title="取消收藏"
                   >
-                    ★
+                    <Star size={18} strokeWidth={2} fill="#F59E0B" />
                   </button>
                 </div>
 
@@ -172,9 +173,10 @@ export default function FavoritesPage() {
               <h2 style={{ fontSize: 18, fontWeight: 700, color: T.gray900 }}>AI 分析报告</h2>
               <button
                 onClick={() => setSelectedAnalysis(null)}
-                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: T.gray400, padding: 4 }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.gray400, padding: 4, display: 'inline-flex', alignItems: 'center' }}
+                title="关闭"
               >
-                ✕
+                <X size={18} strokeWidth={2} />
               </button>
             </div>
 

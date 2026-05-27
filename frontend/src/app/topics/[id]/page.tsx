@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, ArrowLeft } from 'lucide-react';
 import { T, LEVEL_CONFIG } from '@/lib/design-tokens';
 import { useAppContext } from '@/components/ClientLayout';
 import { contentsApi, analysesApi } from '@/lib/api';
@@ -128,7 +128,7 @@ export default function TopicDetailPage() {
               marginBottom: 24, padding: '4px 0',
             }}
           >
-            <span style={{ fontSize: 16 }}>←</span> 返回
+            <ArrowLeft size={15} strokeWidth={2} /> 返回
           </button>
           <div
             style={{
@@ -179,7 +179,7 @@ export default function TopicDetailPage() {
           marginBottom: 24, padding: '4px 0',
         }}
       >
-        <span style={{ fontSize: 16 }}>←</span> 返回今日选题
+        <ArrowLeft size={15} strokeWidth={2} /> 返回今日选题
       </button>
 
       <div style={{ maxWidth: 760 }}>

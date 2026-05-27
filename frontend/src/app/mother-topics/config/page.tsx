@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Settings } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Settings } from 'lucide-react';
 import { motherTopicsApi, type MotherTopic } from '@/lib/api';
 
 /* ── helpers ── */
@@ -330,7 +330,10 @@ export default function MotherTopicsConfigPage() {
             textDecoration: 'none',
           }}
         >
-          ← 返回我的母题
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <ArrowLeft size={14} strokeWidth={2} />
+            返回我的母题
+          </span>
         </button>
       </div>
 
@@ -345,7 +348,7 @@ export default function MotherTopicsConfigPage() {
         color: '#1e40af',
         lineHeight: 1.6,
       }}>
-        <b>打分规则:</b> 母题匹配分 × 权重 + 新鲜度加成 → 最终得分<br/>
+        <b>打分规则:</b> 母题匹配分 × 权重 + 新鲜度加成 <ArrowRight size={13} strokeWidth={2} style={{ verticalAlign: '-2px' }} /> 最终得分<br/>
         <b>阈值:</b> 80+ 今日主选题 / 65-79 值得储备 / 50-64 观察池 / &lt;50 过滤
       </div>
 

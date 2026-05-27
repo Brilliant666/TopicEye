@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Check, Info, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 
 interface Notification {
@@ -13,11 +15,11 @@ interface Notification {
   created_at: string | null;
 }
 
-const TYPE_STYLES: Record<string, { color: string; bg: string; icon: string }> = {
-  success: { color: '#059669', bg: '#ECFDF5', icon: '✓' },
-  error:   { color: '#DC2626', bg: '#FEF2F2', icon: '✕' },
-  warning: { color: '#D97706', bg: '#FFFBEB', icon: '!' },
-  info:    { color: '#2563EB', bg: '#EFF6FF', icon: 'i' },
+const TYPE_STYLES: Record<string, { color: string; bg: string; icon: LucideIcon }> = {
+  success: { color: '#059669', bg: '#ECFDF5', icon: Check },
+  error:   { color: '#DC2626', bg: '#FEF2F2', icon: X },
+  warning: { color: '#D97706', bg: '#FFFBEB', icon: Info },
+  info:    { color: '#2563EB', bg: '#EFF6FF', icon: Info },
 };
 
 export default function NotificationBell() {
@@ -173,6 +175,7 @@ export default function NotificationBell() {
             ) : (
               notifications.map(n => {
                 const ts = TYPE_STYLES[n.type] || TYPE_STYLES.info;
+                const Icon = ts.icon;
                 return (
                   <div
                     key={n.id}
@@ -191,9 +194,9 @@ export default function NotificationBell() {
                         width: 22, height: 22, borderRadius: '50%',
                         background: ts.bg, color: ts.color,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 11, fontWeight: 700, flexShrink: 0,
+                        flexShrink: 0,
                       }}>
-                        {ts.icon}
+                        <Icon size={13} strokeWidth={2.2} />
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{

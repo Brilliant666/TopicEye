@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Star } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import type { Topic } from '@/types';
 import LevelBadge from './LevelBadge';
@@ -183,15 +184,15 @@ export default function TopicCard({ topic, isFav, onToggleFav }: TopicCardProps)
             background: 'none',
             border: 'none',
             cursor: 'pointer',
-            fontSize: 18,
-            lineHeight: 1,
             padding: 4,
             color: isFav ? T.primary : T.gray300,
             transition: 'color 0.15s',
+            display: 'inline-flex',
+            alignItems: 'center',
           }}
           title={isFav ? '取消收藏' : '收藏'}
         >
-          {isFav ? '★' : '☆'}
+          <Star size={18} strokeWidth={2} fill={isFav ? T.primary : 'none'} />
         </button>
       </div>
     </div>

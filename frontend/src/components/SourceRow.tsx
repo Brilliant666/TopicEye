@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import { timeAgo } from '@/lib/utils';
 
@@ -156,7 +157,7 @@ export default function SourceRowComponent({
           title="点击修改采集频率"
         >
           {formatInterval(source.fetch_interval_minutes)}
-          <span style={{ marginLeft: 4, fontSize: 10, opacity: 0.7 }}>▼</span>
+          <ChevronDown size={12} strokeWidth={2} style={{ marginLeft: 4, opacity: 0.7, verticalAlign: 'middle' }} />
         </button>
         {intervalOpen && (
           <div style={{

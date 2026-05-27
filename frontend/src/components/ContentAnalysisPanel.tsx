@@ -5,6 +5,7 @@
 'use client';
 
 import React from 'react';
+import { X } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import type { ContentAnalysis, RecommendLevel, ScoreBreakdown as ScoreBreakdownType } from '@/types';
 import { getRecommendLevel } from '@/types';
@@ -52,13 +53,14 @@ export default function ContentAnalysisPanel({ analysis, onClose }: Props) {
           right: 16,
           background: 'none',
           border: 'none',
-          fontSize: 22,
           cursor: 'pointer',
           color: T.gray400,
-          lineHeight: 1,
+          display: 'inline-flex',
+          alignItems: 'center',
         }}
+        title="关闭"
       >
-        ✕
+        <X size={20} strokeWidth={2} />
       </button>
 
       {/* Header */}

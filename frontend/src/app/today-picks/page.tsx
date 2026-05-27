@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { Clock3, Columns3, FileText, Folder, Lightbulb, List, Target } from 'lucide-react';
+import { ChevronDown, ChevronUp, Clock3, Columns3, ExternalLink, FileText, Folder, Lightbulb, List, Star, Target } from 'lucide-react';
 import { T, CATEGORIES, RECOMMEND_LEVELS, LEVEL_CONFIG } from '@/lib/design-tokens';
 import { contentsApi } from '@/lib/api';
 import { useAppContext } from '@/components/ClientLayout';
@@ -217,12 +217,18 @@ const analysis = (item.analysis || item.analyses?.[0]) as ContentAnalysis | null
                 </div>
                 {!isExpanded && hiddenCount > 0 && (
                   <button onClick={() => toggleTopic(topic.id)} style={{ width: '100%', padding: '10px', border: 'none', background: `${T.gray100}50`, cursor: 'pointer', fontSize: 12, color: T.primary, fontWeight: 600 }}>
-                    展开剩余 {hiddenCount} 条 ▼
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      展开剩余 {hiddenCount} 条
+                      <ChevronDown size={13} strokeWidth={2} />
+                    </span>
                   </button>
                 )}
                 {isExpanded && topicItems.length > 3 && (
                   <button onClick={() => toggleTopic(topic.id)} style={{ width: '100%', padding: '10px', border: 'none', background: `${T.gray100}50`, cursor: 'pointer', fontSize: 12, color: T.gray400 }}>
-                    收起 ▲
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      收起
+                      <ChevronUp size={13} strokeWidth={2} />
+                    </span>
                   </button>
                 )}
               </div>
@@ -296,14 +302,15 @@ function renderCard(
                 style={{ fontSize: 11, fontWeight: 600, color: T.teal, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3, padding: '2px 8px', borderRadius: 4, background: T.tealLight, border: `1px solid ${T.tealBorder}`, transition: 'all 0.15s' }}
                 onMouseEnter={(e) => { (e.target as HTMLElement).style.background = T.teal; (e.target as HTMLElement).style.color = T.white; }}
                 onMouseLeave={(e) => { (e.target as HTMLElement).style.background = T.tealLight; (e.target as HTMLElement).style.color = T.teal; }}>
-                查看原文 ↗
+                查看原文
+                <ExternalLink size={12} strokeWidth={2} />
               </a>
             )}
           </div>
         </div>
         <button onClick={(e) => { e.stopPropagation(); handleFav(item.id); }}
-          style={{ background: 'none', border: 'none', fontSize: 16, cursor: 'pointer', color: isFav ? '#F59E0B' : T.gray300, padding: '4px 6px', lineHeight: 1 }}>
-          {isFav ? '★' : '☆'}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: isFav ? '#F59E0B' : T.gray300, padding: '4px 6px', display: 'inline-flex', alignItems: 'center' }}>
+          <Star size={16} strokeWidth={2} fill={isFav ? '#F59E0B' : 'none'} />
         </button>
       </div>
     </div>

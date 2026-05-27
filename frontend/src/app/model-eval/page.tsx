@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Beaker } from 'lucide-react';
+import { ArrowRight, Beaker } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import { modelsApi } from '@/lib/api';
 import type { LlmModelItem, EvalRun, EvalResult } from '@/lib/api';
@@ -427,7 +427,13 @@ function EvaluateTab({ models }: { models: LlmModelItem[] }) {
                 <div style={{ fontSize: 12, color: r.status === 'DONE' ? T.teal : T.red }}>
                   {r.status === 'DONE' ? `完成 · ${r.duration_ms}ms` : `失败 · ${r.error_message?.slice(0, 60)}`}
                 </div>
-                {r.tokens_input && <div style={{ fontSize: 11, color: T.gray400 }}>Token: {r.tokens_input} → {r.tokens_output}</div>}
+                {r.tokens_input && (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: T.gray400 }}>
+                    Token: {r.tokens_input}
+                    <ArrowRight size={12} strokeWidth={2} />
+                    {r.tokens_output}
+                  </div>
+                )}
                 {r.response_text && (
                   <div style={{
                     fontSize: 12, color: T.gray700, background: T.gray50, padding: 10,

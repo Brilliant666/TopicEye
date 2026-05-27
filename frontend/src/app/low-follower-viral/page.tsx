@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Flame, Inbox } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Flame, Inbox, Star } from 'lucide-react';
 import { T, CATEGORIES } from '@/lib/design-tokens';
 import { viralApi } from '@/lib/api';
 import { useAppContext } from '@/components/ClientLayout';
@@ -237,28 +237,30 @@ export default function LowFollowerViralPage() {
                             }}
                             title="查看原文"
                           >
-                            ↗
+                            <ExternalLink size={13} strokeWidth={2} />
                           </a>
                         )}
                         <button
                           onClick={e => { e.stopPropagation(); void toggleFavorite(item.id); }}
                           style={{
-                            fontSize: 12, padding: '4px 8px',
+                            padding: '4px 8px',
                             background: isFav ? '#FEF3C7' : T.gray50,
                             color: isFav ? '#D97706' : T.gray400,
                             border: `1px solid ${isFav ? '#FDE68A' : T.gray200}`,
                             borderRadius: 4, cursor: 'pointer',
+                            display: 'inline-flex', alignItems: 'center',
                           }}
                           title={isFav ? '取消收藏' : '收藏'}
                         >
-                          ★
+                          <Star size={13} strokeWidth={2} fill={isFav ? '#D97706' : 'none'} />
                         </button>
                         <span style={{
-                          fontSize: 12, color: T.gray300,
+                          color: T.gray300,
                           transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
                           transition: 'transform 0.15s',
+                          display: 'inline-flex', alignItems: 'center',
                         }}>
-                          ▼
+                          <ChevronDown size={14} strokeWidth={2} />
                         </span>
                       </div>
                     </div>
@@ -296,7 +298,10 @@ export default function LowFollowerViralPage() {
                 cursor: page === 1 ? 'not-allowed' : 'pointer',
               }}
             >
-              ← 上一页
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <ChevronLeft size={14} strokeWidth={2} />
+                上一页
+              </span>
             </button>
             <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -338,7 +343,10 @@ export default function LowFollowerViralPage() {
                 cursor: page === totalPages ? 'not-allowed' : 'pointer',
               }}
             >
-              下一页 →
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                下一页
+                <ChevronRight size={14} strokeWidth={2} />
+              </span>
             </button>
           </div>
         )}

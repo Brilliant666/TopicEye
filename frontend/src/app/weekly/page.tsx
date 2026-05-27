@@ -3,6 +3,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
   BarChart3,
   CalendarDays,
   CheckCircle2,
@@ -400,7 +403,16 @@ export default function WeeklyDigestPage() {
                           background: trend.momentum === 'up' ? T.tealLight : trend.momentum === 'down' ? T.redLight : T.gray100,
                           padding: '2px 8px', borderRadius: 4,
                         }}>
-                          {trend.momentum === 'up' ? '↑ 上升' : trend.momentum === 'down' ? '↓ 下降' : '→ 平稳'}
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            {trend.momentum === 'up' ? (
+                              <ArrowUp size={12} strokeWidth={2.2} />
+                            ) : trend.momentum === 'down' ? (
+                              <ArrowDown size={12} strokeWidth={2.2} />
+                            ) : (
+                              <ArrowRight size={12} strokeWidth={2.2} />
+                            )}
+                            {trend.momentum === 'up' ? '上升' : trend.momentum === 'down' ? '下降' : '平稳'}
+                          </span>
                         </span>
                       )}
                     </div>

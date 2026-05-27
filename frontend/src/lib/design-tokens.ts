@@ -1,6 +1,13 @@
 /**
  * TopicEye Design Tokens
- * Extracted from HTML prototype (选题雷达-界面原型.html)
+ *
+ * Tailwind CSS is the canonical visual system. The same values are
+ * defined in `src/app/globals.css` via Tailwind v4 `@theme`.
+ *
+ * This object is a legacy compatibility mirror for existing inline
+ * style code. New UI should prefer Tailwind utilities such as
+ * `bg-primary-light`, `text-primary`, `border-gray-200`, `rounded-lg`,
+ * `font-sans`, and `font-mono`.
  */
 
 export const T = {

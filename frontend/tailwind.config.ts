@@ -1,5 +1,7 @@
 import type { Config } from "tailwindcss";
 
+const cssVar = (name: string) => `var(--${name})`;
+
 const config: Config = {
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
@@ -9,30 +11,35 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        primary: "#FF6B35",
-        "primary-hover": "#E85D2A",
-        "primary-light": "#FFF4EE",
-        "primary-border": "#FFD0B5",
-        teal: "#00C9A7",
-        "teal-hover": "#00B396",
-        "teal-light": "#E6FAF5",
-        "teal-border": "#A7F0DB",
-        purple: "#8B5CF6",
-        "purple-light": "#F0EBFF",
-        "purple-border": "#C4B5FD",
-        amber: "#D97706",
-        "amber-light": "#FEF3C7",
-        "amber-border": "#FCD34D",
-        surface: "#F7F7F8",
+        primary: cssVar("color-primary"),
+        "primary-hover": cssVar("color-primary-hover"),
+        "primary-light": cssVar("color-primary-light"),
+        "primary-border": cssVar("color-primary-border"),
+        teal: cssVar("color-teal"),
+        "teal-hover": cssVar("color-teal-hover"),
+        "teal-light": cssVar("color-teal-light"),
+        "teal-border": cssVar("color-teal-border"),
+        purple: cssVar("color-purple"),
+        "purple-light": cssVar("color-purple-light"),
+        "purple-border": cssVar("color-purple-border"),
+        amber: cssVar("color-amber"),
+        "amber-light": cssVar("color-amber-light"),
+        "amber-border": cssVar("color-amber-border"),
+        red: cssVar("color-red"),
+        "red-light": cssVar("color-red-light"),
+        surface: cssVar("color-surface"),
+        page: cssVar("color-page"),
+        text: cssVar("color-text"),
       },
       fontFamily: {
-        sans: ['"DM Sans"', "-apple-system", '"PingFang SC"', '"Hiragino Sans GB"', '"Microsoft YaHei"', "sans-serif"],
-        mono: ['"DM Mono"', "ui-monospace", "monospace"],
+        sans: [cssVar("font-sans")],
+        mono: [cssVar("font-mono")],
       },
       borderRadius: {
-        lg: "12px",
-        md: "8px",
-        sm: "6px",
+        lg: cssVar("radius-lg"),
+        md: cssVar("radius-md"),
+        sm: cssVar("radius-sm"),
+        xs: cssVar("radius-xs"),
       },
       keyframes: {
         "radar-ping": {

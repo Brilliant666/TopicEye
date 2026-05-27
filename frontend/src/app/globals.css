@@ -1,9 +1,53 @@
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
 
-:root {
+@theme {
+  --color-primary: #FF6B35;
+  --color-primary-hover: #E85D2A;
+  --color-primary-light: #FFF4EE;
+  --color-primary-border: #FFD0B5;
+
+  --color-teal: #00C9A7;
+  --color-teal-hover: #00B396;
+  --color-teal-light: #E6FAF5;
+  --color-teal-border: #A7F0DB;
+
+  --color-purple: #8B5CF6;
+  --color-purple-light: #F0EBFF;
+  --color-purple-border: #C4B5FD;
+
+  --color-amber: #D97706;
+  --color-amber-light: #FEF3C7;
+  --color-amber-border: #FCD34D;
+
+  --color-red: #EF4444;
+  --color-red-light: #FEE2E2;
+
+  --color-gray-50: #FAFAFA;
+  --color-gray-100: #F3F4F6;
+  --color-gray-200: #E5E7EB;
+  --color-gray-300: #D1D5DB;
+  --color-gray-400: #9CA3AF;
+  --color-gray-500: #6B7280;
+  --color-gray-600: #4B5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1F2937;
+  --color-gray-900: #111827;
+
+  --color-surface: #F7F7F8;
+  --color-page: #F7F7F8;
+  --color-text: #1A1A2E;
+
   --font-sans: "DM Sans", -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-mono: "DM Mono", ui-monospace, monospace;
+
+  --radius-lg: 12px;
+  --radius-md: 10px;
+  --radius-sm: 8px;
+  --radius-xs: 6px;
+
+  --animate-radar-ping: radar-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+  --animate-fade-in: fade-in 0.3s ease-out;
 }
 
 *,
@@ -22,9 +66,7 @@ body {
 }
 
 body {
-  font-family: var(--font-sans);
-  background: #F7F7F8;
-  color: #1A1A2E;
+  @apply bg-page font-sans text-text;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

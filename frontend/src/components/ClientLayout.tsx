@@ -3,7 +3,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import Sidebar from '@/components/Sidebar';
 import NotificationBell from '@/components/NotificationBell';
-import { T } from '@/lib/design-tokens';
 import { sourcesApi, contentsApi } from '@/lib/api';
 
 // App context - shared across pages
@@ -104,20 +103,13 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   return (
     <AppContext.Provider value={{ favorites, topicCount: contentCount, toggleFavorite, refreshCounts }}>
-      <div style={{ display: 'flex', height: '100dvh', overflow: 'hidden' }}>
+      <div className="flex h-dvh overflow-hidden">
         <Sidebar topicCount={contentCount} favCount={favorites.size} sourceCount={sourceCount} compact={compactNav} />
-        <main style={{ flex: 1, overflow: 'hidden', background: '#F7F7F8', display: 'flex', flexDirection: 'column' }}>
-          {/* 顶栏 */}
-          <div style={{
-            height: 48, flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            padding: '0 24px',
-            background: T.white,
-            borderBottom: `1px solid ${T.gray100}`,
-          }}>
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-page">
+          <div className="flex h-12 shrink-0 items-center justify-end border-b border-gray-100 bg-white px-6">
             <NotificationBell />
           </div>
-          <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+          <div className="min-h-0 flex-1 overflow-auto">
             {children}
           </div>
         </main>

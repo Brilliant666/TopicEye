@@ -1,39 +1,69 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  ArrowDown,
+  ArrowUp,
+  BookOpen,
+  CheckCircle2,
+  Crown,
+  ExternalLink,
+  Filter,
+  Flame,
+  Library,
+  RefreshCw,
+  Search,
+  Sparkles,
+  TrendingUp,
+} from 'lucide-react';
 import { T } from '@/lib/design-tokens';
-import { fanqieApi, qimaoApi, zhihuApi, type FanqieCategory, type FanqieBook, type QimaoBook, type ZhihuAlbum } from '@/lib/api';
+import {
+  fanqieApi,
+  qimaoApi,
+  zhihuApi,
+  type FanqieCategory,
+  type FanqieBook,
+  type QimaoBook,
+  type ZhihuAlbum,
+} from '@/lib/api';
 
-/* ── Constants ── */
+type Platform = 'fanqie' | 'qimao' | 'zhihu';
+type BookItem = FanqieBook | QimaoBook | ZhihuAlbum;
 
-const GROUP_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+const PLATFORM_META: Record<Platform, { label: string; subtitle: string; color: string; bg: string }> = {
+  fanqie: { label: '番茄小说', subtitle: '免费网文热榜', color: '#DC2626', bg: '#FEF2F2' },
+  qimao: { label: '七猫小说', subtitle: '付费与免费混合榜', color: '#2563EB', bg: '#EFF6FF' },
+  zhihu: { label: '知乎盐选', subtitle: '故事与付费内容', color: '#0F766E', bg: '#ECFDF5' },
+};
+
+const GROUP_LABELS = {
   male: { label: '男频', color: '#2563EB', bg: '#EFF6FF' },
   female: { label: '女频', color: '#E11D48', bg: '#FFF1F2' },
-};
+} as const;
 
-const RANK_TYPE_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  new: { label: '新书榜', color: '#7C3AED', bg: '#F5F3FF' },
+const RANK_TYPE_LABELS = {
   reading: { label: '阅读榜', color: '#059669', bg: '#ECFDF5' },
-};
+  new: { label: '新书榜', color: '#7C3AED', bg: '#F5F3FF' },
+} as const;
 
-const QIMAO_RANK_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+const QIMAO_RANK_LABELS = {
   hot: { label: '大热', color: '#DC2626', bg: '#FEF2F2' },
   new: { label: '新书', color: '#7C3AED', bg: '#F5F3FF' },
   over: { label: '完结', color: '#D97706', bg: '#FFFBEB' },
   collect: { label: '收藏', color: '#2563EB', bg: '#EFF6FF' },
   update: { label: '更新', color: '#059669', bg: '#ECFDF5' },
-};
+} as const;
 
-const QIMAO_CHANNEL_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+const QIMAO_CHANNEL_LABELS = {
   boy: { label: '男频', color: '#2563EB', bg: '#EFF6FF' },
   girl: { label: '女频', color: '#E11D48', bg: '#FFF1F2' },
-};
+} as const;
 
-const ZHIHU_SORT_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+const ZHIHU_SORT_LABELS = {
   hottest: { label: '热门', color: '#DC2626', bg: '#FEF2F2' },
   newest: { label: '最新', color: '#7C3AED', bg: '#F5F3FF' },
   monthly_hottest: { label: '月热', color: '#D97706', bg: '#FFFBEB' },
-};
+} as const;
 
 const ZHIHU_SUBCATS = [
   { key: '', label: '全部' },
@@ -48,656 +78,575 @@ const ZHIHU_SUBCATS = [
   { key: '悬疑', label: '悬疑' },
 ];
 
-/* ── Formatters ── */
-
-function formatCount(v: string | number | undefined): string {
-  if (!v) return '-';
+function formatCount(v: string | number | null | undefined): string {
+  if (v === null || v === undefined || v === '') return '-';
   const n = typeof v === 'string' ? parseFloat(v) : v;
-  if (n >= 100000000) return (n / 100000000).toFixed(1) + '亿';
-  if (n >= 10000) return (n / 10000).toFixed(1) + '万';
+  if (Number.isNaN(n)) return String(v);
+  if (n >= 100000000) return `${(n / 100000000).toFixed(1)}亿`;
+  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
   return String(n);
 }
 
-/* ── Book Card Components ── */
+function getItemTitle(item: BookItem): string {
+  if ('book_name' in item) return item.book_name;
+  return item.title;
+}
 
-function FanqieCard({ book, rankTab }: { book: FanqieBook; rankTab: string }) {
-  const groupKey = book.rank_type === 'new' ? 'male' : 'female';
-  const group = GROUP_LABELS[groupKey] ?? GROUP_LABELS.male;
-  const rankInfo = RANK_TYPE_LABELS[rankTab];
-  const pos = book.position;
+function getItemAuthor(item: BookItem): string {
+  return item.author || '未知作者';
+}
 
+function getItemAbstract(item: BookItem): string {
+  return (item.abstract || '').replace(/\n/g, ' ');
+}
+
+function getItemCover(item: BookItem): string | null {
+  if ('thumb_url' in item) return item.thumb_url;
+  return item.thumb_uri;
+}
+
+function getPositionChange(item: BookItem): number | null {
+  if ('rank_pos_diff' in item && typeof item.rank_pos_diff === 'number') return item.rank_pos_diff;
+  if ('index_change' in item && typeof item.index_change === 'number') return item.index_change;
+  return null;
+}
+
+function chipStyle(active: boolean, color: string = T.gray900): React.CSSProperties {
+  return {
+    padding: '7px 11px',
+    borderRadius: T.radiusXs,
+    border: `1px solid ${active ? color : T.gray200}`,
+    background: active ? color : T.white,
+    color: active ? T.white : T.gray600,
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+  };
+}
+
+function MetricPill({ children, color = T.gray500, bg = T.gray100 }: { children: React.ReactNode; color?: string; bg?: string }) {
   return (
-    <div style={{
-      display: 'flex', gap: 12, padding: '14px 16px', borderBottom: `1px solid ${T.gray100}`,
-      alignItems: 'flex-start',
-    }}>
-      <div style={{
-        fontSize: 18, fontWeight: 700, color: pos <= 3 ? '#F59E0B' : T.gray300,
-        minWidth: 28, textAlign: 'center', lineHeight: '80px',
-      }}>
-        {pos}
-      </div>
-      <img
-        src={book.thumb_uri || '/placeholder.png'}
-        alt={book.book_name}
-        style={{ width: 60, height: 80, objectFit: 'cover', borderRadius: 6, flexShrink: 0, background: T.gray100 }}
-        onError={(e) => { (e.target as HTMLImageElement).src = `https://via.placeholder.com/60x80?text=${encodeURIComponent(book.book_name?.slice(0, 2) ?? '书')}`; }}
-      />
-      <div style={{ flex: 1, overflow: 'hidden' }}>
-        <div style={{ fontWeight: 700, fontSize: 15, color: T.gray900, marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {book.book_name}
-        </div>
-        <div style={{ fontSize: 12, color: T.gray500, marginBottom: 6 }}>{book.author}</div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {rankInfo && (
-            <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4, background: rankInfo.bg, color: rankInfo.color }}>
-              {rankInfo.label}
-            </span>
-          )}
-          {typeof book.rank_pos_diff === 'number' && book.rank_pos_diff !== 0 && (
-            <span style={{
-              fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 4,
-              background: book.rank_pos_diff > 0 ? '#ECFDF5' : '#FEF2F2',
-              color: book.rank_pos_diff > 0 ? '#059669' : '#DC2626',
-            }}>
-              {book.rank_pos_diff > 0 ? `↑${book.rank_pos_diff}` : `↓${Math.abs(book.rank_pos_diff)}`}
-            </span>
-          )}
-          {book.read_count && (
-            <span style={{ fontSize: 10, color: T.gray400, fontFamily: T.mono }}>
-              {formatCount(book.read_count)}阅读
-            </span>
-          )}
-          {book.word_number && (
-            <span style={{ fontSize: 10, color: T.gray400, fontFamily: T.mono }}>
-              {formatCount(book.word_number)}字
-            </span>
-          )}
-        </div>
-        {book.abstract && (
-          <div style={{ fontSize: 11, color: T.gray400, marginTop: 5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-            {book.abstract}
-          </div>
-        )}
-      </div>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 7px', borderRadius: 999, background: bg, color, fontSize: 11, fontWeight: 700 }}>
+      {children}
+    </span>
+  );
+}
+
+function LoadingState({ label }: { label: string }) {
+  return (
+    <div style={{ padding: 36, display: 'flex', justifyContent: 'center', alignItems: 'center', color: T.gray400, gap: 10 }}>
+      <RefreshCw size={16} className="fanqie-spin" />
+      <span style={{ fontSize: 13 }}>{label}</span>
     </div>
   );
 }
 
-function QimaoCard({ book }: { book: QimaoBook }) {
-  const pos = book.position;
-  const changeColor = book.index_change > 0 ? '#059669' : book.index_change < 0 ? '#DC2626' : T.gray400;
-
+function EmptyState() {
   return (
-    <div style={{
-      display: 'flex', gap: 12, padding: '14px 16px', borderBottom: `1px solid ${T.gray100}`,
-      alignItems: 'flex-start',
-    }}>
-      <div style={{
-        fontSize: 18, fontWeight: 700, color: pos <= 3 ? '#F59E0B' : T.gray300,
-        minWidth: 28, textAlign: 'center', lineHeight: '80px',
-      }}>
-        {pos}
-      </div>
-      <img
-        src={book.thumb_uri || '/placeholder.png'}
-        alt={book.title}
-        style={{ width: 60, height: 80, objectFit: 'cover', borderRadius: 6, flexShrink: 0, background: T.gray100 }}
-        onError={(e) => { (e.target as HTMLImageElement).src = `https://via.placeholder.com/60x80?text=${encodeURIComponent(book.title?.slice(0, 2) ?? '书')}`; }}
-      />
-      <div style={{ flex: 1, overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: T.gray900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
-            {book.title}
-          </div>
-          {book.is_continue_top === 1 && (
-            <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: '#FEF3C7', color: '#D97706', flexShrink: 0 }}>
-              霸榜
-            </span>
-          )}
-          {book.is_over === 1 && (
-            <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: '#F3F4F6', color: '#6B7280', flexShrink: 0 }}>
-              完结
-            </span>
-          )}
-        </div>
-        <div style={{ fontSize: 12, color: T.gray500, marginBottom: 6 }}>
-          {book.author}
-          {book.category1_name && book.category2_name && (
-            <span style={{ marginLeft: 8, color: T.gray400 }}>
-              {book.category1_name} · {book.category2_name}
-            </span>
-          )}
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {book.collect_count != null && (
-            <span style={{ fontSize: 10, color: '#DC2626', fontFamily: T.mono, fontWeight: 600 }}>
-              ♥ {formatCount(book.collect_count)}
-            </span>
-          )}
-          {book.words_num && (
-            <span style={{ fontSize: 10, color: T.gray400, fontFamily: T.mono }}>
-              {book.words_num}
-            </span>
-          )}
-          {book.index_change !== 0 && (
-            <span style={{ fontSize: 10, fontWeight: 600, fontFamily: T.mono, color: changeColor }}>
-              {book.index_change > 0 ? `↑${book.index_change}` : book.index_change < 0 ? `↓${Math.abs(book.index_change)}` : '='}
-            </span>
-          )}
-        </div>
-        {book.abstract && (
-          <div style={{ fontSize: 11, color: T.gray400, marginTop: 5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-            {book.abstract.replace(/\n/g, ' ')}
-          </div>
-        )}
-        {book.latest_chapter_title && (
-          <div style={{ fontSize: 10, color: T.gray400, marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            更新 {book.latest_chapter_title}
-          </div>
-        )}
-      </div>
+    <div style={{ padding: 48, textAlign: 'center', color: T.gray400 }}>
+      <BookOpen size={28} strokeWidth={1.8} />
+      <div style={{ marginTop: 10, fontSize: 14, fontWeight: 700, color: T.gray500 }}>暂无榜单数据</div>
+      <div style={{ marginTop: 4, fontSize: 12 }}>可以先同步当前平台，或切换榜单筛选。</div>
     </div>
   );
 }
 
-function ZhihuCard({ album }: { album: ZhihuAlbum }) {
-  const pos = album.position;
-  const sortInfo = ZHIHU_SORT_LABELS[album.sort_type as string] ?? ZHIHU_SORT_LABELS.hottest;
+function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platform; rankTab: string }) {
+  const pos = item.position;
+  const title = getItemTitle(item);
+  const author = getItemAuthor(item);
+  const cover = getItemCover(item);
+  const abstract = getItemAbstract(item);
+  const diff = getPositionChange(item);
+  const isTop = pos <= 3;
+
+  const meta = (() => {
+    if (platform === 'fanqie' && 'read_count' in item) {
+      const rankInfo = RANK_TYPE_LABELS[rankTab as keyof typeof RANK_TYPE_LABELS];
+      return (
+        <>
+          <MetricPill color={rankInfo?.color} bg={rankInfo?.bg}>{rankInfo?.label || '榜单'}</MetricPill>
+          <MetricPill>{formatCount(item.read_count)}阅读</MetricPill>
+          <MetricPill>{formatCount(item.word_number)}字</MetricPill>
+        </>
+      );
+    }
+    if (platform === 'qimao' && 'collect_count' in item) {
+      return (
+        <>
+          {item.is_continue_top === 1 && <MetricPill color="#D97706" bg="#FFFBEB"><Crown size={12} />霸榜</MetricPill>}
+          {item.is_over === 1 && <MetricPill color={T.gray600} bg={T.gray100}><CheckCircle2 size={12} />完结</MetricPill>}
+          <MetricPill color="#DC2626" bg="#FEF2F2">{formatCount(item.collect_count)}收藏</MetricPill>
+          <MetricPill>{item.words_num}</MetricPill>
+        </>
+      );
+    }
+    if (platform === 'zhihu' && 'price_yuan' in item) {
+      const sortInfo = ZHIHU_SORT_LABELS[item.sort_type as keyof typeof ZHIHU_SORT_LABELS] || ZHIHU_SORT_LABELS.hottest;
+      return (
+        <>
+          <MetricPill color={sortInfo.color} bg={sortInfo.bg}>{sortInfo.label}</MetricPill>
+          {item.is_exclusive && <MetricPill color="#D97706" bg="#FFFBEB">独家</MetricPill>}
+          {item.tag === '会员专享' && <MetricPill color="#2563EB" bg="#EFF6FF">会员</MetricPill>}
+          {item.chapter_text && <MetricPill>{item.chapter_text}</MetricPill>}
+          {item.price_yuan && item.price_yuan !== '免费' && <MetricPill color="#DC2626" bg="#FEF2F2">{item.price_yuan}</MetricPill>}
+        </>
+      );
+    }
+    return null;
+  })();
+
+  const categoryText = (() => {
+    if ('category1_name' in item && item.category1_name) {
+      return [item.category1_name, item.category2_name].filter(Boolean).join(' · ');
+    }
+    return '';
+  })();
 
   return (
-    <div style={{
-      display: 'flex', gap: 12, padding: '14px 16px', borderBottom: `1px solid ${T.gray100}`,
-      alignItems: 'flex-start',
+    <article style={{
+      display: 'grid',
+      gridTemplateColumns: '44px 72px minmax(0, 1fr)',
+      gap: 14,
+      padding: 16,
+      background: T.white,
+      border: `1px solid ${isTop ? '#FCD34D' : T.gray200}`,
+      borderRadius: T.radiusSm,
+      boxShadow: isTop ? '0 8px 22px rgba(245, 158, 11, 0.12)' : '0 1px 2px rgba(15, 23, 42, 0.04)',
+      minWidth: 0,
     }}>
-      <div style={{
-        fontSize: 18, fontWeight: 700, color: pos <= 3 ? '#F59E0B' : T.gray300,
-        minWidth: 28, textAlign: 'center', lineHeight: '80px',
-      }}>
-        {pos}
-      </div>
-      <img
-        src={album.thumb_url || '/placeholder.png'}
-        alt={album.title}
-        style={{ width: 60, height: 80, objectFit: 'cover', borderRadius: 6, flexShrink: 0, background: T.gray100 }}
-        onError={(e) => { (e.target as HTMLImageElement).src = `https://via.placeholder.com/60x80?text=${encodeURIComponent(album.title?.slice(0, 2) ?? '盐')}`; }}
-      />
-      <div style={{ flex: 1, overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: T.gray900, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
-            {album.title}
-          </div>
-          {album.is_exclusive && (
-            <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: '#FEF3C7', color: '#D97706', flexShrink: 0 }}>
-              独家
-            </span>
-          )}
-          {album.tag === '会员专享' && (
-            <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 4, background: '#EFF6FF', color: '#2563EB', flexShrink: 0 }}>
-              会员
-            </span>
-          )}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+        <div style={{
+          width: 34,
+          height: 34,
+          borderRadius: 8,
+          display: 'grid',
+          placeItems: 'center',
+          background: isTop ? '#FFFBEB' : T.gray50,
+          color: isTop ? '#B45309' : T.gray400,
+          fontSize: 16,
+          fontWeight: 900,
+          fontFamily: T.mono,
+        }}>
+          {pos}
         </div>
-        <div style={{ fontSize: 12, color: T.gray500, marginBottom: 6 }}>
-          {album.author}
-          {album.category1_name && album.category2_name && (
-            <span style={{ marginLeft: 8, color: T.gray400 }}>
-              {album.category1_name} · {album.category2_name}
-            </span>
-          )}
-        </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {album.chapter_text && (
-            <span style={{ fontSize: 10, color: T.gray400 }}>{album.chapter_text}</span>
-          )}
-          {album.price_yuan && album.price_yuan !== '免费' && (
-            <span style={{ fontSize: 10, color: '#DC2626', fontFamily: T.mono, fontWeight: 600 }}>
-              {album.price_yuan}
-            </span>
-          )}
-          {album.online_time_text && (
-            <span style={{ fontSize: 10, color: T.gray400 }}>{album.online_time_text}</span>
-          )}
-        </div>
-        {album.abstract && (
-          <div style={{ fontSize: 11, color: T.gray400, marginTop: 5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-            {album.abstract.replace(/\n/g, ' ')}
-          </div>
+        {typeof diff === 'number' && diff !== 0 && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, color: diff > 0 ? '#059669' : '#DC2626', fontSize: 11, fontWeight: 800, fontFamily: T.mono }}>
+            {diff > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+            {Math.abs(diff)}
+          </span>
         )}
       </div>
-    </div>
+
+      <img
+        src={cover || '/placeholder.png'}
+        alt={title}
+        style={{ width: 72, height: 96, objectFit: 'cover', borderRadius: 8, background: T.gray100, boxShadow: '0 8px 18px rgba(15, 23, 42, 0.14)' }}
+        onError={(event) => {
+          (event.currentTarget as HTMLImageElement).src = `https://via.placeholder.com/72x96?text=${encodeURIComponent(title.slice(0, 2) || '书')}`;
+        }}
+      />
+
+      <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <h2 style={{ margin: 0, color: T.gray900, fontSize: 16, lineHeight: 1.35, fontWeight: 850, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
+            <div style={{ marginTop: 3, color: T.gray500, fontSize: 12 }}>
+              {author}{categoryText && <span style={{ color: T.gray400 }}> · {categoryText}</span>}
+            </div>
+          </div>
+          {platform === 'zhihu' && 'url' in item && item.url && (
+            <a href={item.url} target="_blank" rel="noreferrer" title="打开原链接" style={{ color: T.gray400, padding: 4, borderRadius: 6 }}>
+              <ExternalLink size={16} />
+            </a>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{meta}</div>
+
+        {abstract && (
+          <p style={{ margin: 0, color: T.gray500, fontSize: 12, lineHeight: 1.55, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+            {abstract}
+          </p>
+        )}
+
+        {'latest_chapter_title' in item && item.latest_chapter_title && (
+          <div style={{ color: T.gray400, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>更新 {item.latest_chapter_title}</div>
+        )}
+        {'last_chapter_title' in item && item.last_chapter_title && (
+          <div style={{ color: T.gray400, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>更新 {item.last_chapter_title}</div>
+        )}
+      </div>
+    </article>
   );
 }
-
-/* ── Main Page ── */
 
 export default function FanqiePage() {
-  const [platform, setPlatform] = useState<'fanqie' | 'qimao' | 'zhihu'>('fanqie');
+  const [platform, setPlatform] = useState<Platform>('fanqie');
+  const [query, setQuery] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
-  /* ── 番茄状态 ── */
   const [categories, setCategories] = useState<FanqieCategory[]>([]);
   const [booksMap, setBooksMap] = useState<Record<string, FanqieBook[]>>({});
   const [initLoading, setInitLoading] = useState(true);
   const [switching, setSwitching] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [rankTab, setRankTab] = useState<'new' | 'reading'>('reading');
-  const [activeCat, setActiveCat] = useState<string>('');
+  const [activeCat, setActiveCat] = useState('');
   const [groupTab, setGroupTab] = useState<'male' | 'female'>('male');
 
-  /* ── 七猫状态 ── */
   const [qimaoBooks, setQimaoBooks] = useState<QimaoBook[]>([]);
   const [qimaoLoading, setQimaoLoading] = useState(false);
   const [qimaoSyncing, setQimaoSyncing] = useState(false);
   const [qimaoChannel, setQimaoChannel] = useState<'boy' | 'girl'>('boy');
   const [qimaoRank, setQimaoRank] = useState<keyof typeof QIMAO_RANK_LABELS>('hot');
 
-  /* ── 知乎状态 ── */
   const [zhihuAlbums, setZhihuAlbums] = useState<ZhihuAlbum[]>([]);
   const [zhihuLoading, setZhihuLoading] = useState(false);
   const [zhihuSyncing, setZhihuSyncing] = useState(false);
   const [zhihuSort, setZhihuSort] = useState<keyof typeof ZHIHU_SORT_LABELS>('hottest');
   const [zhihuSubcat, setZhihuSubcat] = useState('');
 
-  /* ── 番茄数据拉取 ── */
   const fetchFanqieData = useCallback(async (rt: string, isInit = false) => {
     if (isInit) setInitLoading(true); else setSwitching(true);
+    setError(null);
     try {
       const cats = categories.length ? categories : await fanqieApi.categories();
-      if (isInit) setCategories(cats);
+      if (isInit || categories.length === 0) setCategories(cats);
 
-      const catId = activeCat || (cats[0]?.fanqie_id ?? '');
-      if (isInit && catId) setActiveCat(catId);
+      const fallbackCat = cats.find((cat) => cat.group === groupTab)?.fanqie_id || cats[0]?.fanqie_id || '';
+      const catId = activeCat || fallbackCat;
+      if (!activeCat && catId) setActiveCat(catId);
 
-      const result = await fanqieApi.categoryBooks(catId, { rank_type: rt });
-      const key = `${catId}|${rt}`;
-      setBooksMap(prev => ({ ...prev, [key]: result.books }));
-    } catch (e) {
-      console.error('fetch error', e);
+      if (catId) {
+        const result = await fanqieApi.categoryBooks(catId, { rank_type: rt });
+        setBooksMap((prev) => ({ ...prev, [`${catId}|${rt}`]: result.books }));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '番茄榜单加载失败');
     } finally {
       setInitLoading(false);
       setSwitching(false);
     }
-  }, [categories, activeCat]);
+  }, [activeCat, categories, groupTab]);
 
-  // groupTab 切换 → 重置分类
-  useEffect(() => {
-    if (platform !== 'fanqie' || categories.length === 0) return;
-    const first = categories.find(c => c.group === groupTab);
-    if (first && first.fanqie_id !== activeCat) {
-      setActiveCat(first.fanqie_id);
-      setBooksMap({});
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupTab, categories]);
-
-  useEffect(() => {
-    if (platform !== 'fanqie') return;
-    void fetchFanqieData(rankTab, true);
-  }, []); // eslint-disable-line
-
-  useEffect(() => {
-    if (platform !== 'fanqie') return;
-    void fetchFanqieData(rankTab);
-  }, [rankTab, activeCat]); // eslint-disable-line
-
-  /* ── 七猫数据拉取 ── */
-  useEffect(() => {
-    if (platform !== 'qimao') return;
-    void fetchQimaoData();
-  }, [platform]); // eslint-disable-line
-
-  useEffect(() => {
-    if (platform !== 'qimao') return;
-    void fetchQimaoData();
-  }, [qimaoChannel, qimaoRank]); // eslint-disable-line
-
-  /* ── 知乎数据拉取 ── */
-  useEffect(() => {
-    if (platform !== 'zhihu') return;
-    void fetchZhihuData();
-  }, [platform]); // eslint-disable-line
-
-  useEffect(() => {
-    if (platform !== 'zhihu') return;
-    void fetchZhihuData();
-  }, [zhihuSort]); // eslint-disable-line
-
-  /* ── 七猫数据拉取 ── */
   const fetchQimaoData = useCallback(async () => {
     setQimaoLoading(true);
+    setError(null);
     try {
       const result = await qimaoApi.list(qimaoChannel, qimaoRank);
       setQimaoBooks(result.books);
-    } catch (e) {
-      console.error('qimao fetch error', e);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '七猫榜单加载失败');
     } finally {
       setQimaoLoading(false);
     }
   }, [qimaoChannel, qimaoRank]);
 
-  /* ── 知乎数据拉取 ── */
   const fetchZhihuData = useCallback(async () => {
     setZhihuLoading(true);
+    setError(null);
     try {
-      const subcat = zhihuSubcat || undefined;
-      const result = await zhihuApi.list(zhihuSort, '故事', subcat);
+      const result = await zhihuApi.list(zhihuSort, '故事', zhihuSubcat || undefined);
       setZhihuAlbums(result.albums);
-    } catch (e) {
-      console.error('zhihu fetch error', e);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '知乎盐选加载失败');
     } finally {
       setZhihuLoading(false);
     }
   }, [zhihuSort, zhihuSubcat]);
 
   useEffect(() => {
-    if (platform !== 'zhihu') return;
-    void fetchZhihuData();
-  }, [platform, zhihuSort, zhihuSubcat]); // eslint-disable-line
+    if (platform === 'fanqie') void fetchFanqieData(rankTab, true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── 统计卡片 ── */
-  const fanqieBooks = (() => {
-    const key = `${activeCat}|${rankTab}`;
-    return booksMap[key] ?? [];
-  })();
+  useEffect(() => {
+    if (platform !== 'fanqie' || categories.length === 0) return;
+    const first = categories.find((cat) => cat.group === groupTab);
+    if (first && first.fanqie_id !== activeCat) {
+      setActiveCat(first.fanqie_id);
+      setBooksMap({});
+    }
+  }, [groupTab, categories]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const currentBooks = platform === 'fanqie' ? fanqieBooks : platform === 'qimao' ? qimaoBooks : zhihuAlbums;
+  useEffect(() => {
+    if (platform === 'fanqie') void fetchFanqieData(rankTab);
+  }, [platform, rankTab, activeCat]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const statCards = [
-    { label: platform === 'fanqie' ? '番茄小说' : platform === 'qimao' ? '七猫小说' : '知乎盐选', value: currentBooks.length },
-    { label: '平台', value: platform === 'fanqie' ? '番茄' : platform === 'qimao' ? '七猫' : '知乎' },
-  ];
+  useEffect(() => {
+    if (platform === 'qimao') void fetchQimaoData();
+  }, [platform, qimaoChannel, qimaoRank, fetchQimaoData]);
+
+  useEffect(() => {
+    if (platform === 'zhihu') void fetchZhihuData();
+  }, [platform, zhihuSort, zhihuSubcat, fetchZhihuData]);
+
+  const fanqieBooks = useMemo(() => booksMap[`${activeCat}|${rankTab}`] || [], [activeCat, booksMap, rankTab]);
+  const currentBooks: BookItem[] = platform === 'fanqie' ? fanqieBooks : platform === 'qimao' ? qimaoBooks : zhihuAlbums;
+  const loading = platform === 'fanqie' ? initLoading || switching : platform === 'qimao' ? qimaoLoading : zhihuLoading;
+  const platformMeta = PLATFORM_META[platform];
+  const currentCategory = categories.find((cat) => cat.fanqie_id === activeCat);
+
+  const filteredBooks = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return currentBooks;
+    return currentBooks.filter((item) => {
+      const haystack = [getItemTitle(item), getItemAuthor(item), getItemAbstract(item)].join(' ').toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [currentBooks, query]);
+
+  const risingCount = currentBooks.filter((item) => (getPositionChange(item) || 0) > 0).length;
+  const topItem = currentBooks[0];
+  const contextLabel = platform === 'fanqie'
+    ? `${GROUP_LABELS[groupTab].label} · ${RANK_TYPE_LABELS[rankTab].label}${currentCategory ? ` · ${currentCategory.name}` : ''}`
+    : platform === 'qimao'
+      ? `${QIMAO_CHANNEL_LABELS[qimaoChannel].label} · ${QIMAO_RANK_LABELS[qimaoRank].label}`
+      : `故事 · ${ZHIHU_SORT_LABELS[zhihuSort].label}${zhihuSubcat ? ` · ${zhihuSubcat}` : ''}`;
+
+  const handleSync = async () => {
+    if (platform === 'fanqie') {
+      setSyncing(true);
+      try {
+        await fanqieApi.sync();
+        await fetchFanqieData(rankTab, true);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '番茄同步失败');
+      } finally {
+        setSyncing(false);
+      }
+      return;
+    }
+    if (platform === 'qimao') {
+      setQimaoSyncing(true);
+      try {
+        await qimaoApi.sync();
+        await fetchQimaoData();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '七猫同步失败');
+      } finally {
+        setQimaoSyncing(false);
+      }
+      return;
+    }
+    setZhihuSyncing(true);
+    try {
+      await zhihuApi.sync();
+      await fetchZhihuData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '知乎同步失败');
+    } finally {
+      setZhihuSyncing(false);
+    }
+  };
+
+  const syncBusy = syncing || qimaoSyncing || zhihuSyncing;
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-      {/* 顶栏 */}
-      <div style={{
-        height: 52, background: '#fff', borderBottom: `1px solid ${T.gray100}`,
-        display: 'flex', alignItems: 'center', padding: '0 20px', gap: 12, flexShrink: 0,
-      }}>
-        <span style={{ fontWeight: 800, fontSize: 16, color: T.gray900, marginRight: 8 }}>网文雷达</span>
-        <div style={{ height: 20, width: 1, background: T.gray200 }} />
-        {/* 平台切换 */}
-        <div style={{ display: 'flex', gap: 4 }}>
-          {(['fanqie', 'qimao', 'zhihu'] as const).map(p => (
-            <button
-              key={p}
-              onClick={() => setPlatform(p)}
-              style={{
-                padding: '4px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
-                fontSize: 13, fontWeight: 600,
-                background: platform === p ? T.gray900 : '#fff',
-                color: platform === p ? '#fff' : T.gray600,
-                boxShadow: platform === p ? '0 1px 4px rgba(0,0,0,0.15)' : `0 0 0 1px ${T.gray200}`,
-                transition: 'all 0.15s',
-              }}
-            >
-              {p === 'fanqie' ? '番茄小说' : p === 'qimao' ? '七猫小说' : '知乎盐选'}
-            </button>
-          ))}
-        </div>
-        <div style={{ flex: 1 }} />
-        {platform === 'fanqie' ? (
-          <button
-            onClick={async () => {
-              setSyncing(true);
-              try { await fanqieApi.sync(); await fetchFanqieData(rankTab, true); }
-              catch (e) { console.error(e); }
-              finally { setSyncing(false); }
-            }}
-            disabled={syncing}
-            style={{
-              padding: '5px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-              fontSize: 12, fontWeight: 600, background: syncing ? T.gray200 : '#2563EB',
-              color: '#fff', transition: 'background 0.2s',
-            }}
-          >
-            {syncing ? '同步中…' : '🔄 同步番茄'}
-          </button>
-        ) : platform === 'qimao' ? (
-          <button
-            onClick={async () => {
-              setQimaoSyncing(true);
-              try { await qimaoApi.sync(); await fetchQimaoData(); }
-              catch (e) { console.error(e); }
-              finally { setQimaoSyncing(false); }
-            }}
-            disabled={qimaoSyncing}
-            style={{
-              padding: '5px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-              fontSize: 12, fontWeight: 600, background: qimaoSyncing ? T.gray200 : '#DC2626',
-              color: '#fff', transition: 'background 0.2s',
-            }}
-          >
-            {qimaoSyncing ? '同步中…' : '🔄 同步七猫'}
-          </button>
-        ) : (
-          <button
-            onClick={async () => {
-              setZhihuSyncing(true);
-              try { await zhihuApi.sync(); await fetchZhihuData(); }
-              catch (e) { console.error(e); }
-              finally { setZhihuSyncing(false); }
-            }}
-            disabled={zhihuSyncing}
-            style={{
-              padding: '5px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-              fontSize: 12, fontWeight: 600, background: zhihuSyncing ? T.gray200 : '#0066F5',
-              color: '#fff', transition: 'background 0.2s',
-            }}
-          >
-            {zhihuSyncing ? '同步中…' : '🔄 同步知乎'}
-          </button>
-        )}
-      </div>
-
-      {/* 统计卡片 */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, padding: '12px 16px',
-        background: '#fff', borderBottom: `1px solid ${T.gray100}`, flexShrink: 0,
-      }}>
-        {statCards.map(({ label, value }) => (
-          <div key={label} style={{
-            background: '#F9FAFB', borderRadius: 10, padding: '10px 14px',
-            border: `1px solid ${T.gray100}`,
-          }}>
-            <div style={{ fontSize: 11, color: T.gray500, marginBottom: 2 }}>{label}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: T.gray900 }}>{value}</div>
+    <div style={{ height: '100%', overflow: 'hidden', background: T.bg, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ background: T.white, borderBottom: `1px solid ${T.gray200}`, padding: '18px 28px 16px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <div style={{ width: 42, height: 42, borderRadius: 10, background: platformMeta.bg, color: platformMeta.color, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+            <Library size={22} strokeWidth={2.2} />
           </div>
-        ))}
-      </div>
+          <div style={{ minWidth: 220 }}>
+            <h1 style={{ margin: 0, color: T.gray900, fontSize: 22, lineHeight: 1.15, fontWeight: 900 }}>网文雷达</h1>
+            <div style={{ marginTop: 4, color: T.gray500, fontSize: 12 }}>{contextLabel}</div>
+          </div>
 
-      {/* 番茄：榜单 Tab */}
-      {platform === 'fanqie' && (
-        <div style={{
-          display: 'flex', gap: 6, padding: '10px 16px', background: '#fff',
-          borderBottom: `1px solid ${T.gray100}`, flexShrink: 0, overflowX: 'auto',
-        }}>
-          {/* 男频/女频 */}
-          {(Object.entries(GROUP_LABELS) as [string, typeof GROUP_LABELS[string]][]).map(([k, v]) => (
-            <button
-              key={k}
-              onClick={() => setGroupTab(k as 'male' | 'female')}
-              style={{
-                padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
-                fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
-                background: groupTab === k ? v.color : '#fff',
-                color: groupTab === k ? '#fff' : T.gray600,
-                boxShadow: groupTab === k ? `0 2px 8px ${v.color}44` : `0 0 0 1px ${T.gray200}`,
-              }}
-            >
-              {v.label}
-            </button>
-          ))}
-          <div style={{ width: 1, height: 20, background: T.gray200, margin: '0 4px' }} />
-          {/* 新书/阅读 */}
-          {(Object.entries(RANK_TYPE_LABELS) as [string, typeof RANK_TYPE_LABELS[string]][]).map(([k, v]) => (
-            <button
-              key={k}
-              onClick={() => setRankTab(k as 'new' | 'reading')}
-              style={{
-                padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
-                fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap',
-                background: rankTab === k ? v.color : '#fff',
-                color: rankTab === k ? '#fff' : T.gray600,
-                boxShadow: rankTab === k ? `0 2px 8px ${v.color}44` : `0 0 0 1px ${T.gray200}`,
-              }}
-            >
-              {v.label}
-            </button>
-          ))}
+          <div className="fanqie-platform-tabs" style={{ display: 'flex', gap: 6, padding: 3, background: T.gray100, borderRadius: T.radiusSm, border: `1px solid ${T.gray200}` }}>
+            {(Object.keys(PLATFORM_META) as Platform[]).map((key) => {
+              const meta = PLATFORM_META[key];
+              const active = platform === key;
+              return (
+                <button key={key} onClick={() => { setPlatform(key); setQuery(''); }} style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
+                  minWidth: 112, padding: '8px 10px', border: 'none', borderRadius: T.radiusXs,
+                  background: active ? T.white : 'transparent', color: active ? meta.color : T.gray500,
+                  cursor: 'pointer', boxShadow: active ? '0 1px 3px rgba(15, 23, 42, 0.1)' : 'none',
+                }}>
+                  <span style={{ fontSize: 13, fontWeight: 850 }}>{meta.label}</span>
+                  <span style={{ fontSize: 10, color: active ? T.gray500 : T.gray400 }}>{meta.subtitle}</span>
+                </button>
+              );
+            })}
+          </div>
+
           <div style={{ flex: 1 }} />
-          {/* 分类横滚（仅当前性别） */}
-          <div style={{ display: 'flex', gap: 4, overflowX: 'auto', flex: 1 }}>
-            {categories.filter(c => c.group === groupTab).slice(0, 12).map(cat => (
-              <button
-                key={cat.fanqie_id}
-                onClick={() => setActiveCat(cat.fanqie_id)}
-                style={{
-                  padding: '4px 10px', borderRadius: 16, border: 'none', cursor: 'pointer',
-                  fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap',
-                  background: activeCat === cat.fanqie_id ? T.gray900 : '#F3F4F6',
-                  color: activeCat === cat.fanqie_id ? '#fff' : T.gray500,
-                }}
-              >
-                {cat.name}
-              </button>
-            ))}
-          </div>
+          <button onClick={handleSync} disabled={syncBusy} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 7,
+            padding: '9px 14px', border: 'none', borderRadius: T.radiusSm,
+            background: syncBusy ? T.gray200 : platformMeta.color, color: T.white,
+            fontSize: 13, fontWeight: 800, cursor: syncBusy ? 'wait' : 'pointer',
+          }}>
+            <RefreshCw size={15} className={syncBusy ? 'fanqie-spin' : undefined} />
+            {syncBusy ? '同步中' : `同步${platformMeta.label}`}
+          </button>
         </div>
-      )}
-
-      {/* 七猫：频道+榜单 Tab */}
-      {platform === 'qimao' && (
-        <div style={{
-          display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 16px',
-          background: '#fff', borderBottom: `1px solid ${T.gray100}`, flexShrink: 0,
-        }}>
-          {/* 频道 */}
-          <div style={{ display: 'flex', gap: 6 }}>
-            {(Object.entries(QIMAO_CHANNEL_LABELS) as [string, typeof QIMAO_CHANNEL_LABELS[string]][]).map(([k, v]) => (
-              <button
-                key={k}
-                onClick={() => setQimaoChannel(k as 'boy' | 'girl')}
-                style={{
-                  padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
-                  fontSize: 13, fontWeight: 600,
-                  background: qimaoChannel === k ? v.color : '#fff',
-                  color: qimaoChannel === k ? '#fff' : T.gray600,
-                  boxShadow: qimaoChannel === k ? `0 2px 8px ${v.color}44` : `0 0 0 1px ${T.gray200}`,
-                }}
-              >
-                {v.label}
-              </button>
-            ))}
-          </div>
-          {/* 榜单类型 */}
-          <div style={{ display: 'flex', gap: 4, overflowX: 'auto' }}>
-            {(Object.entries(QIMAO_RANK_LABELS) as [string, typeof QIMAO_RANK_LABELS[string]][]).map(([k, v]) => (
-              <button
-                key={k}
-                onClick={() => setQimaoRank(k as keyof typeof QIMAO_RANK_LABELS)}
-                style={{
-                  padding: '4px 12px', borderRadius: 16, border: 'none', cursor: 'pointer',
-                  fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
-                  background: qimaoRank === k ? v.color : '#F3F4F6',
-                  color: qimaoRank === k ? '#fff' : T.gray500,
-                }}
-              >
-                {v.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 知乎：排序 Tab + 子分类筛选 */}
-      {platform === 'zhihu' && (
-        <div style={{
-          display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 16px',
-          background: '#fff', borderBottom: `1px solid ${T.gray100}`, flexShrink: 0,
-        }}>
-          {/* 排序类型 */}
-          <div style={{ display: 'flex', gap: 6 }}>
-            {(Object.entries(ZHIHU_SORT_LABELS) as [string, typeof ZHIHU_SORT_LABELS[string]][]).map(([k, v]) => (
-              <button
-                key={k}
-                onClick={() => setZhihuSort(k as keyof typeof ZHIHU_SORT_LABELS)}
-                style={{
-                  padding: '5px 14px', borderRadius: 20, border: 'none', cursor: 'pointer',
-                  fontSize: 13, fontWeight: 600,
-                  background: zhihuSort === k ? v.color : '#fff',
-                  color: zhihuSort === k ? '#fff' : T.gray600,
-                  boxShadow: zhihuSort === k ? `0 2px 8px ${v.color}44` : `0 0 0 1px ${T.gray200}`,
-                }}
-              >
-                {v.label}
-              </button>
-            ))}
-          </div>
-          {/* 故事子分类 */}
-          <div style={{ display: 'flex', gap: 4, overflowX: 'auto' }}>
-            {ZHIHU_SUBCATS.map(sc => (
-              <button
-                key={sc.key}
-                onClick={() => setZhihuSubcat(sc.key)}
-                style={{
-                  padding: '4px 12px', borderRadius: 16, border: 'none', cursor: 'pointer',
-                  fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
-                  background: zhihuSubcat === sc.key ? '#0066F5' : '#F3F4F6',
-                  color: zhihuSubcat === sc.key ? '#fff' : T.gray500,
-                }}
-              >
-                {sc.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 内容区 */}
-      <div style={{ flex: 1, overflowY: 'auto', position: 'relative', background: '#fff' }}>
-        {platform === 'fanqie' ? (
-          initLoading ? (
-            <div style={{ textAlign: 'center', padding: '60px 0', fontSize: 14, color: T.gray400 }}>
-              加载中...
-            </div>
-          ) : switching ? (
-            <div style={{ textAlign: 'center', padding: '60px 0', fontSize: 14, color: T.gray400 }}>
-              切换中…
-            </div>
-          ) : currentBooks.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 0', fontSize: 14, color: T.gray400 }}>
-              暂无数据
-            </div>
-          ) : (
-            (currentBooks as FanqieBook[]).map(book => <FanqieCard key={book.book_id} book={book} rankTab={rankTab} />)
-          )
-        ) : platform === 'qimao' ? (
-          qimaoLoading ? (
-            <div style={{ textAlign: 'center', padding: '60px 0', fontSize: 14, color: T.gray400 }}>
-              加载中…
-            </div>
-          ) : qimaoBooks.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 0', fontSize: 14, color: T.gray400 }}>
-              暂无数据
-            </div>
-          ) : (
-            qimaoBooks.map(book => <QimaoCard key={`${book.book_id}-${book.rank_type}`} book={book} />)
-          )
-        ) : (
-          zhihuLoading ? (
-            <div style={{ textAlign: 'center', padding: '60px 0', fontSize: 14, color: T.gray400 }}>
-              加载中…
-            </div>
-          ) : zhihuAlbums.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 0', fontSize: 14, color: T.gray400 }}>
-              暂无数据
-            </div>
-          ) : (
-            zhihuAlbums.map(album => <ZhihuCard key={album.business_id} album={album} />)
-          )
-        )}
       </div>
+
+      <div className="fanqie-layout" style={{ flex: 1, minHeight: 0, display: 'grid', gap: 16, padding: 18 }}>
+        <aside style={{ minHeight: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+              <Filter size={16} color={platformMeta.color} />
+              <div style={{ fontSize: 13, fontWeight: 850, color: T.gray800 }}>筛选控制台</div>
+            </div>
+
+            {platform === 'fanqie' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <FilterGroup title="频道">
+                  {(Object.entries(GROUP_LABELS) as Array<[keyof typeof GROUP_LABELS, typeof GROUP_LABELS[keyof typeof GROUP_LABELS]]>).map(([key, value]) => (
+                    <button key={key} onClick={() => setGroupTab(key)} style={chipStyle(groupTab === key, value.color)}>{value.label}</button>
+                  ))}
+                </FilterGroup>
+                <FilterGroup title="榜单">
+                  {(Object.entries(RANK_TYPE_LABELS) as Array<[keyof typeof RANK_TYPE_LABELS, typeof RANK_TYPE_LABELS[keyof typeof RANK_TYPE_LABELS]]>).map(([key, value]) => (
+                    <button key={key} onClick={() => setRankTab(key)} style={chipStyle(rankTab === key, value.color)}>{value.label}</button>
+                  ))}
+                </FilterGroup>
+                <FilterGroup title={`分类 · ${categories.filter((cat) => cat.group === groupTab).length}`}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, maxHeight: 260, overflowY: 'auto', paddingRight: 2 }}>
+                    {categories.filter((cat) => cat.group === groupTab).map((cat) => (
+                      <button key={cat.fanqie_id} onClick={() => setActiveCat(cat.fanqie_id)} style={{
+                        ...chipStyle(activeCat === cat.fanqie_id, T.gray900),
+                        padding: '7px 8px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}>{cat.name}</button>
+                    ))}
+                  </div>
+                </FilterGroup>
+              </div>
+            )}
+
+            {platform === 'qimao' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <FilterGroup title="频道">
+                  {(Object.entries(QIMAO_CHANNEL_LABELS) as Array<[keyof typeof QIMAO_CHANNEL_LABELS, typeof QIMAO_CHANNEL_LABELS[keyof typeof QIMAO_CHANNEL_LABELS]]>).map(([key, value]) => (
+                    <button key={key} onClick={() => setQimaoChannel(key)} style={chipStyle(qimaoChannel === key, value.color)}>{value.label}</button>
+                  ))}
+                </FilterGroup>
+                <FilterGroup title="榜单">
+                  {(Object.entries(QIMAO_RANK_LABELS) as Array<[keyof typeof QIMAO_RANK_LABELS, typeof QIMAO_RANK_LABELS[keyof typeof QIMAO_RANK_LABELS]]>).map(([key, value]) => (
+                    <button key={key} onClick={() => setQimaoRank(key)} style={chipStyle(qimaoRank === key, value.color)}>{value.label}</button>
+                  ))}
+                </FilterGroup>
+              </div>
+            )}
+
+            {platform === 'zhihu' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <FilterGroup title="排序">
+                  {(Object.entries(ZHIHU_SORT_LABELS) as Array<[keyof typeof ZHIHU_SORT_LABELS, typeof ZHIHU_SORT_LABELS[keyof typeof ZHIHU_SORT_LABELS]]>).map(([key, value]) => (
+                    <button key={key} onClick={() => setZhihuSort(key)} style={chipStyle(zhihuSort === key, value.color)}>{value.label}</button>
+                  ))}
+                </FilterGroup>
+                <FilterGroup title="故事分类">
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    {ZHIHU_SUBCATS.map((cat) => (
+                      <button key={cat.key} onClick={() => setZhihuSubcat(cat.key)} style={chipStyle(zhihuSubcat === cat.key, '#0066F5')}>{cat.label}</button>
+                    ))}
+                  </div>
+                </FilterGroup>
+              </div>
+            )}
+          </div>
+
+          <div style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: T.gray800, fontSize: 13, fontWeight: 850, marginBottom: 12 }}>
+              <Sparkles size={16} color={platformMeta.color} />
+              榜单摘要
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <SummaryTile label="当前条目" value={currentBooks.length} />
+              <SummaryTile label="上升作品" value={risingCount} />
+            </div>
+            {topItem && (
+              <div style={{ marginTop: 12, padding: 12, borderRadius: T.radiusSm, background: platformMeta.bg, color: platformMeta.color }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 900, marginBottom: 5 }}>
+                  <Crown size={14} />
+                  榜首
+                </div>
+                <div style={{ color: T.gray900, fontSize: 13, fontWeight: 850, lineHeight: 1.35 }}>{getItemTitle(topItem)}</div>
+                <div style={{ marginTop: 4, color: T.gray600, fontSize: 11 }}>{getItemAuthor(topItem)}</div>
+              </div>
+            )}
+          </div>
+        </aside>
+
+        <main style={{ minHeight: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 220, flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: platformMeta.color, fontSize: 12, fontWeight: 900 }}>
+                <TrendingUp size={15} />
+                {platformMeta.label}
+              </div>
+              <div style={{ marginTop: 3, color: T.gray900, fontSize: 18, fontWeight: 900 }}>{contextLabel}</div>
+            </div>
+            <div style={{ position: 'relative', width: 280, maxWidth: '100%' }}>
+              <Search size={15} color={T.gray400} style={{ position: 'absolute', left: 11, top: 10 }} />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索书名、作者、简介"
+                style={{
+                  width: '100%',
+                  padding: '9px 12px 9px 34px',
+                  border: `1px solid ${T.gray200}`,
+                  borderRadius: T.radiusSm,
+                  outline: 'none',
+                  color: T.gray800,
+                  fontSize: 13,
+                }}
+              />
+            </div>
+          </div>
+
+          {error && (
+            <div style={{ background: T.redLight, color: T.red, borderRadius: T.radiusSm, padding: '10px 12px', fontSize: 13, border: `1px solid ${T.redLight}` }}>{error}</div>
+          )}
+
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 2 }}>
+            {loading ? (
+              <LoadingState label="正在拉取榜单" />
+            ) : filteredBooks.length === 0 ? (
+              <EmptyState />
+            ) : (
+              <div className="fanqie-book-grid" style={{ display: 'grid', gap: 10 }}>
+                {filteredBooks.map((item) => (
+                  <BookCard
+                    key={'book_id' in item ? `${platform}-${item.book_id}-${item.position}` : `${platform}-${item.business_id}-${item.position}`}
+                    item={item}
+                    platform={platform}
+                    rankTab={rankTab}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ color: T.gray500, fontSize: 11, fontWeight: 800, marginBottom: 7 }}>{title}</div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>{children}</div>
+    </div>
+  );
+}
+
+function SummaryTile({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div style={{ padding: 10, borderRadius: T.radiusSm, background: T.gray50, border: `1px solid ${T.gray100}` }}>
+      <div style={{ color: T.gray400, fontSize: 11, marginBottom: 4 }}>{label}</div>
+      <div style={{ color: T.gray900, fontFamily: T.mono, fontSize: 20, fontWeight: 900 }}>{value}</div>
     </div>
   );
 }

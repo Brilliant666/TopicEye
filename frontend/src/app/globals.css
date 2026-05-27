@@ -106,6 +106,38 @@ main {
   animation: fade-in 0.3s ease-out;
 }
 
+.fanqie-spin {
+  animation: spin 0.8s linear infinite;
+}
+
+.fanqie-layout {
+  grid-template-columns: 286px minmax(0, 1fr);
+}
+
+.fanqie-book-grid {
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+}
+
+.fanqie-platform-tabs {
+  max-width: 100%;
+}
+
+@media (max-width: 900px) {
+  .fanqie-layout {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-y: auto;
+    align-content: start;
+  }
+
+  .fanqie-platform-tabs {
+    overflow-x: auto;
+  }
+
+  .fanqie-book-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* Spinner rotation */
 @keyframes spin {
   from { transform: rotate(0deg); }

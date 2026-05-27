@@ -35,6 +35,7 @@ function parseUTC(s: string): Date {
 function formatTime(dateStr: string): string {
   try {
     const d = parseUTC(dateStr);
+    if (Number.isNaN(d.getTime())) return '--:--';
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
     return `${hh}:${mm}`;
@@ -47,6 +48,7 @@ function timeAgo(dateStr: string): string {
   try {
     const now = Date.now();
     const then = parseUTC(dateStr).getTime();
+    if (Number.isNaN(then)) return '';
     const diffSec = Math.floor((now - then) / 1000);
     if (diffSec < 60) return '刚刚';
     if (diffSec < 3600) return `${Math.floor(diffSec / 60)} 分钟前`;
@@ -61,6 +63,7 @@ function timeAgo(dateStr: string): string {
 function isToday(dateStr: string): boolean {
   try {
     const d = parseUTC(dateStr);
+    if (Number.isNaN(d.getTime())) return false;
     const now = new Date();
     return (
       d.getFullYear() === now.getFullYear() &&
@@ -69,6 +72,39 @@ function isToday(dateStr: string): boolean {
     );
   } catch {
     return false;
+  }
+}
+
+function getContentTime(item: ContentItem): string {
+  return item.published_at || item.crawled_at || item.created_at || '';
+}
+
+function formatTimelineDate(dateStr: string): string {
+  try {
+    const d = parseUTC(dateStr);
+    if (Number.isNaN(d.getTime())) return '未知时间';
+    const today = new Date();
+    const isSameDay = (
+      d.getFullYear() === today.getFullYear() &&
+      d.getMonth() === today.getMonth() &&
+      d.getDate() === today.getDate()
+    );
+    if (isSameDay) return '今天';
+    return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+  } catch {
+    return '未知时间';
+  }
+}
+
+function getTimelineBucket(item: ContentItem): string {
+  const dateStr = getContentTime(item);
+  try {
+    const d = parseUTC(dateStr);
+    if (Number.isNaN(d.getTime())) return '未知时间';
+    const hour = String(d.getHours()).padStart(2, '0');
+    return `${formatTimelineDate(dateStr)} ${hour}:00`;
+  } catch {
+    return '未知时间';
   }
 }
 
@@ -148,12 +184,27 @@ export default function HomePage() {
     });
     // Sort by published_at descending
     result.sort((a, b) => {
-      const ta = new Date(a.published_at).getTime() || 0;
-      const tb = new Date(b.published_at).getTime() || 0;
+      const ta = parseUTC(getContentTime(a)).getTime() || 0;
+      const tb = parseUTC(getContentTime(b)).getTime() || 0;
       return tb - ta;
     });
     return result;
   }, [items, activeCategory, searchQuery]);
+
+  const timelineGroups = useMemo(() => {
+    const groups = new Map<string, ContentItem[]>();
+    filtered.forEach((item) => {
+      const key = getTimelineBucket(item);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(item);
+    });
+    return Array.from(groups.entries()).map(([label, groupItems]) => ({
+      label,
+      items: groupItems,
+      topItem: groupItems[0],
+      hotCount: groupItems.filter((item) => item.analysis && getRecommendLevel(item.analysis) === '强烈建议写').length,
+    }));
+  }, [filtered]);
 
   const grouped = useMemo(() => {
     const groups: Array<{ level: RecommendLevel; title: string; items: ContentItem[] }> = [
@@ -173,7 +224,7 @@ export default function HomePage() {
 
   // Stats
   const totalCount = items.length;
-  const todayCount = useMemo(() => items.filter((i) => isToday(i.published_at)).length, [items]);
+  const todayCount = useMemo(() => items.filter((i) => isToday(getContentTime(i))).length, [items]);
 
   // Today's date
   const today = new Date();
@@ -311,45 +362,54 @@ export default function HomePage() {
 
       {/* Editorial content flow */}
       {!loading && !error && (
-        <div style={{ maxWidth: 820, paddingBottom: 60 }}>
-          {grouped.map((group) => (
-            <section key={group.level} style={{ marginBottom: 28 }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                paddingBottom: 10,
-                marginBottom: 12,
-                borderBottom: `1px solid ${T.gray200}`,
-              }}>
-                <h2 style={{ fontSize: 15, fontWeight: 800, color: T.gray900 }}>
-                  {group.title}
-                </h2>
-                <span style={{ fontSize: 12, color: T.gray400, fontFamily: T.mono }}>
-                  {group.items.length}
-                </span>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 820px) 260px',
+          gap: 24,
+          alignItems: 'start',
+          paddingBottom: 60,
+        }}>
+          <div style={{ minWidth: 0 }}>
+            {grouped.map((group) => (
+              <section key={group.level} style={{ marginBottom: 28 }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingBottom: 10,
+                  marginBottom: 12,
+                  borderBottom: `1px solid ${T.gray200}`,
+                }}>
+                  <h2 style={{ fontSize: 15, fontWeight: 800, color: T.gray900 }}>
+                    {group.title}
+                  </h2>
+                  <span style={{ fontSize: 12, color: T.gray400, fontFamily: T.mono }}>
+                    {group.items.length}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {group.items.map((item) => (
+                    <EditorialItem
+                      key={item.id}
+                      item={item}
+                      isFav={favorites.has(item.id)}
+                      onToggleFav={toggleFavorite}
+                      onIgnore={handleIgnore}
+                      time={formatTime(getContentTime(item))}
+                      timeLabel={timeAgo(getContentTime(item))}
+                      onShowAnalysis={(a) => setSelectedAnalysis(a)}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+            {filtered.length === 0 && (
+              <div style={{ textAlign: 'center', padding: 60, color: T.gray400, fontSize: 14 }}>
+                当前筛选条件下没有内容
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {group.items.map((item) => (
-                  <EditorialItem
-                    key={item.id}
-                    item={item}
-                    isFav={favorites.has(item.id)}
-                    onToggleFav={toggleFavorite}
-                    onIgnore={handleIgnore}
-                    time={formatTime(item.published_at)}
-                    timeLabel={timeAgo(item.published_at)}
-                    onShowAnalysis={(a) => setSelectedAnalysis(a)}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
-          {filtered.length === 0 && (
-            <div style={{ textAlign: 'center', padding: 60, color: T.gray400, fontSize: 14 }}>
-              当前筛选条件下没有内容
-            </div>
-          )}
+            )}
+          </div>
+          <TimelinePanel groups={timelineGroups} />
         </div>
       )}
 
@@ -375,6 +435,126 @@ export default function HomePage() {
         </>
       )}
     </div>
+  );
+}
+
+function TimelinePanel({
+  groups,
+}: {
+  groups: Array<{ label: string; items: ContentItem[]; topItem: ContentItem; hotCount: number }>;
+}) {
+  if (groups.length === 0) {
+    return (
+      <aside style={{ position: 'sticky', top: 24 }}>
+        <div style={{
+          background: T.white,
+          border: `1px solid ${T.gray100}`,
+          borderRadius: T.radius,
+          padding: '18px 18px',
+          color: T.gray400,
+          fontSize: 13,
+        }}>
+          暂无时间轴
+        </div>
+      </aside>
+    );
+  }
+
+  const jumpToItem = (id: number) => {
+    document.getElementById(`topic-item-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  return (
+    <aside style={{ position: 'sticky', top: 24 }}>
+      <div style={{
+        background: T.white,
+        border: `1px solid ${T.gray100}`,
+        borderRadius: T.radius,
+        padding: '18px 18px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+            <Clock3 size={15} color={T.primary} strokeWidth={2.2} />
+            <span style={{ fontSize: 14, fontWeight: 800, color: T.gray900 }}>时间轴</span>
+          </div>
+          <span style={{ fontSize: 11, color: T.gray400, fontFamily: T.mono }}>{groups.length}</span>
+        </div>
+        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{
+            position: 'absolute',
+            left: 6,
+            top: 8,
+            bottom: 8,
+            width: 1,
+            background: T.gray200,
+          }} />
+          {groups.map((group) => {
+            const level = group.topItem.analysis ? getRecommendLevel(group.topItem.analysis) : '值得观察';
+            const levelTone = level === '强烈建议写' ? T.primary : level === '适合深挖' ? T.purple : T.teal;
+            return (
+              <button
+                key={group.label}
+                onClick={() => jumpToItem(group.topItem.id)}
+                style={{
+                  position: 'relative',
+                  display: 'grid',
+                  gridTemplateColumns: '18px minmax(0, 1fr)',
+                  gap: 10,
+                  width: '100%',
+                  textAlign: 'left',
+                  border: 'none',
+                  background: 'transparent',
+                  padding: 0,
+                  cursor: 'pointer',
+                }}
+              >
+                <span style={{
+                  position: 'relative',
+                  zIndex: 1,
+                  width: 13,
+                  height: 13,
+                  marginTop: 3,
+                  borderRadius: 999,
+                  background: T.white,
+                  border: `3px solid ${levelTone}`,
+                  boxSizing: 'border-box',
+                }} />
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: T.gray800, fontFamily: T.mono }}>
+                      {group.label}
+                    </span>
+                    <span style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: group.hotCount > 0 ? T.primary : T.gray400,
+                      background: group.hotCount > 0 ? T.primaryLight : T.gray100,
+                      padding: '2px 6px',
+                      borderRadius: 999,
+                    }}>
+                      {group.items.length}条
+                    </span>
+                  </span>
+                  <span style={{
+                    display: 'block',
+                    marginTop: 4,
+                    fontSize: 12,
+                    lineHeight: 1.5,
+                    color: T.gray500,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {group.topItem.title}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </aside>
   );
 }
 
@@ -429,6 +609,7 @@ function EditorialItem({
 
   return (
       <div
+        id={`topic-item-${item.id}`}
         onClick={handleCardClick}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}

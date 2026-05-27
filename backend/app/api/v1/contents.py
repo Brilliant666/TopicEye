@@ -2,7 +2,6 @@
 from __future__ import annotations
 from typing import Optional
 from datetime import datetime
-from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,61 +25,63 @@ def _with_analysis(item) -> dict:
     return d
 
 
-def _build_scoring_input(item, feedback_score: float = 0) -> "ScoringInput":
-    from app.services.scoring_engine import ScoringInput
+def _empty_list_response(page: int, page_size: int) -> dict:
+    return {"items": [], "total": 0, "page": page, "page_size": page_size}
 
-    a = item.analyses[-1]
-    src_w = item.source.weight if item.source else 3
-    return ScoringInput(
-        content_id=item.id,
-        title=item.title,
-        category=item.category,
-        source_id=item.source_id,
-        source_name=item.source_name,
-        published_at=item.published_at,
-        crawled_at=item.crawled_at,
-        curation_score=a.curation_score or 0,
-        info_density=a.info_density or 50,
-        actionability=a.actionability or 50,
-        source_weight=a.source_weight or 50,
-        creator_score=a.creator_score or 0,
-        viral_score=a.viral_score or 0,
-        freshness_score=a.freshness_score or 0,
-        quality_score=a.quality_score or 0,
-        hot_score=a.hot_score or 0,
-        risk_score=a.risk_score or 0,
-        source_weight_db=src_w,
-        feedback_score=feedback_score,
+
+async def _score_content_page(
+    db: AsyncSession,
+    *,
+    filters: dict,
+    ignored_ids: list[int],
+    time_cutoff: datetime | None,
+    page: int,
+    page_size: int,
+    score_fn,
+    sort_order: str = "desc",
+) -> dict:
+    from app.services.scoring_inputs import build_scoring_inputs
+
+    scored_items, total = await ContentRepo(db).list_for_scoring(
+        filters=filters,
+        exclude_ids=ignored_ids,
+        time_cutoff=time_cutoff,
+        limit=_SCORING_BATCH_SIZE,
     )
+    if not scored_items:
+        return _empty_list_response(page, page_size)
+
+    scoring_inputs, item_map, _ = await build_scoring_inputs(db, scored_items)
+    if not scoring_inputs:
+        return _empty_list_response(page, page_size)
+
+    scored = score_fn(scoring_inputs)
+    page_offset = (page - 1) * page_size
+    page_items = scored[page_offset:page_offset + page_size]
+    result_items = [_with_scoring_breakdown(item_map, breakdown, scoring_input) for breakdown, scoring_input in page_items]
+    result_items = [item for item in result_items if item]
+
+    if sort_order == "asc" and result_items:
+        result_items.reverse()
+
+    return {
+        "items": result_items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
 
 
-def _stage_counts(scored: list[tuple]) -> list[dict]:
-    total = len(scored)
-    quality = sum(1 for bd, _ in scored if bd.quality_factor > 0.55)
-    risk = sum(1 for bd, _ in scored if bd.risk_factor > 0.55)
-    fresh = sum(1 for bd, _ in scored if bd.time_decay >= 0.6)
-    diverse = sum(1 for bd, _ in scored if bd.diversity_factor >= 0.85)
-    selected = sum(1 for bd, _ in scored if bd.selected)
-    stages = [
-        ("候选样本", total),
-        ("质量门槛", quality),
-        ("风险降权", risk),
-        ("时效衰减", fresh),
-        ("多样性混排", diverse),
-        ("精选输出", selected),
-    ]
-    return [
-        {
-            "key": key,
-            "label": label,
-            "count": count,
-            "retention": round(count / total, 4) if total else 0,
-        }
-        for key, (label, count) in zip(
-            ["candidates", "quality", "risk", "freshness", "diversity", "selected"],
-            stages,
-        )
-    ]
+def _with_scoring_breakdown(item_map: dict, breakdown, scoring_input) -> dict | None:
+    item = item_map.get(scoring_input.content_id)
+    if not item:
+        return None
+
+    data = _with_analysis(item)
+    if data.get("analysis"):
+        data["analysis"]["adjusted_curation_score"] = breakdown.final_score
+        data["analysis"]["score_breakdown"] = breakdown.to_dict()
+    return data
 
 
 @router.get("")
@@ -96,8 +97,6 @@ async def list_contents(
     db: AsyncSession = Depends(get_db),
 ):
     from app.repositories.ignored_repo import IgnoredRepo
-    from app.models.content import ContentItem
-    from app.services.scoring_engine import ScoringInput, score_items
     from datetime import timedelta
 
     filters = {k: v for k, v in {
@@ -115,114 +114,32 @@ async def list_contents(
 
     # ── Curation-score ranking path ────────────────────────────────────
     if sort_by == "curation_score":
-        repo = ContentRepo(db)
-        scored_items, total = await repo.list_for_scoring(
+        from app.services.scoring_engine import score_items
+
+        return await _score_content_page(
+            db,
             filters=filters,
-            exclude_ids=ignored_ids,
+            ignored_ids=ignored_ids,
             time_cutoff=time_cutoff,
-            limit=_SCORING_BATCH_SIZE,
+            page=page,
+            page_size=page_size,
+            score_fn=score_items,
+            sort_order=sort_order,
         )
-
-        if not scored_items:
-            return {"items": [], "total": 0, "page": page, "page_size": page_size}
-
-        # Build scoring inputs
-        scoring_inputs: list[ScoringInput] = []
-        item_map: dict[int, ContentItem] = {}
-        from app.services.feedback_signal import get_feedback_scores
-        feedback_scores = await get_feedback_scores(db, [item.id for item in scored_items])
-        for item in scored_items:
-            if not item.analyses:
-                continue
-            si = _build_scoring_input(item, feedback_scores.get(item.id, 0))
-            scoring_inputs.append(si)
-            item_map[item.id] = item
-
-        if not scoring_inputs:
-            return {"items": [], "total": 0, "page": page, "page_size": page_size}
-
-        # Run full scoring pipeline (risk filter → 6-dim weighted → time decay → diversity)
-        scored = score_items(scoring_inputs)
-
-        # Paginate scored results
-        page_offset = (page - 1) * page_size
-        page_items = scored[page_offset:page_offset + page_size]
-
-        result_items = []
-        for breakdown, si in page_items:
-            item = item_map.get(si.content_id)
-            if not item:
-                continue
-            d = _with_analysis(item)
-            # Attach scoring engine output to analysis dict
-            if "analysis" in d and d["analysis"]:
-                d["analysis"]["adjusted_curation_score"] = breakdown.final_score
-                d["analysis"]["score_breakdown"] = breakdown.to_dict()
-            result_items.append(d)
-
-        # sort_order desc is already guaranteed by score_items (descending)
-        if sort_order == "asc" and result_items:
-            result_items.reverse()
-
-        return {
-            "items": result_items,
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-        }
 
     # ── Low-follower viral discovery path ────────────────────────────────
     if sort_by == "low_follower_viral":
         from app.services.scoring_engine import score_low_follower_viral
 
-        repo = ContentRepo(db)
-        scored_items, total = await repo.list_for_scoring(
+        return await _score_content_page(
+            db,
             filters=filters,
-            exclude_ids=ignored_ids,
+            ignored_ids=ignored_ids,
             time_cutoff=time_cutoff,
-            limit=_SCORING_BATCH_SIZE,
+            page=page,
+            page_size=page_size,
+            score_fn=score_low_follower_viral,
         )
-
-        if not scored_items:
-            return {"items": [], "total": 0, "page": page, "page_size": page_size}
-
-        scoring_inputs: list[ScoringInput] = []
-        item_map: dict[int, ContentItem] = {}
-        from app.services.feedback_signal import get_feedback_scores
-        feedback_scores = await get_feedback_scores(db, [item.id for item in scored_items])
-        for item in scored_items:
-            if not item.analyses:
-                continue
-            si = _build_scoring_input(item, feedback_scores.get(item.id, 0))
-            scoring_inputs.append(si)
-            item_map[item.id] = item
-
-        if not scoring_inputs:
-            return {"items": [], "total": 0, "page": page, "page_size": page_size}
-
-        # Run LFV scoring pipeline
-        scored = score_low_follower_viral(scoring_inputs)
-
-        page_offset = (page - 1) * page_size
-        page_items = scored[page_offset:page_offset + page_size]
-
-        result_items = []
-        for breakdown, si in page_items:
-            item = item_map.get(si.content_id)
-            if not item:
-                continue
-            d = _with_analysis(item)
-            if "analysis" in d and d["analysis"]:
-                d["analysis"]["adjusted_curation_score"] = breakdown.final_score
-                d["analysis"]["score_breakdown"] = breakdown.to_dict()
-            result_items.append(d)
-
-        return {
-            "items": result_items,
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-        }
 
     # ── Standard SQL sort path ─────────────────────────────────────────
     repo = ContentRepo(db)
@@ -253,67 +170,9 @@ async def scoring_flow(
     db: AsyncSession = Depends(get_db),
 ):
     """Return a read-only explanation payload for the content scoring funnel."""
-    from app.repositories.ignored_repo import IgnoredRepo
-    from app.services.scoring_engine import score_items
-    from datetime import timedelta
+    from app.services.scoring_flow import build_scoring_flow_payload
 
-    time_cutoff = datetime.utcnow() - timedelta(hours=hours)
-    ignored_ids = await IgnoredRepo(db).list_ignored_ids()
-    repo = ContentRepo(db)
-    items, total = await repo.list_for_scoring(
-        exclude_ids=ignored_ids,
-        time_cutoff=time_cutoff,
-        limit=limit,
-    )
-
-    scoring_inputs = []
-    item_map = {}
-    from app.services.feedback_signal import get_feedback_scores
-    feedback_scores = await get_feedback_scores(db, [item.id for item in items])
-    for item in items:
-        if not item.analyses:
-            continue
-        scoring_input = _build_scoring_input(item, feedback_scores.get(item.id, 0))
-        scoring_inputs.append(scoring_input)
-        item_map[item.id] = item
-
-    scored = score_items(scoring_inputs)
-    category_counts = Counter((item.category or "未分类") for _, item in scored)
-    source_counts = Counter((item.source_name or "未知来源") for _, item in scored)
-
-    samples = []
-    for breakdown, scoring_input in scored[:80]:
-        item = item_map.get(scoring_input.content_id)
-        if not item:
-            continue
-        samples.append({
-            "id": item.id,
-            "title": item.title,
-            "url": item.url,
-            "source_name": item.source_name,
-            "category": item.category or "未分类",
-            "selected": breakdown.selected,
-            "final_score": breakdown.final_score,
-            "threshold_used": breakdown.threshold_used,
-            "base_score": breakdown.base_score,
-            "source_bonus": breakdown.source_bonus,
-            "quality_factor": breakdown.quality_factor,
-            "risk_factor": breakdown.risk_factor,
-            "time_decay": breakdown.time_decay,
-            "diversity_factor": breakdown.diversity_factor,
-            "feedback_score": feedback_scores.get(item.id, 0),
-            "dimension_scores": breakdown.dimension_scores,
-        })
-
-    return {
-        "total": total,
-        "scored": len(scored),
-        "hours": hours,
-        "stages": _stage_counts(scored),
-        "samples": samples,
-        "category_mix": [{"label": k, "count": v} for k, v in category_counts.most_common(8)],
-        "source_mix": [{"label": k, "count": v} for k, v in source_counts.most_common(8)],
-    }
+    return await build_scoring_flow_payload(db, hours=hours, limit=limit)
 
 
 @router.get("/favorites/list", response_model=ContentListResponse)

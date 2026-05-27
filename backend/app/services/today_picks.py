@@ -1,20 +1,16 @@
 """Today-picks business logic — uses scoring_engine for multi-signal ranking."""
 from __future__ import annotations
 
-import logging
 from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.content import ContentItem
-from app.models.analysis import AiAnalysis
 from app.repositories.content_repo import ContentRepo
 from app.schemas.content import ContentResponse
 from app.schemas.analysis import AiAnalysisResponse
-from app.services.scoring_engine import ScoringInput, score_items
-
-logger = logging.getLogger(__name__)
+from app.services.scoring_engine import score_items
+from app.services.scoring_inputs import build_scoring_inputs
 
 
 async def build_today_picks(
@@ -25,44 +21,7 @@ async def build_today_picks(
     repo = ContentRepo(db)
     items = await repo.list_for_today_picks(hours=hours, category=category)
 
-    # ── Build scoring inputs ──
-    scoring_inputs: list[ScoringInput] = []
-    item_map: dict[int, ContentItem] = {}
-    from app.services.feedback_signal import get_feedback_scores
-    feedback_scores = await get_feedback_scores(db, [item.id for item in items])
-
-    for item in items:
-        if not item.analyses:
-            continue
-
-        a = item.analyses[-1]  # latest analysis
-        src_w = item.source.weight if item.source else 3
-
-        si = ScoringInput(
-            content_id=item.id,
-            title=item.title,
-            category=item.category,
-            source_id=item.source_id,
-            source_name=item.source_name,
-            published_at=item.published_at,
-            crawled_at=item.crawled_at,
-            # Analysis dimensions
-            curation_score=a.curation_score or 0,
-            info_density=a.info_density or 50,
-            actionability=a.actionability or 50,
-            source_weight=a.source_weight or 50,
-            creator_score=a.creator_score or 0,
-            viral_score=a.viral_score or 0,
-            freshness_score=a.freshness_score or 0,
-            quality_score=a.quality_score or 0,
-            hot_score=a.hot_score or 0,
-            risk_score=a.risk_score or 0,
-            # Source
-            source_weight_db=src_w,
-            feedback_score=feedback_scores.get(item.id, 0),
-        )
-        scoring_inputs.append(si)
-        item_map[item.id] = item
+    scoring_inputs, item_map, _ = await build_scoring_inputs(db, items)
 
     if not scoring_inputs:
         return _empty_payload()
@@ -72,7 +31,6 @@ async def build_today_picks(
 
     # ── Build response ──
     response_items = []
-    selected_count = 0
     for breakdown, si in scored:
         if not breakdown.selected:
             continue
@@ -91,7 +49,6 @@ async def build_today_picks(
         d["topic_id"] = item.topic_id
         d["duplicate_of"] = item.duplicate_of
         response_items.append(d)
-        selected_count += 1
 
     # ── Topics ──
     from app.models.topic import TopicGroup

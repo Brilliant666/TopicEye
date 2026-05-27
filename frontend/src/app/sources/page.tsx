@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { List, Network, Plus, Upload } from 'lucide-react';
+import { Activity, List, Network, Plus, Upload } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import { sourcesApi, settingsApi } from '@/lib/api';
 import type { RSSHubInstance, CreateSourceRequest, UpdateSourceRequest } from '@/lib/api';
@@ -9,6 +9,8 @@ import { timeAgo } from '@/lib/utils';
 import SourceForm, { FormState, emptyForm } from '@/components/SourceForm';
 import SourceRowComponent, { type BackendSource } from '@/components/SourceRow';
 import { Spinner } from '@/components/SourceRow';
+import SourceSyncBoard from '@/components/SourceSyncBoard';
+import { buildSourceSyncBoard, sourceTypeLabel } from '@/lib/source-sync-board';
 
 // ─── Page Component ───
 
@@ -27,17 +29,6 @@ function getSourceTier(source: BackendSource): SourceTierKey {
   if ((source.weight ?? 3) >= 4) return 'core';
   if ((source.weight ?? 3) <= 2) return 'watch';
   return 'stable';
-}
-
-function sourceTypeLabel(type: string): string {
-  const map: Record<string, string> = {
-    rss: 'RSS',
-    rsshub: 'RSSHub',
-    twitter_rss: 'Twitter RSS',
-    hackernews: 'HackerNews',
-    zhihu: '知乎',
-  };
-  return map[type] || type;
 }
 
 function SourceMapView({
@@ -253,7 +244,7 @@ export default function SourcesPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
-  const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
+  const [viewMode, setViewMode] = useState<'map' | 'sync' | 'list'>('map');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [filterType, setFilterType] = useState('');
   const [filterEnabled, setFilterEnabled] = useState<boolean | undefined>(undefined);
@@ -634,6 +625,8 @@ export default function SourcesPage() {
     };
   }, [mapSources]);
 
+  const syncBoard = useMemo(() => buildSourceSyncBoard(mapSources, syncingIds, new Date()), [mapSources, syncingIds]);
+
   return (
     <div className="fade-in" style={{ padding: '32px 40px', height: '100%', overflowY: 'auto' }}>
       {/* Header */}
@@ -740,6 +733,7 @@ export default function SourcesPage() {
         <div style={{ display: 'inline-flex', padding: 3, background: T.gray100, borderRadius: T.radiusSm, border: `1px solid ${T.gray200}` }}>
           {[
             { key: 'map' as const, label: '信源地图', icon: Network },
+            { key: 'sync' as const, label: '同步看板', icon: Activity },
             { key: 'list' as const, label: '列表管理', icon: List },
           ].map((item) => {
             const Icon = item.icon;
@@ -765,7 +759,7 @@ export default function SourcesPage() {
           })}
         </div>
         <span style={{ fontSize: 12, color: T.gray400 }}>
-          地图统计全部 {mapSources.length} 个匹配信源
+          当前统计全部 {mapSources.length} 个匹配信源
         </span>
       </div>
 
@@ -791,6 +785,17 @@ export default function SourcesPage() {
           onEdit={openEditModal}
           onSync={handleSync}
           onMove={handleMoveSourceTier}
+        />
+      )}
+
+      {viewMode === 'sync' && (
+        <SourceSyncBoard
+          syncBoard={syncBoard}
+          syncingIds={syncingIds}
+          syncResults={syncResults}
+          now={new Date()}
+          onEdit={openEditModal}
+          onSync={handleSync}
         />
       )}
 

@@ -64,8 +64,15 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0,
       items: [
         { id: 'today', label: '今日选题', href: '/', icon: Lightbulb, count: topicCount },
         { id: 'picks', label: '当日精选', href: '/today-picks', icon: Star },
+      ],
+    },
+    {
+      id: 'review',
+      label: '复盘',
+      items: [
         { id: 'daily', label: '日报', href: '/daily', icon: Newspaper },
         { id: 'weekly', label: '周刊', href: '/weekly', icon: ClipboardList },
+        { id: 'stats', label: '数据统计', href: '/stats', icon: BarChart3 },
       ],
     },
     {
@@ -81,7 +88,6 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0,
       id: 'manage',
       label: '管理',
       items: [
-        { id: 'stats', label: '数据统计', href: '/stats', icon: BarChart3 },
         { id: 'sources', label: '信源管理', href: '/sources', icon: RadioTower, count: sourceCount },
         { id: 'fanqie', label: '网文雷达', href: '/fanqie', icon: BookOpen },
         { id: 'model-eval', label: 'AI 引擎', href: '/model-eval', icon: BrainCircuit },

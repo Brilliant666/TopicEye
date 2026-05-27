@@ -991,9 +991,46 @@ export interface EvalResult {
   created_at: string | null;
 }
 
+export interface ModelUsageBucket {
+  calls: number;
+  success_calls: number;
+  failed_calls: number;
+  tokens_input: number;
+  tokens_output: number;
+  estimated_cost: number;
+}
+
+export interface ModelUsageByModel extends ModelUsageBucket {
+  model_id: number;
+  model_name: string;
+  provider: string | null;
+  avg_duration_ms: number;
+  cost_per_1k_input: number | null;
+  cost_per_1k_output: number | null;
+}
+
+export interface ModelUsageByPrompt extends ModelUsageBucket {
+  prompt_type: string;
+}
+
+export interface ModelUsageSummary {
+  days: number;
+  since: string;
+  total: ModelUsageBucket & {
+    tokens_total: number;
+    avg_duration_ms: number;
+    success_rate: number;
+  };
+  by_model: ModelUsageByModel[];
+  by_prompt: ModelUsageByPrompt[];
+}
+
 export const modelsApi = {
   list(): Promise<{ models: LlmModelItem[]; total: number }> {
     return request('/models');
+  },
+  usageSummary(days = 30): Promise<ModelUsageSummary> {
+    return request(`/models/usage/summary?days=${days}`);
   },
   create(data: Partial<LlmModelItem> & { api_key?: string }): Promise<{ id: number; name: string; message: string }> {
     return request('/models', { method: 'POST', body: JSON.stringify(data) });

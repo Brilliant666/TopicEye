@@ -3,11 +3,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ArrowRight,
+  BarChart3,
   Beaker,
   BrainCircuit,
   CheckCircle2,
   Clock3,
+  Coins,
   FlaskConical,
+  Gauge,
   History,
   KeyRound,
   Layers3,
@@ -24,9 +27,9 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { T } from '@/lib/design-tokens';
 import { modelsApi } from '@/lib/api';
-import type { LlmModelItem, EvalRun, EvalResult } from '@/lib/api';
+import type { LlmModelItem, EvalRun, EvalResult, ModelUsageSummary } from '@/lib/api';
 
-type Tab = 'models' | 'evaluate' | 'history';
+type Tab = 'models' | 'evaluate' | 'usage' | 'history';
 
 const PROVIDER_PRESETS: Record<string, { label: string; baseUrl: string; modelPlaceholder: string }> = {
   openai: {
@@ -55,6 +58,34 @@ const PROVIDER_PRESETS: Record<string, { label: string; baseUrl: string; modelPl
     modelPlaceholder: 'provider/model-name',
   },
 };
+
+const promptTypeLabel: Record<string, string> = {
+  analysis: '选题分析',
+  daily_report: 'AI 日报',
+  weekly_digest: 'AI 周刊',
+  classification: '内容分类',
+  custom: '自定义',
+};
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat('zh-CN').format(value || 0);
+}
+
+function formatTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+  if (value >= 10_000) return `${(value / 1000).toFixed(1)}K`;
+  return formatNumber(value);
+}
+
+function formatCurrency(value: number): string {
+  return `¥${(value || 0).toFixed(value >= 10 ? 2 : 4)}`;
+}
+
+function parseOptionalNumber(value: string): number | null {
+  if (value.trim() === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
 function Surface({
   title,
@@ -168,7 +199,9 @@ function StatusPill({
 export default function ModelEvalPage() {
   const [tab, setTab] = useState<Tab>('models');
   const [models, setModels] = useState<LlmModelItem[]>([]);
+  const [usage, setUsage] = useState<ModelUsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [usageLoading, setUsageLoading] = useState(true);
 
   const fetchModels = useCallback(async () => {
     try {
@@ -178,7 +211,21 @@ export default function ModelEvalPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchModels(); }, [fetchModels]);
+  const fetchUsage = useCallback(async () => {
+    try {
+      setUsageLoading(true);
+      const res = await modelsApi.usageSummary(30);
+      setUsage(res);
+    } catch (e) { console.error('fetchUsage', e); }
+    setUsageLoading(false);
+  }, []);
+
+  const refreshAll = useCallback(() => {
+    fetchModels();
+    fetchUsage();
+  }, [fetchModels, fetchUsage]);
+
+  useEffect(() => { refreshAll(); }, [refreshAll]);
 
   const enabledCount = models.filter(m => m.enabled).length;
   const runnableCount = models.filter(m => m.enabled && (m.api_key_set || !m.api_base)).length;
@@ -234,7 +281,7 @@ export default function ModelEvalPage() {
             </p>
           </div>
           <button
-            onClick={fetchModels}
+            onClick={refreshAll}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -252,22 +299,25 @@ export default function ModelEvalPage() {
             }}
           >
             <RefreshCw size={14} strokeWidth={2.2} />
-            刷新模型
+            刷新数据
           </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginTop: 18 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(170px, 100%), 1fr))', gap: 10, marginTop: 18 }}>
           <StatTile icon={Layers3} label="模型配置" value={models.length} hint={`${enabledCount} 个启用`} color={T.primary} tone="primary" />
           <StatTile icon={KeyRound} label="可测模型" value={runnableCount} hint="具备调用条件" color={T.teal} tone="teal" />
           <StatTile icon={ShieldCheck} label="主模型" value={primaryModel ? 1 : 0} hint={primaryModel?.name || '未设置'} color={T.amber} tone="amber" />
           <StatTile icon={Clock3} label="备用模型" value={fallbackModel ? 1 : 0} hint={fallbackModel?.name || '未设置'} color={T.gray700} />
+          <StatTile icon={Gauge} label="30日 Token" value={usage ? formatTokens(usage.total.tokens_total) : '-'} hint={`输入 ${formatTokens(usage?.total.tokens_input || 0)} · 输出 ${formatTokens(usage?.total.tokens_output || 0)}`} color={T.purple} />
+          <StatTile icon={Coins} label="费用预估" value={usage ? formatCurrency(usage.total.estimated_cost) : '-'} hint={`${usage?.total.calls || 0} 次测评调用`} color={T.primary} tone="primary" />
         </div>
       </section>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10, marginBottom: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(170px, 100%), 1fr))', gap: 10, marginBottom: 18 }}>
         {[
           { key: 'models' as const, label: '模型配置', desc: '主备模型、密钥和限流参数', icon: Settings2 },
           { key: 'evaluate' as const, label: 'A/B 测评', desc: '多模型同题测试并人工评分', icon: FlaskConical },
+          { key: 'usage' as const, label: '用量统计', desc: 'Token 消耗和费用预估', icon: BarChart3 },
           { key: 'history' as const, label: '测评历史', desc: '查看历史运行与评分记录', icon: History },
         ].map(item => {
           const Icon = item.icon;
@@ -301,8 +351,9 @@ export default function ModelEvalPage() {
         </Surface>
       ) : (
         <>
-          {tab === 'models' && <ModelsTab models={models} onRefresh={fetchModels} />}
+          {tab === 'models' && <ModelsTab models={models} onRefresh={refreshAll} />}
           {tab === 'evaluate' && <EvaluateTab models={models} />}
+          {tab === 'usage' && <UsageTab usage={usage} loading={usageLoading} onRefresh={fetchUsage} />}
           {tab === 'history' && <HistoryTab />}
         </>
       )}
@@ -375,7 +426,7 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
       {editing && <ModelEditForm model={editing} onClose={() => { setEditing(null); onRefresh(); }} />}
 
       {/* Model Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(420px, 100%), 1fr))', gap: 12 }}>
         {models.map(m => (
           <div key={m.id} style={{
             background: T.white,
@@ -417,6 +468,18 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
                 <div key={label} style={{ background: T.gray50, border: `1px solid ${T.gray200}`, borderRadius: T.radiusXs, padding: '8px 9px', minWidth: 0 }}>
                   <div style={{ fontSize: 10, color: T.gray400, marginBottom: 3 }}>{label}</div>
                   <div style={{ fontSize: 12, color: T.gray800, fontWeight: 800, fontFamily: typeof value === 'number' ? T.mono : T.sans, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8 }}>
+              {[
+                ['输入单价', m.cost_per_1k_input !== null ? `${formatCurrency(m.cost_per_1k_input)} / 1K` : '未配置'],
+                ['输出单价', m.cost_per_1k_output !== null ? `${formatCurrency(m.cost_per_1k_output)} / 1K` : '未配置'],
+              ].map(([label, value]) => (
+                <div key={label} style={{ background: T.gray50, border: `1px solid ${T.gray200}`, borderRadius: T.radiusXs, padding: '8px 9px', minWidth: 0 }}>
+                  <div style={{ fontSize: 10, color: T.gray400, marginBottom: 3 }}>{label}</div>
+                  <div style={{ fontSize: 12, color: value === '未配置' ? T.gray400 : T.gray800, fontWeight: 800, fontFamily: T.mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
                 </div>
               ))}
             </div>
@@ -484,6 +547,8 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
     requests_per_minute: model?.requests_per_minute ?? 60,
     description: model?.description || '',
     enabled: model?.enabled ?? true,
+    cost_per_1k_input: model?.cost_per_1k_input?.toString() ?? '',
+    cost_per_1k_output: model?.cost_per_1k_output?.toString() ?? '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -491,6 +556,8 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
     setSaving(true);
     try {
       const payload: Record<string, unknown> = { ...form };
+      payload.cost_per_1k_input = parseOptionalNumber(form.cost_per_1k_input);
+      payload.cost_per_1k_output = parseOptionalNumber(form.cost_per_1k_output);
       if (!payload.api_key) delete payload.api_key;
       if (!payload.api_base) delete payload.api_base;
       if (!payload.description) delete payload.description;
@@ -591,6 +658,14 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
         <div>
           <label style={labelStyle}>Max Tokens</label>
           <input style={inputStyle} type="number" value={form.max_tokens} onChange={e => setForm(f => ({ ...f, max_tokens: parseInt(e.target.value) || 2000 }))} />
+        </div>
+        <div>
+          <label style={labelStyle}>输入单价 / 1K Token</label>
+          <input style={inputStyle} type="number" step="0.0001" value={form.cost_per_1k_input} onChange={e => setForm(f => ({ ...f, cost_per_1k_input: e.target.value }))} placeholder="如 0.001" />
+        </div>
+        <div>
+          <label style={labelStyle}>输出单价 / 1K Token</label>
+          <input style={inputStyle} type="number" step="0.0001" value={form.cost_per_1k_output} onChange={e => setForm(f => ({ ...f, cost_per_1k_output: e.target.value }))} placeholder="如 0.002" />
         </div>
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
@@ -801,6 +876,117 @@ function EvaluateTab({ models }: { models: LlmModelItem[] }) {
   );
 }
 
+/* ─── Usage Tab ──────────────────────────────────────────────────── */
+
+function UsageTab({
+  usage,
+  loading,
+  onRefresh,
+}: {
+  usage: ModelUsageSummary | null;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  if (loading) return (
+    <Surface title="用量统计" icon={BarChart3}>
+      <div style={{ textAlign: 'center', color: T.gray400, padding: 48 }}>加载中...</div>
+    </Surface>
+  );
+
+  if (!usage) return (
+    <Surface title="用量统计" icon={BarChart3}>
+      <div style={{ textAlign: 'center', color: T.gray400, padding: 48 }}>暂无用量数据</div>
+    </Surface>
+  );
+
+  const maxModelTokens = Math.max(...usage.by_model.map(item => item.tokens_input + item.tokens_output), 1);
+  const maxPromptCost = Math.max(...usage.by_prompt.map(item => item.estimated_cost), 0.000001);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <Surface title="30 日用量概览" icon={BarChart3} hint={`自 ${usage.since.slice(0, 10)} 起`}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: 10 }}>
+          <StatTile icon={Gauge} label="总 Token" value={formatTokens(usage.total.tokens_total)} hint={`输入 ${formatTokens(usage.total.tokens_input)} · 输出 ${formatTokens(usage.total.tokens_output)}`} color={T.purple} />
+          <StatTile icon={Coins} label="费用预估" value={formatCurrency(usage.total.estimated_cost)} hint="按模型配置单价估算" color={T.primary} tone="primary" />
+          <StatTile icon={FlaskConical} label="调用次数" value={usage.total.calls} hint={`${usage.total.success_calls} 成功 · ${usage.total.failed_calls} 失败`} color={T.teal} tone="teal" />
+          <StatTile icon={Clock3} label="平均耗时" value={`${usage.total.avg_duration_ms}ms`} hint={`成功率 ${(usage.total.success_rate * 100).toFixed(1)}%`} color={T.amber} tone="amber" />
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+          <button onClick={onRefresh} style={{ ...actionBtnStyle, color: T.primary }}>
+            <RefreshCw size={12} strokeWidth={2.2} />
+            刷新用量
+          </button>
+        </div>
+      </Surface>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: 14 }}>
+        <Surface title="按模型拆分" icon={Layers3} hint={`${usage.by_model.length} 个模型`}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {usage.by_model.length === 0 && <div style={{ padding: 32, textAlign: 'center', color: T.gray400 }}>暂无测评调用记录</div>}
+            {usage.by_model.map(item => {
+              const totalTokens = item.tokens_input + item.tokens_output;
+              const width = Math.max(4, Math.round((totalTokens / maxModelTokens) * 100));
+              return (
+                <div key={item.model_id} style={{ border: `1px solid ${T.gray200}`, borderRadius: T.radiusSm, padding: 12, background: T.white }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 850, color: T.gray900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.model_name}</div>
+                      <div style={{ fontSize: 11, color: T.gray400, marginTop: 3 }}>{item.provider || 'unknown'} · {item.calls} 次调用 · 平均 {item.avg_duration_ms}ms</div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 900, color: T.primary, fontFamily: T.mono }}>{formatCurrency(item.estimated_cost)}</div>
+                      <div style={{ fontSize: 10, color: T.gray400, marginTop: 3 }}>{formatTokens(totalTokens)} tokens</div>
+                    </div>
+                  </div>
+                  <div style={{ height: 7, background: T.gray100, borderRadius: 999, overflow: 'hidden', marginTop: 11 }}>
+                    <div style={{ width: `${width}%`, height: '100%', background: `linear-gradient(90deg, ${T.primary}, ${T.teal})`, borderRadius: 999 }} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, marginTop: 10 }}>
+                    {[
+                      ['输入', formatTokens(item.tokens_input)],
+                      ['输出', formatTokens(item.tokens_output)],
+                      ['成功', item.success_calls],
+                      ['失败', item.failed_calls],
+                    ].map(([label, value]) => (
+                      <div key={label} style={{ background: T.gray50, borderRadius: T.radiusXs, padding: '7px 8px' }}>
+                        <div style={{ fontSize: 10, color: T.gray400 }}>{label}</div>
+                        <div style={{ marginTop: 3, fontSize: 12, color: T.gray800, fontWeight: 850, fontFamily: T.mono }}>{value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Surface>
+
+        <Surface title="按任务类型" icon={SlidersHorizontal} hint={`${usage.by_prompt.length} 类任务`}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {usage.by_prompt.length === 0 && <div style={{ padding: 32, textAlign: 'center', color: T.gray400 }}>暂无任务统计</div>}
+            {usage.by_prompt.map(item => {
+              const width = Math.max(4, Math.round((item.estimated_cost / maxPromptCost) * 100));
+              return (
+                <div key={item.prompt_type} style={{ borderBottom: `1px solid ${T.gray100}`, paddingBottom: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 850, color: T.gray900 }}>{promptTypeLabel[item.prompt_type] || item.prompt_type}</div>
+                      <div style={{ marginTop: 3, fontSize: 11, color: T.gray400 }}>{item.calls} 次 · {formatTokens(item.tokens_input + item.tokens_output)} tokens</div>
+                    </div>
+                    <div style={{ fontSize: 13, color: T.primary, fontWeight: 900, fontFamily: T.mono }}>{formatCurrency(item.estimated_cost)}</div>
+                  </div>
+                  <div style={{ height: 6, background: T.gray100, borderRadius: 999, overflow: 'hidden', marginTop: 8 }}>
+                    <div style={{ width: `${width}%`, height: '100%', background: T.primary, borderRadius: 999 }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Surface>
+      </div>
+    </div>
+  );
+}
+
 /* ─── History Tab ────────────────────────────────────────────────── */
 
 function HistoryTab() {
@@ -818,10 +1004,6 @@ function HistoryTab() {
     setExpandedRun(runId);
     const detail = await modelsApi.getEvalRun(runId);
     setRunDetail(detail);
-  };
-
-  const promptTypeLabel: Record<string, string> = {
-    analysis: '选题分析', daily_report: 'AI 日报', weekly_digest: 'AI 周刊', classification: '内容分类', custom: '自定义',
   };
 
   if (loading) return (

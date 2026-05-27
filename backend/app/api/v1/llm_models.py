@@ -23,7 +23,7 @@ import json
 import re
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -169,6 +169,17 @@ class ScoreRequest(BaseModel):
     notes: Optional[str] = None
 
 
+def _estimate_cost(
+    tokens_input: Optional[int],
+    tokens_output: Optional[int],
+    cost_per_1k_input: Optional[float],
+    cost_per_1k_output: Optional[float],
+) -> float:
+    input_cost = ((tokens_input or 0) / 1000) * (cost_per_1k_input or 0)
+    output_cost = ((tokens_output or 0) / 1000) * (cost_per_1k_output or 0)
+    return round(input_cost + output_cost, 6)
+
+
 # ── Model Config CRUD ─────────────────────────────────────────────────
 
 @router.get("")
@@ -227,6 +238,127 @@ async def create_model(req: ModelCreateRequest, db: AsyncSession = Depends(get_d
     await db.flush()
     await db.commit()
     return {"id": model.id, "name": model.name, "message": "模型配置创建成功"}
+
+
+@router.get("/usage/summary")
+async def get_usage_summary(
+    days: int = Query(30, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+):
+    """Summarize token usage and estimated cost from recorded model evaluations."""
+    since = datetime.utcnow() - timedelta(days=days)
+    result = await db.execute(
+        select(ModelEvaluation, LlmModel)
+        .join(LlmModel, ModelEvaluation.model_id == LlmModel.id, isouter=True)
+        .where(ModelEvaluation.created_at >= since)
+        .order_by(desc(ModelEvaluation.created_at))
+    )
+    rows = result.all()
+
+    by_model: dict[int, dict] = {}
+    by_prompt: dict[str, dict] = {}
+    totals = {
+        "calls": 0,
+        "success_calls": 0,
+        "failed_calls": 0,
+        "tokens_input": 0,
+        "tokens_output": 0,
+        "estimated_cost": 0.0,
+        "duration_ms": 0,
+    }
+
+    for evaluation, model in rows:
+        tokens_input = evaluation.tokens_input or 0
+        tokens_output = evaluation.tokens_output or 0
+        estimated_cost = _estimate_cost(
+            evaluation.tokens_input,
+            evaluation.tokens_output,
+            model.cost_per_1k_input if model else None,
+            model.cost_per_1k_output if model else None,
+        )
+        is_done = evaluation.status == "DONE"
+        is_failed = evaluation.status == "FAILED"
+
+        totals["calls"] += 1
+        totals["success_calls"] += 1 if is_done else 0
+        totals["failed_calls"] += 1 if is_failed else 0
+        totals["tokens_input"] += tokens_input
+        totals["tokens_output"] += tokens_output
+        totals["estimated_cost"] += estimated_cost
+        totals["duration_ms"] += evaluation.duration_ms or 0
+
+        model_key = evaluation.model_id
+        if model_key not in by_model:
+            by_model[model_key] = {
+                "model_id": evaluation.model_id,
+                "model_name": model.name if model else evaluation.model_name,
+                "provider": model.provider if model else None,
+                "calls": 0,
+                "success_calls": 0,
+                "failed_calls": 0,
+                "tokens_input": 0,
+                "tokens_output": 0,
+                "estimated_cost": 0.0,
+                "avg_duration_ms": 0,
+                "cost_per_1k_input": model.cost_per_1k_input if model else None,
+                "cost_per_1k_output": model.cost_per_1k_output if model else None,
+            }
+        model_stats = by_model[model_key]
+        model_stats["calls"] += 1
+        model_stats["success_calls"] += 1 if is_done else 0
+        model_stats["failed_calls"] += 1 if is_failed else 0
+        model_stats["tokens_input"] += tokens_input
+        model_stats["tokens_output"] += tokens_output
+        model_stats["estimated_cost"] += estimated_cost
+        model_stats["avg_duration_ms"] += evaluation.duration_ms or 0
+
+        prompt_key = evaluation.prompt_type
+        if prompt_key not in by_prompt:
+            by_prompt[prompt_key] = {
+                "prompt_type": prompt_key,
+                "calls": 0,
+                "success_calls": 0,
+                "failed_calls": 0,
+                "tokens_input": 0,
+                "tokens_output": 0,
+                "estimated_cost": 0.0,
+            }
+        prompt_stats = by_prompt[prompt_key]
+        prompt_stats["calls"] += 1
+        prompt_stats["success_calls"] += 1 if is_done else 0
+        prompt_stats["failed_calls"] += 1 if is_failed else 0
+        prompt_stats["tokens_input"] += tokens_input
+        prompt_stats["tokens_output"] += tokens_output
+        prompt_stats["estimated_cost"] += estimated_cost
+
+    for stats in by_model.values():
+        stats["estimated_cost"] = round(stats["estimated_cost"], 6)
+        stats["avg_duration_ms"] = int(stats["avg_duration_ms"] / stats["calls"]) if stats["calls"] else 0
+
+    for stats in by_prompt.values():
+        stats["estimated_cost"] = round(stats["estimated_cost"], 6)
+
+    total_tokens = totals["tokens_input"] + totals["tokens_output"]
+    avg_duration = int(totals["duration_ms"] / totals["calls"]) if totals["calls"] else 0
+    success_rate = round(totals["success_calls"] / totals["calls"], 4) if totals["calls"] else 0
+
+    return {
+        "days": days,
+        "since": since.isoformat(),
+        "total": {
+            "calls": totals["calls"],
+            "success_calls": totals["success_calls"],
+            "failed_calls": totals["failed_calls"],
+            "tokens_input": totals["tokens_input"],
+            "tokens_output": totals["tokens_output"],
+            "tokens_total": total_tokens,
+            "estimated_cost": round(totals["estimated_cost"], 6),
+            "avg_duration_ms": avg_duration,
+            "success_rate": success_rate,
+        },
+        "by_model": sorted(by_model.values(), key=lambda item: item["estimated_cost"], reverse=True),
+        "by_prompt": sorted(by_prompt.values(), key=lambda item: item["estimated_cost"], reverse=True),
+    }
 
 
 @router.put("/{model_id}")

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { ExternalLink, Star } from 'lucide-react';
-import { T } from '@/lib/design-tokens';
+import { Button, Panel, cx } from '@/components/ui';
 import LevelBadge from '@/components/LevelBadge';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
 
@@ -26,121 +26,63 @@ export default function TopicHeaderCard({
   timeAgoStr,
 }: TopicHeaderCardProps) {
   return (
-    <div
-      style={{
-        background: T.white,
-        borderRadius: T.radius,
-        padding: 32,
-        marginBottom: 20,
-        border: `1px solid ${T.gray100}`,
-      }}
-    >
+    <Panel className="mb-5 p-8">
       {/* Level + Tags */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          marginBottom: 16,
-          flexWrap: 'wrap',
-        }}
-      >
+      <div className="mb-4 flex flex-wrap items-center gap-2.5">
         <LevelBadge level={level} />
         {tags.map((c) => (
-          <span
-            key={c}
-            style={{
-              fontSize: 12,
-              color: T.gray500,
-              fontWeight: 500,
-              background: T.gray100,
-              padding: '2px 8px',
-              borderRadius: 4,
-            }}
-          >
+          <span key={c} className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">
             {c}
           </span>
         ))}
       </div>
 
       {/* Title */}
-      <h1
-        style={{
-          fontSize: 24,
-          fontWeight: 700,
-          lineHeight: 1.5,
-          color: T.gray900,
-          marginBottom: 12,
-        }}
-      >
+      <h1 className="mb-3 text-2xl font-bold leading-normal text-gray-900">
         {item.title}
       </h1>
 
       {/* Meta */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 13, color: T.gray400, flexWrap: 'wrap' }}>
+      <div className="flex flex-wrap items-center gap-4 text-[13px] text-gray-400">
         {item.source_name && (
           <span>
-            <b style={{ color: T.gray600 }}>{item.source_name}</b>
+            <b className="text-gray-600">{item.source_name}</b>
           </span>
         )}
         {timeAgoStr && <span>{timeAgoStr}</span>}
-        <span style={{ color: T.gray300 }}>|</span>
+        <span className="text-gray-300">|</span>
         {item.source_type && <span>{item.source_type}</span>}
         {item.author && (
           <>
-            <span style={{ color: T.gray300 }}>|</span>
+            <span className="text-gray-300">|</span>
             <span>{item.author}</span>
           </>
         )}
       </div>
 
       {/* Action bar */}
-      <div style={{ marginTop: 20, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <button
+      <div className="mt-5 flex flex-wrap gap-3">
+        <Button
+          type="button"
+          variant={isFav ? 'primary' : 'secondary'}
           onClick={onToggleFavorite}
-          style={{
-            padding: '8px 20px',
-            fontSize: 13,
-            fontWeight: 500,
-            background: isFav ? T.primaryLight : T.gray100,
-            color: isFav ? T.primary : T.gray600,
-            border: `1px solid ${isFav ? T.primaryBorder : T.gray200}`,
-            borderRadius: T.radiusSm,
-            cursor: 'pointer',
-            transition: 'all 0.15s',
-          }}
         >
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Star size={14} strokeWidth={2} fill={isFav ? T.primary : 'none'} />
-            {isFav ? '已收藏' : '收藏选题'}
-          </span>
-        </button>
+          <Star size={14} strokeWidth={2} fill={isFav ? '#FFFFFF' : 'none'} />
+          {isFav ? '已收藏' : '收藏选题'}
+        </Button>
 
         {item.url && (
           <a
             href={item.url}
             target="_blank"
             rel="noopener noreferrer"
-            style={{
-              padding: '8px 20px',
-              fontSize: 13,
-              fontWeight: 500,
-              background: T.tealLight,
-              color: T.teal,
-              border: `1px solid ${T.tealBorder}`,
-              borderRadius: T.radiusSm,
-              textDecoration: 'none',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              transition: 'all 0.15s',
-            }}
+            className={cx('inline-flex min-h-9 items-center justify-center gap-1.5 rounded-sm border border-teal-border bg-teal-light px-3 py-2 text-xs font-bold text-teal no-underline transition')}
           >
             查看原文
             <ExternalLink size={13} strokeWidth={2} />
           </a>
         )}
       </div>
-    </div>
+    </Panel>
   );
 }

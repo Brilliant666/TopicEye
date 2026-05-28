@@ -3,10 +3,11 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Star } from 'lucide-react';
-import { T } from '@/lib/design-tokens';
+import { cx, Panel } from '@/components/ui';
 import type { Topic } from '@/types';
 import LevelBadge from './LevelBadge';
 import PlatformTag from './PlatformTag';
+import ScoreBar from './ScoreBar';
 
 interface TopicCardProps {
   topic: Topic;
@@ -19,182 +20,64 @@ export default function TopicCard({ topic, isFav, onToggleFav }: TopicCardProps)
   const router = useRouter();
 
   return (
-    <div
+    <Panel
       onClick={() => router.push(`/topics/${topic.id}`)}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{
-        background: T.white,
-        borderRadius: T.radius,
-        padding: 24,
-        cursor: 'pointer',
-        transition: 'all 0.2s ease',
-        boxShadow: hovered
-          ? '0 8px 24px rgba(0,0,0,0.08)'
-          : '0 1px 3px rgba(0,0,0,0.04)',
-        transform: hovered ? 'translateY(-2px)' : 'none',
-        border: `1px solid ${hovered ? T.gray200 : T.gray100}`,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 14,
-      }}
+      className={cx('flex cursor-pointer flex-col gap-3.5 p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-gray-200 hover:shadow-lg', hovered && 'shadow-lg')}
     >
       {/* Header: level + categories */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <div className="flex flex-wrap items-center gap-2">
         <LevelBadge level={topic.recommendLevel} size="small" />
         {topic.categories.map((c) => (
-          <span key={c} style={{ fontSize: 11, color: T.gray400, fontWeight: 500 }}>
+          <span key={c} className="text-[11px] font-medium text-gray-400">
             {c}
           </span>
         ))}
       </div>
 
       {/* Title */}
-      <h3
-        style={{
-          fontSize: 16,
-          fontWeight: 600,
-          lineHeight: 1.5,
-          color: T.gray900,
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-        }}
-      >
+      <h3 className="line-clamp-2 text-base font-semibold leading-6 text-gray-900">
         {topic.title}
       </h3>
 
       {/* Source + time */}
-      <div style={{ fontSize: 12, color: T.gray400 }}>
-        <span style={{ color: T.gray500, fontWeight: 500 }}>{topic.source}</span>
-        <span style={{ margin: '0 6px' }}>·</span>
+      <div className="text-xs text-gray-400">
+        <span className="font-medium text-gray-500">{topic.source}</span>
+        <span className="mx-1.5">·</span>
         <span>{topic.publishedAt}</span>
       </div>
 
       {/* Scores */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {/* Hot Score Bar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, color: T.gray500, width: 28, flexShrink: 0 }}>热度</span>
-          <div
-            style={{
-              flex: 1,
-              height: 4,
-              background: T.gray200,
-              borderRadius: 2,
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                width: `${topic.hotScore}%`,
-                height: '100%',
-                borderRadius: 2,
-                background: topic.hotScore >= 80 ? T.primary : T.teal,
-                transition: 'width 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
-              }}
-            />
-          </div>
-          <span
-            style={{
-              fontSize: 12,
-              fontFamily: T.mono,
-              fontWeight: 500,
-              color: T.gray700,
-              width: 22,
-              textAlign: 'right',
-            }}
-          >
-            {topic.hotScore}
-          </span>
-        </div>
-        {/* Creator Score Bar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, color: T.gray500, width: 28, flexShrink: 0 }}>价值</span>
-          <div
-            style={{
-              flex: 1,
-              height: 4,
-              background: T.gray200,
-              borderRadius: 2,
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                width: `${topic.creatorScore}%`,
-                height: '100%',
-                borderRadius: 2,
-                background: topic.creatorScore >= 80 ? T.primary : T.teal,
-                transition: 'width 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
-              }}
-            />
-          </div>
-          <span
-            style={{
-              fontSize: 12,
-              fontFamily: T.mono,
-              fontWeight: 500,
-              color: T.gray700,
-              width: 22,
-              textAlign: 'right',
-            }}
-          >
-            {topic.creatorScore}
-          </span>
-        </div>
+      <div className="flex flex-col gap-1.5">
+        <ScoreBar label="热度" value={topic.hotScore} />
+        <ScoreBar label="价值" value={topic.creatorScore} />
       </div>
 
       {/* Reason */}
-      <p
-        style={{
-          fontSize: 13,
-          lineHeight: 1.6,
-          color: T.gray500,
-          display: '-webkit-box',
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-        }}
-      >
+      <p className="line-clamp-2 text-[13px] leading-6 text-gray-500">
         {topic.reason}
       </p>
 
       {/* Footer: platforms + favorite */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginTop: 2,
-        }}
-      >
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <div className="mt-0.5 flex items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-1.5">
           {topic.platforms.map((p) => (
             <PlatformTag key={p} name={p} />
           ))}
         </div>
         <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             onToggleFav(topic.id);
           }}
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: 4,
-            color: isFav ? T.primary : T.gray300,
-            transition: 'color 0.15s',
-            display: 'inline-flex',
-            alignItems: 'center',
-          }}
+          className={cx('inline-flex items-center border-0 bg-transparent p-1 transition', isFav ? 'text-primary' : 'text-gray-300 hover:text-primary')}
           title={isFav ? '取消收藏' : '收藏'}
         >
-          <Star size={18} strokeWidth={2} fill={isFav ? T.primary : 'none'} />
+          <Star size={18} strokeWidth={2} fill={isFav ? '#FF6B35' : 'none'} />
         </button>
       </div>
-    </div>
+    </Panel>
   );
 }

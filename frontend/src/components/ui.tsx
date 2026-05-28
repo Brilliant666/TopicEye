@@ -9,12 +9,13 @@ export function cx(...parts: Array<string | false | null | undefined>) {
 export function Panel({
   children,
   className,
+  ...props
 }: {
   children: React.ReactNode;
   className?: string;
-}) {
+} & React.HTMLAttributes<HTMLElement>) {
   return (
-    <section className={cx('min-w-0 rounded-lg border border-gray-200 bg-white', className)}>
+    <section {...props} className={cx('min-w-0 rounded-lg border border-gray-200 bg-white', className)}>
       {children}
     </section>
   );

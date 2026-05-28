@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Activity, List, Network, Plus, Upload } from 'lucide-react';
-import { T } from '@/lib/design-tokens';
 import { sourcesApi, settingsApi } from '@/lib/api';
 import type { RSSHubInstance, CreateSourceRequest, UpdateSourceRequest } from '@/lib/api';
 import { timeAgo } from '@/lib/utils';
+import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
 import SourceForm, { FormState, emptyForm } from '@/components/SourceForm';
 import SourceRowComponent, { type BackendSource } from '@/components/SourceRow';
 import { Spinner } from '@/components/SourceRow';
@@ -17,11 +17,11 @@ import { buildSourceSyncBoard, sourceTypeLabel } from '@/lib/source-sync-board';
 type SourceTierKey = 'core' | 'stable' | 'watch' | 'attention';
 type DropTarget = { tier: SourceTierKey; beforeId: number | null };
 
-const sourceTierMeta: Record<SourceTierKey, { label: string; desc: string; color: string; bg: string }> = {
-  core: { label: '核心信源', desc: '高权重、正常采集，影响精选排序', color: T.primary, bg: T.primaryLight },
-  stable: { label: '稳定信源', desc: '常规权重，作为日常覆盖面', color: T.teal, bg: T.tealLight },
-  watch: { label: '观察池', desc: '低权重或新来源，先保留信号', color: T.amber, bg: T.amberLight },
-  attention: { label: '待处理', desc: '禁用、报错或同步异常', color: T.red, bg: T.redLight },
+const sourceTierMeta: Record<SourceTierKey, { label: string; desc: string; text: string; bg: string; border: string; dot: string; tone: 'primary' | 'teal' | 'amber' | 'red' }> = {
+  core: { label: '核心信源', desc: '高权重、正常采集，影响精选排序', text: 'text-primary', bg: 'bg-primary-light', border: 'border-primary-border', dot: 'bg-primary', tone: 'primary' },
+  stable: { label: '稳定信源', desc: '常规权重，作为日常覆盖面', text: 'text-teal', bg: 'bg-teal-light', border: 'border-teal-border', dot: 'bg-teal', tone: 'teal' },
+  watch: { label: '观察池', desc: '低权重或新来源，先保留信号', text: 'text-amber', bg: 'bg-amber-light', border: 'border-amber-border', dot: 'bg-amber', tone: 'amber' },
+  attention: { label: '待处理', desc: '禁用、报错或同步异常', text: 'text-red', bg: 'bg-red-light', border: 'border-red-light', dot: 'bg-red', tone: 'red' },
 };
 
 function getSourceTier(source: BackendSource): SourceTierKey {
@@ -75,65 +75,61 @@ function SourceMapView({
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16 }}>
-        <div style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-            <Network size={18} color={T.primary} strokeWidth={2} />
-            <h2 style={{ fontSize: 15, color: T.gray800, margin: 0 }}>等级分布</h2>
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Panel className="p-4.5">
+          <div className="mb-3.5 flex items-center gap-2">
+            <Network size={18} className="text-primary" strokeWidth={2} />
+            <h2 className="m-0 text-[15px] font-black text-gray-800">等级分布</h2>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(92px, 1fr))', gap: 10 }}>
+          <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
             {tierKeys.map((key) => {
               const meta = sourceTierMeta[key];
               return (
-                <div key={key} style={{ border: `1px solid ${T.gray100}`, borderRadius: T.radiusSm, padding: 12, background: meta.bg }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: meta.color, marginBottom: 6 }}>{meta.label}</div>
-                  <div style={{ fontSize: 24, fontFamily: T.mono, color: T.gray900, lineHeight: 1 }}>{sourceMap.tiers[key].length}</div>
-                  <div style={{ fontSize: 11, color: T.gray500, marginTop: 6, lineHeight: 1.45 }}>{meta.desc}</div>
+                <div key={key} className={cx('rounded-sm border p-3', meta.bg, meta.border)}>
+                  <div className={cx('mb-1.5 text-[11px] font-black', meta.text)}>{meta.label}</div>
+                  <div className="font-mono text-2xl font-black leading-none text-gray-900">{sourceMap.tiers[key].length}</div>
+                  <div className="mt-1.5 text-[11px] leading-5 text-gray-500">{meta.desc}</div>
                 </div>
               );
             })}
           </div>
-        </div>
+        </Panel>
 
-        <div style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 18 }}>
-          <h2 style={{ fontSize: 15, color: T.gray800, margin: '0 0 14px' }}>分类与类型</h2>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
+        <Panel className="p-4.5">
+          <h2 className="mb-3.5 text-[15px] font-black text-gray-800">分类与类型</h2>
+          <div className="mb-3.5 flex flex-wrap gap-2">
             {sourceMap.categories.map(([name, count]) => (
-              <span key={name} style={{ padding: '5px 9px', borderRadius: 999, background: T.gray50, border: `1px solid ${T.gray200}`, color: T.gray600, fontSize: 12 }}>
-                {name} <b style={{ fontFamily: T.mono, color: T.gray900 }}>{count}</b>
-              </span>
+              <Badge key={name} tone="neutral" className="font-semibold">
+                {name} <b className="ml-1 font-mono text-gray-900">{count}</b>
+              </Badge>
             ))}
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <div className="flex flex-wrap gap-2">
             {sourceMap.types.map(([name, count]) => (
-              <span key={name} style={{ padding: '5px 9px', borderRadius: 999, background: T.tealLight, color: T.teal, fontSize: 12, fontWeight: 600 }}>
+              <Badge key={name} tone="teal">
                 {name} · {count}
-              </span>
+              </Badge>
             ))}
           </div>
-        </div>
+        </Panel>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+      <div className="grid grid-cols-1 items-start gap-3 md:grid-cols-2 2xl:grid-cols-4">
         {tierKeys.map((key) => {
           const meta = sourceTierMeta[key];
           const isDragOver = dropTarget?.tier === key;
           return (
-            <section key={key} style={{ minWidth: 0, display: 'flex', flexDirection: 'column', height: 'clamp(420px, calc(100vh - 300px), 760px)' }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: 8,
-                padding: '0 2px',
-                flexShrink: 0,
-              }}>
-                <h3 style={{ fontSize: 13, fontWeight: 700, color: meta.color, margin: 0 }}>{meta.label}</h3>
-                <span style={{ fontSize: 11, fontFamily: T.mono, color: T.gray400 }}>{sourceMap.tiers[key].length} 条</span>
+            <section key={key} className="flex h-[clamp(420px,calc(100vh-300px),760px)] min-w-0 flex-col">
+              <div className="mb-2 flex shrink-0 items-center justify-between gap-3 px-0.5">
+                <h3 className={cx('m-0 text-[13px] font-black', meta.text)}>{meta.label}</h3>
+                <span className="font-mono text-[11px] text-gray-400">{sourceMap.tiers[key].length} 条</span>
               </div>
               <div
-                className="source-map-column-scroll"
+                className={cx(
+                  'source-map-column-scroll flex min-h-44 flex-col gap-2 overflow-y-auto overscroll-contain rounded-sm border border-dashed p-2 pr-1 transition',
+                  isDragOver ? `${meta.bg} ${meta.border}` : 'border-transparent bg-transparent',
+                )}
                 onDragOver={(event) => {
                   event.preventDefault();
                   if (dropTarget?.tier !== key || dropTarget.beforeId !== null) {
@@ -148,20 +144,6 @@ function SourceMapView({
                 onDrop={(event) => {
                   event.preventDefault();
                   handleDrop(key, null);
-                }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8,
-                  overflowY: 'auto',
-                  minHeight: 180,
-                  paddingRight: 4,
-                  overscrollBehavior: 'contain',
-                  border: `1px dashed ${isDragOver ? meta.color : 'transparent'}`,
-                  borderRadius: T.radiusSm,
-                  background: isDragOver ? meta.bg : 'transparent',
-                  padding: isDragOver ? 8 : '0 4px 0 0',
-                  transition: 'background 0.15s, border-color 0.15s, padding 0.15s',
                 }}
               >
                 {sourceMap.tiers[key].map((source) => (
@@ -189,45 +171,40 @@ function SourceMapView({
                       setDraggedId(null);
                       setDropTarget(null);
                     }}
-                    style={{
-                      background: T.white,
-                      border: `1px solid ${source.sync_error ? T.redLight : T.gray200}`,
-                      borderRadius: T.radiusSm,
-                      padding: 12,
-                      cursor: 'grab',
-                      opacity: draggedId === source.id ? 0.45 : 1,
-                      boxShadow: draggedId === source.id ? '0 8px 20px rgba(15, 23, 42, 0.12)' : 'none',
-                      borderTopColor: dropTarget?.tier === key && dropTarget.beforeId === source.id ? meta.color : undefined,
-                      borderTopWidth: dropTarget?.tier === key && dropTarget.beforeId === source.id ? 3 : 1,
-                    }}
+                    className={cx(
+                      'cursor-grab rounded-sm border bg-white p-3 transition',
+                      source.sync_error ? 'border-red-light' : 'border-gray-200',
+                      draggedId === source.id && 'opacity-50 shadow-lg',
+                      dropTarget?.tier === key && dropTarget.beforeId === source.id && `border-t-4 ${meta.border}`,
+                    )}
                     title="拖动到其他分组可调整信源等级"
                   >
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: T.gray800, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{source.name}</div>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                          <span style={{ fontSize: 10, color: T.gray500, background: T.gray100, padding: '2px 6px', borderRadius: 4 }}>{sourceTypeLabel(source.source_type)}</span>
-                          <span style={{ fontSize: 10, color: T.gray500, background: T.gray100, padding: '2px 6px', borderRadius: 4 }}>{source.category || '未分类'}</span>
-                          <span style={{ fontSize: 10, color: T.primary, background: T.primaryLight, padding: '2px 6px', borderRadius: 4 }}>权重 {source.weight ?? 3}</span>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-[13px] font-black text-gray-800">{source.name}</div>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{sourceTypeLabel(source.source_type)}</span>
+                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{source.category || '未分类'}</span>
+                          <span className="rounded bg-primary-light px-1.5 py-0.5 text-[10px] text-primary">权重 {source.weight ?? 3}</span>
                         </div>
                       </div>
-                      <span style={{ width: 8, height: 8, marginTop: 5, borderRadius: '50%', background: getSourceTier(source) === 'attention' ? T.red : T.teal, flexShrink: 0 }} />
+                      <span className={cx('mt-1.5 h-2 w-2 shrink-0 rounded-full', sourceTierMeta[getSourceTier(source)].dot)} />
                     </div>
-                    <div style={{ fontSize: 11, color: source.sync_error ? T.red : T.gray400, marginTop: 8, lineHeight: 1.45 }}>
+                    <div className={cx('mt-2 text-[11px] leading-5', source.sync_error ? 'text-red' : 'text-gray-400')}>
                       {source.sync_error ? source.sync_error : `最近同步 ${timeAgo(source.last_sync_at)}`}
                     </div>
-                    <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-                      <button onClick={() => onSync(source.id)} disabled={syncingIds.has(source.id)} style={{ flex: 1, padding: '5px 8px', fontSize: 11, border: `1px solid ${T.tealBorder}`, background: T.tealLight, color: T.teal, borderRadius: T.radiusXs, cursor: syncingIds.has(source.id) ? 'wait' : 'pointer' }}>
+                    <div className="mt-2.5 flex gap-1.5">
+                      <Button type="button" variant="success" onClick={() => onSync(source.id)} disabled={syncingIds.has(source.id)} className="min-h-7 flex-1 px-2 py-1 text-[11px]">
                         {syncingIds.has(source.id) ? '同步中' : '同步'}
-                      </button>
-                      <button onClick={() => onEdit(source)} style={{ flex: 1, padding: '5px 8px', fontSize: 11, border: `1px solid ${T.gray200}`, background: T.white, color: T.gray600, borderRadius: T.radiusXs, cursor: 'pointer' }}>
+                      </Button>
+                      <Button type="button" variant="secondary" onClick={() => onEdit(source)} className="min-h-7 flex-1 px-2 py-1 text-[11px]">
                         编辑
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ))}
                 {sourceMap.tiers[key].length === 0 && (
-                  <div style={{ padding: 16, textAlign: 'center', color: T.gray400, fontSize: 12, background: T.gray50, borderRadius: T.radiusSm, border: `1px dashed ${T.gray200}` }}>暂无信源</div>
+                  <div className="rounded-sm border border-dashed border-gray-200 bg-gray-50 p-4 text-center text-xs text-gray-400">暂无信源</div>
                 )}
               </div>
             </section>
@@ -628,71 +605,55 @@ export default function SourcesPage() {
   const syncBoard = useMemo(() => buildSourceSyncBoard(mapSources, syncingIds, new Date()), [mapSources, syncingIds]);
 
   return (
-    <div className="fade-in" style={{ padding: '32px 40px', height: '100%', overflowY: 'auto' }}>
+    <div className="fade-in h-full overflow-y-auto px-10 py-8">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28, gap: 16, flexWrap: 'wrap' }}>
+      <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 style={{ fontSize: 26, fontWeight: 700, color: T.gray900, marginBottom: 6 }}>信源管理</h1>
-          <p style={{ fontSize: 13, color: T.gray400 }}>
-            共 <b style={{ fontFamily: T.mono, color: T.gray600 }}>{total}</b> 个信源 ·
-            活跃 <b style={{ fontFamily: T.mono, color: T.teal }}>{activeCount}</b> 个
+          <h1 className="mb-1.5 text-[26px] font-black text-gray-900">信源管理</h1>
+          <p className="text-[13px] text-gray-400">
+            共 <b className="font-mono text-gray-600">{total}</b> 个信源 ·
+            活跃 <b className="font-mono text-teal">{activeCount}</b> 个
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button
+        <Toolbar>
+          <Button
+            type="button"
+            variant="primary"
             onClick={() => {
               setForm(emptyForm);
               setShowAddModal(true);
             }}
-            style={{
-              padding: '8px 16px', fontSize: 13, fontWeight: 600,
-              background: T.primary, color: T.white, border: 'none',
-              borderRadius: T.radiusSm, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
-            }}
+            className="whitespace-nowrap"
           >
             <Plus size={15} strokeWidth={2.2} />
             添加信源
-          </button>
-          <button
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
             onClick={() => opmlInputRef.current?.click()}
-            style={{
-              padding: '8px 14px', background: T.gray100,
-              border: `1px solid ${T.gray300}`, borderRadius: T.radiusSm,
-              cursor: 'pointer', fontSize: 13, color: T.gray700,
-              display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap',
-            }}
+            className="whitespace-nowrap"
           >
             <Upload size={15} strokeWidth={2} />
             导入 OPML
-          </button>
-        </div>
-        <input ref={opmlInputRef} type="file" accept=".opml,.xml" style={{ display: 'none' }} onChange={handleOPMLImport} />
+          </Button>
+        </Toolbar>
+        <input ref={opmlInputRef} type="file" accept=".opml,.xml" className="hidden" onChange={handleOPMLImport} />
       </div>
 
       {/* Search & Filter Bar */}
-      <div style={{
-        display: 'flex', gap: 10, alignItems: 'center',
-        marginBottom: 16, flexWrap: 'wrap' as const,
-      }}>
+      <Toolbar className="mb-4">
         <input
           type="text"
           placeholder="搜索信源名称..."
           value={searchKeyword}
           onChange={(e) => setSearchKeyword(e.target.value)}
-          style={{
-            padding: '7px 14px', fontSize: 13, width: 220,
-            border: `1px solid ${T.gray200}`, borderRadius: T.radiusSm,
-            outline: 'none',
-          }}
+          className="h-9 w-56 rounded-sm border border-gray-200 bg-white px-3.5 text-[13px] outline-none transition focus:border-primary-border focus:ring-2 focus:ring-primary-light"
         />
         <select
           value={filterType}
           onChange={(e) => setFilterType(e.target.value)}
-          style={{
-            padding: '7px 12px', fontSize: 13,
-            border: `1px solid ${T.gray200}`, borderRadius: T.radiusSm,
-            background: T.white, cursor: 'pointer',
-          }}
+          className="h-9 cursor-pointer rounded-sm border border-gray-200 bg-white px-3 text-[13px] outline-none transition focus:border-primary-border focus:ring-2 focus:ring-primary-light"
         >
           <option value="">全部类型</option>
           <option value="rss">RSS</option>
@@ -705,32 +666,25 @@ export default function SourcesPage() {
         <select
           value={filterEnabled === undefined ? '' : filterEnabled ? 'yes' : 'no'}
           onChange={(e) => setFilterEnabled(e.target.value === '' ? undefined : e.target.value === 'yes')}
-          style={{
-            padding: '7px 12px', fontSize: 13,
-            border: `1px solid ${T.gray200}`, borderRadius: T.radiusSm,
-            background: T.white, cursor: 'pointer',
-          }}
+          className="h-9 cursor-pointer rounded-sm border border-gray-200 bg-white px-3 text-[13px] outline-none transition focus:border-primary-border focus:ring-2 focus:ring-primary-light"
         >
           <option value="">全部状态</option>
           <option value="yes">已启用</option>
           <option value="no">已禁用</option>
         </select>
         {(searchKeyword || filterType || filterEnabled !== undefined) && (
-          <button
+          <Button
+            type="button"
+            variant="ghost"
             onClick={() => { setSearchKeyword(''); setFilterType(''); setFilterEnabled(undefined); }}
-            style={{
-              padding: '6px 12px', fontSize: 12, color: T.gray500,
-              background: 'transparent', border: `1px solid ${T.gray200}`,
-              borderRadius: T.radiusSm, cursor: 'pointer',
-            }}
           >
             清除筛选
-          </button>
+          </Button>
         )}
-      </div>
+      </Toolbar>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ display: 'inline-flex', padding: 3, background: T.gray100, borderRadius: T.radiusSm, border: `1px solid ${T.gray200}` }}>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="inline-flex rounded-sm border border-gray-200 bg-gray-100 p-0.5">
           {[
             { key: 'map' as const, label: '信源地图', icon: Network },
             { key: 'sync' as const, label: '同步看板', icon: Activity },
@@ -740,17 +694,13 @@ export default function SourcesPage() {
             const active = viewMode === item.key;
             return (
               <button
+                type="button"
                 key={item.key}
                 onClick={() => setViewMode(item.key)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '6px 12px', border: 'none', borderRadius: T.radiusXs,
-                  background: active ? T.white : 'transparent',
-                  color: active ? T.primary : T.gray500,
-                  fontSize: 13, fontWeight: active ? 700 : 500,
-                  cursor: 'pointer',
-                  boxShadow: active ? '0 1px 2px rgba(15, 23, 42, 0.08)' : 'none',
-                }}
+                className={cx(
+                  'inline-flex items-center gap-1.5 rounded-xs border border-transparent px-3 py-1.5 text-[13px] transition',
+                  active ? 'bg-white font-black text-primary shadow-sm' : 'font-semibold text-gray-500 hover:text-gray-800',
+                )}
               >
                 <Icon size={15} strokeWidth={2} />
                 {item.label}
@@ -758,23 +708,23 @@ export default function SourcesPage() {
             );
           })}
         </div>
-        <span style={{ fontSize: 12, color: T.gray400 }}>
+        <span className="text-xs text-gray-400">
           当前统计全部 {mapSources.length} 个匹配信源
         </span>
       </div>
 
       {/* Error Banner */}
       {rsshubError && (
-        <div style={{ padding: '10px 16px', marginBottom: 16, background: T.redLight, color: T.red, borderRadius: T.radiusSm, fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-sm border border-red-light bg-red-light px-4 py-2.5 text-[13px] text-red">
           <span>{rsshubError}</span>
-          <button onClick={() => setRsshubError(null)} style={{ background: 'none', border: 'none', color: T.red, cursor: 'pointer', fontSize: 16, fontWeight: 700, padding: '0 4px' }}>×</button>
+          <button type="button" onClick={() => setRsshubError(null)} className="px-1 text-base font-black leading-none text-red">×</button>
         </div>
       )}
 
       {error && (
-        <div style={{ padding: '10px 16px', marginBottom: 16, background: T.redLight, color: T.red, borderRadius: T.radiusSm, fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-sm border border-red-light bg-red-light px-4 py-2.5 text-[13px] text-red">
           <span>{error}</span>
-          <button onClick={() => setError(null)} style={{ background: 'none', border: 'none', color: T.red, cursor: 'pointer', fontSize: 16, fontWeight: 700, lineHeight: 1, padding: '0 4px' }}>×</button>
+          <button type="button" onClick={() => setError(null)} className="px-1 text-base font-black leading-none text-red">×</button>
         </div>
       )}
 
@@ -801,189 +751,181 @@ export default function SourcesPage() {
 
       {viewMode === 'list' && (
         <>
-      {/* RSSHub Instances Manager */}
-      <div style={{ background: T.white, borderRadius: T.radius, border: `1px solid ${T.gray200}`, padding: 20, marginBottom: 20 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div>
-            <h2 style={{ fontSize: 15, fontWeight: 700, color: T.gray800, marginBottom: 2 }}>RSSHub 实例</h2>
-            <p style={{ fontSize: 12, color: T.gray400 }}>按优先级顺序尝试，禁用则跳过。添加小红书/微博/B站等路由时使用。</p>
-          </div>
-          {rsshubSaving && <span style={{ fontSize: 12, color: T.gray400 }}>保存中…</span>}
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-          {rsshubLoading ? (
-            <div style={{ color: T.gray400, fontSize: 13, padding: '8px 0' }}>加载中…</div>
-          ) : rsshubInstances.length === 0 ? (
-            <div style={{ color: T.gray400, fontSize: 13, padding: '8px 0' }}>暂无实例</div>
-          ) : (
-            rsshubInstances.map((inst, idx) => (
-              <div key={inst.url} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: T.gray50, borderRadius: T.radiusSm, border: `1px solid ${T.gray100}` }}>
-                <span style={{ fontFamily: T.mono, fontSize: 11, color: T.gray300, minWidth: 16 }}>#{idx + 1}</span>
-                <span style={{ fontFamily: T.mono, fontSize: 13, color: inst.enabled ? T.gray800 : T.gray400, flex: 1, wordBreak: 'break-all' }}>{inst.url}</span>
-                {inst.note && <span style={{ fontSize: 11, color: T.gray400 }}>{inst.note}</span>}
-                <button onClick={() => toggleInstance(inst.url)} disabled={rsshubSaving}
-                  style={{ padding: '3px 10px', fontSize: 11, fontWeight: 600, borderRadius: 999, border: 'none', cursor: rsshubSaving ? 'wait' : 'pointer', background: inst.enabled ? '#DCFCE7' : T.gray200, color: inst.enabled ? '#16A34A' : T.gray400 }}>
-                  {inst.enabled ? '启用' : '禁用'}
-                </button>
-                <button onClick={() => deleteInstance(inst.url)} disabled={rsshubSaving}
-                  style={{ padding: '3px 8px', fontSize: 11, borderRadius: T.radiusSm, border: 'none', cursor: rsshubSaving ? 'wait' : 'pointer', background: T.redLight, color: T.red }}>
-                  删除
-                </button>
+          {/* RSSHub Instances Manager */}
+          <Panel className="mb-5 p-5">
+            <div className="mb-3.5 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="mb-0.5 text-[15px] font-black text-gray-800">RSSHub 实例</h2>
+                <p className="text-xs text-gray-400">按优先级顺序尝试，禁用则跳过。添加小红书/微博/B站等路由时使用。</p>
               </div>
-            ))
-          )}
-        </div>
+              {rsshubSaving && <span className="text-xs text-gray-400">保存中…</span>}
+            </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input type="text" value={newInstanceUrl} onChange={(e) => setNewInstanceUrl(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addInstance()} placeholder="https://rsshub.example.com"
-            style={{ flex: 1, padding: '7px 12px', fontSize: 13, border: `1px solid ${T.gray200}`, borderRadius: T.radiusSm, outline: 'none', fontFamily: T.mono }} />
-          <button onClick={addInstance} disabled={rsshubSaving || !newInstanceUrl.trim()}
-            style={{ padding: '7px 16px', fontSize: 13, fontWeight: 600, background: rsshubSaving || !newInstanceUrl.trim() ? T.gray200 : T.primary, color: T.white, border: 'none', borderRadius: T.radiusSm, cursor: rsshubSaving || !newInstanceUrl.trim() ? 'wait' : 'pointer' }}>
-            + 添加实例
-          </button>
-        </div>
-      </div>
-
-      {/* Loading State */}
-      {loading && sources.length === 0 && (
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200, color: T.gray400, fontSize: 14, gap: 10 }}>
-          <Spinner />
-          <span>加载中…</span>
-        </div>
-      )}
-
-      {/* Table */}
-      {!loading && (
-        <div style={{ background: T.white, borderRadius: T.radius, border: `1px solid ${T.gray100}`, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1.2fr 1fr 1fr 0.8fr 1.5fr', padding: '12px 24px', background: T.gray50, borderBottom: `1px solid ${T.gray200}`, fontSize: 12, fontWeight: 600, color: T.gray500, textTransform: 'uppercase' as const, letterSpacing: '0.05em' }}>
-            {['名称', '类型', '分类', '最后同步', '采集频率', '权重', '状态', '操作'].map((h) => (
-              <div key={h}>{h}</div>
-            ))}
-          </div>
-          {sources.length === 0 && (
-            <div style={{ padding: '48px 24px', textAlign: 'center' as const, color: T.gray400, fontSize: 14 }}>暂无信源，点击「添加信源」开始</div>
-          )}
-          {sources.map((src) => (
-            <SourceRowComponent key={src.id} source={src} syncing={syncingIds.has(src.id)} syncResult={syncResults[src.id] || null}
-              deleting={deletingIds.has(src.id)} onSync={() => handleSync(src.id)} onEdit={() => openEditModal(src)}
-              onDelete={() => handleDelete(src.id)} onWeightChange={(w) => handleWeightChange(src.id, w)}
-              onIntervalChange={(mins) => handleIntervalChange(src.id, mins)} />
-          ))}
-        </div>
-      )}
-
-      {/* Pagination */}
-      {total > pageSize && (
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          marginTop: 16, padding: '12px 0', fontSize: 13, color: T.gray500,
-        }}>
-          <span>
-            第 {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} 条，共 {total} 条
-          </span>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button
-              disabled={page <= 1}
-              onClick={() => fetchSources(page - 1)}
-              style={{
-                padding: '6px 14px', fontSize: 13,
-                background: page <= 1 ? T.gray100 : T.white,
-                color: page <= 1 ? T.gray300 : T.gray700,
-                border: `1px solid ${T.gray200}`, borderRadius: T.radiusSm,
-                cursor: page <= 1 ? 'not-allowed' : 'pointer',
-              }}
-            >
-              上一页
-            </button>
-            {Array.from({ length: Math.ceil(total / pageSize) }, (_, i) => i + 1)
-              .filter((p) => {
-                // Show first, last, and ±2 around current
-                if (p === 1 || p === Math.ceil(total / pageSize)) return true;
-                return Math.abs(p - page) <= 2;
-              })
-              .map((p, idx, arr) => {
-                const pages = arr;
-                const showEllipsis = idx > 0 && p - pages[idx - 1] > 1;
-                return (
-                  <React.Fragment key={p}>
-                    {showEllipsis && <span style={{ padding: '6px 4px', color: T.gray400 }}>…</span>}
+            <div className="mb-3 flex flex-col gap-2">
+              {rsshubLoading ? (
+                <div className="py-2 text-[13px] text-gray-400">加载中…</div>
+              ) : rsshubInstances.length === 0 ? (
+                <div className="py-2 text-[13px] text-gray-400">暂无实例</div>
+              ) : (
+                rsshubInstances.map((inst, idx) => (
+                  <div key={inst.url} className="flex items-center gap-2.5 rounded-sm border border-gray-100 bg-gray-50 px-3 py-2">
+                    <span className="min-w-4 font-mono text-[11px] text-gray-300">#{idx + 1}</span>
+                    <span className={cx('flex-1 break-all font-mono text-[13px]', inst.enabled ? 'text-gray-800' : 'text-gray-400')}>{inst.url}</span>
+                    {inst.note && <span className="text-[11px] text-gray-400">{inst.note}</span>}
                     <button
-                      onClick={() => fetchSources(p)}
-                      style={{
-                        padding: '6px 12px', fontSize: 13,
-                        background: p === page ? T.primary : T.white,
-                        color: p === page ? T.white : T.gray700,
-                        border: `1px solid ${p === page ? T.primary : T.gray200}`,
-                        borderRadius: T.radiusSm,
-                        cursor: p === page ? 'default' : 'pointer',
-                        fontWeight: p === page ? 600 : 400,
-                      }}
+                      type="button"
+                      onClick={() => toggleInstance(inst.url)}
+                      disabled={rsshubSaving}
+                      className={cx(
+                        'rounded-full px-2.5 py-1 text-[11px] font-black transition disabled:cursor-wait disabled:opacity-60',
+                        inst.enabled ? 'bg-teal-light text-teal' : 'bg-gray-200 text-gray-400',
+                      )}
                     >
-                      {p}
+                      {inst.enabled ? '启用' : '禁用'}
                     </button>
-                  </React.Fragment>
-                );
-              })}
-            <button
-              disabled={page >= Math.ceil(total / pageSize)}
-              onClick={() => fetchSources(page + 1)}
-              style={{
-                padding: '6px 14px', fontSize: 13,
-                background: page >= Math.ceil(total / pageSize) ? T.gray100 : T.white,
-                color: page >= Math.ceil(total / pageSize) ? T.gray300 : T.gray700,
-                border: `1px solid ${T.gray200}`, borderRadius: T.radiusSm,
-                cursor: page >= Math.ceil(total / pageSize) ? 'not-allowed' : 'pointer',
-              }}
-            >
-              下一页
-            </button>
-          </div>
-        </div>
-      )}
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={() => deleteInstance(inst.url)}
+                      disabled={rsshubSaving}
+                      className="min-h-7 px-2 py-1 text-[11px]"
+                    >
+                      删除
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newInstanceUrl}
+                onChange={(e) => setNewInstanceUrl(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addInstance()}
+                placeholder="https://rsshub.example.com"
+                className="h-9 flex-1 rounded-sm border border-gray-200 px-3 font-mono text-[13px] outline-none transition focus:border-primary-border focus:ring-2 focus:ring-primary-light"
+              />
+              <Button type="button" variant="primary" onClick={addInstance} disabled={rsshubSaving || !newInstanceUrl.trim()}>
+                + 添加实例
+              </Button>
+            </div>
+          </Panel>
+
+          {/* Loading State */}
+          {loading && sources.length === 0 && (
+            <div className="flex h-52 items-center justify-center gap-2.5 text-sm text-gray-400">
+              <Spinner />
+              <span>加载中…</span>
+            </div>
+          )}
+
+          {/* Table */}
+          {!loading && (
+            <Panel className="overflow-hidden">
+              <div className="grid grid-cols-[2fr_1fr_1fr_1.2fr_1fr_1fr_0.8fr_1.5fr] border-b border-gray-200 bg-gray-50 px-6 py-3 text-xs font-black uppercase tracking-[0.05em] text-gray-500">
+                {['名称', '类型', '分类', '最后同步', '采集频率', '权重', '状态', '操作'].map((h) => (
+                  <div key={h}>{h}</div>
+                ))}
+              </div>
+              {sources.length === 0 && (
+                <div className="px-6 py-12 text-center text-sm text-gray-400">暂无信源，点击「添加信源」开始</div>
+              )}
+              {sources.map((src) => (
+                <SourceRowComponent key={src.id} source={src} syncing={syncingIds.has(src.id)} syncResult={syncResults[src.id] || null}
+                  deleting={deletingIds.has(src.id)} onSync={() => handleSync(src.id)} onEdit={() => openEditModal(src)}
+                  onDelete={() => handleDelete(src.id)} onWeightChange={(w) => handleWeightChange(src.id, w)}
+                  onIntervalChange={(mins) => handleIntervalChange(src.id, mins)} />
+              ))}
+            </Panel>
+          )}
+
+          {/* Pagination */}
+          {total > pageSize && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 py-3 text-[13px] text-gray-500">
+              <span>
+                第 {(page - 1) * pageSize + 1}-{Math.min(page * pageSize, total)} 条，共 {total} 条
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                <Button type="button" variant="secondary" disabled={page <= 1} onClick={() => fetchSources(page - 1)} className="min-h-8 px-3.5 py-1.5 text-[13px] disabled:cursor-not-allowed">
+                  上一页
+                </Button>
+                {Array.from({ length: Math.ceil(total / pageSize) }, (_, i) => i + 1)
+                  .filter((p) => {
+                    // Show first, last, and ±2 around current
+                    if (p === 1 || p === Math.ceil(total / pageSize)) return true;
+                    return Math.abs(p - page) <= 2;
+                  })
+                  .map((p, idx, arr) => {
+                    const pages = arr;
+                    const showEllipsis = idx > 0 && p - pages[idx - 1] > 1;
+                    return (
+                      <React.Fragment key={p}>
+                        {showEllipsis && <span className="px-1 py-1.5 text-gray-400">…</span>}
+                        <Button
+                          type="button"
+                          variant={p === page ? 'primary' : 'secondary'}
+                          onClick={() => fetchSources(p)}
+                          disabled={p === page}
+                          className="min-h-8 px-3 py-1.5 text-[13px]"
+                        >
+                          {p}
+                        </Button>
+                      </React.Fragment>
+                    );
+                  })}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={page >= Math.ceil(total / pageSize)}
+                  onClick={() => fetchSources(page + 1)}
+                  className="min-h-8 px-3.5 py-1.5 text-[13px] disabled:cursor-not-allowed"
+                >
+                  下一页
+                </Button>
+              </div>
+            </div>
+          )}
         </>
       )}
 
       {/* Add Source Modal */}
       {showAddModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+        <div
+          className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/30 px-4"
           onClick={() => setShowAddModal(false)}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: T.white, borderRadius: T.radius, padding: 32, width: 480, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <h2 style={{ fontSize: 20, fontWeight: 700, color: T.gray900, marginBottom: 24 }}>添加信源</h2>
+          <Panel onClick={(e) => e.stopPropagation()} className="w-full max-w-[480px] p-8 shadow-2xl">
+            <h2 className="mb-6 text-xl font-black text-gray-900">添加信源</h2>
             <SourceForm form={form} setForm={setForm} />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 28 }}>
-              <button onClick={() => setShowAddModal(false)} disabled={submitting}
-                style={{ padding: '8px 20px', fontSize: 13, fontWeight: 500, background: T.gray100, color: T.gray600, border: 'none', borderRadius: T.radiusSm, cursor: 'pointer' }}>
+            <div className="mt-7 flex justify-end gap-3">
+              <Button type="button" variant="secondary" onClick={() => setShowAddModal(false)} disabled={submitting} className="px-5">
                 取消
-              </button>
-              <button onClick={handleCreate} disabled={submitting || !form.name.trim()}
-                style={{ padding: '8px 20px', fontSize: 13, fontWeight: 600, background: submitting || !form.name.trim() ? T.gray300 : T.primary, color: T.white, border: 'none', borderRadius: T.radiusSm, cursor: submitting ? 'wait' : 'pointer' }}>
+              </Button>
+              <Button type="button" variant="primary" onClick={handleCreate} disabled={submitting || !form.name.trim()} className="px-5">
                 {submitting ? '提交中…' : '添加'}
-              </button>
+              </Button>
             </div>
-          </div>
+          </Panel>
         </div>
       )}
 
       {/* Edit Source Modal */}
       {editingSource && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+        <div
+          className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/30 px-4"
           onClick={() => { setEditingSource(null); setForm(emptyForm); }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: T.white, borderRadius: T.radius, padding: 32, width: 480, maxWidth: '90vw', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <h2 style={{ fontSize: 20, fontWeight: 700, color: T.gray900, marginBottom: 24 }}>编辑信源</h2>
+          <Panel onClick={(e) => e.stopPropagation()} className="w-full max-w-[480px] p-8 shadow-2xl">
+            <h2 className="mb-6 text-xl font-black text-gray-900">编辑信源</h2>
             <SourceForm form={form} setForm={setForm} />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 28 }}>
-              <button onClick={() => { setEditingSource(null); setForm(emptyForm); }} disabled={submitting}
-                style={{ padding: '8px 20px', fontSize: 13, fontWeight: 500, background: T.gray100, color: T.gray600, border: 'none', borderRadius: T.radiusSm, cursor: 'pointer' }}>
+            <div className="mt-7 flex justify-end gap-3">
+              <Button type="button" variant="secondary" onClick={() => { setEditingSource(null); setForm(emptyForm); }} disabled={submitting} className="px-5">
                 取消
-              </button>
-              <button onClick={handleUpdate} disabled={submitting || !form.name.trim()}
-                style={{ padding: '8px 20px', fontSize: 13, fontWeight: 600, background: submitting || !form.name.trim() ? T.gray300 : T.primary, color: T.white, border: 'none', borderRadius: T.radiusSm, cursor: submitting ? 'wait' : 'pointer' }}>
+              </Button>
+              <Button type="button" variant="primary" onClick={handleUpdate} disabled={submitting || !form.name.trim()} className="px-5">
                 {submitting ? '保存中…' : '保存'}
-              </button>
+              </Button>
             </div>
-          </div>
+          </Panel>
         </div>
       )}
     </div>

@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { T, CATEGORIES, SOURCE_TYPE_COLOR_MAP } from '@/lib/design-tokens';
+import { CATEGORIES, SOURCE_TYPE_COLOR_MAP } from '@/lib/design-tokens';
 import { contentsApi } from '@/lib/api';
+import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
 import type { ContentItem } from '@/types';
 
 // ─── Helpers ──
@@ -30,10 +31,10 @@ function timeAgo(dateStr: string | null): string {
   return `${months} 个月前`;
 }
 
-const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
-  pending:  { bg: T.gray100, color: T.gray500 },
-  analyzed: { bg: T.tealLight, color: T.teal },
-  error:    { bg: T.redLight, color: T.red },
+const STATUS_TONE: Record<string, 'neutral' | 'teal' | 'red'> = {
+  pending: 'neutral',
+  analyzed: 'teal',
+  error: 'red',
 };
 
 const PAGE_SIZE = 50;
@@ -42,17 +43,7 @@ const PAGE_SIZE = 50;
 
 function Spinner() {
   return (
-    <span
-      style={{
-        display: 'inline-block',
-        width: 18,
-        height: 18,
-        border: `2px solid ${T.gray200}`,
-        borderTopColor: T.primary,
-        borderRadius: '50%',
-        animation: 'spin 0.7s linear infinite',
-      }}
-    />
+    <span className="inline-block h-[18px] w-[18px] animate-spin rounded-full border-2 border-gray-200 border-t-primary" />
   );
 }
 
@@ -115,72 +106,48 @@ export default function ContentsPage() {
   };
 
   return (
-    <div className="fade-in" style={{ padding: '32px 40px', height: '100%', overflowY: 'auto' }}>
+    <div className="fade-in h-full overflow-y-auto px-10 py-8">
       {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 700, color: T.gray900, marginBottom: 6 }}>
+      <div className="mb-7">
+        <h1 className="mb-1.5 text-[26px] font-bold text-gray-900">
           内容列表
         </h1>
-        <p style={{ fontSize: 13, color: T.gray400 }}>
+        <p className="text-[13px] text-gray-400">
           从各信源采集到的原始内容 · 共{' '}
-          <b style={{ fontFamily: T.mono, color: T.gray600 }}>{total}</b> 条
+          <b className="font-mono text-gray-600">{total}</b> 条
         </p>
       </div>
 
       {/* Category Filter Bar */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}>
+      <Toolbar className="mb-5 gap-2">
         {CATEGORIES.map((cat) => {
           const active = category === cat;
           return (
             <button
               key={cat}
+              type="button"
               onClick={() => handleCategoryChange(cat)}
-              style={{
-                padding: '6px 14px',
-                fontSize: 12,
-                fontWeight: active ? 600 : 500,
-                background: active ? T.primaryLight : T.white,
-                color: active ? T.primary : T.gray600,
-                border: `1px solid ${active ? T.primaryBorder : T.gray200}`,
-                borderRadius: T.radiusXs,
-                cursor: 'pointer',
-                transition: 'all 0.15s',
-              }}
+              className={cx(
+                'rounded-xs border px-3.5 py-1.5 text-xs transition',
+                active
+                  ? 'border-primary-border bg-primary-light font-semibold text-primary'
+                  : 'border-gray-200 bg-white font-medium text-gray-600 hover:border-primary-border hover:text-primary',
+              )}
             >
               {cat}
             </button>
           );
         })}
-      </div>
+      </Toolbar>
 
       {/* Error Banner */}
       {error && (
-        <div
-          style={{
-            padding: '10px 16px',
-            marginBottom: 16,
-            background: T.redLight,
-            color: T.red,
-            borderRadius: T.radiusSm,
-            fontSize: 13,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
+        <div className="mb-4 flex items-center justify-between rounded-sm bg-red-light px-4 py-2.5 text-[13px] text-red">
           <span>{error}</span>
           <button
+            type="button"
             onClick={() => setError(null)}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: T.red,
-              cursor: 'pointer',
-              fontSize: 16,
-              fontWeight: 700,
-              lineHeight: 1,
-              padding: '0 4px',
-            }}
+            className="cursor-pointer border-0 bg-transparent px-1 text-base font-bold leading-none text-red"
           >
             ×
           </button>
@@ -189,17 +156,7 @@ export default function ContentsPage() {
 
       {/* Loading State */}
       {loading && (
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            height: 200,
-            color: T.gray400,
-            fontSize: 14,
-            gap: 10,
-          }}
-        >
+        <div className="flex h-[200px] items-center justify-center gap-2.5 text-sm text-gray-400">
           <Spinner />
           <span>加载中…</span>
         </div>
@@ -207,29 +164,9 @@ export default function ContentsPage() {
 
       {/* Table */}
       {!loading && (
-        <div
-          style={{
-            background: T.white,
-            borderRadius: T.radius,
-            border: `1px solid ${T.gray100}`,
-            overflow: 'hidden',
-          }}
-        >
+        <Panel className="overflow-hidden">
           {/* Table Header */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '3fr 1.2fr 0.8fr 1.5fr 1fr 0.8fr',
-              padding: '12px 24px',
-              background: T.gray50,
-              borderBottom: `1px solid ${T.gray200}`,
-              fontSize: 12,
-              fontWeight: 600,
-              color: T.gray500,
-              textTransform: 'uppercase' as const,
-              letterSpacing: '0.05em',
-            }}
-          >
+          <div className="grid grid-cols-[3fr_1.2fr_0.8fr_1.5fr_1fr_0.8fr] border-b border-gray-200 bg-gray-50 px-6 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
             <span>标题</span>
             <span>来源</span>
             <span>分类</span>
@@ -240,14 +177,7 @@ export default function ContentsPage() {
 
           {/* Empty State */}
           {items.length === 0 && (
-            <div
-              style={{
-                padding: '48px 24px',
-                textAlign: 'center' as const,
-                color: T.gray400,
-                fontSize: 14,
-              }}
-            >
+            <div className="px-6 py-12 text-center text-sm text-gray-400">
               暂无内容数据
             </div>
           )}
@@ -256,73 +186,39 @@ export default function ContentsPage() {
           {items.map((item) => (
             <ContentRow key={item.id} item={item} />
           ))}
-        </div>
+        </Panel>
       )}
 
       {/* Pagination */}
       {!loading && total > 0 && (
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginTop: 16,
-            fontSize: 13,
-            color: T.gray500,
-          }}
-        >
+        <div className="mt-4 flex items-center justify-between gap-3 text-[13px] text-gray-500">
           <span>
-            第 <b style={{ fontFamily: T.mono }}>{page}</b> / <b style={{ fontFamily: T.mono }}>{totalPages}</b> 页，共 {total} 条
+            第 <b className="font-mono">{page}</b> / <b className="font-mono">{totalPages}</b> 页，共 {total} 条
           </span>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
+          <div className="flex gap-2">
+            <Button
+              type="button"
               onClick={handlePrev}
               disabled={page <= 1}
-              style={{
-                padding: '6px 16px',
-                fontSize: 13,
-                fontWeight: 500,
-                background: page <= 1 ? T.gray100 : T.white,
-                color: page <= 1 ? T.gray300 : T.gray600,
-                border: `1px solid ${T.gray200}`,
-                borderRadius: T.radiusXs,
-                cursor: page <= 1 ? 'not-allowed' : 'pointer',
-              }}
+              variant="secondary"
+              className={cx('min-h-0 px-4 py-1.5 text-[13px] font-medium', page <= 1 && 'cursor-not-allowed bg-gray-100 text-gray-300')}
             >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                <ChevronLeft size={14} strokeWidth={2} />
-                上一页
-              </span>
-            </button>
-            <button
+              <ChevronLeft size={14} strokeWidth={2} />
+              上一页
+            </Button>
+            <Button
+              type="button"
               onClick={handleNext}
               disabled={page >= totalPages}
-              style={{
-                padding: '6px 16px',
-                fontSize: 13,
-                fontWeight: 500,
-                background: page >= totalPages ? T.gray100 : T.white,
-                color: page >= totalPages ? T.gray300 : T.gray600,
-                border: `1px solid ${T.gray200}`,
-                borderRadius: T.radiusXs,
-                cursor: page >= totalPages ? 'not-allowed' : 'pointer',
-              }}
+              variant="secondary"
+              className={cx('min-h-0 px-4 py-1.5 text-[13px] font-medium', page >= totalPages && 'cursor-not-allowed bg-gray-100 text-gray-300')}
             >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                下一页
-                <ChevronRight size={14} strokeWidth={2} />
-              </span>
-            </button>
+              下一页
+              <ChevronRight size={14} strokeWidth={2} />
+            </Button>
           </div>
         </div>
       )}
-
-      {/* Spinner keyframe */}
-      <style>{`
-        @keyframes spin {
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </div>
   );
 }
@@ -331,8 +227,8 @@ export default function ContentsPage() {
 
 function ContentRow({ item }: { item: ContentItem }) {
   const statusKey = item.status || 'pending';
-  const statusStyle = STATUS_STYLE[statusKey] || STATUS_STYLE.pending;
-  const sourceTypeColor = SOURCE_TYPE_COLOR_MAP[item.source_type] || { bg: T.gray100, color: T.gray500 };
+  const statusTone = STATUS_TONE[statusKey] || STATUS_TONE.pending;
+  const sourceTypeColor = SOURCE_TYPE_COLOR_MAP[item.source_type] || { bg: '#F3F4F6', color: '#6B7280' };
   const statusLabel: Record<string, string> = {
     pending: '待处理',
     analyzed: '已分析',
@@ -340,61 +236,31 @@ function ContentRow({ item }: { item: ContentItem }) {
   };
 
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '3fr 1.2fr 0.8fr 1.5fr 1fr 0.8fr',
-        padding: '14px 24px',
-        borderBottom: `1px solid ${T.gray100}`,
-        alignItems: 'center',
-        fontSize: 13,
-        transition: 'background 0.15s',
-      }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = T.gray50)}
-      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-    >
+    <div className="grid grid-cols-[3fr_1.2fr_0.8fr_1.5fr_1fr_0.8fr] items-center border-b border-gray-100 px-6 py-3.5 text-[13px] transition hover:bg-gray-50">
       {/* 标题 */}
-      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 12 }}>
+      <div className="truncate pr-3">
         {item.url ? (
           <a
             href={item.url}
             target="_blank"
             rel="noopener noreferrer"
-            style={{
-              color: T.gray800,
-              textDecoration: 'none',
-              fontWeight: 500,
-            }}
-            onMouseEnter={(e) => {
-              (e.target as HTMLElement).style.color = T.primary;
-            }}
-            onMouseLeave={(e) => {
-              (e.target as HTMLElement).style.color = T.gray800;
-            }}
+            className="font-medium text-gray-800 no-underline transition hover:text-primary"
           >
             {item.title || '无标题'}
           </a>
         ) : (
-          <span style={{ color: T.gray800, fontWeight: 500 }}>{item.title || '无标题'}</span>
+          <span className="font-medium text-gray-800">{item.title || '无标题'}</span>
         )}
       </div>
 
       {/* 来源 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
-        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: T.gray700 }}>
+      <div className="flex items-center gap-1.5 overflow-hidden">
+        <span className="truncate text-gray-700">
           {item.source_name}
         </span>
         <span
-          style={{
-            fontSize: 10,
-            fontWeight: 600,
-            padding: '2px 6px',
-            borderRadius: 4,
-            background: sourceTypeColor.bg,
-            color: sourceTypeColor.color,
-            whiteSpace: 'nowrap',
-            flexShrink: 0,
-          }}
+          className="shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-semibold"
+          style={{ background: sourceTypeColor.bg, color: sourceTypeColor.color }}
         >
           {item.source_type}
         </span>
@@ -402,66 +268,36 @@ function ContentRow({ item }: { item: ContentItem }) {
 
       {/* 分类 */}
       <div>
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            padding: '3px 8px',
-            borderRadius: 4,
-            background: T.primaryLight,
-            color: T.primary,
-            whiteSpace: 'nowrap',
-          }}
-        >
+        <span className="whitespace-nowrap rounded bg-primary-light px-2 py-1 text-[11px] font-semibold text-primary">
           {item.category}
         </span>
       </div>
 
       {/* 标签 */}
-      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', overflow: 'hidden' }}>
+      <div className="flex flex-wrap gap-1 overflow-hidden">
         {item.tags && item.tags.length > 0
           ? item.tags.slice(0, 3).map((tag) => (
-              <span
-                key={tag}
-                style={{
-                  fontSize: 10,
-                  fontWeight: 500,
-                  padding: '2px 7px',
-                  borderRadius: 4,
-                  background: T.purpleLight,
-                  color: T.purple,
-                  whiteSpace: 'nowrap',
-                }}
-              >
+              <span key={tag} className="whitespace-nowrap rounded bg-purple-light px-2 py-0.5 text-[10px] font-medium text-purple">
                 {tag}
               </span>
             ))
-          : <span style={{ color: T.gray300 }}>-</span>
+          : <span className="text-gray-300">-</span>
         }
         {item.tags && item.tags.length > 3 && (
-          <span style={{ fontSize: 10, color: T.gray400 }}>+{item.tags.length - 3}</span>
+          <span className="text-[10px] text-gray-400">+{item.tags.length - 3}</span>
         )}
       </div>
 
       {/* 发布时间 */}
-      <div style={{ color: T.gray500, fontFamily: T.mono, fontSize: 12 }}>
+      <div className="font-mono text-xs text-gray-500">
         {timeAgo(item.published_at)}
       </div>
 
       {/* 状态 */}
       <div>
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 600,
-            padding: '3px 10px',
-            borderRadius: 4,
-            background: statusStyle.bg,
-            color: statusStyle.color,
-          }}
-        >
+        <Badge tone={statusTone} className="rounded px-2.5 py-1 text-[11px] font-semibold">
           {statusLabel[statusKey] || statusKey}
-        </span>
+        </Badge>
       </div>
     </div>
   );

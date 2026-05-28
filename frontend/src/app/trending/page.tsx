@@ -19,7 +19,7 @@ import {
   Star,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { T } from '@/lib/design-tokens';
+import { Badge, Button, Panel, cx } from '@/components/ui';
 import {
   trendingApi,
   type TrendingItem,
@@ -28,92 +28,6 @@ import {
   type CrossPlatformSourceItem,
   type PersistentTopic,
 } from '@/lib/api';
-
-/* ── Global scrollbar style (injected once) ── */
-if (typeof document !== 'undefined' && !document.getElementById('trending-scrollbar-css')) {
-  const style = document.createElement('style');
-  style.id = 'trending-scrollbar-css';
-  style.textContent = `
-    .trending-scroll::-webkit-scrollbar { width: 5px; }
-    .trending-scroll::-webkit-scrollbar-track { background: transparent; }
-    .trending-scroll::-webkit-scrollbar-thumb { background: ${T.gray300}; border-radius: 4px; }
-    .trending-scroll::-webkit-scrollbar-thumb:hover { background: ${T.gray400}; }
-    .trending-page {
-      padding: 28px 36px 80px;
-      max-width: 1480px;
-      margin: 0 auto;
-      min-height: 100%;
-      box-sizing: border-box;
-    }
-    .trending-hero {
-      position: relative;
-      overflow: hidden;
-      background: ${T.white};
-      border: 1px solid ${T.gray200};
-      border-radius: ${T.radius}px;
-      padding: 22px 24px;
-      box-shadow: 0 14px 36px rgba(15, 23, 42, 0.06);
-    }
-    .trending-hero::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: 0;
-      height: 4px;
-      background: linear-gradient(90deg, ${T.primary}, ${T.teal});
-    }
-    .trending-hero-grid {
-      position: relative;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 20px;
-      align-items: start;
-    }
-    .trending-stats {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-top: 18px;
-    }
-    .trending-layout {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 300px;
-      gap: 18px;
-      align-items: start;
-      margin-top: 18px;
-    }
-    .trending-main {
-      min-width: 0;
-    }
-    .trending-sidebar {
-      position: sticky;
-      top: 18px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      min-width: 0;
-    }
-    .trending-source-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-      gap: 14px;
-      align-content: start;
-    }
-    @media (max-width: 1120px) {
-      .trending-layout { grid-template-columns: 1fr; }
-      .trending-sidebar { position: static; grid-row: 1; }
-    }
-    @media (max-width: 760px) {
-      .trending-page { padding: 18px 14px 64px; }
-      .trending-hero { padding: 18px; }
-      .trending-hero-grid { grid-template-columns: 1fr; }
-      .trending-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .trending-source-grid { grid-template-columns: 1fr; }
-    }
-  `;
-  document.head.appendChild(style);
-}
 
 /* ── Constants ── */
 
@@ -148,111 +62,45 @@ const SOURCE_BRAND: Record<string, { label: string; color: string; bg: string }>
 };
 
 function sourceBrand(source: string) {
-  return SOURCE_BRAND[source] || { label: source, color: T.gray600, bg: T.gray100 };
+  return SOURCE_BRAND[source] || { label: source, color: '#4B5563', bg: '#F3F4F6' };
 }
 
 const SOURCE_LABELS: Record<string, string> = Object.fromEntries(
   Object.entries(SOURCE_BRAND).map(([k, v]) => [k, v.label])
 );
 
-const CATEGORY_COLORS: Record<string, { bg: string; color: string }> = {
-  hot: { bg: '#FFF4EE', color: '#FF6B35' },
-  tech: { bg: '#E6FAF5', color: '#00C9A7' },
-  finance: { bg: '#FEF3C7', color: '#D97706' },
+const CATEGORY_COLORS: Record<string, { bgClass: string; textClass: string; borderClass: string }> = {
+  hot: { bgClass: 'bg-primary-light', textClass: 'text-primary', borderClass: 'border-primary-border' },
+  tech: { bgClass: 'bg-teal-light', textClass: 'text-teal', borderClass: 'border-teal-border' },
+  finance: { bgClass: 'bg-amber-light', textClass: 'text-amber', borderClass: 'border-amber-border' },
 };
 
 const TREND_ICONS: Record<string, LucideIcon> = {
   up: ArrowUp, down: ArrowDown, new: Star, stable: ArrowRight,
 };
 
-const RESONANCE_COLORS: Record<number, { bg: string; color: string; label: string }> = {
-  5: { bg: '#FEE2E2', color: '#EF4444', label: '超强共振' },
-  4: { bg: '#FFECB5', color: '#D97706', label: '强共振' },
-  3: { bg: '#FEF9C3', color: '#A16207', label: '共振' },
-  2: { bg: '#E6FAF5', color: '#059669', label: '轻微' },
+const RESONANCE_COLORS: Record<number, { bgClass: string; textClass: string; borderClass: string; label: string }> = {
+  5: { bgClass: 'bg-red-light', textClass: 'text-red', borderClass: 'border-red-light', label: '超强共振' },
+  4: { bgClass: 'bg-amber-light', textClass: 'text-amber', borderClass: 'border-amber-border', label: '强共振' },
+  3: { bgClass: 'bg-amber-light', textClass: 'text-amber', borderClass: 'border-amber-border', label: '共振' },
+  2: { bgClass: 'bg-teal-light', textClass: 'text-teal', borderClass: 'border-teal-border', label: '轻微' },
 };
 
 /* ── Components ── */
 
 function TrendBadge({ trend }: { trend: string | null }) {
   if (!trend || trend === 'stable') return null;
-  const colors: Record<string, { bg: string; color: string }> = {
-    up: { bg: '#FEE2E2', color: '#EF4444' },
-    down: { bg: '#ECFDF5', color: '#059669' },
-    new: { bg: '#FFF4EE', color: '#FF6B35' },
+  const colors: Record<string, { className: string; fill: string }> = {
+    up: { className: 'bg-red-light text-red', fill: 'none' },
+    down: { className: 'bg-teal-light text-teal', fill: 'none' },
+    new: { className: 'bg-primary-light text-primary', fill: 'currentColor' },
   };
-  const c = colors[trend] || { bg: T.gray100, color: T.gray600 };
+  const c = colors[trend] || { className: 'bg-gray-100 text-gray-600', fill: 'none' };
   const Icon = TREND_ICONS[trend] || ArrowRight;
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center',
-      fontSize: 10, fontWeight: 700, padding: '1px 5px',
-      borderRadius: 4, background: c.bg, color: c.color,
-    }}>
-      <Icon size={11} strokeWidth={2.2} fill={trend === 'new' ? c.color : 'none'} />
+    <span className={cx('inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-black', c.className)}>
+      <Icon size={11} strokeWidth={2.2} fill={c.fill} />
     </span>
-  );
-}
-
-function RankNumber({ rank }: { rank: number }) {
-  const isTop3 = rank <= 3;
-  return (
-    <div style={{
-      width: 28, height: 28, borderRadius: '50%',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontSize: 12, fontWeight: 700, flexShrink: 0,
-      fontFamily: T.mono,
-      ...(isTop3
-        ? { background: rank === 1 ? '#FF6B35' : rank === 2 ? '#FF8F65' : '#FFB899', color: '#fff' }
-        : { background: T.gray100, color: T.gray500 }),
-    }}>
-      {rank}
-    </div>
-  );
-}
-
-function SourceTag({ source }: { source: string }) {
-  return (
-    <span style={{
-      fontSize: 11, fontWeight: 500, padding: '2px 8px',
-      borderRadius: 4, background: T.gray100, color: T.gray600,
-      whiteSpace: 'nowrap', flexShrink: 0,
-    }}>
-      {SOURCE_LABELS[source] || source}
-    </span>
-  );
-}
-
-function CategoryTag({ category }: { category: string }) {
-  const c = CATEGORY_COLORS[category] || { bg: T.gray100, color: T.gray600 };
-  return (
-    <span style={{
-      fontSize: 10, fontWeight: 600, padding: '2px 6px',
-      borderRadius: 4, background: c.bg, color: c.color,
-      textTransform: 'uppercase', letterSpacing: '0.04em',
-    }}>
-      {category}
-    </span>
-  );
-}
-
-function Surface({
-  children,
-  style,
-}: {
-  children: React.ReactNode;
-  style?: React.CSSProperties;
-}) {
-  return (
-    <section style={{
-      background: T.white,
-      border: `1px solid ${T.gray200}`,
-      borderRadius: T.radius,
-      padding: 16,
-      ...style,
-    }}>
-      {children}
-    </section>
   );
 }
 
@@ -266,12 +114,12 @@ function PanelTitle({
   hint?: string;
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        <Icon size={15} color={T.primary} strokeWidth={2.2} />
-        <span style={{ fontSize: 13, fontWeight: 800, color: T.gray900 }}>{title}</span>
+    <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <Icon size={15} className="text-primary" strokeWidth={2.2} />
+        <span className="text-[13px] font-black text-gray-900">{title}</span>
       </div>
-      {hint && <span style={{ fontSize: 11, color: T.gray400, whiteSpace: 'nowrap' }}>{hint}</span>}
+      {hint && <span className="whitespace-nowrap text-[11px] text-gray-400">{hint}</span>}
     </div>
   );
 }
@@ -281,39 +129,33 @@ function StatTile({
   label,
   value,
   hint,
-  color,
+  colorClass,
 }: {
   icon: LucideIcon;
   label: string;
   value: string | number;
   hint: string;
-  color: string;
+  colorClass: string;
 }) {
   return (
-    <div style={{
-      background: T.gray50,
-      border: `1px solid ${T.gray200}`,
-      borderRadius: T.radiusSm,
-      padding: '13px 14px',
-      minWidth: 0,
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 9 }}>
-        <Icon size={14} color={color} strokeWidth={2.2} />
-        <span style={{ fontSize: 11, fontWeight: 800, color: T.gray500 }}>{label}</span>
+    <div className="min-w-0 rounded-sm border border-gray-200 bg-gray-50 px-3.5 py-3">
+      <div className="mb-2 flex items-center gap-2">
+        <Icon size={14} className={colorClass} strokeWidth={2.2} />
+        <span className="text-[11px] font-black text-gray-500">{label}</span>
       </div>
-      <div style={{ fontSize: 25, lineHeight: 1, fontWeight: 900, color: T.gray900, fontFamily: T.mono }}>
+      <div className="font-mono text-[25px] font-black leading-none text-gray-900">
         {value}
       </div>
-      <div style={{ marginTop: 5, fontSize: 10.5, color: T.gray400 }}>{hint}</div>
+      <div className="mt-1.5 text-[10.5px] text-gray-400">{hint}</div>
     </div>
   );
 }
 
 function EmptyState({ children }: { children: React.ReactNode }) {
   return (
-    <Surface style={{ textAlign: 'center', padding: 72, color: T.gray400, fontSize: 14 }}>
+    <Panel className="p-[72px] text-center text-sm text-gray-400">
       {children}
-    </Surface>
+    </Panel>
   );
 }
 
@@ -322,24 +164,8 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 function ResonanceBadge({ resonance }: { resonance: number }) {
   const c = RESONANCE_COLORS[resonance] || RESONANCE_COLORS[2];
   return (
-    <span style={{
-      fontSize: 11, fontWeight: 700, padding: '2px 8px',
-      borderRadius: 6, background: c.bg, color: c.color,
-      whiteSpace: 'nowrap',
-    }}>
+    <span className={cx('whitespace-nowrap rounded-xs px-2 py-0.5 text-[11px] font-black', c.bgClass, c.textClass)}>
       {c.label} · {resonance}平台
-    </span>
-  );
-}
-
-function HotValue({ value }: { value: number }) {
-  if (!value) return null;
-  return (
-    <span style={{
-      fontSize: 11, fontFamily: T.mono, fontWeight: 500,
-      color: value > 10000 ? T.primary : T.gray400,
-    }}>
-      {value >= 10000 ? `${(value / 10000).toFixed(1)}万` : value.toLocaleString()}
     </span>
   );
 }
@@ -350,41 +176,15 @@ function SourceMiniItem({ item }: { item: CrossPlatformSourceItem }) {
       href={item.url || '#'}
       target="_blank"
       rel="noopener noreferrer"
-      style={{
-        display: 'flex', alignItems: 'center', gap: 8,
-        padding: '6px 10px', borderRadius: T.radiusXs,
-        textDecoration: 'none',
-        background: T.white,
-        border: `1px solid ${T.gray100}`,
-        transition: 'all 0.12s ease',
-        flex: 1, minWidth: 0,
-      }}
-      onMouseEnter={e => {
-        const el = e.currentTarget as HTMLAnchorElement;
-        el.style.borderColor = T.primaryBorder;
-        el.style.background = T.primaryLight;
-      }}
-      onMouseLeave={e => {
-        const el = e.currentTarget as HTMLAnchorElement;
-        el.style.borderColor = T.gray100;
-        el.style.background = T.white;
-      }}
+      className="flex min-w-0 flex-1 items-center gap-2 rounded-xs border border-gray-100 bg-white px-2.5 py-1.5 no-underline transition hover:border-primary-border hover:bg-primary-light"
     >
-      <span style={{
-        fontSize: 10, fontWeight: 600,
-        color: item.rank <= 3 ? '#FF6B35' : T.gray400,
-        minWidth: 16,
-      }}>
+      <span className={cx('min-w-4 text-[10px] font-black', item.rank <= 3 ? 'text-primary' : 'text-gray-400')}>
         #{item.rank}
       </span>
-      <span style={{
-        fontSize: 12, color: T.gray700,
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        flex: 1,
-      }}>
+      <span className="flex-1 truncate text-xs text-gray-700">
         {item.title}
       </span>
-      <span style={{ fontSize: 10, color: T.gray400, flexShrink: 0 }}>
+      <span className="shrink-0 text-[10px] text-gray-400">
         {SOURCE_LABELS[item.source] || item.source}
       </span>
     </a>
@@ -425,48 +225,33 @@ function AnglePanel({ cluster }: { cluster: CrossPlatformCluster }) {
   };
 
   return (
-    <div style={{
-      marginTop: 8,
-      padding: '10px 14px',
-      background: '#FFFBEB',
-      border: `1px solid #FDE68A`,
-      borderRadius: T.radiusSm,
-    }}>
+    <div className="mt-2 rounded-sm border border-amber-border bg-amber-light px-3.5 py-2.5">
       {/* 按钮行 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: '#92400E' }}>AI 角度推荐</span>
+      <div className="mb-2 flex items-center gap-2">
+        <span className="text-[11px] font-black text-amber">AI 角度推荐</span>
         {!fetched && !loading && (
           <button
+            type="button"
             onClick={fetchAngles}
-            style={{
-              fontSize: 10, fontWeight: 600,
-              padding: '2px 8px', borderRadius: 8,
-              background: '#F59E0B', color: '#fff',
-              border: 'none', cursor: 'pointer',
-            }}
+            className="rounded-full bg-amber px-2 py-0.5 text-[10px] font-black text-white"
           >
             生成反差角度
           </button>
         )}
         {loading && (
-          <span style={{ fontSize: 10, color: '#92400E' }}>生成中...</span>
+          <span className="text-[10px] text-amber">生成中...</span>
         )}
       </div>
 
       {/* 大众角度（不要写） */}
       {angles && angles.common_angles.length > 0 && (
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 10, color: '#92400E', marginBottom: 4, fontWeight: 600 }}>
+        <div className="mb-2">
+          <div className="mb-1 text-[10px] font-black text-amber">
             大众角度（不要写）：
           </div>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <div className="flex flex-wrap gap-1">
             {angles.common_angles.map((a, i) => (
-              <span key={i} style={{
-                fontSize: 10, color: '#78350F',
-                background: '#FEF3C7',
-                padding: '2px 6px', borderRadius: 6,
-                textDecoration: 'line-through',
-              }}>{a}</span>
+              <span key={i} className="rounded-xs bg-amber-light px-1.5 py-0.5 text-[10px] text-amber line-through">{a}</span>
             ))}
           </div>
         </div>
@@ -475,23 +260,18 @@ function AnglePanel({ cluster }: { cluster: CrossPlatformCluster }) {
       {/* 反差角度 */}
       {angles && angles.contrast_angles.length > 0 && (
         <div>
-          <div style={{ fontSize: 10, color: '#065F46', marginBottom: 4, fontWeight: 600 }}>
+          <div className="mb-1 text-[10px] font-black text-teal">
             反差角度（值得写）：
           </div>
           {angles.contrast_angles.map((c, i) => (
-            <div key={i} style={{
-              marginBottom: 6,
-              padding: '6px 10px',
-              background: '#ECFDF5',
-              borderRadius: T.radiusXs,
-            }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#065F46', marginBottom: 2 }}>
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <div key={i} className="mb-1.5 rounded-xs bg-teal-light px-2.5 py-1.5">
+              <div className="mb-0.5 text-xs font-black text-teal">
+                <span className="inline-flex items-center gap-1.5">
                   <ArrowRight size={12} strokeWidth={2} />
                   {c.angle}
                 </span>
               </div>
-              <div style={{ fontSize: 10, color: '#047857' }}>
+              <div className="text-[10px] text-teal">
                 {c.reasoning}
               </div>
             </div>
@@ -501,20 +281,14 @@ function AnglePanel({ cluster }: { cluster: CrossPlatformCluster }) {
 
       {/* 角度洞察 */}
       {angles && angles.angle_note && (
-        <div style={{
-          display: 'flex', alignItems: 'flex-start', gap: 6,
-          marginTop: 6, padding: '4px 8px',
-          background: '#F0FDF4', borderRadius: T.radiusXs,
-          fontSize: 10, color: '#166534',
-          fontStyle: 'italic',
-        }}>
-          <Lightbulb size={12} strokeWidth={2} style={{ marginTop: 1, flexShrink: 0 }} />
+        <div className="mt-1.5 flex items-start gap-1.5 rounded-xs bg-teal-light px-2 py-1 text-[10px] italic text-teal">
+          <Lightbulb size={12} strokeWidth={2} className="mt-px shrink-0" />
           <span>{angles.angle_note}</span>
         </div>
       )}
 
       {error && (
-        <div style={{ fontSize: 10, color: '#DC2626' }}>{error}</div>
+        <div className="text-[10px] text-red">{error}</div>
       )}
     </div>
   );
@@ -526,37 +300,26 @@ function ClusterCardExpanded({ cluster }: { cluster: CrossPlatformCluster }) {
   return (
     <>
       {/* 平台详情 */}
-      <div style={{
-        fontSize: 11, fontWeight: 600, color: T.gray500,
-        marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em',
-      }}>
+      <div className="mb-2 text-[11px] font-black uppercase tracking-[0.05em] text-gray-500">
         各平台排名
       </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <div className="flex flex-wrap gap-1.5">
         {cluster.source_items.map(item => (
           <SourceMiniItem key={`${item.source}-${item.rank}`} item={item} />
         ))}
       </div>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        marginTop: 10, paddingTop: 8, borderTop: `1px dashed ${T.gray200}`,
-      }}>
-        <span style={{ fontSize: 11, color: T.gray400 }}>
+      <div className="mt-2.5 flex items-center justify-between gap-3 border-t border-dashed border-gray-200 pt-2">
+        <span className="text-[11px] text-gray-400">
           平均排名 #{cluster.avg_rank} · {cluster.total_hot.toLocaleString()} 总热度
         </span>
         <a
           href={cluster.source_items[0]?.url || '#'}
           target="_blank"
           rel="noopener noreferrer"
-          style={{
-            fontSize: 11, color: T.primary, textDecoration: 'none',
-            fontWeight: 600,
-          }}
+          className="inline-flex items-center gap-1.5 text-[11px] font-black text-primary no-underline"
         >
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            查看详情
-            <ExternalLink size={12} strokeWidth={2} />
-          </span>
+          查看详情
+          <ExternalLink size={12} strokeWidth={2} />
         </a>
       </div>
 
@@ -568,89 +331,52 @@ function ClusterCardExpanded({ cluster }: { cluster: CrossPlatformCluster }) {
 
 function ClusterCard({ cluster }: { cluster: CrossPlatformCluster }) {
   const [expanded, setExpanded] = useState(false);
+  const resonanceMeta = RESONANCE_COLORS[cluster.resonance] || RESONANCE_COLORS[2];
 
   return (
-    <div style={{
-      border: `1px solid ${T.gray200}`,
-      borderRadius: T.radius,
-      overflow: 'hidden',
-      background: T.white,
-      boxShadow: '0 10px 26px rgba(15, 23, 42, 0.04)',
-      transition: 'box-shadow 0.15s ease, border-color 0.15s ease',
-    }}>
+    <Panel className="overflow-hidden shadow-[0_10px_26px_rgba(15,23,42,0.04)] transition hover:border-gray-300 hover:shadow-md">
       {/* 卡片头部 */}
       <div
         onClick={() => setExpanded(!expanded)}
-        style={{
-          padding: '14px 16px',
-          cursor: 'pointer',
-          background: expanded ? '#FFFBF8' : T.white,
-        }}
+        className={cx('cursor-pointer px-4 py-3.5', expanded ? 'bg-primary-light/60' : 'bg-white')}
       >
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <div className="flex items-start gap-2.5">
           {/* 左侧：共振强度标识 */}
-          <div style={{
-            width: 44, height: 44, borderRadius: 10,
-            background: RESONANCE_COLORS[cluster.resonance]?.bg || T.gray100,
-            color: RESONANCE_COLORS[cluster.resonance]?.color || T.gray500,
-            border: `1px solid ${T.gray100}`,
-            display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0,
-          }}>
-            <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1 }}>{cluster.resonance}</span>
-            <span style={{ fontSize: 8, fontWeight: 600, marginTop: 2 }}>平台</span>
+          <div className={cx('flex h-11 w-11 shrink-0 flex-col items-center justify-center rounded-md border', resonanceMeta.bgClass, resonanceMeta.textClass, resonanceMeta.borderClass)}>
+            <span className="text-base font-black leading-none">{cluster.resonance}</span>
+            <span className="mt-0.5 text-[8px] font-black">平台</span>
           </div>
 
           {/* 中间：标题+关键词 */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{
-              fontSize: 14, fontWeight: 600, color: T.gray900,
-              lineHeight: 1.4,
-              overflow: 'hidden', textOverflow: 'ellipsis',
-              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-            }}>
+          <div className="min-w-0 flex-1">
+            <div className="line-clamp-2 text-sm font-bold leading-snug text-gray-900">
               {cluster.topic}
             </div>
-            <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+            <div className="mt-1.5 flex flex-wrap gap-1">
               {cluster.keywords.slice(0, 4).map(kw => (
-                <span key={kw} style={{
-                  fontSize: 10, color: T.gray500,
-                  background: T.gray100,
-                  padding: '1px 6px', borderRadius: 4,
-                }}>#{kw}</span>
+                <span key={kw} className="rounded bg-gray-100 px-1.5 py-px text-[10px] text-gray-500">#{kw}</span>
               ))}
             </div>
           </div>
 
           {/* 右侧：平台标签+展开按钮 */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
             <ResonanceBadge resonance={cluster.resonance} />
-            <span style={{ fontSize: 11, color: T.gray400 }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                {expanded ? '收起' : '展开'}
-                {expanded ? <ArrowUp size={12} strokeWidth={2} /> : <ArrowDown size={12} strokeWidth={2} />}
-              </span>
+            <span className="inline-flex items-center gap-1 text-[11px] text-gray-400">
+              {expanded ? '收起' : '展开'}
+              {expanded ? <ArrowUp size={12} strokeWidth={2} /> : <ArrowDown size={12} strokeWidth={2} />}
             </span>
           </div>
         </div>
 
         {/* 平台横向滚动条 */}
-        <div style={{
-          display: 'flex', gap: 6, marginTop: 10, overflowX: 'auto',
-          paddingBottom: 4,
-        }}>
+        <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-1">
           {cluster.source_labels.map((label, i) => (
-            <span key={i} style={{
-              fontSize: 10, fontWeight: 500,
-              padding: '2px 7px', borderRadius: 12,
-              background: T.tealLight, color: T.teal,
-              whiteSpace: 'nowrap', flexShrink: 0,
-            }}>
+            <span key={i} className="shrink-0 whitespace-nowrap rounded-full bg-teal-light px-2 py-0.5 text-[10px] font-semibold text-teal">
               {label}
             </span>
           ))}
-          <span style={{ fontSize: 10, color: T.gray400, marginLeft: 4, flexShrink: 0 }}>
+          <span className="ml-1 shrink-0 text-[10px] text-gray-400">
             {cluster.item_count}条相关内容
           </span>
         </div>
@@ -658,15 +384,11 @@ function ClusterCard({ cluster }: { cluster: CrossPlatformCluster }) {
 
       {/* 展开详情 */}
       {expanded && (
-        <div style={{
-          padding: '10px 16px 14px',
-          background: '#FFFBF8',
-          borderTop: `1px solid ${T.gray100}`,
-        }}>
+        <div className="border-t border-gray-100 bg-primary-light/60 px-4 pb-3.5 pt-2.5">
           <ClusterCardExpanded cluster={cluster} />
         </div>
       )}
-    </div>
+    </Panel>
   );
 }
 
@@ -783,78 +505,46 @@ function TrendingPage() {
     .slice(0, 8);
 
   return (
-    <div className="trending-page">
-      <section className="trending-hero">
-        <div className="trending-hero-grid">
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginBottom: 12 }}>
-              <span style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                fontSize: 11,
-                fontWeight: 900,
-                color: T.primary,
-                background: T.primaryLight,
-                border: `1px solid ${T.primaryBorder}`,
-                borderRadius: 999,
-                padding: '4px 10px',
-                fontFamily: T.mono,
-              }}>
+    <div className="mx-auto min-h-full max-w-[1480px] px-9 pb-20 pt-7 max-md:px-3.5 max-md:pb-16 max-md:pt-4.5">
+      <Panel className="relative overflow-hidden p-5.5 shadow-[0_14px_36px_rgba(15,23,42,0.06)] before:absolute before:left-0 before:right-0 before:top-0 before:h-1 before:bg-gradient-to-r before:from-primary before:to-teal max-md:p-4.5">
+        <div className="relative grid grid-cols-[minmax(0,1fr)_auto] items-start gap-5 max-md:grid-cols-1">
+          <div className="min-w-0">
+            <div className="mb-3 flex flex-wrap items-center gap-2.5">
+              <Badge tone="primary" className="gap-1.5 font-mono">
                 <Radar size={13} strokeWidth={2.4} />
                 TREND RADAR
-              </span>
-              <span style={{ fontSize: 12, fontWeight: 700, color: T.gray500 }}>{activeLabel}</span>
+              </Badge>
+              <span className="text-xs font-black text-gray-500">{activeLabel}</span>
             </div>
-            <h1 style={{ fontSize: 28, lineHeight: 1.12, fontWeight: 900, color: T.gray900, margin: 0 }}>
+            <h1 className="m-0 text-[28px] font-black leading-[1.12] text-gray-900">
               趋势雷达工作台
             </h1>
-            <p style={{ fontSize: 13, lineHeight: 1.7, color: T.gray500, margin: '8px 0 0', maxWidth: 760 }}>
+            <p className="mt-2 max-w-[760px] text-[13px] leading-7 text-gray-500">
               把多平台榜单、跨平台共振和持续热度放在同一个扫描台里，优先看到正在扩散、已经共振、还在持续的内容信号。
             </p>
           </div>
-          <button
-            onClick={handleSyncAll}
-            disabled={syncing}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 7,
-              padding: '9px 17px',
-              fontSize: 13,
-              fontWeight: 800,
-              background: syncing ? T.gray200 : T.primary,
-              color: T.white,
-              border: 'none',
-              borderRadius: T.radiusSm,
-              cursor: syncing ? 'wait' : 'pointer',
-              transition: 'all 0.15s ease',
-              whiteSpace: 'nowrap',
-              boxShadow: syncing ? 'none' : '0 10px 22px rgba(255, 107, 53, 0.18)',
-            }}
-          >
-            <RefreshCw size={14} strokeWidth={2.3} />
+          <Button type="button" variant="primary" onClick={handleSyncAll} disabled={syncing} className="whitespace-nowrap px-4 shadow-[0_10px_22px_rgba(255,107,53,0.18)]">
+            <RefreshCw size={14} strokeWidth={2.3} className={syncing ? 'animate-spin' : ''} />
             {syncing ? '同步中...' : '刷新全量'}
-          </button>
+          </Button>
         </div>
-        <div className="trending-stats">
-          <StatTile icon={Rss} label="信源" value={filteredSources.length || sources.length} hint="当前可扫描平台" color={T.primary} />
-          <StatTile icon={Layers3} label="样本" value={items.length} hint="榜单候选内容" color={T.teal} />
-          <StatTile icon={Activity} label="共振" value={clusters.length} hint={`最低 ${minResonance} 平台`} color={T.red} />
-          <StatTile icon={Clock3} label="持续" value={persistentTopics.length} hint="近 7 天持续话题" color={T.amber} />
+        <div className="mt-4.5 grid grid-cols-4 gap-2.5 max-md:grid-cols-2">
+          <StatTile icon={Rss} label="信源" value={filteredSources.length || sources.length} hint="当前可扫描平台" colorClass="text-primary" />
+          <StatTile icon={Layers3} label="样本" value={items.length} hint="榜单候选内容" colorClass="text-teal" />
+          <StatTile icon={Activity} label="共振" value={clusters.length} hint={`最低 ${minResonance} 平台`} colorClass="text-red" />
+          <StatTile icon={Clock3} label="持续" value={persistentTopics.length} hint="近 7 天持续话题" colorClass="text-amber" />
         </div>
-      </section>
+      </Panel>
 
-      <div className="trending-layout">
-        <main className="trending-main">
+      <div className="mt-4.5 grid grid-cols-[minmax(0,1fr)_300px] items-start gap-4.5 max-xl:grid-cols-1">
+        <main className="min-w-0">
           {loading && <EmptyState>加载中...</EmptyState>}
 
           {!loading && tab === 'resonance' && (
             clusters.length === 0 ? (
               <EmptyState>暂无共振数据，切换「1平台+」试试</EmptyState>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div className="flex flex-col gap-3">
                 {clusters.map((cluster, idx) => (
                   <ClusterCard key={`${cluster.topic}-${idx}`} cluster={cluster} />
                 ))}
@@ -863,74 +553,40 @@ function TrendingPage() {
           )}
 
           {!loading && tab === 'persistent' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <Surface style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '13px 16px', background: T.tealLight, borderColor: T.tealBorder }}>
-                <Gauge size={16} color={T.teal} strokeWidth={2.3} />
-                <span style={{ fontSize: 13, color: T.gray700, fontWeight: 700 }}>
+            <div className="flex flex-col gap-3">
+              <Panel className="flex items-center gap-2.5 border-teal-border bg-teal-light px-4 py-3">
+                <Gauge size={16} className="text-teal" strokeWidth={2.3} />
+                <span className="text-[13px] font-bold text-gray-700">
                   连续多天在榜的话题代表热度韧性，适合沉淀成复盘、观察和解释型选题。
                 </span>
-              </Surface>
+              </Panel>
               {persistentTopics.length === 0 ? (
                 <EmptyState>暂无持续热度数据，需积累多天快照</EmptyState>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div className="flex flex-col gap-2.5">
                   {persistentTopics.map((topic, idx) => {
                     const brand0 = sourceBrand(topic.sources[0] || 'weibo');
+                    const dayTone = topic.days_on_list >= 3
+                      ? 'border-primary-border bg-primary-light text-primary'
+                      : topic.days_on_list >= 2
+                        ? 'border-amber-border bg-amber-light text-amber'
+                        : 'border-teal-border bg-teal-light text-teal';
                     return (
-                      <div key={idx} style={{
-                        display: 'grid',
-                        gridTemplateColumns: '64px minmax(0, 1fr) auto',
-                        alignItems: 'center',
-                        gap: 16,
-                        padding: '15px 18px',
-                        background: T.white,
-                        border: `1px solid ${T.gray200}`,
-                        borderRadius: T.radius,
-                        boxShadow: '0 8px 22px rgba(15, 23, 42, 0.035)',
-                      }}>
-                        <div style={{
-                          minWidth: 58,
-                          height: 58,
-                          borderRadius: 14,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          background: topic.days_on_list >= 3 ? T.primaryLight : topic.days_on_list >= 2 ? T.amberLight : T.tealLight,
-                          color: topic.days_on_list >= 3 ? T.primary : topic.days_on_list >= 2 ? T.amber : T.teal,
-                          border: `1px solid ${topic.days_on_list >= 3 ? T.primaryBorder : topic.days_on_list >= 2 ? T.amberBorder : T.tealBorder}`,
-                          fontWeight: 900,
-                          fontSize: 20,
-                          lineHeight: 1,
-                          fontFamily: T.mono,
-                        }}>
+                      <Panel key={idx} className="grid grid-cols-[64px_minmax(0,1fr)_auto] items-center gap-4 p-4.5 shadow-[0_8px_22px_rgba(15,23,42,0.035)] max-md:grid-cols-[56px_minmax(0,1fr)]">
+                        <div className={cx('flex h-[58px] min-w-[58px] flex-col items-center justify-center rounded-lg border font-mono text-xl font-black leading-none', dayTone)}>
                           {topic.days_on_list}
-                          <span style={{ fontSize: 9, fontWeight: 800, marginTop: 4, fontFamily: T.sans }}>天在榜</span>
+                          <span className="mt-1 font-sans text-[9px] font-black">天在榜</span>
                         </div>
 
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{
-                            fontSize: 15,
-                            fontWeight: 800,
-                            color: T.gray900,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}>
+                        <div className="min-w-0">
+                          <div className="truncate text-[15px] font-black text-gray-900">
                             {topic.title}
                           </div>
-                          <div style={{ display: 'flex', gap: 6, marginTop: 7, flexWrap: 'wrap' }}>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
                             {topic.sources.map(s => {
                               const b = sourceBrand(s);
                               return (
-                                <span key={s} style={{
-                                  fontSize: 11,
-                                  color: b.color,
-                                  background: b.bg,
-                                  padding: '2px 8px',
-                                  borderRadius: 10,
-                                  fontWeight: 700,
-                                }}>
+                                <span key={s} className="rounded-full px-2 py-0.5 text-[11px] font-black" style={{ color: b.color, background: b.bg }}>
                                   {SOURCE_LABELS[s] || s}
                                 </span>
                               );
@@ -938,22 +594,22 @@ function TrendingPage() {
                           </div>
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexShrink: 0 }}>
-                          <div style={{ textAlign: 'center' }}>
-                            <div style={{ fontSize: 18, fontWeight: 900, color: T.gray800, fontFamily: T.mono }}>
+                        <div className="flex shrink-0 items-center gap-4.5 max-md:col-span-2 max-md:pl-[72px]">
+                          <div className="text-center">
+                            <div className="font-mono text-lg font-black text-gray-800">
                               {topic.source_count}
                             </div>
-                            <div style={{ fontSize: 10, color: T.gray400 }}>平台</div>
+                            <div className="text-[10px] text-gray-400">平台</div>
                           </div>
-                          <div style={{ textAlign: 'center' }}>
-                            <div style={{ fontSize: 18, fontWeight: 900, color: T.gray800, fontFamily: T.mono }}>
+                          <div className="text-center">
+                            <div className="font-mono text-lg font-black text-gray-800">
                               #{topic.best_rank || '-'}
                             </div>
-                            <div style={{ fontSize: 10, color: T.gray400 }}>最佳</div>
+                            <div className="text-[10px] text-gray-400">最佳</div>
                           </div>
                           {topic.rank_trend && topic.rank_trend.length > 1 && (
-                            <div style={{ width: 84, height: 38, position: 'relative' }}>
-                              <svg viewBox="0 0 84 38" style={{ width: '100%', height: '100%' }}>
+                            <div className="relative h-[38px] w-[84px]">
+                              <svg viewBox="0 0 84 38" className="h-full w-full">
                                 {(() => {
                                   const vals = topic.rank_trend.filter(v => v > 0);
                                   if (vals.length < 2) return null;
@@ -980,7 +636,7 @@ function TrendingPage() {
                             </div>
                           )}
                         </div>
-                      </div>
+                      </Panel>
                     );
                   })}
                 </div>
@@ -993,186 +649,98 @@ function TrendingPage() {
           )}
 
           {!loading && tab === 'list' && items.length > 0 && (
-            <div className="trending-source-grid">
-          {Object.entries(groupedItems).map(([source, srcItems]) => {
-            const brand = sourceBrand(source);
-            const sourceInfo = sources.find(s => s.source === source);
-            const lastSynced = sourceInfo?.last_synced;
-            return (
-              <div key={source} style={{
-                border: `1px solid ${T.gray200}`,
-                borderRadius: T.radius,
-                overflow: 'hidden',
-                background: T.white,
-                boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-                transition: 'box-shadow 0.15s ease, border-color 0.15s ease',
-              }}
-                onMouseEnter={e => {
-                  const el = e.currentTarget as HTMLDivElement;
-                  el.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)';
-                  el.style.borderColor = T.gray300;
-                }}
-                onMouseLeave={e => {
-                  const el = e.currentTarget as HTMLDivElement;
-                  el.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)';
-                  el.style.borderColor = T.gray200;
-                }}
-              >
-                {/* Card Header: source name + time badge + collapse button */}
-                <div style={{
-                  padding: '10px 14px',
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  background: brand.bg,
-                  borderBottom: `1px solid ${T.gray200}`,
-                  cursor: 'default',
-                }}
-                >
-                  {/* Source icon dot */}
-                  <div style={{
-                    width: 28, height: 28, borderRadius: 8,
-                    background: brand.color,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexShrink: 0,
-                  }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: T.white }}>
-                      {(SOURCE_LABELS[source] || source).charAt(0)}
-                    </span>
-                  </div>
-                  {/* Source name */}
-                  <span style={{ fontSize: 13, fontWeight: 700, color: brand.color, flex: 1 }}>
-                    {SOURCE_LABELS[source] || source}
-                  </span>
-                  {/* Count badge */}
-                  <span style={{
-                    fontSize: 9, color: brand.color,
-                    background: T.white, padding: '2px 6px', borderRadius: 6,
-                    fontWeight: 600,
-                  }}>
-                    {srcItems.length}条
-                  </span>
-                  {/* Refresh button */}
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      const btn = e.currentTarget as HTMLButtonElement;
-                      btn.disabled = true;
-                      try {
-                        const res = await fetch(`/api/v1/trending/sync/${source}`, { method: 'POST' });
-                        const data = await res.json();
-                        if (data.fetched > 0) {
-                          fetchList();
-                        }
-                      } finally {
-                        btn.disabled = false;
-                      }
-                    }}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      width: 24,
-                      height: 22,
-                      color: brand.color,
-                      background: T.white,
-                      border: `1px solid ${T.gray200}`, borderRadius: 6,
-                      cursor: 'pointer',
-                      padding: 0,
-                    }}
-                    title="刷新此榜单"
-                  >
-                    <RefreshCw size={12} strokeWidth={2.2} />
-                  </button>
-                  {/* Last synced time */}
-                  {lastSynced && (
-                    <span style={{
-                      fontSize: 9, color: T.gray400,
-                      background: T.white, padding: '1px 5px', borderRadius: 4,
-                    }}>
-                      {formatTime(lastSynced)}
-                    </span>
-                  )}
-                </div>
-
-                {/* Ranked list */}
-                <div className="trending-scroll" style={{
-                  maxHeight: 460,
-                  overflowY: 'auto',
-                  scrollbarWidth: 'thin',
-                  scrollbarColor: `${T.gray300} transparent`,
-                }}>
-                  {srcItems.map((item, idx) => (
-                    <a
-                      key={item.id}
-                      href={item.url || '#'}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 8,
-                        padding: '7px 14px',
-                        textDecoration: 'none',
-                        background: idx < 3 ? T.gray50 : T.white,
-                        borderBottom: `1px solid ${T.gray100}`,
-                        transition: 'background 0.1s ease',
-                      }}
-                      onMouseEnter={e => {
-                        (e.currentTarget as HTMLAnchorElement).style.background = T.primaryLight;
-                      }}
-                      onMouseLeave={e => {
-                        (e.currentTarget as HTMLAnchorElement).style.background = idx < 3 ? T.gray50 : T.white;
-                      }}
-                    >
-                      {/* Rank number with color */}
-                      <span style={{
-                        width: 22, height: 22, borderRadius: 6,
-                        background: idx === 0
-                          ? 'linear-gradient(135deg, #FF6B35, #FF8F65)'
-                          : idx === 1
-                            ? 'linear-gradient(135deg, #FFA94D, #FFB870)'
-                            : idx === 2
-                              ? 'linear-gradient(135deg, #FFD59E, #FFE0B2)'
-                              : T.gray100,
-                        color: idx < 3 ? T.white : T.gray500,
-                        fontSize: 11, fontWeight: 700,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        flexShrink: 0,
-                        fontFamily: T.mono,
-                      }}>
-                        {idx + 1}
+            <div className="grid content-start gap-3.5 [grid-template-columns:repeat(auto-fill,minmax(360px,1fr))] max-md:grid-cols-1">
+              {Object.entries(groupedItems).map(([source, srcItems]) => {
+                const brand = sourceBrand(source);
+                const sourceInfo = sources.find(s => s.source === source);
+                const lastSynced = sourceInfo?.last_synced;
+                return (
+                  <Panel key={source} className="overflow-hidden shadow-sm transition hover:border-gray-300 hover:shadow-md">
+                    <div className="flex cursor-default items-center gap-2 border-b border-gray-200 px-3.5 py-2.5" style={{ background: brand.bg }}>
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm" style={{ background: brand.color }}>
+                        <span className="text-[13px] font-black text-white">
+                          {(SOURCE_LABELS[source] || source).charAt(0)}
+                        </span>
+                      </div>
+                      <span className="flex-1 text-[13px] font-black" style={{ color: brand.color }}>
+                        {SOURCE_LABELS[source] || source}
                       </span>
-                      {/* Title */}
-                      <span style={{
-                        flex: 1, fontSize: 12.5, color: T.gray800,
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        lineHeight: '1.4',
-                      }}>
-                        {item.title}
+                      <span className="rounded-xs bg-white px-1.5 py-0.5 text-[9px] font-black" style={{ color: brand.color }}>
+                        {srcItems.length}条
                       </span>
-                      {/* Hot value */}
-                      {item.hot_value > 0 && (
-                        <span style={{
-                          fontSize: 10, fontFamily: T.mono, fontWeight: 500,
-                          color: item.hot_value > 10000 ? T.primary : T.gray400,
-                          flexShrink: 0, whiteSpace: 'nowrap',
-                        }}>
-                          {item.hot_value >= 10000 ? `${(item.hot_value / 10000).toFixed(1)}万` : item.hot_value.toLocaleString()}
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const btn = e.currentTarget as HTMLButtonElement;
+                          btn.disabled = true;
+                          try {
+                            const res = await fetch(`/api/v1/trending/sync/${source}`, { method: 'POST' });
+                            const data = await res.json();
+                            if (data.fetched > 0) {
+                              fetchList();
+                            }
+                          } finally {
+                            btn.disabled = false;
+                          }
+                        }}
+                        className="inline-flex h-[22px] w-6 items-center justify-center rounded-xs border border-gray-200 bg-white p-0 transition disabled:cursor-wait disabled:opacity-60"
+                        style={{ color: brand.color }}
+                        title="刷新此榜单"
+                      >
+                        <RefreshCw size={12} strokeWidth={2.2} />
+                      </button>
+                      {lastSynced && (
+                        <span className="rounded bg-white px-1.5 py-px text-[9px] text-gray-400">
+                          {formatTime(lastSynced)}
                         </span>
                       )}
-                      {/* Trend badge */}
-                      <TrendBadge trend={item.trend} />
-                    </a>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
+                    </div>
+
+                    <div className="max-h-[460px] overflow-y-auto [scrollbar-color:#D1D5DB_transparent] [scrollbar-width:thin]">
+                      {srcItems.map((item, idx) => (
+                        <a
+                          key={item.id}
+                          href={item.url || '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={cx(
+                            'flex items-center gap-2 border-b border-gray-100 px-3.5 py-2 no-underline transition hover:bg-primary-light',
+                            idx < 3 ? 'bg-gray-50' : 'bg-white',
+                          )}
+                        >
+                          <span className={cx(
+                            'flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-xs font-mono text-[11px] font-black',
+                            idx === 0 ? 'bg-gradient-to-br from-primary to-[#FF8F65] text-white'
+                              : idx === 1 ? 'bg-gradient-to-br from-amber to-[#FFB870] text-white'
+                                : idx === 2 ? 'bg-gradient-to-br from-[#FFD59E] to-[#FFE0B2] text-white'
+                                  : 'bg-gray-100 text-gray-500',
+                          )}>
+                            {idx + 1}
+                          </span>
+                          <span className="flex-1 truncate text-[12.5px] leading-snug text-gray-800">
+                            {item.title}
+                          </span>
+                          {item.hot_value > 0 && (
+                            <span className={cx('shrink-0 whitespace-nowrap font-mono text-[10px] font-medium', item.hot_value > 10000 ? 'text-primary' : 'text-gray-400')}>
+                              {item.hot_value >= 10000 ? `${(item.hot_value / 10000).toFixed(1)}万` : item.hot_value.toLocaleString()}
+                            </span>
+                          )}
+                          <TrendBadge trend={item.trend} />
+                        </a>
+                      ))}
+                    </div>
+                  </Panel>
+                );
+              })}
             </div>
           )}
         </main>
 
-        <aside className="trending-sidebar">
-          <Surface>
+        <aside className="sticky top-4.5 flex min-w-0 flex-col gap-3 max-xl:static max-xl:row-start-1">
+          <Panel className="p-4">
             <PanelTitle icon={BarChart3} title="视图切换" hint={activeLabel} />
-            <div style={{ display: 'grid', gap: 8 }}>
+            <div className="grid gap-2">
               {[
                 { key: 'list' as const, label: '榜单扫描', desc: '按信源查看实时榜单' },
                 { key: 'resonance' as const, label: '共振发现', desc: '同一主题跨平台出现' },
@@ -1182,150 +750,127 @@ function TrendingPage() {
                 return (
                   <button
                     key={t.key}
+                    type="button"
                     onClick={() => setTab(t.key)}
-                    style={{
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: '10px 11px',
-                      borderRadius: T.radiusSm,
-                      border: `1px solid ${active ? T.primaryBorder : T.gray200}`,
-                      background: active ? T.primaryLight : T.white,
-                      cursor: 'pointer',
-                    }}
+                    className={cx(
+                      'w-full rounded-sm border px-3 py-2.5 text-left transition',
+                      active ? 'border-primary-border bg-primary-light' : 'border-gray-200 bg-white hover:border-gray-300',
+                    )}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: active ? T.primary : T.gray800 }}>{t.label}</span>
-                      {active && <span style={{ width: 7, height: 7, borderRadius: 999, background: T.primary }} />}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={cx('text-[13px] font-black', active ? 'text-primary' : 'text-gray-800')}>{t.label}</span>
+                      {active && <span className="h-2 w-2 rounded-full bg-primary" />}
                     </div>
-                    <div style={{ marginTop: 3, fontSize: 11, lineHeight: 1.45, color: T.gray400 }}>{t.desc}</div>
+                    <div className="mt-1 text-[11px] leading-5 text-gray-400">{t.desc}</div>
                   </button>
                 );
               })}
             </div>
-          </Surface>
+          </Panel>
 
           {tab === 'list' && (
-            <Surface>
+            <Panel className="p-4">
               <PanelTitle icon={Filter} title="榜单筛选" hint={`${Object.keys(groupedItems).length} 个信源`} />
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 13 }}>
+              <div className="mb-3 flex flex-wrap gap-2">
                 {CATEGORIES.map(c => {
                   const active = selectedCategory === c.value;
-                  const catColor = c.value ? (CATEGORY_COLORS[c.value] || { bg: T.gray100, color: T.gray600 }) : { bg: T.primaryLight, color: T.primary };
+                  const catColor = c.value ? CATEGORY_COLORS[c.value] : CATEGORY_COLORS.hot;
                   return (
                     <button
                       key={c.value}
+                      type="button"
                       onClick={() => {
                         setSelectedCategory(c.value);
                         setSelectedSource('');
                       }}
-                      style={{
-                        padding: '5px 10px',
-                        fontSize: 12,
-                        fontWeight: active ? 800 : 600,
-                        background: active ? catColor.bg : T.white,
-                        color: active ? catColor.color : T.gray600,
-                        border: `1px solid ${active ? catColor.color : T.gray200}`,
-                        borderRadius: 999,
-                        cursor: 'pointer',
-                      }}
+                      className={cx(
+                        'rounded-full border px-2.5 py-1 text-xs transition',
+                        active ? `${catColor.bgClass} ${catColor.textClass} ${catColor.borderClass} font-black` : 'border-gray-200 bg-white font-semibold text-gray-600 hover:border-gray-300',
+                      )}
                     >
                       {c.label}
                     </button>
                   );
                 })}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 270, overflowY: 'auto' }}>
+              <div className="flex max-h-[270px] flex-col gap-2 overflow-y-auto">
                 {filteredSources.slice(0, 16).map(src => {
                   const brand = sourceBrand(src.source);
                   const active = selectedSource === src.source;
                   return (
                     <button
                       key={src.source}
+                      type="button"
                       onClick={() => setSelectedSource(active ? '' : src.source)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        width: '100%',
-                        padding: '7px 8px',
-                        borderRadius: T.radiusXs,
-                        border: `1px solid ${active ? brand.color : T.gray100}`,
-                        background: active ? brand.bg : T.gray50,
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                      }}
+                      className="flex w-full items-center gap-2 rounded-xs border px-2 py-1.5 text-left transition"
+                      style={{ borderColor: active ? brand.color : '#F3F4F6', background: active ? brand.bg : '#FAFAFA' }}
                     >
-                      <span style={{ width: 8, height: 8, borderRadius: 999, background: brand.color, flexShrink: 0 }} />
-                      <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 700, color: T.gray700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: brand.color }} />
+                      <span className="min-w-0 flex-1 truncate text-xs font-bold text-gray-700">
                         {brand.label}
                       </span>
-                      <span style={{ fontSize: 10, color: T.gray400, fontFamily: T.mono }}>
+                      <span className="font-mono text-[10px] text-gray-400">
                         {(groupedItems[src.source] || []).length}
                       </span>
                     </button>
                   );
                 })}
               </div>
-            </Surface>
+            </Panel>
           )}
 
           {tab === 'resonance' && (
-            <Surface>
+            <Panel className="p-4">
               <PanelTitle icon={Activity} title="共振阈值" hint={`${clusters.length} 个话题`} />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 7 }}>
+              <div className="grid grid-cols-5 gap-2">
                 {[1, 2, 3, 4, 5].map(r => {
                   const active = minResonance === r;
+                  const meta = RESONANCE_COLORS[r] || RESONANCE_COLORS[2];
                   return (
                     <button
                       key={r}
+                      type="button"
                       onClick={() => setMinResonance(r)}
-                      style={{
-                        padding: '8px 0',
-                        fontSize: 12,
-                        fontWeight: active ? 900 : 700,
-                        background: active ? (RESONANCE_COLORS[r]?.bg || T.gray100) : T.white,
-                        color: active ? (RESONANCE_COLORS[r]?.color || T.gray900) : T.gray500,
-                        border: `1px solid ${active ? (RESONANCE_COLORS[r]?.color || T.primary) : T.gray200}`,
-                        borderRadius: T.radiusXs,
-                        cursor: 'pointer',
-                        fontFamily: T.mono,
-                      }}
+                      className={cx(
+                        'rounded-xs border py-2 font-mono text-xs transition',
+                        active ? `${meta.bgClass} ${meta.textClass} ${meta.borderClass} font-black` : 'border-gray-200 bg-white font-bold text-gray-500 hover:border-gray-300',
+                      )}
                     >
                       {r}+
                     </button>
                   );
                 })}
               </div>
-              <p style={{ fontSize: 11, color: T.gray400, lineHeight: 1.6, margin: '12px 0 0' }}>
+              <p className="mt-3 text-[11px] leading-5 text-gray-400">
                 阈值越高，越偏向社会级话题；阈值越低，更适合捕捉早期扩散苗头。
               </p>
-            </Surface>
+            </Panel>
           )}
 
-          <Surface>
+          <Panel className="p-4">
             <PanelTitle icon={Rss} title="信源构成" hint={`${items.length} 条`} />
             {topSources.length === 0 ? (
-              <div style={{ fontSize: 12, color: T.gray400 }}>暂无样本</div>
+              <div className="text-xs text-gray-400">暂无样本</div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              <div className="flex flex-col gap-2.5">
                 {topSources.map(([source, srcItems]) => {
                   const brand = sourceBrand(source);
                   const width = Math.max(8, Math.round((srcItems.length / Math.max(items.length, 1)) * 100));
                   return (
                     <div key={source}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: T.gray700 }}>{brand.label}</span>
-                        <span style={{ fontSize: 11, color: T.gray400, fontFamily: T.mono }}>{srcItems.length}</span>
+                      <div className="mb-1 flex justify-between gap-2">
+                        <span className="text-xs font-bold text-gray-700">{brand.label}</span>
+                        <span className="font-mono text-[11px] text-gray-400">{srcItems.length}</span>
                       </div>
-                      <div style={{ height: 6, borderRadius: 999, background: T.gray100, overflow: 'hidden' }}>
-                        <div style={{ width: `${width}%`, height: '100%', borderRadius: 999, background: brand.color }} />
+                      <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
+                        <div className="h-full rounded-full" style={{ width: `${width}%`, background: brand.color }} />
                       </div>
                     </div>
                   );
                 })}
               </div>
             )}
-          </Surface>
+          </Panel>
         </aside>
       </div>
     </div>
@@ -1334,7 +879,7 @@ function TrendingPage() {
 
 export default function TrendingPageWrapper() {
   return (
-    <Suspense fallback={<div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>加载中...</div>}>
+    <Suspense fallback={<div className="p-20 text-center text-sm text-gray-400">加载中...</div>}>
       <TrendingPage />
     </Suspense>
   );

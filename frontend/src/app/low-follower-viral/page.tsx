@@ -12,17 +12,16 @@ import {
   Layers3,
   Radar,
   SlidersHorizontal,
-  Sparkles,
   Star,
   Target,
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { CATEGORIES, T } from '@/lib/design-tokens';
 import { viralApi } from '@/lib/api';
 import { useAppContext } from '@/components/ClientLayout';
 import CategoryChip from '@/components/CategoryChip';
 import AnalysisPanel from '@/components/AnalysisPanel';
+import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
 import type { ContentAnalysis, ContentItem } from '@/types';
 
 const TIME_RANGES = [
@@ -32,6 +31,7 @@ const TIME_RANGES = [
 ] as const;
 
 const PAGE_SIZE = 20;
+const CATEGORY_OPTIONS = ['AI', '职场', '商业', '教育', '自媒体', '科技', '生活', '产品'] as const;
 
 type AnalysisWithMeta = ContentAnalysis & { _content_id?: number };
 
@@ -81,61 +81,32 @@ export default function LowFollowerViralPage() {
   };
 
   return (
-    <div className="fade-in" style={{
-      minHeight: '100%',
-      overflowY: 'auto',
-      padding: '0 40px 48px',
-      background: 'linear-gradient(180deg, #F8FAFC 0%, #F4F6F8 42%, #EEF2F5 100%)',
-    }}>
-      <div style={{
-        position: 'sticky',
-        top: 0,
-        zIndex: 4,
-        margin: '0 -40px',
-        padding: '18px 40px',
-        background: 'rgba(248, 250, 252, 0.92)',
-        borderBottom: `1px solid ${T.gray200}`,
-        backdropFilter: 'blur(14px)',
-      }}>
-        <div style={{ maxWidth: 1180, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 18 }}>
+    <div className="fade-in min-h-full overflow-y-auto bg-page px-10 pb-12">
+      <div className="sticky top-0 z-10 -mx-10 border-b border-gray-200 bg-page/95 px-10 py-[18px] backdrop-blur">
+        <div className="mx-auto flex max-w-[1180px] items-center justify-between gap-[18px]">
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <h1 style={{ fontSize: 20, fontWeight: 900, color: T.gray900 }}>低粉爆文</h1>
-              <span style={{
-                fontSize: 10,
-                fontWeight: 800,
-                color: T.primary,
-                background: T.primaryLight,
-                border: `1px solid ${T.primaryBorder}`,
-                padding: '3px 8px',
-                borderRadius: 999,
-                fontFamily: T.mono,
-              }}>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-xl font-black text-gray-900">低粉爆文</h1>
+              <Badge tone="primary" className="font-mono text-[10px]">
                 BREAKOUT RADAR
-              </span>
+              </Badge>
             </div>
-            <p style={{ marginTop: 3, fontSize: 12, color: T.gray400 }}>
+            <p className="mt-1 text-xs text-gray-400">
               发现低权威来源里的高传播样本，优先捕捉小号突破信号
             </p>
           </div>
-          <div style={{ display: 'flex', gap: 6, background: T.gray100, borderRadius: T.radiusSm, padding: 4 }}>
+          <div className="flex gap-1.5 rounded-sm bg-gray-100 p-1">
             {TIME_RANGES.map((range) => {
               const active = hours === range.value;
               return (
                 <button
                   key={range.value}
+                  type="button"
                   onClick={() => setHours(range.value)}
-                  style={{
-                    border: 'none',
-                    borderRadius: T.radiusXs,
-                    background: active ? T.white : 'transparent',
-                    color: active ? T.primary : T.gray500,
-                    boxShadow: active ? '0 1px 3px rgba(15,23,42,0.08)' : 'none',
-                    padding: '6px 10px',
-                    fontSize: 11,
-                    fontWeight: active ? 900 : 700,
-                    cursor: 'pointer',
-                  }}
+                  className={cx(
+                    'rounded-xs border-0 px-2.5 py-1.5 text-[11px] font-bold transition',
+                    active ? 'bg-white font-black text-primary shadow-sm' : 'bg-transparent text-gray-500 hover:text-gray-700',
+                  )}
                 >
                   {range.label}
                 </button>
@@ -145,20 +116,13 @@ export default function LowFollowerViralPage() {
         </div>
       </div>
 
-      <div style={{
-        maxWidth: 1180,
-        margin: '24px auto 0',
-        display: 'grid',
-        gridTemplateColumns: 'minmax(0, 1fr) 260px',
-        gap: 18,
-        alignItems: 'start',
-      }}>
-        <main style={{ minWidth: 0 }}>
-          <section style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10, marginBottom: 16 }}>
-            <StatCard icon={Radar} label="突破样本" value={total} hint={`${startItem}-${endItem}`} color={T.primary} />
-            <StatCard icon={Gauge} label="平均 LFV" value={avgLfv || '-'} hint="当前页" color={T.teal} />
-            <StatCard icon={Zap} label="强突破" value={strongCount} hint="LFV >= 40" color={T.amber} />
-            <StatCard icon={Layers3} label="来源数" value={sourceCount} hint={`${lowAuthorityCount} 个低权威信号`} color={T.purple} />
+      <div className="mx-auto mt-6 grid max-w-[1180px] items-start gap-[18px] lg:grid-cols-[minmax(0,1fr)_260px]">
+        <main className="min-w-0">
+          <section className="mb-4 grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard icon={Radar} label="突破样本" value={total} hint={`${startItem}-${endItem}`} tone="primary" />
+            <StatCard icon={Gauge} label="平均 LFV" value={avgLfv || '-'} hint="当前页" tone="teal" />
+            <StatCard icon={Zap} label="强突破" value={strongCount} hint="LFV >= 40" tone="amber" />
+            <StatCard icon={Layers3} label="来源数" value={sourceCount} hint={`${lowAuthorityCount} 个低权威信号`} tone="purple" />
           </section>
 
           {topItem && !loading && (
@@ -166,14 +130,14 @@ export default function LowFollowerViralPage() {
           )}
 
           {loading ? (
-            <div style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 80, textAlign: 'center', color: T.gray400 }}>
-              <Sparkles size={30} style={{ marginBottom: 12, opacity: 0.5 }} />
-              <div style={{ fontSize: 14 }}>扫描突破样本...</div>
-            </div>
+            <Panel className="p-20 text-center text-gray-400">
+              <Radar size={30} className="mx-auto mb-3 opacity-50" />
+              <div className="text-sm">扫描突破样本...</div>
+            </Panel>
           ) : items.length === 0 ? (
             <EmptyState />
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="flex flex-col gap-2.5">
               {items.map((item, index) => (
                 <BreakoutCard
                   key={item.id}
@@ -192,7 +156,7 @@ export default function LowFollowerViralPage() {
           )}
         </main>
 
-        <aside style={{ position: 'sticky', top: 88, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <aside className="sticky top-[88px] flex flex-col gap-3.5">
           <FilterPanel category={category} setCategory={setCategory} />
           <SignalPanel items={items} />
         </aside>
@@ -210,23 +174,29 @@ function StatCard({
   label,
   value,
   hint,
-  color,
+  tone,
 }: {
   icon: LucideIcon;
   label: string;
   value: number | string;
   hint: string;
-  color: string;
+  tone: 'primary' | 'teal' | 'amber' | 'purple';
 }) {
+  const toneClass = {
+    primary: 'text-primary',
+    teal: 'text-teal',
+    amber: 'text-amber',
+    purple: 'text-purple',
+  }[tone];
   return (
-    <div style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: '15px 16px', minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <Icon size={15} color={color} strokeWidth={2.2} />
-        <span style={{ fontSize: 12, color: T.gray500, fontWeight: 800 }}>{label}</span>
+    <Panel className="min-w-0 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <Icon size={15} className={toneClass} strokeWidth={2.2} />
+        <span className="text-xs font-extrabold text-gray-500">{label}</span>
       </div>
-      <div style={{ fontSize: 28, lineHeight: 1, fontWeight: 900, fontFamily: T.mono, color: T.gray900 }}>{value}</div>
-      <div style={{ marginTop: 6, fontSize: 11, color: T.gray400 }}>{hint}</div>
-    </div>
+      <div className="font-mono text-[28px] font-black leading-none text-gray-900">{value}</div>
+      <div className="mt-1.5 text-[11px] text-gray-400">{hint}</div>
+    </Panel>
   );
 }
 
@@ -248,69 +218,32 @@ function HeroBreakout({
   const reason = analysis?.recommendation || analysis?.recommended_reason || item.summary || '';
 
   return (
-    <section style={{
-      position: 'relative',
-      overflow: 'hidden',
-      background: T.white,
-      color: T.gray900,
-      borderRadius: T.radius,
-      border: `1px solid ${T.gray200}`,
-      padding: '22px 24px',
-      marginBottom: 16,
-      boxShadow: '0 16px 38px rgba(15, 23, 42, 0.06)',
-    }}>
-      <div style={{
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        bottom: 0,
-        width: 4,
-        background: `linear-gradient(180deg, ${T.primary}, ${T.teal})`,
-      }} />
-      <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 132px', gap: 20 }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-            <span style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              fontSize: 11,
-              fontWeight: 900,
-              color: T.primary,
-              background: T.primaryLight,
-              border: `1px solid ${T.primaryBorder}`,
-              padding: '3px 8px',
-              borderRadius: 999,
-            }}>
+    <Panel className="relative mb-4 overflow-hidden p-6 shadow-lg">
+      <div className="absolute bottom-0 left-0 top-0 w-1 bg-primary" />
+      <div className="relative grid gap-5 sm:grid-cols-[minmax(0,1fr)_132px]">
+        <div className="min-w-0">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Badge tone="primary" className="gap-1 text-[11px]">
               <Flame size={13} /> 最强突破
-            </span>
-            <span style={{ fontSize: 11, color: T.gray500 }}>{item.source_name}</span>
+            </Badge>
+            <span className="text-[11px] text-gray-500">{item.source_name}</span>
             <SignalPill label={`隐蔽 x${obscure.toFixed(2)}`} />
             <SignalPill label={`源权威 ${Math.round(authority)}`} />
           </div>
-          <h2 style={{ fontSize: 23, lineHeight: 1.38, fontWeight: 900, marginBottom: 10, color: T.gray900 }}>
+          <h2 className="mb-2.5 text-[23px] font-black leading-[1.38] text-gray-900">
             {item.title}
           </h2>
-          {reason && <p style={{ fontSize: 13, lineHeight: 1.75, color: T.gray600, maxWidth: 680 }}>{reason}</p>}
+          {reason && <p className="max-w-[680px] text-[13px] leading-7 text-gray-600">{reason}</p>}
           <ActionRow item={item} isFav={isFav} onFav={onFav} onOpen={onOpen} />
         </div>
-        <div style={{
-          alignSelf: 'stretch',
-          border: `1px solid ${T.primaryBorder}`,
-          borderRadius: T.radiusSm,
-          background: T.primaryLight,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-          <div style={{ fontSize: 11, color: T.gray500, marginBottom: 6 }}>LFV</div>
-          <div style={{ fontSize: 42, lineHeight: 1, fontWeight: 900, fontFamily: T.mono, color: T.primary }}>
+        <div className="flex self-stretch flex-col items-center justify-center rounded-sm border border-primary-border bg-primary-light">
+          <div className="mb-1.5 text-[11px] text-gray-500">LFV</div>
+          <div className="font-mono text-[42px] font-black leading-none text-primary">
             {score.toFixed(1)}
           </div>
         </div>
       </div>
-    </section>
+    </Panel>
   );
 }
 
@@ -332,68 +265,42 @@ function BreakoutCard({
   const authority = sourceWeight(item);
   const obscure = obscureFactor(item);
   const reason = analysis?.recommendation || analysis?.recommended_reason || item.summary || '';
+  const rankTone = score >= 40 ? 'bg-primary-light text-primary' : score >= 25 ? 'bg-amber-light text-amber' : 'bg-gray-100 text-gray-500';
+  const scoreTone = score >= 40 ? 'text-primary' : score >= 25 ? 'text-amber' : 'text-teal';
 
   return (
     <article
       onClick={() => analysis && onOpen(item)}
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '44px minmax(0, 1fr) 76px',
-        gap: 12,
-        alignItems: 'start',
-        background: T.white,
-        border: `1px solid ${T.gray200}`,
-        borderRadius: T.radius,
-        padding: '16px 18px',
-        cursor: analysis ? 'pointer' : 'default',
-        transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = T.primaryBorder;
-        e.currentTarget.style.boxShadow = '0 8px 24px rgba(15,23,42,0.07)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = T.gray200;
-        e.currentTarget.style.boxShadow = 'none';
-      }}
+      className={cx(
+        'grid grid-cols-[44px_minmax(0,1fr)_76px] items-start gap-3 rounded-lg border border-gray-200 bg-white px-[18px] py-4 transition hover:border-primary-border hover:shadow-lg',
+        analysis ? 'cursor-pointer' : 'cursor-default',
+      )}
     >
-      <div style={{
-        width: 34,
-        height: 34,
-        borderRadius: T.radiusSm,
-        background: score >= 40 ? T.primaryLight : score >= 25 ? T.amberLight : T.gray100,
-        color: score >= 40 ? T.primary : score >= 25 ? T.amber : T.gray500,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: 12,
-        fontWeight: 900,
-        fontFamily: T.mono,
-      }}>
+      <div className={cx('flex h-[34px] w-[34px] items-center justify-center rounded-sm font-mono text-xs font-black', rankTone)}>
         {rank}
       </div>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginBottom: 6 }}>
-          <span style={{ fontSize: 12, color: T.gray500, fontWeight: 800 }}>{item.source_name}</span>
+      <div className="min-w-0">
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-extrabold text-gray-500">{item.source_name}</span>
           {item.category && <SignalPill label={item.category} />}
           <SignalPill label={`源权威 ${Math.round(authority)}`} />
           <SignalPill label={`隐蔽 x${obscure.toFixed(2)}`} tone={authority <= 35 ? 'good' : 'muted'} />
         </div>
-        <h3 style={{ fontSize: 15, lineHeight: 1.45, fontWeight: 900, color: T.gray900, marginBottom: reason ? 7 : 0 }}>
+        <h3 className={cx('text-[15px] font-black leading-[1.45] text-gray-900', reason && 'mb-2')}>
           {item.title}
         </h3>
         {reason && (
-          <p style={{ fontSize: 12, color: T.gray500, lineHeight: 1.65, marginBottom: 10 }}>
+          <p className="mb-2.5 text-xs leading-6 text-gray-500">
             {reason}
           </p>
         )}
         <ActionRow item={item} isFav={isFav} onFav={onFav} onOpen={onOpen} />
       </div>
-      <div style={{ textAlign: 'right' }}>
-        <div style={{ fontSize: 24, lineHeight: 1, fontWeight: 900, color: score >= 40 ? T.primary : score >= 25 ? T.amber : T.teal, fontFamily: T.mono }}>
+      <div className="text-right">
+        <div className={cx('font-mono text-2xl font-black leading-none', scoreTone)}>
           {score.toFixed(1)}
         </div>
-        <div style={{ fontSize: 10, color: T.gray400, marginTop: 4 }}>LFV</div>
+        <div className="mt-1 text-[10px] text-gray-400">LFV</div>
       </div>
     </article>
   );
@@ -414,17 +321,19 @@ function ActionRow({
 }) {
   const analysis = getAnalysis(item);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: dark ? 16 : 0 }}>
+    <Toolbar className={cx('gap-2', dark && 'mt-4')}>
       {analysis && (
-        <button
+        <Button
+          type="button"
+          variant="secondary"
+          className="min-h-0 px-2.5 py-1 text-[11px]"
           onClick={(event) => {
             event.stopPropagation();
             onOpen(item);
           }}
-          style={actionStyle(dark)}
         >
           <Target size={13} /> 分析
-        </button>
+        </Button>
       )}
       {item.url && (
         <a
@@ -432,41 +341,26 @@ function ActionRow({
           target="_blank"
           rel="noopener noreferrer"
           onClick={(event) => event.stopPropagation()}
-          style={{ ...actionStyle(dark), textDecoration: 'none' }}
+          className="inline-flex items-center gap-1.5 rounded-xs border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-extrabold text-gray-600 no-underline transition hover:border-primary-border hover:text-primary"
         >
           原文 <ExternalLink size={13} />
         </a>
       )}
       <button
+        type="button"
         onClick={(event) => {
           event.stopPropagation();
           onFav(item.id);
         }}
-        style={{
-          ...actionStyle(dark),
-          color: isFav ? '#F59E0B' : dark ? '#CBD5E1' : T.gray400,
-        }}
+        className={cx(
+          'inline-flex items-center gap-1.5 rounded-xs border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-extrabold transition hover:border-primary-border',
+          isFav ? 'text-primary' : 'text-gray-400 hover:text-primary',
+        )}
       >
-        <Star size={13} fill={isFav ? '#F59E0B' : 'none'} /> 收藏
+        <Star size={13} fill={isFav ? '#FF6B35' : 'none'} /> 收藏
       </button>
-    </div>
+    </Toolbar>
   );
-}
-
-function actionStyle(dark: boolean): React.CSSProperties {
-  return {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 5,
-    border: dark ? '1px solid rgba(255,255,255,0.16)' : `1px solid ${T.gray200}`,
-    background: dark ? 'rgba(255,255,255,0.08)' : T.white,
-    color: dark ? '#E5E7EB' : T.gray600,
-    borderRadius: T.radiusXs,
-    padding: '5px 9px',
-    fontSize: 11,
-    fontWeight: 800,
-    cursor: 'pointer',
-  };
 }
 
 function FilterPanel({
@@ -477,41 +371,41 @@ function FilterPanel({
   setCategory: (value: string) => void;
 }) {
   return (
-    <section style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 16 }}>
+    <Panel className="p-4">
       <PanelTitle icon={SlidersHorizontal} title="侦测范围" />
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+      <div className="flex flex-wrap gap-1.5">
         <CategoryChip name="全部" active={!category} onClick={() => setCategory('')} />
-        {(CATEGORIES as readonly string[]).filter((item) => item !== '全部').map((item) => (
+        {CATEGORY_OPTIONS.map((item) => (
           <CategoryChip key={item} name={item} active={category === item} onClick={() => setCategory(category === item ? '' : item)} />
         ))}
       </div>
-    </section>
+    </Panel>
   );
 }
 
 function SignalPanel({ items }: { items: ContentItem[] }) {
   const rows = [
-    { label: '强突破', value: items.filter((item) => lfvScore(item) >= 40).length, color: T.primary },
-    { label: '低权威源', value: items.filter((item) => sourceWeight(item) <= 35).length, color: T.teal },
-    { label: '隐蔽高', value: items.filter((item) => obscureFactor(item) >= 0.6).length, color: T.amber },
+    { label: '强突破', value: items.filter((item) => lfvScore(item) >= 40).length, className: 'bg-primary' },
+    { label: '低权威源', value: items.filter((item) => sourceWeight(item) <= 35).length, className: 'bg-teal' },
+    { label: '隐蔽高', value: items.filter((item) => obscureFactor(item) >= 0.6).length, className: 'bg-amber' },
   ];
 
   return (
-    <section style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 16 }}>
+    <Panel className="p-4">
       <PanelTitle icon={BarChart3} title="突破信号" />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="flex flex-col gap-2.5">
         {rows.map((row) => (
-          <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 999, background: row.color }} />
-            <span style={{ flex: 1, fontSize: 12, color: T.gray600 }}>{row.label}</span>
-            <span style={{ fontSize: 13, fontWeight: 900, color: T.gray900, fontFamily: T.mono }}>{row.value}</span>
+          <div key={row.label} className="flex items-center gap-2">
+            <span className={cx('h-2 w-2 shrink-0 rounded-full', row.className)} />
+            <span className="flex-1 text-xs text-gray-600">{row.label}</span>
+            <span className="font-mono text-[13px] font-black text-gray-900">{row.value}</span>
           </div>
         ))}
       </div>
-      <div style={{ marginTop: 13, paddingTop: 12, borderTop: `1px solid ${T.gray100}`, fontSize: 12, color: T.gray500, lineHeight: 1.7 }}>
+      <div className="mt-3 border-t border-gray-100 pt-3 text-xs leading-7 text-gray-500">
         LFV 越高，说明内容在低权威来源中越可能完成了异常传播。
       </div>
-    </section>
+    </Panel>
   );
 }
 
@@ -532,26 +426,22 @@ function Pagination({
   });
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24 }}>
+    <div className="mt-6 flex items-center justify-between gap-3">
       <PageButton disabled={page === 1} onClick={() => onPage((current) => Math.max(1, current - 1))}>
         <ChevronLeft size={14} /> 上一页
       </PageButton>
-      <div style={{ display: 'flex', gap: 5 }}>
+      <div className="flex gap-1">
         {pageNumbers.map((pageNumber) => (
           <button
             key={pageNumber}
+            type="button"
             onClick={() => onPage(pageNumber)}
-            style={{
-              width: 32,
-              height: 32,
-              fontSize: 13,
-              fontWeight: page === pageNumber ? 900 : 700,
-              background: page === pageNumber ? T.primary : T.white,
-              color: page === pageNumber ? T.white : T.gray600,
-              border: `1px solid ${page === pageNumber ? T.primaryBorder : T.gray200}`,
-              borderRadius: T.radiusSm,
-              cursor: 'pointer',
-            }}
+            className={cx(
+              'h-8 w-8 rounded-sm border text-[13px] transition',
+              page === pageNumber
+                ? 'border-primary-border bg-primary font-black text-white'
+                : 'border-gray-200 bg-white font-bold text-gray-600 hover:border-primary-border hover:text-primary',
+            )}
           >
             {pageNumber}
           </button>
@@ -574,43 +464,33 @@ function PageButton({
   children: React.ReactNode;
 }) {
   return (
-    <button
+    <Button
+      type="button"
       onClick={onClick}
       disabled={disabled}
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 5,
-        padding: '8px 14px',
-        fontSize: 13,
-        fontWeight: 800,
-        background: disabled ? T.gray50 : T.white,
-        color: disabled ? T.gray300 : T.gray700,
-        border: `1px solid ${T.gray200}`,
-        borderRadius: T.radiusSm,
-        cursor: disabled ? 'not-allowed' : 'pointer',
-      }}
+      variant="secondary"
+      className={cx('px-3.5 py-2 text-[13px]', disabled && 'cursor-not-allowed bg-gray-50 text-gray-300')}
     >
       {children}
-    </button>
+    </Button>
   );
 }
 
 function EmptyState() {
   return (
-    <div style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 80, textAlign: 'center', color: T.gray400 }}>
-      <Inbox size={32} style={{ marginBottom: 10, opacity: 0.5 }} />
-      <div style={{ fontSize: 15, fontWeight: 900, color: T.gray700 }}>暂无低粉爆文数据</div>
-      <div style={{ marginTop: 6, fontSize: 12 }}>可以放宽时间窗口或分类范围。</div>
-    </div>
+    <Panel className="p-20 text-center text-gray-400">
+      <Inbox size={32} className="mx-auto mb-2.5 opacity-50" />
+      <div className="text-[15px] font-black text-gray-700">暂无低粉爆文数据</div>
+      <div className="mt-1.5 text-xs">可以放宽时间窗口或分类范围。</div>
+    </Panel>
   );
 }
 
 function PanelTitle({ icon: Icon, title }: { icon: LucideIcon; title: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 13 }}>
-      <Icon size={15} color={T.primary} strokeWidth={2.2} />
-      <span style={{ fontSize: 14, fontWeight: 900, color: T.gray900 }}>{title}</span>
+    <div className="mb-3 flex items-center gap-2">
+      <Icon size={15} className="text-primary" strokeWidth={2.2} />
+      <span className="text-sm font-black text-gray-900">{title}</span>
     </div>
   );
 }
@@ -625,16 +505,16 @@ function SignalPill({
   dark?: boolean;
 }) {
   return (
-    <span style={{
-      fontSize: 10,
-      fontWeight: 800,
-      color: dark ? '#CBD5E1' : tone === 'good' ? T.teal : T.gray500,
-      background: dark ? 'rgba(255,255,255,0.08)' : tone === 'good' ? T.tealLight : T.gray100,
-      border: dark ? '1px solid rgba(255,255,255,0.1)' : `1px solid ${tone === 'good' ? T.tealBorder : T.gray200}`,
-      padding: '2px 7px',
-      borderRadius: 999,
-      whiteSpace: 'nowrap',
-    }}>
+    <span
+      className={cx(
+        'whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-extrabold',
+        dark
+          ? 'border-white/10 bg-white/10 text-gray-300'
+          : tone === 'good'
+            ? 'border-teal-border bg-teal-light text-teal'
+            : 'border-gray-200 bg-gray-100 text-gray-500',
+      )}
+    >
       {label}
     </span>
   );

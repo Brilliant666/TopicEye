@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { T } from '@/lib/design-tokens';
 
 interface HeaderProps {
   title: string;
@@ -12,20 +11,20 @@ interface HeaderProps {
 
 export default function Header({ title, subtitle, date, stats }: HeaderProps) {
   return (
-    <div style={{ marginBottom: 28, maxWidth: 820 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 6 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 700, color: T.gray900 }}>{title}</h1>
-        {date && <span style={{ fontSize: 14, color: T.gray400 }}>{date}</span>}
+    <div className="mb-7 max-w-[820px]">
+      <div className="mb-1.5 flex items-baseline gap-3">
+        <h1 className="text-[26px] font-bold text-gray-900">{title}</h1>
+        {date && <span className="text-sm text-gray-400">{date}</span>}
       </div>
       {subtitle && (
-        <p style={{ fontSize: 13, color: T.gray400 }}>{subtitle}</p>
+        <p className="text-[13px] text-gray-400">{subtitle}</p>
       )}
       {stats && stats.length > 0 && (
-        <div style={{ display: 'flex', gap: 16, fontSize: 13, color: T.gray500 }}>
+        <div className="flex gap-4 text-[13px] text-gray-500">
           {stats.map((s, i) => (
             <span key={i}>
               {s.label}{' '}
-              <b style={{ color: s.color || T.primary, fontFamily: T.mono }}>{s.value}</b>{' '}
+              <b className="font-mono" style={{ color: s.color || '#FF6B35' }}>{s.value}</b>{' '}
               条
             </span>
           ))}

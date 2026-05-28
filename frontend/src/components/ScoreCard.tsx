@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { T } from '@/lib/design-tokens';
+import { cx } from '@/components/ui';
 
 interface ScoreCardProps {
   label: string;
@@ -13,23 +13,23 @@ interface ScoreCardProps {
 export default function ScoreCard({ label, value, desc, isRisk }: ScoreCardProps) {
   const color = isRisk
     ? value > 70
-      ? T.red
+      ? 'text-red'
       : value > 50
-        ? T.amber
-        : T.teal
+        ? 'text-amber'
+        : 'text-teal'
     : value >= 80
-      ? T.primary
+      ? 'text-primary'
       : value >= 60
-        ? T.teal
-        : T.gray400;
+        ? 'text-teal'
+        : 'text-gray-400';
 
   return (
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: 32, fontWeight: 700, fontFamily: T.mono, color, lineHeight: 1 }}>
+    <div className="text-center">
+      <div className={cx('font-mono text-[32px] font-bold leading-none', color)}>
         {Math.round(value)}
       </div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginTop: 6 }}>{label}</div>
-      <div style={{ fontSize: 11, color: T.gray400, marginTop: 2 }}>{desc}</div>
+      <div className="mt-1.5 text-[13px] font-semibold text-gray-700">{label}</div>
+      <div className="mt-0.5 text-[11px] text-gray-400">{desc}</div>
     </div>
   );
 }

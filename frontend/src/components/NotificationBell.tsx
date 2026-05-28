@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Check, Info, X } from 'lucide-react';
+import { Bell, Check, Info, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { T } from '@/lib/design-tokens';
+import { cx } from '@/components/ui';
 
 interface Notification {
   id: number;
@@ -97,33 +97,17 @@ export default function NotificationBell() {
   };
 
   return (
-    <div ref={panelRef} style={{ position: 'relative' }}>
+    <div ref={panelRef} className="relative">
       {/* 铃铛按钮 */}
       <button
+        type="button"
         onClick={() => setOpen(!open)}
-        style={{
-          width: 36, height: 36, borderRadius: '50%',
-          background: open ? T.gray100 : 'transparent',
-          border: 'none', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          position: 'relative', transition: 'background 0.12s ease',
-        }}
+        className={cx('relative flex h-9 w-9 items-center justify-center rounded-full border-0 transition', open ? 'bg-gray-100' : 'bg-transparent hover:bg-gray-100')}
       >
-        {/* 铃铛 SVG */}
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.gray600} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-        </svg>
+        <Bell size={18} className="text-gray-600" strokeWidth={2} />
         {/* 未读数角标 */}
         {unreadCount > 0 && (
-          <span style={{
-            position: 'absolute', top: 4, right: 4,
-            minWidth: 16, height: 16, borderRadius: 8,
-            background: '#EF4444', color: '#fff',
-            fontSize: 10, fontWeight: 700, fontFamily: T.mono,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: '0 4px',
-          }}>
+          <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red px-1 font-mono text-[10px] font-bold text-white">
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
         )}
@@ -131,32 +115,17 @@ export default function NotificationBell() {
 
       {/* 通知面板 */}
       {open && (
-        <div style={{
-          position: 'absolute', top: 44, right: 0,
-          width: 360, maxHeight: 480,
-          background: T.white,
-          border: `1px solid ${T.gray200}`,
-          borderRadius: T.radius,
-          boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
-          overflow: 'hidden',
-          zIndex: 1000,
-        }}>
+        <div className="absolute right-0 top-11 z-[1000] max-h-[480px] w-[360px] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
           {/* 头部 */}
-          <div style={{
-            padding: '12px 16px',
-            borderBottom: `1px solid ${T.gray100}`,
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: T.gray900 }}>
+          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+            <span className="text-sm font-bold text-gray-900">
               通知
             </span>
             {unreadCount > 0 && (
               <button
+                type="button"
                 onClick={markAllRead}
-                style={{
-                  fontSize: 11, color: T.primary, background: 'none',
-                  border: 'none', cursor: 'pointer', fontWeight: 500,
-                }}
+                className="border-0 bg-transparent text-[11px] font-medium text-primary"
               >
                 全部已读
               </button>
@@ -164,12 +133,9 @@ export default function NotificationBell() {
           </div>
 
           {/* 通知列表 */}
-          <div style={{ maxHeight: 400, overflow: 'auto' }}>
+          <div className="max-h-[400px] overflow-auto">
             {notifications.length === 0 ? (
-              <div style={{
-                padding: '40px 0', textAlign: 'center',
-                fontSize: 13, color: T.gray400,
-              }}>
+              <div className="py-10 text-center text-[13px] text-gray-400">
                 暂无通知
               </div>
             ) : (
@@ -180,53 +146,27 @@ export default function NotificationBell() {
                   <div
                     key={n.id}
                     onClick={() => { if (!n.is_read) void markRead(n.id); }}
-                    style={{
-                      padding: '12px 16px',
-                      borderBottom: `1px solid ${T.gray50}`,
-                      background: n.is_read ? 'transparent' : '#FAFAFE',
-                      cursor: n.is_read ? 'default' : 'pointer',
-                      transition: 'background 0.1s ease',
-                    }}
+                    className={cx('border-b border-gray-50 px-4 py-3 transition', n.is_read ? 'cursor-default bg-transparent' : 'cursor-pointer bg-[#FAFAFE]')}
                   >
-                    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    <div className="flex items-start gap-2.5">
                       {/* 类型图标 */}
-                      <div style={{
-                        width: 22, height: 22, borderRadius: '50%',
-                        background: ts.bg, color: ts.color,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        flexShrink: 0,
-                      }}>
+                      <div className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full" style={{ background: ts.bg, color: ts.color }}>
                         <Icon size={13} strokeWidth={2.2} />
                       </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{
-                          fontSize: 13, fontWeight: n.is_read ? 400 : 600,
-                          color: T.gray900,
-                          overflow: 'hidden', textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}>
+                      <div className="min-w-0 flex-1">
+                        <div className={cx('truncate text-[13px] text-gray-900', n.is_read ? 'font-normal' : 'font-semibold')}>
                           {n.title}
                         </div>
-                        <div style={{
-                          fontSize: 12, color: T.gray500, marginTop: 2,
-                          overflow: 'hidden', textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}>
+                        <div className="mt-0.5 truncate text-xs text-gray-500">
                           {n.message}
                         </div>
-                        <div style={{
-                          fontSize: 10, color: T.gray400, marginTop: 4,
-                          fontFamily: T.mono,
-                        }}>
+                        <div className="mt-1 font-mono text-[10px] text-gray-400">
                           {formatTime(n.created_at)}
                         </div>
                       </div>
                       {/* 未读指示点 */}
                       {!n.is_read && (
-                        <div style={{
-                          width: 8, height: 8, borderRadius: '50%',
-                          background: T.primary, flexShrink: 0, marginTop: 6,
-                        }} />
+                        <div className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" />
                       )}
                     </div>
                   </div>

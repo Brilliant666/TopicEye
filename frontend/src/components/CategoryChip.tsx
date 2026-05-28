@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { T } from '@/lib/design-tokens';
+import { cx } from '@/components/ui';
 
 interface CategoryChipProps {
   name: string;
@@ -12,18 +12,12 @@ interface CategoryChipProps {
 export default function CategoryChip({ name, active, onClick }: CategoryChipProps) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      style={{
-        padding: '6px 16px',
-        fontSize: 13,
-        fontWeight: active ? 600 : 400,
-        color: active ? T.white : T.gray600,
-        background: active ? T.primary : T.white,
-        border: active ? 'none' : `1px solid ${T.gray200}`,
-        borderRadius: 20,
-        cursor: 'pointer',
-        transition: 'all 0.2s ease',
-      }}
+      className={cx(
+        'rounded-full border px-4 py-1.5 text-[13px] transition',
+        active ? 'border-primary bg-primary font-semibold text-white' : 'border-gray-200 bg-white font-normal text-gray-600 hover:border-primary-border hover:text-primary',
+      )}
     >
       {name}
     </button>

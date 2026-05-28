@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { T } from '@/lib/design-tokens';
+import { cx } from '@/components/ui';
 
 interface ScoreBarProps {
   label: string;
@@ -11,42 +11,20 @@ interface ScoreBarProps {
 
 export default function ScoreBar({ label, value, maxVal = 100 }: ScoreBarProps) {
   const pct = Math.min((value / maxVal) * 100, 100);
-  const barColor = value >= 80 ? T.primary : value >= 60 ? T.teal : T.gray400;
+  const barColor = value >= 80 ? 'bg-primary' : value >= 60 ? 'bg-teal' : 'bg-gray-400';
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 12, color: T.gray500, width: 28, flexShrink: 0 }}>
+    <div className="flex items-center gap-2">
+      <span className="w-7 shrink-0 text-xs text-gray-500">
         {label}
       </span>
-      <div
-        style={{
-          flex: 1,
-          height: 4,
-          background: T.gray200,
-          borderRadius: 2,
-          overflow: 'hidden',
-        }}
-      >
+      <div className="h-1 flex-1 overflow-hidden rounded-full bg-gray-200">
         <div
-          style={{
-            width: `${pct}%`,
-            height: '100%',
-            borderRadius: 2,
-            background: barColor,
-            transition: 'width 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
-          }}
+          className={cx('h-full rounded-full transition-[width] duration-700 ease-out', barColor)}
+          style={{ width: `${pct}%` }}
         />
       </div>
-      <span
-        style={{
-          fontSize: 12,
-          fontFamily: T.mono,
-          fontWeight: 500,
-          color: T.gray700,
-          width: 22,
-          textAlign: 'right',
-        }}
-      >
+      <span className="w-[22px] text-right font-mono text-xs font-medium text-gray-700">
         {value}
       </span>
     </div>

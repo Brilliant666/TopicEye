@@ -21,7 +21,7 @@ import {
   UserRound,
   type LucideIcon,
 } from 'lucide-react';
-import { T } from '@/lib/design-tokens';
+import { cx } from '@/components/ui';
 
 interface SidebarProps {
   topicCount?: number;
@@ -102,59 +102,25 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0,
 
   return (
     <div
-      style={{
-        width: compact ? 72 : 220,
-        height: '100vh',
-        background: T.white,
-        borderRight: `1px solid ${T.gray200}`,
-        display: 'flex',
-        flexDirection: 'column',
-        flexShrink: 0,
-        position: 'relative',
-        userSelect: 'none',
-      }}
+      className="relative flex h-screen shrink-0 select-none flex-col border-r border-gray-200 bg-white"
+      style={{ width: compact ? 72 : 220 }}
     >
       {/* Brand */}
-      <div style={{ padding: compact ? '24px 14px 28px' : '28px 24px 32px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: compact ? 'center' : 'flex-start' }}>
-          <div style={{ position: 'relative', width: 28, height: 28 }}>
+      <div className={compact ? 'px-3.5 pb-7 pt-6' : 'px-6 pb-8 pt-7'}>
+        <div className={cx('flex items-center gap-2.5', compact ? 'justify-center' : 'justify-start')}>
+          <div className="relative h-7 w-7">
             {/* Radar icon */}
-            <div
-              style={{
-                width: 28,
-                height: 28,
-                borderRadius: '50%',
-                background: `linear-gradient(135deg, ${T.primary}, #FF8F65)`,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Radar size={16} color={T.white} strokeWidth={2.4} />
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-primary to-[#FF8F65]">
+              <Radar size={16} className="text-white" strokeWidth={2.4} />
             </div>
             {/* Ping */}
-            <div
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: 28,
-                height: 28,
-                borderRadius: '50%',
-                border: `2px solid ${T.primary}`,
-                animation: 'radar-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite',
-              }}
-            />
+            <div className="absolute left-0 top-0 h-7 w-7 animate-radar-ping rounded-full border-2 border-primary" />
           </div>
           {!compact && <div>
-            <div
-              style={{ fontSize: 17, fontWeight: 700, color: T.gray900, lineHeight: 1.2 }}
-            >
+            <div className="text-[17px] font-bold leading-tight text-gray-900">
               选题雷达
             </div>
-            <div
-              style={{ fontSize: 10, color: T.gray400, letterSpacing: '0.08em', marginTop: 1 }}
-            >
+            <div className="mt-px text-[10px] tracking-[0.08em] text-gray-400">
               TOPIC RADAR
             </div>
           </div>}
@@ -162,17 +128,11 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0,
       </div>
 
       {/* Navigation */}
-      <nav style={{ flex: 1, padding: compact ? '0 10px' : '0 12px', overflowY: 'auto' }}>
+      <nav className={cx('flex-1 overflow-y-auto', compact ? 'px-2.5' : 'px-3')}>
         {navSpaces.map((space) => (
-          <div key={space.id} style={{ marginBottom: compact ? 12 : 18 }}>
+          <div key={space.id} className={compact ? 'mb-3' : 'mb-4.5'}>
             {!compact && (
-              <div style={{
-                fontSize: 11,
-                fontWeight: 700,
-                color: T.gray400,
-                padding: '0 12px 7px',
-                letterSpacing: '0.08em',
-              }}>
+              <div className="px-3 pb-2 text-[11px] font-bold tracking-[0.08em] text-gray-400">
                 {space.label}
               </div>
             )}
@@ -182,42 +142,21 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0,
               return (
                 <button
                   key={item.id}
+                  type="button"
                   title={compact ? item.label : undefined}
                   onClick={() => router.push(item.href)}
-                  style={{
-                    width: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: compact ? 'center' : 'space-between',
-                    padding: compact ? '10px 0' : '9px 12px',
-                    marginBottom: 2,
-                    fontSize: 14,
-                    fontWeight: active ? 600 : 400,
-                    color: active ? T.primary : T.gray600,
-                    background: active ? T.primaryLight : 'transparent',
-                    border: 'none',
-                    borderRadius: T.radiusSm,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    textAlign: 'left',
-                  }}
+                  className={cx(
+                    'mb-0.5 flex w-full items-center rounded-sm border-0 text-sm transition',
+                    compact ? 'justify-center px-0 py-2.5' : 'justify-between px-3 py-2.5 text-left',
+                    active ? 'bg-primary-light font-semibold text-primary' : 'bg-transparent font-normal text-gray-600 hover:bg-gray-50 hover:text-gray-900',
+                  )}
                 >
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className="flex items-center gap-2">
                     <Icon size={16} strokeWidth={active ? 2.2 : 1.8} />
                     {!compact && <span>{item.label}</span>}
                   </span>
                   {!compact && (item.count ?? 0) > 0 ? (
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontFamily: T.mono,
-                        fontWeight: 500,
-                        color: active ? T.primary : T.gray400,
-                        background: active ? 'rgba(255,107,53,0.12)' : T.gray100,
-                        padding: '1px 7px',
-                        borderRadius: 10,
-                      }}
-                    >
+                    <span className={cx('rounded-full px-2 py-px font-mono text-[11px] font-medium', active ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400')}>
                       {item.count}
                     </span>
                   ) : null}
@@ -229,27 +168,14 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0,
       </nav>
 
       {/* Bottom User Area */}
-      <div style={{ padding: compact ? '12px 10px 16px' : '12px 12px 16px', borderTop: `1px solid ${T.gray100}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: compact ? 0 : '0 12px', justifyContent: compact ? 'center' : 'flex-start' }}>
-          <div
-            style={{
-              width: 28,
-              height: 28,
-              borderRadius: '50%',
-              background: `linear-gradient(135deg, ${T.teal}, #7DD3C0)`,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 12,
-              fontWeight: 600,
-              color: T.white,
-            }}
-          >
+      <div className={cx('border-t border-gray-100 pb-4 pt-3', compact ? 'px-2.5' : 'px-3')}>
+        <div className={cx('flex items-center gap-2', compact ? 'justify-center p-0' : 'justify-start px-3')}>
+          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-teal to-[#7DD3C0] text-xs font-semibold text-white">
             <UserRound size={14} strokeWidth={2} />
           </div>
           {!compact && <div>
-            <div style={{ fontSize: 12, fontWeight: 500, color: T.gray700 }}>创作者</div>
-            <div style={{ fontSize: 10, color: T.gray400 }}>免费版</div>
+            <div className="text-xs font-medium text-gray-700">创作者</div>
+            <div className="text-[10px] text-gray-400">免费版</div>
           </div>}
         </div>
       </div>

@@ -1,28 +1,31 @@
 'use client';
 
 import React from 'react';
-import { T, PLATFORM_COLOR_MAP } from '@/lib/design-tokens';
 
 interface PlatformTagProps {
   name: string;
 }
 
 export default function PlatformTag({ name }: PlatformTagProps) {
-  const c = PLATFORM_COLOR_MAP[name] || { bg: T.gray100, color: T.gray600 };
+  const c = PLATFORM_COLOR_MAP[name] || { bg: '#F3F4F6', color: '#4B5563' };
 
   return (
     <span
+      className="inline-block rounded px-2 py-0.5 text-[11px] font-medium"
       style={{
-        display: 'inline-block',
-        padding: '2px 8px',
-        fontSize: 11,
-        fontWeight: 500,
         color: c.color,
         background: c.bg,
-        borderRadius: 4,
       }}
     >
       {name}
     </span>
   );
 }
+
+const PLATFORM_COLOR_MAP: Record<string, { bg: string; color: string }> = {
+  公众号: { bg: '#EEF2FF', color: '#4F46E5' },
+  小红书: { bg: '#FFF1F2', color: '#E11D48' },
+  视频号: { bg: '#ECFDF5', color: '#059669' },
+  知乎: { bg: '#EFF6FF', color: '#2563EB' },
+  抖音: { bg: '#F5F3FF', color: '#7C3AED' },
+};

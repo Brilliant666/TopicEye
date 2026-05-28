@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import { T } from '@/lib/design-tokens';
 
 interface SectionTitleProps {
   children: React.ReactNode;
@@ -9,17 +8,7 @@ interface SectionTitleProps {
 
 export default function SectionTitle({ children }: SectionTitleProps) {
   return (
-    <h3
-      style={{
-        fontSize: 14,
-        fontWeight: 600,
-        color: T.gray800,
-        marginBottom: 14,
-        paddingBottom: 8,
-        borderBottom: `2px solid ${T.gray100}`,
-        letterSpacing: '0.02em',
-      }}
-    >
+    <h3 className="mb-3.5 border-b-2 border-gray-100 pb-2 text-sm font-semibold text-gray-800">
       {children}
     </h3>
   );

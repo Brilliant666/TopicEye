@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { LEVEL_CONFIG } from '@/lib/design-tokens';
+import { cx } from '@/components/ui';
 import type { RecommendLevel } from '@/types';
 
 interface LevelBadgeProps {
@@ -15,31 +15,24 @@ export default function LevelBadge({ level, size = 'normal' }: LevelBadgeProps) 
 
   return (
     <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 5,
-        padding: isSmall ? '2px 8px' : '4px 12px',
-        fontSize: isSmall ? 11 : 12,
-        fontWeight: 600,
-        color: cfg.color,
-        background: cfg.bg,
-        border: `1px solid ${cfg.border}`,
-        borderRadius: 20,
-        whiteSpace: 'nowrap',
-        letterSpacing: '0.02em',
-      }}
+      className={cx(
+        'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border font-semibold',
+        isSmall ? 'px-2 py-0.5 text-[11px]' : 'px-3 py-1 text-xs',
+        cfg.bg,
+        cfg.text,
+        cfg.border,
+      )}
     >
-      <span
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: '50%',
-          background: cfg.dot,
-          flexShrink: 0,
-        }}
-      />
+      <span className={cx('h-1.5 w-1.5 shrink-0 rounded-full', cfg.dot)} />
       {level}
     </span>
   );
 }
+
+const LEVEL_CONFIG: Record<string, { bg: string; text: string; border: string; dot: string }> = {
+  强烈建议写: { bg: 'bg-primary-light', text: 'text-primary', border: 'border-primary-border', dot: 'bg-primary' },
+  值得观察: { bg: 'bg-teal-light', text: 'text-teal', border: 'border-teal-border', dot: 'bg-teal' },
+  适合深挖: { bg: 'bg-purple-light', text: 'text-purple', border: 'border-purple-border', dot: 'bg-purple' },
+  适合蹭热点: { bg: 'bg-amber-light', text: 'text-amber', border: 'border-amber-border', dot: 'bg-amber' },
+  不建议追: { bg: 'bg-gray-100', text: 'text-gray-500', border: 'border-gray-300', dot: 'bg-gray-400' },
+};

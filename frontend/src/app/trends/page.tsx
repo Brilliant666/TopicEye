@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Badge, Button, Metric, Panel, cx } from '@/components/ui';
-import { T } from '@/lib/design-tokens';
 
 interface TrendPoint {
   date: string;
@@ -51,13 +50,13 @@ interface TopicSeries {
 }
 
 const COLORS = [
-  T.primary,
-  T.teal,
+  '#FF6B35',
+  '#00C9A7',
   '#3B82F6',
-  T.amber,
+  '#D97706',
   '#10B981',
   '#EF4444',
-  T.purple,
+  '#8B5CF6',
   '#06B6D4',
   '#64748B',
   '#EC4899',
@@ -65,7 +64,7 @@ const COLORS = [
 
 function Sparkline({
   data,
-  color = T.primary,
+  color = '#FF6B35',
   width = 132,
   height = 42,
 }: {
@@ -123,7 +122,7 @@ function MiniBars({
               className="rounded-t-xs rounded-b-[2px]"
               style={{
                 height,
-                background: count ? color : T.gray200,
+                background: count ? color : '#E5E7EB',
                 opacity: count ? 0.82 : 0.45,
               }}
             />

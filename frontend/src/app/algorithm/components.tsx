@@ -13,21 +13,41 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Badge, Button, Metric, Panel, Toolbar } from '@/components/ui';
-import { T } from '@/lib/design-tokens';
 import type { FeedbackType, ScoringFlowResponse, ScoringFlowSample } from '@/lib/api';
 
+const COLORS = {
+  primary: '#FF6B35',
+  primaryLight: '#FFF4EE',
+  primaryBorder: '#FFD0B5',
+  teal: '#00C9A7',
+  tealLight: '#E6FAF5',
+  tealBorder: '#A7F0DB',
+  purple: '#8B5CF6',
+  purpleLight: '#F0EBFF',
+  purpleBorder: '#C4B5FD',
+  amber: '#D97706',
+  amberLight: '#FEF3C7',
+  amberBorder: '#FCD34D',
+  red: '#EF4444',
+  gray50: '#FAFAFA',
+  gray200: '#E5E7EB',
+  gray500: '#6B7280',
+  gray700: '#374151',
+  gray800: '#1F2937',
+};
+
 const STAGE_COLORS: Record<string, { color: string; bg: string; border: string; soft: string }> = {
-  candidates: { color: T.gray700, bg: T.gray50, border: T.gray200, soft: '#F8FAFC' },
-  quality: { color: T.teal, bg: T.tealLight, border: T.tealBorder, soft: '#F2FFFC' },
-  risk: { color: T.amber, bg: T.amberLight, border: T.amberBorder, soft: '#FFFBEB' },
+  candidates: { color: COLORS.gray700, bg: COLORS.gray50, border: COLORS.gray200, soft: '#F8FAFC' },
+  quality: { color: COLORS.teal, bg: COLORS.tealLight, border: COLORS.tealBorder, soft: '#F2FFFC' },
+  risk: { color: COLORS.amber, bg: COLORS.amberLight, border: COLORS.amberBorder, soft: '#FFFBEB' },
   freshness: { color: '#3B82F6', bg: '#EFF6FF', border: '#BFDBFE', soft: '#F8FBFF' },
-  diversity: { color: T.purple, bg: T.purpleLight, border: T.purpleBorder, soft: '#FBF8FF' },
-  selected: { color: T.primary, bg: T.primaryLight, border: T.primaryBorder, soft: '#FFF9F6' },
+  diversity: { color: COLORS.purple, bg: COLORS.purpleLight, border: COLORS.purpleBorder, soft: '#FBF8FF' },
+  selected: { color: COLORS.primary, bg: COLORS.primaryLight, border: COLORS.primaryBorder, soft: '#FFF9F6' },
 };
 
 const MIX_TONES = {
-  purple: { color: T.purple, bg: T.purpleLight, border: T.purpleBorder },
-  teal: { color: T.teal, bg: T.tealLight, border: T.tealBorder },
+  purple: { color: COLORS.purple, bg: COLORS.purpleLight, border: COLORS.purpleBorder },
+  teal: { color: COLORS.teal, bg: COLORS.tealLight, border: COLORS.tealBorder },
 } as const;
 
 function pct(value: number) {
@@ -158,7 +178,7 @@ export function Funnel({ data, selectedKey }: { data: ScoringFlowResponse; selec
     <Panel className="overflow-hidden p-4 lg:p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Filter size={16} color={T.primary} />
+          <Filter size={16} color={COLORS.primary} />
           <div className="text-sm font-black text-gray-800">评分漏斗</div>
         </div>
         <div className="text-xs text-gray-400">候选样本沿路径逐级收缩</div>
@@ -256,7 +276,7 @@ export function SampleList({
               <div className="flex items-start gap-3">
                 <div
                   className="w-11 shrink-0 text-right font-mono text-lg font-black leading-tight"
-                  style={{ color: sample.selected ? T.primary : active ? T.gray800 : T.gray500 }}
+                  style={{ color: sample.selected ? COLORS.primary : active ? COLORS.gray800 : COLORS.gray500 }}
                 >
                   {Math.round(sample.final_score)}
                 </div>
@@ -332,9 +352,9 @@ export function PathPanel({
 
           <div className="mb-4 grid grid-cols-3 gap-2.5">
             {[
-              ['基础分', sample.base_score, T.gray800],
-              ['最终分', sample.final_score, T.primary],
-              ['门槛', sample.threshold_used, T.amber],
+              ['基础分', sample.base_score, COLORS.gray800],
+              ['最终分', sample.final_score, COLORS.primary],
+              ['门槛', sample.threshold_used, COLORS.amber],
             ].map(([label, value, color]) => (
               <div key={label as string} className="min-w-0 rounded-sm border border-gray-100 bg-gray-50 p-2.5">
                 <div className="mb-1 text-[10px] text-gray-400">{label}</div>
@@ -346,7 +366,7 @@ export function PathPanel({
           <div className="mb-4 rounded-sm border border-gray-100 p-3">
             <div className="mb-2.5 flex items-center justify-between">
               <div className="text-xs font-black text-gray-800">人工反馈</div>
-              <div className="font-mono text-xs" style={{ color: sample.feedback_score >= 0 ? T.teal : T.red }}>
+              <div className="font-mono text-xs" style={{ color: sample.feedback_score >= 0 ? COLORS.teal : COLORS.red }}>
                 {sample.feedback_score > 0 ? '+' : ''}{fmt(sample.feedback_score)}
               </div>
             </div>
@@ -372,17 +392,17 @@ export function PathPanel({
 
           <div className="mb-5 flex flex-col gap-3 rounded-sm border border-gray-100 bg-gray-50 p-3">
             <div className="text-xs font-black text-gray-800">路径因子</div>
-            <FactorBar label="质量因子" value={sample.quality_factor} color={T.teal} />
-            <FactorBar label="风险因子" value={sample.risk_factor} color={T.amber} />
+            <FactorBar label="质量因子" value={sample.quality_factor} color={COLORS.teal} />
+            <FactorBar label="风险因子" value={sample.risk_factor} color={COLORS.amber} />
             <FactorBar label="时效衰减" value={sample.time_decay} color="#3B82F6" />
-            <FactorBar label="多样性因子" value={sample.diversity_factor} color={T.purple} />
+            <FactorBar label="多样性因子" value={sample.diversity_factor} color={COLORS.purple} />
           </div>
 
           <div className="border-t border-gray-100 pt-4">
             <div className="mb-3 text-sm font-black text-gray-800">特征评分路径</div>
             <div className="flex flex-col gap-2.5">
               {dimRows.map(([label, value]) => (
-                <ProgressRow key={label} label={label} value={value} color={T.primary} />
+                <ProgressRow key={label} label={label} value={value} color={COLORS.primary} />
               ))}
             </div>
           </div>

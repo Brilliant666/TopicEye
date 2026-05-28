@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, ArrowRight, Settings } from 'lucide-react';
 import { motherTopicsApi, type MotherTopic } from '@/lib/api';
+import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
 
 /* ── helpers ── */
 
@@ -56,89 +57,69 @@ function TopicCard({
   };
 
   return (
-    <div style={{
-      border: '1px solid #e5e7eb',
-      borderRadius: 12,
-      padding: '20px',
-      marginBottom: 16,
-      background: '#fff',
-    }}>
+    <Panel className="mb-4 p-5">
       {/* card header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+      <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', margin: 0 }}>{topic.name}</h3>
+          <div className="mb-1 flex items-center gap-2">
+            <h3 className="m-0 text-base font-bold text-gray-900">{topic.name}</h3>
             {topic.content_type && (
               <span style={{
-                padding: '2px 8px',
-                borderRadius: 8,
-                fontSize: 11,
-                fontWeight: 500,
                 background: `${contentTypeColor[topic.content_type] || '#6366f1'}15`,
                 color: contentTypeColor[topic.content_type] || '#6366f1',
-              }}>
+              }} className="rounded-sm px-2 py-0.5 text-[11px] font-medium">
                 {topic.content_type}
               </span>
             )}
           </div>
           {topic.description && (
-            <p style={{ fontSize: 12, color: '#6b7280', margin: '2px 0 0', lineHeight: 1.5 }}>
+            <p className="m-0 mt-0.5 text-xs leading-5 text-gray-500">
               {topic.description}
             </p>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={{ fontSize: 12, color: '#9ca3af' }}>权重 {topic.weight}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">权重 {topic.weight}</span>
           {!topic.is_active && (
-            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 8, background: '#fee2e2', color: '#dc2626' }}>
-              已停用
-            </span>
+            <Badge tone="red" className="rounded-sm px-2 py-0.5 text-[11px]">已停用</Badge>
           )}
         </div>
       </div>
 
       {editing ? (
         /* edit form */
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="flex flex-col gap-3">
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
-              名称
-            </label>
+            <FieldLabel>名称</FieldLabel>
             <input
               value={form.name}
               onChange={e => setForm({ ...form, name: e.target.value })}
-              style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+              className="w-full rounded-xs border border-gray-300 px-2.5 py-1.5 text-[13px] outline-none focus:border-primary"
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
-              描述
-            </label>
+            <FieldLabel>描述</FieldLabel>
             <input
               value={form.description}
               onChange={e => setForm({ ...form, description: e.target.value })}
-              style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+              className="w-full rounded-xs border border-gray-300 px-2.5 py-1.5 text-[13px] outline-none focus:border-primary"
             />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
-              关键词（逗号分隔）
-            </label>
+            <FieldLabel>关键词（逗号分隔）</FieldLabel>
             <textarea
               value={form.keywords}
               onChange={e => setForm({ ...form, keywords: e.target.value })}
               rows={4}
-              style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
+              className="w-full resize-y rounded-xs border border-gray-300 px-2.5 py-1.5 font-mono text-xs outline-none focus:border-primary"
             />
-            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+            <div className="mt-1 text-[11px] text-gray-400">
               当前 {form.keywords.split(',').filter(k => k.trim()).length} 个关键词
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
-                权重乘数
-              </label>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <FieldLabel>权重乘数</FieldLabel>
               <input
                 type="number"
                 step="0.1"
@@ -146,77 +127,52 @@ function TopicCard({
                 max="3"
                 value={form.weight}
                 onChange={e => setForm({ ...form, weight: parseFloat(e.target.value) })}
-                style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+                className="w-full rounded-xs border border-gray-300 px-2.5 py-1.5 text-[13px] outline-none focus:border-primary"
               />
             </div>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 4 }}>
-                目标读者
-              </label>
+            <div className="flex-1">
+              <FieldLabel>目标读者</FieldLabel>
               <input
                 value={form.target_reader}
                 onChange={e => setForm({ ...form, target_reader: e.target.value })}
-                style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+                className="w-full rounded-xs border border-gray-300 px-2.5 py-1.5 text-[13px] outline-none focus:border-primary"
               />
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
+          <Toolbar className="gap-2">
+            <Button
+              type="button"
               onClick={handleSave}
               disabled={saving}
-              style={{
-                padding: '6px 16px',
-                borderRadius: 8,
-                background: '#10b981',
-                color: '#fff',
-                border: 'none',
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: 'pointer',
-                opacity: saving ? 0.6 : 1,
-              }}
+              variant="success"
+              className="min-h-0 px-4 py-1.5 text-[13px] font-medium"
             >
               {saving ? '保存中...' : '保存'}
-            </button>
-            <button
+            </Button>
+            <Button
+              type="button"
               onClick={() => setEditing(false)}
-              style={{
-                padding: '6px 16px',
-                borderRadius: 8,
-                background: '#f3f4f6',
-                color: '#374151',
-                border: 'none',
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
+              variant="ghost"
+              className="min-h-0 px-4 py-1.5 text-[13px] font-medium"
             >
               取消
-            </button>
-          </div>
+            </Button>
+          </Toolbar>
         </div>
       ) : (
         /* view mode */
         <>
           {/* keywords display */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+          <div className="mb-3">
+            <div className="mb-1.5 text-xs font-semibold text-gray-700">
               关键词 ({topic.keywords.length})
             </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div className="flex flex-wrap gap-1.5">
               {topic.keywords.slice(0, 20).map(kw => (
-                <span key={kw} style={{
-                  padding: '3px 10px',
-                  borderRadius: 12,
-                  fontSize: 12,
-                  background: '#f3f4f6',
-                  color: '#374151',
-                }}>
-                  {kw}
-                </span>
+                <Badge key={kw} tone="neutral" className="rounded-full px-2.5 py-1 text-xs">{kw}</Badge>
               ))}
               {topic.keywords.length > 20 && (
-                <span style={{ fontSize: 12, color: '#9ca3af', padding: '3px 8px' }}>
+                <span className="px-2 py-1 text-xs text-gray-400">
                   +{topic.keywords.length - 20} 更多
                 </span>
               )}
@@ -225,48 +181,38 @@ function TopicCard({
 
           {/* target reader */}
           {topic.target_reader && (
-            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
+            <div className="mb-3 text-xs text-gray-500">
               <b>目标读者:</b> {topic.target_reader}
             </div>
           )}
 
           {/* actions */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 12, paddingTop: 12, borderTop: '1px solid #f3f4f6' }}>
-            <button
+          <Toolbar className="mt-3 border-t border-gray-100 pt-3">
+            <Button
+              type="button"
               onClick={() => setEditing(true)}
-              style={{
-                padding: '5px 14px',
-                borderRadius: 8,
-                background: '#6366f1',
-                color: '#fff',
-                border: 'none',
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
+              variant="primary"
+              className="min-h-0 px-3.5 py-1.5 text-xs font-medium"
             >
               编辑
-            </button>
-            <button
+            </Button>
+            <Button
+              type="button"
               onClick={() => onDelete(topic.id)}
-              style={{
-                padding: '5px 14px',
-                borderRadius: 8,
-                background: '#fee2e2',
-                color: '#dc2626',
-                border: 'none',
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
+              variant="danger"
+              className="min-h-0 px-3.5 py-1.5 text-xs font-medium"
             >
               停用
-            </button>
-          </div>
+            </Button>
+          </Toolbar>
         </>
       )}
-    </div>
+    </Panel>
   );
+}
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <label className="mb-1 block text-xs font-semibold text-gray-700">{children}</label>;
 }
 
 /* ── Main Page ── */
@@ -302,59 +248,40 @@ export default function MotherTopicsConfigPage() {
   };
 
   return (
-    <div style={{ padding: '20px 24px', maxWidth: 860 }}>
+    <div className="max-w-[860px] px-6 py-5">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+      <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111827', marginBottom: 4 }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <Settings size={20} color="#6366f1" strokeWidth={2.1} />
+          <h1 className="mb-1 text-[22px] font-bold text-gray-900">
+            <span className="inline-flex items-center gap-2">
+              <Settings size={20} className="text-primary" strokeWidth={2.1} />
               母题配置
             </span>
           </h1>
-          <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>
+          <p className="m-0 text-[13px] text-gray-500">
             配置你的公众号内容支柱，调整关键词以精准匹配你的写作方向
           </p>
         </div>
-        <button
+        <Button
+          type="button"
           onClick={() => router.push('/my-topics')}
-          style={{
-            padding: '7px 16px',
-            borderRadius: 8,
-            background: '#f3f4f6',
-            color: '#374151',
-            border: 'none',
-            fontSize: 13,
-            fontWeight: 500,
-            cursor: 'pointer',
-            textDecoration: 'none',
-          }}
+          variant="secondary"
+          className="text-[13px] font-medium"
         >
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <ArrowLeft size={14} strokeWidth={2} />
-            返回我的母题
-          </span>
-        </button>
+          <ArrowLeft size={14} strokeWidth={2} />
+          返回我的母题
+        </Button>
       </div>
 
       {/* Info box */}
-      <div style={{
-        padding: '12px 16px',
-        background: '#eff6ff',
-        border: '1px solid #bfdbfe',
-        borderRadius: 10,
-        marginBottom: 24,
-        fontSize: 13,
-        color: '#1e40af',
-        lineHeight: 1.6,
-      }}>
-        <b>打分规则:</b> 母题匹配分 × 权重 + 新鲜度加成 <ArrowRight size={13} strokeWidth={2} style={{ verticalAlign: '-2px' }} /> 最终得分<br/>
+      <Panel className="mb-6 border-teal-border bg-teal-light px-4 py-3 text-[13px] leading-6 text-teal">
+        <b>打分规则:</b> 母题匹配分 × 权重 + 新鲜度加成 <ArrowRight size={13} strokeWidth={2} className="inline align-[-2px]" /> 最终得分<br/>
         <b>阈值:</b> 80+ 今日主选题 / 65-79 值得储备 / 50-64 观察池 / &lt;50 过滤
-      </div>
+      </Panel>
 
       {/* Topics */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '40px 0', color: '#9ca3af' }}>加载中...</div>
+        <div className="py-10 text-center text-gray-400">加载中...</div>
       ) : (
         <div>
           {topics.map(topic => (
@@ -369,28 +296,22 @@ export default function MotherTopicsConfigPage() {
       )}
 
       {/* Scoring explanation */}
-      <div style={{
-        marginTop: 32,
-        padding: '16px',
-        background: '#f9fafb',
-        borderRadius: 10,
-        border: '1px solid #e5e7eb',
-      }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: '#374151', marginBottom: 12 }}>打分公式详解</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 24px' }}>
+      <Panel className="mt-8 bg-gray-50 p-4">
+        <h3 className="mb-3 text-sm font-bold text-gray-700">打分公式详解</h3>
+        <div className="grid grid-cols-2 gap-x-6 gap-y-2">
           {[
             ['母题匹配', '0.0~1.0（匹配1个=0.3，2个=0.6，3个+=1.0）'],
             ['权重', '默认 1.0，可调整为 0.5~2.0'],
             ['新鲜度', 'hot_value/10000（0~1.0）'],
             ['最终得分', 'keyword_score × weight + freshness × 0.1'],
           ].map(([label, desc]) => (
-            <div key={label} style={{ display: 'flex', gap: 8, fontSize: 12 }}>
-              <span style={{ fontWeight: 600, color: '#374151', minWidth: 60 }}>{label}</span>
-              <span style={{ color: '#6b7280' }}>{desc}</span>
+            <div key={label} className="flex gap-2 text-xs">
+              <span className="min-w-[60px] font-semibold text-gray-700">{label}</span>
+              <span className="text-gray-500">{desc}</span>
             </div>
           ))}
         </div>
-      </div>
+      </Panel>
     </div>
   );
 }

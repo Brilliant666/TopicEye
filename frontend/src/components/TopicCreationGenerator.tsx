@@ -3,8 +3,8 @@
 import React, { useState } from 'react';
 import { BookOpen, FileText, PenLine, Video } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { T } from '@/lib/design-tokens';
 import SectionTitle from '@/components/SectionTitle';
+import { Button, Panel, Toolbar, cx } from '@/components/ui';
 import CreationPlanDisplay, { type CreationPlan } from '@/components/CreationPlanDisplay';
 
 interface TopicCreationGeneratorProps {
@@ -43,90 +43,54 @@ export default function TopicCreationGenerator({ contentId }: TopicCreationGener
   };
 
   return (
-    <div
-      style={{
-        background: T.white,
-        borderRadius: T.radius,
-        padding: 28,
-        marginBottom: 20,
-        border: `1px solid ${T.gray100}`,
-      }}
-    >
+    <Panel className="mb-5 p-7">
       <SectionTitle>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+        <span className="inline-flex items-center gap-2">
           <PenLine size={15} strokeWidth={2} />
           生成创作方案
         </span>
       </SectionTitle>
-      <p style={{ fontSize: 13, color: T.gray500, marginBottom: 16 }}>
+      <p className="mb-4 text-[13px] text-gray-500">
         选择平台，基于此内容生成完整的创作方案
       </p>
 
       {/* Platform buttons */}
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+      <Toolbar className="gap-2.5">
         {platforms.map((p) => {
           const Icon = p.icon;
+          const active = creatingPlatform === p.id;
           return (
-            <button
+            <Button
               key={p.id}
+              type="button"
               onClick={() => handleGeneratePlan(p.id)}
               disabled={creating}
-              style={{
-                padding: '10px 18px',
-                fontSize: 13,
-                fontWeight: 500,
-                background: creatingPlatform === p.id ? T.primaryLight : T.gray50,
-                color: creatingPlatform === p.id ? T.primary : T.gray700,
-                border: `1px solid ${creatingPlatform === p.id ? T.primaryBorder : T.gray200}`,
-                borderRadius: T.radiusSm,
-                cursor: creating ? 'wait' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 7,
-                transition: 'all 0.15s',
-                opacity: creating && creatingPlatform !== p.id ? 0.5 : 1,
-              }}
+              variant={active ? 'primary' : 'secondary'}
+              className={cx('px-[18px] py-2.5 text-[13px] font-medium', creating && !active && 'opacity-50')}
             >
               <Icon size={14} strokeWidth={2} />
-              {creatingPlatform === p.id ? '生成中...' : p.name}
-            </button>
+              {active ? '生成中...' : p.name}
+            </Button>
           );
         })}
-      </div>
+      </Toolbar>
 
       {/* Creation error */}
       {creationError && (
-        <div
-          style={{
-            marginTop: 12,
-            padding: '10px 14px',
-            background: T.redLight,
-            borderRadius: T.radiusSm,
-            fontSize: 13,
-            color: '#991B1B',
-          }}
-        >
+        <div className="mt-3 rounded-sm bg-red-light px-3.5 py-2.5 text-[13px] text-red">
           生成失败：{creationError}
         </div>
       )}
 
       {/* Creation plan result */}
       {creationPlan && (
-        <div
-          style={{
-            marginTop: 16,
-            padding: 20,
-            background: T.gray50,
-            borderRadius: T.radiusSm,
-            border: `1px solid ${T.gray100}`,
-          }}
-        >
-          <div style={{ fontSize: 14, fontWeight: 600, color: T.gray800, marginBottom: 12 }}>
+        <Panel className="mt-4 bg-gray-50 p-5">
+          <div className="mb-3 text-sm font-semibold text-gray-800">
             创作方案
           </div>
           <CreationPlanDisplay plan={creationPlan} platform={creationPlan._meta?.platform ?? creatingPlatform ?? ''} />
-        </div>
+        </Panel>
       )}
-    </div>
+    </Panel>
   );
 }

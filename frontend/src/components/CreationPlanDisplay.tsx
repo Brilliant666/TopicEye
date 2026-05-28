@@ -2,8 +2,8 @@
 
 import React, { useState } from 'react';
 import { Check, Clipboard, MessageSquare, MousePointer2, Music2, Paperclip, Pin, Video } from 'lucide-react';
-import { T } from '@/lib/design-tokens';
 import { formatPlanText } from '@/lib/utils';
+import { Badge, Button, cx } from '@/components/ui';
 
 interface Scene {
   seq: number;
@@ -53,36 +53,26 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="flex flex-col gap-4">
       {/* Copy button */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-        <button
+      <div className="flex justify-end">
+        <Button
+          type="button"
           onClick={handleCopy}
-          style={{
-            fontSize: 11, fontWeight: 600, padding: '4px 12px',
-            background: copied ? '#10B981' : T.gray100,
-            color: copied ? T.white : T.gray600,
-            border: 'none', borderRadius: 4, cursor: 'pointer',
-          }}
+          variant={copied ? 'success' : 'secondary'}
+          className="min-h-0 px-3 py-1 text-[11px] font-semibold"
         >
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {copied ? <Check size={12} strokeWidth={2.4} /> : <Clipboard size={12} strokeWidth={2.2} />}
-            {copied ? '已复制' : '复制全文'}
-          </span>
-        </button>
+          {copied ? <Check size={12} strokeWidth={2.4} /> : <Clipboard size={12} strokeWidth={2.2} />}
+          {copied ? '已复制' : '复制全文'}
+        </Button>
       </div>
 
       {/* Titles */}
       {plan.titles && plan.titles.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: T.gray500, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>备选标题</div>
+          <BlockLabel>备选标题</BlockLabel>
           {plan.titles.map((t: string, i: number) => (
-            <div key={i} style={{
-              fontSize: 14, fontWeight: 600, color: T.gray900, lineHeight: 1.6,
-              padding: '8px 12px', marginBottom: 4,
-              background: i === 0 ? `${T.primary}08` : T.gray50,
-              borderRadius: 6, borderLeft: i === 0 ? `3px solid ${T.primary}` : '3px solid transparent',
-            }}>
+            <div key={i} className={cx('mb-1 rounded-xs border-l-[3px] px-3 py-2 text-sm font-semibold leading-6 text-gray-900', i === 0 ? 'border-primary bg-primary-light/50' : 'border-transparent bg-gray-50')}>
               {t}
             </div>
           ))}
@@ -93,35 +83,35 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
       {platform === 'xiaohongshu' && plan.structure && (
         <>
           {plan.cover_slogan && (
-            <div style={{ padding: '8px 12px', background: '#FF6B3510', borderRadius: 6, borderLeft: '3px solid #FF6B35' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#FF6B35' }}>封面文案：</span>
-              <span style={{ fontSize: 13, color: T.gray700 }}> {plan.cover_slogan}</span>
+            <div className="rounded-xs border-l-[3px] border-primary bg-primary-light/60 px-3 py-2">
+              <span className="text-[11px] font-semibold text-primary">封面文案：</span>
+              <span className="text-[13px] text-gray-700"> {plan.cover_slogan}</span>
             </div>
           )}
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: T.gray500, marginBottom: 6 }}>正文结构</div>
+            <BlockLabel>正文结构</BlockLabel>
             {plan.structure.hook && (
-              <div style={{ display: 'flex', gap: 7, fontSize: 13, color: T.gray700, lineHeight: 1.6, marginBottom: 6, paddingLeft: 12, borderLeft: `2px solid ${T.primary}` }}>
-                <MousePointer2 size={14} color={T.primary} strokeWidth={2} style={{ marginTop: 3, flexShrink: 0 }} />
+              <div className="mb-1.5 flex gap-2 border-l-2 border-primary pl-3 text-[13px] leading-6 text-gray-700">
+                <MousePointer2 size={14} className="mt-1 shrink-0 text-primary" strokeWidth={2} />
                 <span><b>Hook:</b> {plan.structure.hook}</span>
               </div>
             )}
             {plan.structure.points?.map((p: string, i: number) => (
-              <div key={i} style={{ fontSize: 13, color: T.gray700, lineHeight: 1.6, marginBottom: 4, paddingLeft: 12, borderLeft: '2px solid #10B981' }}>
+              <div key={i} className="mb-1 border-l-2 border-teal pl-3 text-[13px] leading-6 text-gray-700">
                 {p}
               </div>
             ))}
             {plan.structure.cta && (
-              <div style={{ display: 'flex', gap: 7, fontSize: 13, color: T.gray700, lineHeight: 1.6, paddingLeft: 12, borderLeft: '2px solid #F59E0B' }}>
-                <MessageSquare size={14} color="#F59E0B" strokeWidth={2} style={{ marginTop: 3, flexShrink: 0 }} />
+              <div className="flex gap-2 border-l-2 border-amber pl-3 text-[13px] leading-6 text-gray-700">
+                <MessageSquare size={14} className="mt-1 shrink-0 text-amber" strokeWidth={2} />
                 <span><b>互动引导:</b> {plan.structure.cta}</span>
               </div>
             )}
           </div>
           {plan.tags && plan.tags.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <div className="flex flex-wrap gap-1.5">
               {plan.tags.map((tag: string) => (
-                <span key={tag} style={{ fontSize: 11, color: T.primary, background: `${T.primary}10`, padding: '2px 10px', borderRadius: 12 }}>#{tag}</span>
+                <Badge key={tag} tone="primary" className="rounded-full px-2.5 py-0.5 text-[11px]">#{tag}</Badge>
               ))}
             </div>
           )}
@@ -132,29 +122,29 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
       {platform === 'short_video' && plan.scenes && (
         <>
           {plan.hook && (
-            <div style={{ padding: '10px 14px', background: '#EF444410', borderRadius: 6, borderLeft: '3px solid #EF4444' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: '#EF4444' }}>前3秒Hook：</span>
-              <span style={{ fontSize: 13, color: T.gray700 }}> {plan.hook}</span>
+            <div className="rounded-xs border-l-[3px] border-red bg-red-light px-3.5 py-2.5">
+              <span className="text-[11px] font-semibold text-red">前3秒Hook：</span>
+              <span className="text-[13px] text-gray-700"> {plan.hook}</span>
             </div>
           )}
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: T.gray500, marginBottom: 8 }}>分镜头脚本（共{plan.total_seconds || 60}秒）</div>
+            <BlockLabel>分镜头脚本（共{plan.total_seconds || 60}秒）</BlockLabel>
             {plan.scenes.map((scene: Scene, i: number) => (
-              <div key={i} style={{ padding: '10px 14px', marginBottom: 6, background: T.gray50, borderRadius: 6, borderLeft: `3px solid ${T.primary}` }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: T.primary }}>镜头 {scene.seq}</span>
-                  <span style={{ fontSize: 11, color: T.gray400 }}>{scene.seconds}s</span>
+              <div key={i} className="mb-1.5 rounded-xs border-l-[3px] border-primary bg-gray-50 px-3.5 py-2.5">
+                <div className="mb-1 flex justify-between">
+                  <span className="text-xs font-bold text-primary">镜头 {scene.seq}</span>
+                  <span className="text-[11px] text-gray-400">{scene.seconds}s</span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: T.gray500, marginBottom: 2 }}>
+                <div className="mb-0.5 flex items-center gap-1.5 text-xs text-gray-500">
                   <Video size={13} strokeWidth={2} />
                   {scene.visual}
                 </div>
-                <div style={{ fontSize: 13, color: T.gray700 }}>{scene.narration}</div>
+                <div className="text-[13px] text-gray-700">{scene.narration}</div>
               </div>
             ))}
           </div>
           {plan.bgm_suggestion && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: T.gray500, padding: '8px 12px', background: T.gray50, borderRadius: 6 }}>
+            <div className="flex items-center gap-2 rounded-xs bg-gray-50 px-3 py-2 text-xs text-gray-500">
               <Music2 size={13} strokeWidth={2} />
               BGM建议：{plan.bgm_suggestion}
             </div>
@@ -166,19 +156,17 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
       {platform === 'wechat' && plan.outline && (
         <>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: T.gray500, marginBottom: 8 }}>
-              文章大纲（约{plan.word_count_estimate || 2000}字）
-            </div>
+            <BlockLabel>文章大纲（约{plan.word_count_estimate || 2000}字）</BlockLabel>
             {plan.outline.map((section: OutlineSection, i: number) => (
-              <div key={i} style={{ padding: '12px 14px', marginBottom: 6, background: T.gray50, borderRadius: 6, borderLeft: `3px solid ${i === 0 ? '#FF6B35' : T.primary}` }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.gray900, marginBottom: 4 }}>
+              <div key={i} className={cx('mb-1.5 rounded-xs border-l-[3px] bg-gray-50 px-3.5 py-3', i === 0 ? 'border-primary' : 'border-primary-border')}>
+                <div className="mb-1 text-[13px] font-semibold text-gray-900">
                   {section.section}. {section.heading}
                 </div>
                 {section.points?.map((p: string, j: number) => (
-                  <div key={j} style={{ fontSize: 12, color: T.gray600, lineHeight: 1.6, paddingLeft: 8 }}>• {p}</div>
+                  <div key={j} className="pl-2 text-xs leading-6 text-gray-600">• {p}</div>
                 ))}
                 {section.evidence && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: T.gray400, marginTop: 4, fontStyle: 'italic' }}>
+                  <div className="mt-1 flex items-center gap-1 text-[11px] italic text-gray-400">
                     <Paperclip size={12} strokeWidth={2} />
                     {section.evidence}
                   </div>
@@ -187,13 +175,13 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
             ))}
           </div>
           {plan.key_quote && (
-            <div style={{ padding: '12px 16px', background: `${T.primary}08`, borderRadius: 6, borderLeft: `3px solid ${T.primary}` }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: T.primary, marginBottom: 4 }}>金句</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: T.gray900, fontStyle: 'italic' }}>「{plan.key_quote}」</div>
+            <div className="rounded-xs border-l-[3px] border-primary bg-primary-light/50 px-4 py-3">
+              <div className="mb-1 text-[11px] font-semibold text-primary">金句</div>
+              <div className="text-sm font-semibold italic text-gray-900">「{plan.key_quote}」</div>
             </div>
           )}
           {plan.closing && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: T.gray600, padding: '10px 14px', background: T.gray50, borderRadius: 6 }}>
+            <div className="flex items-center gap-2 rounded-xs bg-gray-50 px-3.5 py-2.5 text-[13px] text-gray-600">
               <Pin size={13} strokeWidth={2} />
               结尾：{plan.closing}
             </div>
@@ -202,8 +190,12 @@ export default function CreationPlanDisplay({ plan, platform }: CreationPlanDisp
       )}
 
       {plan.tone && (
-        <div style={{ fontSize: 11, color: T.gray400, textAlign: 'center' }}>风格建议：{plan.tone}</div>
+        <div className="text-center text-[11px] text-gray-400">风格建议：{plan.tone}</div>
       )}
     </div>
   );
+}
+
+function BlockLabel({ children }: { children: React.ReactNode }) {
+  return <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500">{children}</div>;
 }

@@ -15,10 +15,10 @@ import {
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { T, SOURCE_TYPE_COLOR_MAP } from '@/lib/design-tokens';
 import { useAppContext } from '@/components/ClientLayout';
 import Header from '@/components/Header';
 import CategoryChip from '@/components/CategoryChip';
+import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
 import { contentsApi, feedbackApi } from '@/lib/api';
 import type { FeedbackType } from '@/lib/api';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
@@ -219,98 +219,77 @@ export default function HomePage() {
   const dateStr = `${today.getFullYear()} 年 ${today.getMonth() + 1} 月 ${today.getDate()} 日`;
 
   return (
-    <div className="fade-in" style={{ padding: '32px 40px', height: '100%', overflowY: 'auto' }}>
+    <div className="fade-in h-full overflow-y-auto px-10 py-8">
       {/* Header */}
       <Header
         title="今日选题"
         date={dateStr}
         stats={[
-          { label: '总内容', value: totalCount, color: T.primary },
-          { label: '今日新增', value: todayCount, color: T.teal },
+          { label: '总内容', value: totalCount, color: '#FF6B35' },
+          { label: '今日新增', value: todayCount, color: '#00C9A7' },
         ]}
       />
 
       {/* Search bar */}
-      <div style={{ maxWidth: 820, marginBottom: 16 }}>
+      <div className="mb-4 max-w-[820px]">
         <input
           type="text"
           placeholder="搜索标题..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          style={{
-            width: '100%',
-            padding: '10px 16px',
-            fontSize: 13,
-            border: `1px solid ${T.gray200}`,
-            borderRadius: T.radius,
-            outline: 'none',
-            background: T.white,
-            color: T.gray900,
-            transition: 'border-color 0.2s',
-            boxSizing: 'border-box',
-          }}
-          onFocus={(e) => (e.currentTarget.style.borderColor = T.primary)}
-          onBlur={(e) => (e.currentTarget.style.borderColor = T.gray200)}
+          className="w-full rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-[13px] text-gray-900 outline-none transition focus:border-primary"
         />
       </div>
 
       {/* Filter row: time range + source type */}
-      <div style={{ maxWidth: 820, marginBottom: 12 }}>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+      <div className="mb-3 max-w-[820px]">
+        <Toolbar className="gap-3">
           {/* Time range */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, color: T.gray500, fontWeight: 500 }}>时间</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-medium text-gray-500">时间</span>
             {['24h', '48h', '7d', '全部'].map((range) => (
               <button
                 key={range}
+                type="button"
                 onClick={() => setActiveTimeRange(range)}
-                style={{
-                  padding: '4px 10px',
-                  fontSize: 12,
-                  fontWeight: activeTimeRange === range ? 600 : 400,
-                  color: activeTimeRange === range ? T.primary : T.gray500,
-                  background: activeTimeRange === range ? T.primaryLight : T.gray50,
-                  border: 'none',
-                  borderRadius: T.radiusXs,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                }}
+                className={cx(
+                  'rounded-xs px-2.5 py-1 text-xs transition',
+                  activeTimeRange === range
+                    ? 'bg-primary-light font-semibold text-primary'
+                    : 'bg-gray-50 font-normal text-gray-500 hover:bg-gray-100',
+                )}
               >
                 {range === '全部' ? '全部' : range === '24h' ? '24小时' : range === '48h' ? '48小时' : '近7天'}
               </button>
             ))}
           </div>
           {/* Divider */}
-          <div style={{ width: 1, height: 20, background: T.gray200 }} />
+          <div className="h-5 w-px bg-gray-200" />
           {/* Source type */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 12, color: T.gray500, fontWeight: 500 }}>来源</span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-medium text-gray-500">来源</span>
             {['全部', 'RSS', 'RSSHub', '公众号', '网站', 'Reddit', 'Zhihu'].map((type) => (
               <button
                 key={type}
+                type="button"
                 onClick={() => setActiveSourceType(type)}
-                style={{
-                  padding: '4px 10px',
-                  fontSize: 12,
-                  fontWeight: activeSourceType === type ? 600 : 400,
-                  color: activeSourceType === type ? T.primary : T.gray500,
-                  background: activeSourceType === type ? T.primaryLight : T.gray50,
-                  border: 'none',
-                  borderRadius: T.radiusXs,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                }}
+                className={cx(
+                  'rounded-xs px-2.5 py-1 text-xs transition',
+                  activeSourceType === type
+                    ? 'bg-primary-light font-semibold text-primary'
+                    : 'bg-gray-50 font-normal text-gray-500 hover:bg-gray-100',
+                )}
               >
                 {type}
               </button>
             ))}
           </div>
-        </div>
+        </Toolbar>
       </div>
 
       {/* Filters - Category */}
-      <div style={{ maxWidth: 820, marginBottom: 28 }}>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      <div className="mb-7 max-w-[820px]">
+        <div className="flex flex-wrap items-center gap-2">
           {categories.map((c) => (
             <CategoryChip
               key={c}
@@ -324,40 +303,23 @@ export default function HomePage() {
 
       {/* Error state */}
       {error && (
-        <div
-          style={{
-            maxWidth: 820,
-            padding: '16px 20px',
-            background: T.redLight,
-            color: T.red,
-            borderRadius: T.radius,
-            fontSize: 14,
-            marginBottom: 20,
-            border: `1px solid ${T.red}`,
-          }}
-        >
+        <div className="mb-5 max-w-[820px] rounded-lg border border-red bg-red-light px-5 py-4 text-sm text-red">
           加载失败：{error}
         </div>
       )}
 
       {/* Loading state */}
       {loading && (
-        <div style={{ maxWidth: 820, textAlign: 'center', padding: 60 }}>
+        <div className="max-w-[820px] py-[60px] text-center">
           <Spinner />
-          <div style={{ marginTop: 12, color: T.gray400, fontSize: 13 }}>加载中...</div>
+          <div className="mt-3 text-[13px] text-gray-400">加载中...</div>
         </div>
       )}
 
       {/* Editorial content flow */}
       {!loading && !error && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 820px) 260px',
-          gap: 24,
-          alignItems: 'start',
-          paddingBottom: 60,
-        }}>
-          <div style={{ minWidth: 0 }}>
+        <div className="grid items-start gap-6 pb-[60px] xl:grid-cols-[minmax(0,820px)_260px]">
+          <div className="min-w-0">
             <ContentTimeline
               groups={timelineGroups}
               favorites={favorites}
@@ -366,7 +328,7 @@ export default function HomePage() {
               onShowAnalysis={(a) => setSelectedAnalysis(a)}
             />
             {filtered.length === 0 && (
-              <div style={{ textAlign: 'center', padding: 60, color: T.gray400, fontSize: 14 }}>
+              <div className="py-[60px] text-center text-sm text-gray-400">
                 当前筛选条件下没有内容
               </div>
             )}
@@ -380,15 +342,7 @@ export default function HomePage() {
         <>
           <div
             onClick={() => setSelectedAnalysis(null)}
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0,0,0,0.2)',
-              zIndex: 999,
-            }}
+            className="fixed inset-0 z-[999] bg-black/20"
           />
           <ContentAnalysisPanel
             analysis={selectedAnalysis}
@@ -418,47 +372,21 @@ function ContentTimeline({
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
+    <div className="flex flex-col gap-[26px]">
       {groups.map((group) => (
         <section key={group.dateLabel}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            marginBottom: 12,
-            color: T.gray500,
-          }}>
-            <Clock3 size={15} color={T.primary} strokeWidth={2.2} />
-            <h2 style={{ fontSize: 14, fontWeight: 800, color: T.gray900 }}>
+          <div className="mb-3 flex items-center gap-2.5 text-gray-500">
+            <Clock3 size={15} className="text-primary" strokeWidth={2.2} />
+            <h2 className="text-sm font-extrabold text-gray-900">
               {group.dateLabel}
             </h2>
-            <span style={{ fontSize: 12, color: T.gray400, fontFamily: T.mono }}>{group.entries.length}</span>
+            <span className="font-mono text-xs text-gray-400">{group.entries.length}</span>
           </div>
-          <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div style={{
-              position: 'absolute',
-              left: 58,
-              top: 9,
-              bottom: 9,
-              width: 1,
-              background: T.gray200,
-            }} />
+          <div className="relative flex flex-col gap-3.5">
+            <div className="absolute bottom-[9px] left-[58px] top-[9px] w-px bg-gray-200" />
             {group.entries.map(({ item, level }) => (
-              <div key={item.id} style={{
-                position: 'relative',
-                display: 'grid',
-                gridTemplateColumns: '50px 18px minmax(0, 1fr)',
-                gap: 10,
-                alignItems: 'start',
-              }}>
-                <div style={{
-                  paddingTop: 2,
-                  fontSize: 12,
-                  fontWeight: 800,
-                  color: T.gray700,
-                  fontFamily: T.mono,
-                  textAlign: 'right',
-                }}>
+              <div key={item.id} className="relative grid grid-cols-[50px_18px_minmax(0,1fr)] items-start gap-2.5">
+                <div className="pt-0.5 text-right font-mono text-xs font-extrabold text-gray-700">
                   {formatTime(getContentTime(item))}
                 </div>
                 <span style={{
@@ -469,7 +397,7 @@ function ContentTimeline({
                   marginTop: 4,
                   marginLeft: 3,
                   borderRadius: 999,
-                  background: T.white,
+                  background: '#FFFFFF',
                   border: `3px solid ${levelColor(level)}`,
                   boxSizing: 'border-box',
                 }} />
@@ -501,22 +429,16 @@ function TimelineSummary({
   total: number;
 }) {
   return (
-    <aside style={{ position: 'sticky', top: 24 }}>
-      <div style={{
-        background: T.white,
-        border: `1px solid ${T.gray100}`,
-        borderRadius: T.radius,
-        padding: '18px 18px',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 14 }}>
-          <Clock3 size={15} color={T.primary} strokeWidth={2.2} />
-          <span style={{ fontSize: 14, fontWeight: 800, color: T.gray900 }}>内容时间流</span>
-          <span style={{ marginLeft: 'auto', fontSize: 11, color: T.gray400, fontFamily: T.mono }}>{total}</span>
+    <aside className="sticky top-6 hidden xl:block">
+      <Panel className="p-[18px] shadow-sm">
+        <div className="mb-3.5 flex items-center gap-2">
+          <Clock3 size={15} className="text-primary" strokeWidth={2.2} />
+          <span className="text-sm font-extrabold text-gray-900">内容时间流</span>
+          <span className="ml-auto font-mono text-[11px] text-gray-400">{total}</span>
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="flex flex-col gap-2.5">
           {groups.map((group) => (
-            <div key={group.level} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div key={group.level} className="flex items-center gap-2">
               <span style={{
                 width: 8,
                 height: 8,
@@ -524,49 +446,32 @@ function TimelineSummary({
                 background: levelColor(group.level),
                 flexShrink: 0,
               }} />
-              <span style={{ flex: 1, fontSize: 12, color: T.gray600 }}>{group.title}</span>
-              <span style={{ fontSize: 12, fontWeight: 800, color: T.gray900, fontFamily: T.mono }}>{group.items.length}</span>
+              <span className="flex-1 text-xs text-gray-600">{group.title}</span>
+              <span className="font-mono text-xs font-extrabold text-gray-900">{group.items.length}</span>
             </div>
           ))}
-          <div style={{
-            marginTop: 6,
-            paddingTop: 12,
-            borderTop: `1px solid ${T.gray100}`,
-            fontSize: 12,
-            lineHeight: 1.7,
-            color: T.gray500,
-          }}>
+          <div className="mt-1.5 border-t border-gray-100 pt-3 text-xs leading-7 text-gray-500">
             榜单型热搜已从今日内容流排除，可在「趋势雷达」查看。
           </div>
         </div>
-      </div>
+      </Panel>
     </aside>
   );
 }
 
 function levelColor(level: RecommendLevel): string {
-  if (level === '强烈建议写') return T.primary;
-  if (level === '适合深挖') return T.purple;
-  if (level === '适合蹭热点') return T.amber;
-  if (level === '不建议追') return T.gray400;
-  return T.teal;
+  if (level === '强烈建议写') return '#FF6B35';
+  if (level === '适合深挖') return '#8B5CF6';
+  if (level === '适合蹭热点') return '#D97706';
+  if (level === '不建议追') return '#9CA3AF';
+  return '#00C9A7';
 }
 
 // ── Spinner ──
 
 function Spinner() {
   return (
-    <div
-      style={{
-        display: 'inline-block',
-        width: 28,
-        height: 28,
-        border: `3px solid ${T.gray200}`,
-        borderTopColor: T.primary,
-        borderRadius: '50%',
-        animation: 'spin 0.7s linear infinite',
-      }}
-    />
+    <div className="inline-block h-7 w-7 animate-spin rounded-full border-[3px] border-gray-200 border-t-primary" />
   );
 }
 
@@ -593,8 +498,6 @@ function EditorialItem({
   compact?: boolean;
   onShowAnalysis: (analysis: ContentAnalysis) => void;
 }) {
-  const [hovered, setHovered] = useState(false);
-
   const handleCardClick = useCallback(() => {
     if (item.analysis) {
       onShowAnalysis(item.analysis);
@@ -606,55 +509,28 @@ function EditorialItem({
   const recommendation = item.analysis?.recommendation || item.analysis?.recommended_reason || item.summary;
 
   return (
-      <div
+      <Panel
         id={`topic-item-${item.id}`}
         onClick={handleCardClick}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        style={{
-          flex: 1,
-          minWidth: 0,
-          overflow: 'hidden',
-          background: T.white,
-          borderRadius: T.radius,
-          padding: compact ? '14px 18px' : '18px 22px',
-          cursor: item.url ? 'pointer' : 'default',
-          transition: 'all 0.2s ease',
-          boxShadow: hovered
-            ? '0 6px 20px rgba(0,0,0,0.07)'
-            : '0 1px 3px rgba(0,0,0,0.04)',
-          border: `1px solid ${hovered ? T.primaryBorder : T.gray100}`,
-        }}
+        className={cx(
+          'group flex-1 overflow-hidden shadow-sm transition hover:border-primary-border hover:shadow-lg',
+          compact ? 'px-[18px] py-3.5' : 'px-[22px] py-[18px]',
+          item.url ? 'cursor-pointer' : 'cursor-default',
+        )}
       >
         {/* Card header */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: 8,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            <span style={{ fontSize: 12, color: T.gray600, fontWeight: 600 }}>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-xs font-semibold text-gray-600">
               {item.source_name}
             </span>
-            <span style={{ fontSize: 12, color: T.gray300 }}>/</span>
-            <span style={{ fontSize: 12, color: T.gray400 }}>{timeLabel || time}</span>
+            <span className="text-xs text-gray-300">/</span>
+            <span className="shrink-0 text-xs text-gray-400">{timeLabel || time}</span>
             {level && <RecommendBadge level={level} />}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="flex shrink-0 items-center gap-2">
             {item.category && (
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: T.gray600,
-                  background: T.gray100,
-                  padding: '2px 8px',
-                  borderRadius: 4,
-                }}
-              >
+              <span className="rounded bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-600">
                 {item.category}
               </span>
             )}
@@ -662,104 +538,51 @@ function EditorialItem({
         </div>
 
         {/* Title */}
-        <h3
-          style={{
-            fontSize: 16,
-            fontWeight: 600,
-            lineHeight: 1.55,
-            color: T.gray900,
-            marginBottom: 8,
-          }}
-        >
+        <h3 className="mb-2 text-base font-semibold leading-[1.55] text-gray-900">
           {item.title}
         </h3>
 
         {/* Editorial reason */}
         {recommendation && (
-          <div
-            style={{
-              borderLeft: `3px solid ${T.primary}`,
-              padding: '6px 0 6px 12px',
-              fontSize: 13,
-              lineHeight: 1.7,
-              color: T.gray600,
-              marginBottom: 12,
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-            }}
-          >
+          <div className="line-clamp-2 mb-3 border-l-[3px] border-primary py-1.5 pl-3 text-[13px] leading-7 text-gray-600">
             推荐理由：{recommendation}
           </div>
         )}
 
         {/* Footer */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              flexWrap: 'wrap',
-            }}
-          >
-            {item.analysis && hovered && (
-              <>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1.5 opacity-0 transition group-hover:opacity-100">
+            {item.analysis && (
+              <React.Fragment>
                 <CurationScoreBadge score={item.analysis.adjusted_curation_score ?? item.analysis.curation_score} />
-                <ScoreBadge label="创作" score={item.analysis.creator_score} color={T.primary} />
-                <ScoreBadge label="爆文" score={item.analysis.viral_score} color={T.gray600} />
-                <ScoreBadge label="质量" score={item.analysis.quality_score} color={T.gray600} />
+                <ScoreBadge label="创作" score={item.analysis.creator_score} tone="primary" />
+                <ScoreBadge label="爆文" score={item.analysis.viral_score} tone="neutral" />
+                <ScoreBadge label="质量" score={item.analysis.quality_score} tone="neutral" />
                 <RecommendBadge level={getRecommendLevel(item.analysis)} />
-              </>
+              </React.Fragment>
             )}
-            {hovered && item.tags && item.tags.length > 0
+            {item.tags && item.tags.length > 0
               ? item.tags.slice(0, 5).map((tag) => (
-                  <span
-                    key={tag}
-                    style={{
-                      fontSize: 11,
-                      color: T.gray500,
-                      fontWeight: 500,
-                      background: T.gray100,
-                      padding: '2px 8px',
-                      borderRadius: 4,
-                    }}
-                  >
+                  <span key={tag} className="rounded bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
                     #{tag}
                   </span>
                 ))
               : null}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {item.analysis && hovered && (
-              <button
+          <div className="flex shrink-0 items-center gap-2">
+            {item.analysis && (
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-0 px-2 py-1 text-xs opacity-0 group-hover:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation();
                   onShowAnalysis(item.analysis as ContentAnalysis);
                 }}
-                style={{
-                  border: `1px solid ${T.gray200}`,
-                  background: T.white,
-                  color: T.gray500,
-                  borderRadius: T.radiusXs,
-                  padding: '4px 8px',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  fontSize: 12,
-                }}
               >
                 <Eye size={13} strokeWidth={2} />
                 分析
-              </button>
+              </Button>
             )}
             {item.url && (
               <a
@@ -767,20 +590,7 @@ function EditorialItem({
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                style={{
-                  border: `1px solid ${T.tealBorder}`,
-                  background: T.tealLight,
-                  color: T.teal,
-                  borderRadius: T.radiusXs,
-                  padding: '4px 8px',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  textDecoration: 'none',
-                }}
+                className="inline-flex items-center gap-1.5 rounded-xs border border-teal-border bg-teal-light px-2 py-1 text-xs font-bold text-teal no-underline transition hover:border-teal"
                 title="查看原文"
               >
                 <ExternalLink size={13} strokeWidth={2} />
@@ -791,68 +601,46 @@ function EditorialItem({
             <FeedbackButtons contentId={item.id} />
             {/* Favorite */}
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleFav(item.id);
               }}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: 2,
-                color: isFav ? T.primary : T.gray300,
-                transition: 'color 0.15s',
-                display: 'inline-flex',
-                alignItems: 'center',
-              }}
+              className={cx('inline-flex border-0 bg-transparent p-0.5 transition', isFav ? 'text-primary' : 'text-gray-300 hover:text-primary')}
               title={isFav ? '取消收藏' : '收藏'}
             >
-              <Star size={16} strokeWidth={2} fill={isFav ? T.primary : 'none'} />
+              <Star size={16} strokeWidth={2} fill={isFav ? '#FF6B35' : 'none'} />
             </button>
             {/* Ignore */}
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onIgnore(item.id);
               }}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                padding: 2,
-                color: T.gray300,
-                transition: 'color 0.15s',
-                display: 'inline-flex',
-                alignItems: 'center',
-              }}
+              className="inline-flex border-0 bg-transparent p-0.5 text-gray-300 transition hover:text-gray-500"
               title="不感兴趣"
-              onMouseEnter={(e) => (e.currentTarget.style.color = T.gray500)}
-              onMouseLeave={(e) => (e.currentTarget.style.color = T.gray300)}
             >
               <X size={15} strokeWidth={2} />
             </button>
           </div>
         </div>
-      </div>
+      </Panel>
   );
 }
 
 // ── Score Badge ──
 
-function ScoreBadge({ label, score, color }: { label: string; score: number; color: string }) {
-  const scoreColor = score >= 75 ? color : score >= 50 ? T.gray600 : T.gray400;
+function ScoreBadge({ label, score, tone }: { label: string; score: number; tone: 'primary' | 'neutral' }) {
+  const strong = score >= 75;
+  const medium = score >= 50;
+  const toneClass = tone === 'primary' && strong
+    ? 'bg-primary-light text-primary'
+    : medium
+      ? 'bg-gray-100 text-gray-600'
+      : 'bg-gray-100 text-gray-400';
   return (
-    <span
-      style={{
-        fontSize: 11,
-        fontWeight: 600,
-        color: scoreColor,
-        background: `${color}10`,
-        padding: '2px 6px',
-        borderRadius: 4,
-        fontFamily: T.mono,
-      }}
-    >
+    <span className={cx('rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold', toneClass)}>
       {label}{Math.round(score)}
     </span>
   );
@@ -861,27 +649,17 @@ function ScoreBadge({ label, score, color }: { label: string; score: number; col
 // ── Recommend Badge ──
 
 function RecommendBadge({ level }: { level: RecommendLevel }) {
-  const colorMap: Record<RecommendLevel, { bg: string; color: string }> = {
-    '强烈建议写': { bg: '#dcfce7', color: '#16a34a' },
-    '值得观察': { bg: '#dbeafe', color: '#2563eb' },
-    '适合深挖': { bg: '#fef3c7', color: '#d97706' },
-    '适合蹭热点': { bg: '#fee2e2', color: '#dc2626' },
-    '不建议追': { bg: '#f3f4f6', color: '#9ca3af' },
+  const toneMap: Record<RecommendLevel, 'primary' | 'teal' | 'purple' | 'amber' | 'neutral'> = {
+    '强烈建议写': 'primary',
+    '值得观察': 'teal',
+    '适合深挖': 'purple',
+    '适合蹭热点': 'amber',
+    '不建议追': 'neutral',
   };
-  const { bg, color } = colorMap[level] || { bg: '#f3f4f6', color: '#9ca3af' };
   return (
-    <span
-      style={{
-        fontSize: 10,
-        fontWeight: 700,
-        color,
-        background: bg,
-        padding: '2px 8px',
-        borderRadius: 4,
-      }}
-    >
+    <Badge tone={toneMap[level] || 'neutral'} className="rounded px-2 py-0.5 text-[10px]">
       {level}
-    </span>
+    </Badge>
   );
 }
 
@@ -890,24 +668,15 @@ function RecommendBadge({ level }: { level: RecommendLevel }) {
 function CurationScoreBadge({ score }: { score: number | null | undefined }) {
   if (score == null || score === 0) return null;
   const rounded = Math.round(score);
-  let color: string = T.gray400;
-  let bg: string = T.gray100;
-  if (rounded >= 85) { color = '#16a34a'; bg = '#dcfce7'; }
-  else if (rounded >= 70) { color = '#2563eb'; bg = '#dbeafe'; }
-  else if (rounded >= 55) { color = '#d97706'; bg = '#fef3c7'; }
+  const toneClass = rounded >= 85
+    ? 'bg-teal-light text-teal'
+    : rounded >= 70
+      ? 'bg-primary-light text-primary'
+      : rounded >= 55
+        ? 'bg-amber-light text-amber'
+        : 'bg-gray-100 text-gray-400';
   return (
-    <span
-      style={{
-        fontSize: 11,
-        fontWeight: 700,
-        color,
-        background: bg,
-        padding: '2px 7px',
-        borderRadius: 4,
-        fontFamily: T.mono,
-        letterSpacing: '-0.3px',
-      }}
-    >
+    <span className={cx('rounded px-2 py-0.5 font-mono text-[11px] font-bold', toneClass)}>
       {rounded}
     </span>
   );
@@ -942,51 +711,37 @@ function FeedbackButtons({ contentId }: { contentId: number }) {
   };
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative' }}>
+    <div className="relative flex items-center gap-0.5">
       {/* Quick feedback: thumbs up/down */}
       {FEEDBACK_OPTIONS.slice(0, 2).map(({ type, icon: Icon, label, color }) => (
         <button
           key={type}
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             handleFeedback(type);
           }}
           title={label}
-          style={{
-            background: activeFeedback === type ? `${color}15` : 'none',
-            border: 'none',
-            cursor: activeFeedback === type ? 'default' : 'pointer',
-            padding: '2px 4px',
-            borderRadius: 4,
-            opacity: activeFeedback && activeFeedback !== type ? 0.3 : 1,
-            transition: 'all 0.15s',
-            color: activeFeedback === type ? color : T.gray400,
-            display: 'inline-flex',
-            alignItems: 'center',
-          }}
+          className={cx(
+            'inline-flex rounded border-0 bg-transparent px-1 py-0.5 transition',
+            activeFeedback === type ? 'cursor-default' : 'cursor-pointer',
+            activeFeedback && activeFeedback !== type ? 'opacity-30' : 'opacity-100',
+          )}
+          style={{ color: activeFeedback === type ? color : '#9CA3AF', background: activeFeedback === type ? `${color}15` : 'transparent' }}
         >
           <Icon size={13} strokeWidth={2.2} />
         </button>
       ))}
       
       {/* More feedback options dropdown */}
-      <div style={{ position: 'relative' }}>
+      <div className="relative">
         <button
+          type="button"
           onClick={(e) => {
             e.stopPropagation();
             setShowMore(!showMore);
           }}
-          style={{
-            background: showMore ? T.gray100 : 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: '2px 6px',
-            borderRadius: 4,
-            color: T.gray400,
-            transition: 'all 0.15s',
-            display: 'inline-flex',
-            alignItems: 'center',
-          }}
+          className={cx('inline-flex cursor-pointer rounded border-0 px-1.5 py-0.5 text-gray-400 transition hover:text-gray-600', showMore ? 'bg-gray-100' : 'bg-transparent')}
           title="更多反馈"
         >
           <ChevronDown size={13} strokeWidth={2.2} />
@@ -995,61 +750,33 @@ function FeedbackButtons({ contentId }: { contentId: number }) {
           <>
             <div
               onClick={(e) => e.stopPropagation()}
-              style={{
-                position: 'absolute',
-                right: 0,
-                top: '100%',
-                marginTop: 4,
-                background: T.white,
-                border: `1px solid ${T.gray200}`,
-                borderRadius: T.radiusSm,
-                boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-                padding: 4,
-                zIndex: 100,
-                minWidth: 120,
-              }}
+              className="absolute right-0 top-full z-[100] mt-1 min-w-[120px] rounded-sm border border-gray-200 bg-white p-1 shadow-lg"
             >
               {FEEDBACK_OPTIONS.map(({ type, icon: Icon, label, color }) => (
                 <button
                   key={type}
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     handleFeedback(type);
                     setShowMore(false);
                   }}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    width: '100%',
-                    padding: '6px 10px',
-                    background: activeFeedback === type ? `${color}10` : 'none',
-                    border: 'none',
-                    borderRadius: 4,
-                    cursor: activeFeedback === type ? 'default' : 'pointer',
-                    fontSize: 12,
-                    color: activeFeedback === type ? color : T.gray600,
-                    fontWeight: activeFeedback === type ? 600 : 400,
-                    textAlign: 'left' as const,
-                  }}
+                  className={cx(
+                    'flex w-full items-center gap-2 rounded border-0 px-2.5 py-1.5 text-left text-xs',
+                    activeFeedback === type ? 'cursor-default font-semibold' : 'cursor-pointer font-normal hover:bg-gray-50',
+                  )}
+                  style={{ color: activeFeedback === type ? color : '#4B5563', background: activeFeedback === type ? `${color}10` : 'transparent' }}
                 >
                   <Icon size={13} strokeWidth={2.2} />
                   <span>{label}</span>
-                  {activeFeedback === type && <Check size={12} strokeWidth={2.4} style={{ marginLeft: 'auto' }} />}
+                  {activeFeedback === type && <Check size={12} strokeWidth={2.4} className="ml-auto" />}
                 </button>
               ))}
             </div>
             {/* Click outside to close */}
             <div
               onClick={() => setShowMore(false)}
-              style={{
-                position: 'fixed',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                zIndex: 99,
-              }}
+              className="fixed inset-0 z-[99]"
             />
           </>
         )}

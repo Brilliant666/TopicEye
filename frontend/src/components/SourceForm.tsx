@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { T } from '@/lib/design-tokens';
+import { cx } from '@/components/ui';
 
 export interface FormState {
   name: string;
@@ -29,83 +29,92 @@ interface SourceFormProps {
   setForm: React.Dispatch<React.SetStateAction<FormState>>;
 }
 
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <label className="mb-1.5 block text-[13px] font-bold text-gray-700">{children}</label>;
+}
+
+const inputClass = 'h-9 w-full rounded-xs border border-gray-200 bg-white px-3 text-sm text-gray-800 outline-none transition placeholder:text-gray-300 focus:border-primary-border focus:ring-2 focus:ring-primary-light';
+
 export default function SourceForm({ form, setForm }: SourceFormProps) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="flex flex-col gap-4">
       <div>
-        <label style={{ fontSize: 13, fontWeight: 500, color: T.gray700, display: 'block', marginBottom: 6 }}>
-          信源名称 <span style={{ color: T.red }}>*</span>
-        </label>
+        <FieldLabel>
+          信源名称 <span className="text-red">*</span>
+        </FieldLabel>
         <input
           type="text"
           placeholder="例：量子位"
           value={form.name}
           onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-          style={{ width: '100%', padding: '8px 12px', fontSize: 14, border: `1px solid ${T.gray200}`, borderRadius: T.radiusXs, outline: 'none', fontFamily: T.sans }}
+          className={inputClass}
         />
       </div>
+
       <div>
-        <label style={{ fontSize: 13, fontWeight: 500, color: T.gray700, display: 'block', marginBottom: 6 }}>类型</label>
+        <FieldLabel>类型</FieldLabel>
         <select
           value={form.source_type}
           onChange={(e) => setForm((f) => ({ ...f, source_type: e.target.value }))}
-          style={{ width: '100%', padding: '8px 12px', fontSize: 14, border: `1px solid ${T.gray200}`, borderRadius: T.radiusXs, outline: 'none', background: T.white, fontFamily: T.sans }}
+          className={inputClass}
         >
-          {SOURCE_TYPES.map((t) => (<option key={t} value={t}>{t}</option>))}
+          {SOURCE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
       </div>
+
       <div>
-        <label style={{ fontSize: 13, fontWeight: 500, color: T.gray700, display: 'block', marginBottom: 6 }}>URL / 地址</label>
+        <FieldLabel>URL / 地址</FieldLabel>
         <input
           type="text"
           placeholder="https://example.com/feed"
           value={form.url}
           onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
-          style={{ width: '100%', padding: '8px 12px', fontSize: 14, border: `1px solid ${T.gray200}`, borderRadius: T.radiusXs, outline: 'none', fontFamily: T.mono }}
+          className={cx(inputClass, 'font-mono')}
         />
       </div>
+
       <div>
-        <label style={{ fontSize: 13, fontWeight: 500, color: T.gray700, display: 'block', marginBottom: 6 }}>分类</label>
+        <FieldLabel>分类</FieldLabel>
         <select
           value={form.category}
           onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-          style={{ width: '100%', padding: '8px 12px', fontSize: 14, border: `1px solid ${T.gray200}`, borderRadius: T.radiusXs, outline: 'none', background: T.white, fontFamily: T.sans }}
+          className={inputClass}
         >
-          {CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
+          {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
+
       <div>
-        <label style={{ fontSize: 13, fontWeight: 500, color: T.gray700, display: 'block', marginBottom: 6 }}>
+        <FieldLabel>
           信源权重
-          <span style={{ fontSize: 11, fontWeight: 400, color: T.gray400, marginLeft: 8 }}>
-            权重越高，精选评分加分越多
-          </span>
-        </label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span className="ml-2 text-[11px] font-normal text-gray-400">权重越高，精选评分加分越多</span>
+        </FieldLabel>
+        <div className="flex items-center gap-1">
           {[1, 2, 3, 4, 5].map((w) => (
-            <span
+            <button
               key={w}
+              type="button"
               onClick={() => setForm((f) => ({ ...f, weight: w }))}
-              style={{
-                fontSize: 18,
-                color: w <= form.weight ? T.primary : T.gray200,
-                cursor: 'pointer',
-                transition: 'color 0.15s',
-                userSelect: 'none',
-                lineHeight: 1,
-              }}
+              className={cx('text-lg leading-none transition', w <= form.weight ? 'text-primary' : 'text-gray-200')}
             >
               ●
-            </span>
+            </button>
           ))}
-          <span style={{ fontSize: 12, color: T.gray500, marginLeft: 8, fontFamily: T.mono }}>
+          <span className="ml-2 font-mono text-xs text-gray-500">
             {form.weight}/5 {form.weight > 3 ? `(+${(form.weight - 3) * 6}分)` : form.weight < 3 ? `(${(form.weight - 3) * 6}分)` : '(基准)'}
           </span>
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <input type="checkbox" checked={form.enabled} onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))} style={{ width: 16, height: 16, cursor: 'pointer' }} id="src-enabled" />
-        <label htmlFor="src-enabled" style={{ fontSize: 13, fontWeight: 500, color: T.gray700, cursor: 'pointer' }}>启用此信源</label>
+
+      <div className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={form.enabled}
+          onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))}
+          className="h-4 w-4 cursor-pointer accent-primary"
+          id="src-enabled"
+        />
+        <label htmlFor="src-enabled" className="cursor-pointer text-[13px] font-bold text-gray-700">启用此信源</label>
       </div>
     </div>
   );

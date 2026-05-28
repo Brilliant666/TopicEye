@@ -2,10 +2,8 @@
 
 import React, { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
-import { T } from '@/lib/design-tokens';
+import { Button, cx } from '@/components/ui';
 import { timeAgo } from '@/lib/utils';
-
-// ─── Backend Source type (local to sources page) ───
 
 export interface BackendSource {
   id: number;
@@ -26,11 +24,11 @@ export interface BackendSource {
   updated_at: string;
 }
 
-const typeColors: Record<string, { bg: string; color: string }> = {
-  'RSS': { bg: '#EEF2FF', color: '#4F46E5' },
-  'RSSHub': { bg: '#F0FDF4', color: '#16A34A' },
-  '公众号': { bg: '#FFF1F2', color: '#E11D48' },
-  '网站': { bg: '#FEF3C7', color: '#92400E' },
+const typeColors: Record<string, string> = {
+  RSS: 'bg-purple-light text-purple',
+  RSSHub: 'bg-teal-light text-teal',
+  公众号: 'bg-red-light text-red',
+  网站: 'bg-amber-light text-amber',
 };
 
 const INTERVAL_OPTIONS = [
@@ -43,28 +41,13 @@ const INTERVAL_OPTIONS = [
 ];
 
 function formatInterval(minutes: number): string {
-  const opt = INTERVAL_OPTIONS.find(o => o.value === minutes);
+  const opt = INTERVAL_OPTIONS.find((o) => o.value === minutes);
   return opt ? opt.label : `${minutes}分钟`;
 }
 
-// ─── Spinner ───
-
 function Spinner() {
-  return (
-    <div
-      style={{
-        width: 18,
-        height: 18,
-        border: `2px solid ${T.gray200}`,
-        borderTopColor: T.primary,
-        borderRadius: '50%',
-        animation: 'spin 0.6s linear infinite',
-      }}
-    />
-  );
+  return <div className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-gray-200 border-t-primary" />;
 }
-
-// ─── Source Row ───
 
 interface SourceRowProps {
   source: BackendSource;
@@ -89,150 +72,101 @@ export default function SourceRowComponent({
   onWeightChange,
   onIntervalChange,
 }: SourceRowProps) {
-  const [hovered, setHovered] = useState(false);
   const [intervalOpen, setIntervalOpen] = useState(false);
-  const tc = typeColors[source.source_type] || { bg: T.gray100, color: T.gray600 };
+  const typeClass = typeColors[source.source_type] || 'bg-gray-100 text-gray-600';
   const isActive = source.status === 'active' && source.enabled;
 
   return (
     <div
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => { setHovered(false); setIntervalOpen(false); }}
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '2fr 1fr 1fr 1.2fr 1fr 1fr 0.8fr 1.5fr',
-        padding: '14px 24px',
-        borderBottom: `1px solid ${T.gray100}`,
-        fontSize: 13,
-        color: T.gray700,
-        alignItems: 'center',
-        transition: 'background 0.1s',
-        cursor: 'default',
-        background: hovered ? T.gray50 : T.white,
-        opacity: deleting ? 0.5 : 1,
-      }}
+      onMouseLeave={() => setIntervalOpen(false)}
+      className={cx(
+        'grid grid-cols-[2fr_1fr_1fr_1.2fr_1fr_1fr_0.8fr_1.5fr] items-center border-b border-gray-100 bg-white px-6 py-3.5 text-[13px] text-gray-700 transition hover:bg-gray-50',
+        deleting && 'opacity-50',
+      )}
     >
-      {/* Name */}
-      <div>
-        <span style={{ fontWeight: 500 }}>{source.name}</span>
-        {source.url && (
-          <div style={{ fontSize: 11, color: T.gray400, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
-            {source.url}
-          </div>
-        )}
+      <div className="min-w-0">
+        <span className="font-bold">{source.name}</span>
+        {source.url && <div className="mt-0.5 max-w-[220px] truncate text-[11px] text-gray-400">{source.url}</div>}
       </div>
 
-      {/* Type */}
-      <span style={{ fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 4, background: tc.bg, color: tc.color, display: 'inline-block', width: 'fit-content' }}>
-        {source.source_type}
-      </span>
+      <span className={cx('w-fit rounded px-2 py-0.5 text-[11px] font-bold', typeClass)}>{source.source_type}</span>
+      <span className="text-gray-500">{source.category}</span>
 
-      {/* Category */}
-      <span style={{ color: T.gray500 }}>{source.category}</span>
-
-      {/* Last Sync */}
-      <div>
-        <span style={{ fontSize: 12, color: source.sync_error ? T.red : T.gray400 }}>
+      <div className="min-w-0">
+        <span className={cx('text-xs', source.sync_error ? 'text-red' : 'text-gray-400')}>
           {source.sync_error ? '同步失败' : timeAgo(source.last_sync_at)}
         </span>
-        {source.sync_error && <div style={{ fontSize: 11, color: T.red, marginTop: 1 }}>{source.sync_error}</div>}
-        {syncResult && <div style={{ fontSize: 11, color: T.teal, marginTop: 1 }}>{syncResult}</div>}
+        {source.sync_error && <div className="mt-0.5 truncate text-[11px] text-red">{source.sync_error}</div>}
+        {syncResult && <div className="mt-0.5 truncate text-[11px] text-teal">{syncResult}</div>}
       </div>
 
-      {/* Interval selector */}
-      <div style={{ position: 'relative' }}>
+      <div className="relative">
         <button
+          type="button"
           onClick={() => setIntervalOpen((v) => !v)}
-          style={{
-            padding: '3px 8px',
-            fontSize: 11,
-            background: intervalOpen ? T.primaryLight : T.gray100,
-            color: intervalOpen ? T.primary : T.gray600,
-            border: `1px solid ${intervalOpen ? T.primaryBorder : T.gray200}`,
-            borderRadius: 4,
-            cursor: 'pointer',
-            transition: 'all 0.15s',
-            whiteSpace: 'nowrap',
-          }}
+          className={cx(
+            'whitespace-nowrap rounded border px-2 py-1 text-[11px] transition',
+            intervalOpen ? 'border-primary-border bg-primary-light text-primary' : 'border-gray-200 bg-gray-100 text-gray-600',
+          )}
           title="点击修改采集频率"
         >
           {formatInterval(source.fetch_interval_minutes)}
-          <ChevronDown size={12} strokeWidth={2} style={{ marginLeft: 4, opacity: 0.7, verticalAlign: 'middle' }} />
+          <ChevronDown size={12} strokeWidth={2} className="ml-1 inline opacity-70" />
         </button>
         {intervalOpen && (
-          <div style={{
-            position: 'absolute',
-            top: 'calc(100% + 4px)',
-            left: 0,
-            zIndex: 100,
-            background: T.white,
-            border: `1px solid ${T.gray200}`,
-            borderRadius: 6,
-            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-            padding: '4px',
-            minWidth: 90,
-          }}>
+          <div className="absolute left-0 top-[calc(100%+4px)] z-50 min-w-[90px] rounded-xs border border-gray-200 bg-white p-1 shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
             {INTERVAL_OPTIONS.map((opt) => (
-              <div
+              <button
                 key={opt.value}
+                type="button"
                 onClick={() => {
                   onIntervalChange?.(opt.value);
                   setIntervalOpen(false);
                 }}
-                style={{
-                  padding: '6px 10px',
-                  fontSize: 12,
-                  borderRadius: 4,
-                  cursor: 'pointer',
-                  color: opt.value === source.fetch_interval_minutes ? T.primary : T.gray700,
-                  background: opt.value === source.fetch_interval_minutes ? T.primaryLight : 'transparent',
-                  fontWeight: opt.value === source.fetch_interval_minutes ? 600 : 400,
-                  transition: 'background 0.1s',
-                }}
-                onMouseEnter={(e) => { if (opt.value !== source.fetch_interval_minutes) e.currentTarget.style.background = T.gray50; }}
-                onMouseLeave={(e) => { if (opt.value !== source.fetch_interval_minutes) e.currentTarget.style.background = 'transparent'; }}
+                className={cx(
+                  'block w-full rounded px-2.5 py-1.5 text-left text-xs transition hover:bg-gray-50',
+                  opt.value === source.fetch_interval_minutes ? 'bg-primary-light font-bold text-primary' : 'text-gray-700',
+                )}
               >
                 {opt.label}
-              </div>
+              </button>
             ))}
           </div>
         )}
       </div>
 
-      {/* Weight */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2, cursor: 'pointer' }}
-        title={`权重 ${source.weight}/5 — 影响精选加分：${source.weight > 3 ? '+' : ''}${(source.weight - 3) * 8} 分`}
-      >
+      <div className="flex cursor-pointer items-center gap-0.5" title={`权重 ${source.weight}/5 — 影响精选加分：${source.weight > 3 ? '+' : ''}${(source.weight - 3) * 8} 分`}>
         {[1, 2, 3, 4, 5].map((w) => (
-          <span key={w} onClick={() => onWeightChange?.(w)} style={{ fontSize: 11, color: w <= source.weight ? T.primary : T.gray200, transition: 'color 0.15s', userSelect: 'none' }}>
+          <button
+            key={w}
+            type="button"
+            onClick={() => onWeightChange?.(w)}
+            className={cx('text-[11px] transition', w <= source.weight ? 'text-primary' : 'text-gray-200')}
+          >
             ●
-          </span>
+          </button>
         ))}
-        <span style={{ fontSize: 10, color: T.gray400, marginLeft: 4 }}>
-          {(source.weight - 3) * 8 > 0 ? '+' : ''}{(source.weight - 3) * 8}
-        </span>
+        <span className="ml-1 text-[10px] text-gray-400">{(source.weight - 3) * 8 > 0 ? '+' : ''}{(source.weight - 3) * 8}</span>
       </div>
 
-      {/* Status */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: isActive ? T.teal : T.red, display: 'inline-block' }} />
-        <span style={{ fontSize: 11, color: isActive ? T.teal : T.red }}>
+      <div className="flex items-center gap-1.5">
+        <span className={cx('h-2 w-2 rounded-full', isActive ? 'bg-teal' : 'bg-red')} />
+        <span className={cx('text-[11px]', isActive ? 'text-teal' : 'text-red')}>
           {source.enabled ? (source.status === 'active' ? '正常' : source.status) : '已禁用'}
         </span>
       </div>
 
-      {/* Actions */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button onClick={onSync} disabled={syncing} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 500, background: syncing ? T.gray100 : T.tealLight, color: syncing ? T.gray400 : T.teal, border: `1px solid ${syncing ? T.gray200 : T.tealBorder}`, borderRadius: 4, cursor: syncing ? 'wait' : 'pointer', transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 4 }}>
+      <div className="flex items-center gap-2">
+        <Button type="button" onClick={onSync} disabled={syncing} variant={syncing ? 'secondary' : 'success'} className="min-h-7 px-2.5 py-1 text-[11px]">
           {syncing ? <Spinner /> : null}
           {syncing ? '同步中' : '同步'}
-        </button>
-        <button onClick={onEdit} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 500, background: '#EEF2FF', color: '#4F46E5', border: '1px solid #C7D2FE', borderRadius: 4, cursor: 'pointer', transition: 'all 0.15s' }}>
+        </Button>
+        <Button type="button" onClick={onEdit} variant="secondary" className="min-h-7 bg-purple-light px-2.5 py-1 text-[11px] text-purple hover:text-purple">
           编辑
-        </button>
-        <button onClick={onDelete} disabled={deleting} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 500, background: 'transparent', color: deleting ? T.gray300 : T.red, border: 'none', borderRadius: 4, cursor: deleting ? 'wait' : 'pointer', transition: 'color 0.15s' }}>
+        </Button>
+        <Button type="button" onClick={onDelete} disabled={deleting} variant="ghost" className="min-h-7 px-2.5 py-1 text-[11px] text-red hover:text-red">
           {deleting ? '删除中…' : '删除'}
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -3,9 +3,10 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { AlertTriangle, ArrowLeft } from 'lucide-react';
-import { T, LEVEL_CONFIG } from '@/lib/design-tokens';
+import { LEVEL_CONFIG } from '@/lib/design-tokens';
 import { useAppContext } from '@/components/ClientLayout';
 import { contentsApi, analysesApi } from '@/lib/api';
+import { Button, Panel, cx } from '@/components/ui';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
 import { getRecommendLevel } from '@/types';
 import { timeAgo, extractTags, extractCreatorAngles, extractRiskNotes, extractTitleSuggestions, extractKeyPoints } from '@/lib/utils';
@@ -85,29 +86,29 @@ export default function TopicDetailPage() {
   // ── Render: Loading ──
   if (loading) {
     return (
-      <div style={{ padding: '32px 40px', height: '100%', overflowY: 'auto' }}>
-        <div style={{ maxWidth: 760 }}>
-          <div style={{ background: T.white, borderRadius: T.radius, padding: 32, marginBottom: 20, border: `1px solid ${T.gray100}` }}>
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-              <div style={{ width: 80, height: 24, background: T.gray100, borderRadius: 20 }} />
-              <div style={{ width: 48, height: 24, background: T.gray100, borderRadius: 4 }} />
+      <div className="h-full overflow-y-auto px-10 py-8">
+        <div className="max-w-[760px]">
+          <Panel className="mb-5 p-8">
+            <div className="mb-4 flex gap-2.5">
+              <div className="h-6 w-20 rounded-full bg-gray-100" />
+              <div className="h-6 w-12 rounded bg-gray-100" />
             </div>
-            <div style={{ height: 28, background: T.gray100, borderRadius: 6, marginBottom: 12, width: '80%' }} />
-            <div style={{ height: 28, background: T.gray100, borderRadius: 6, marginBottom: 12, width: '60%' }} />
-            <div style={{ display: 'flex', gap: 16 }}>
-              <div style={{ width: 60, height: 16, background: T.gray100, borderRadius: 4 }} />
-              <div style={{ width: 80, height: 16, background: T.gray100, borderRadius: 4 }} />
+            <div className="mb-3 h-7 w-4/5 rounded-xs bg-gray-100" />
+            <div className="mb-3 h-7 w-3/5 rounded-xs bg-gray-100" />
+            <div className="flex gap-4">
+              <div className="h-4 w-[60px] rounded bg-gray-100" />
+              <div className="h-4 w-20 rounded bg-gray-100" />
             </div>
-          </div>
+          </Panel>
           {[1, 2, 3].map(i => (
-            <div key={i} style={{ background: T.white, borderRadius: T.radius, padding: 28, marginBottom: 20, border: `1px solid ${T.gray100}` }}>
-              <div style={{ height: 16, background: T.gray100, borderRadius: 4, width: '30%', marginBottom: 16 }} />
-              <div style={{ height: 14, background: T.gray50, borderRadius: 4, width: '100%', marginBottom: 8 }} />
-              <div style={{ height: 14, background: T.gray50, borderRadius: 4, width: '90%', marginBottom: 8 }} />
-              <div style={{ height: 14, background: T.gray50, borderRadius: 4, width: '75%' }} />
-            </div>
+            <Panel key={i} className="mb-5 p-7">
+              <div className="mb-4 h-4 w-[30%] rounded bg-gray-100" />
+              <div className="mb-2 h-3.5 w-full rounded bg-gray-50" />
+              <div className="mb-2 h-3.5 w-[90%] rounded bg-gray-50" />
+              <div className="h-3.5 w-3/4 rounded bg-gray-50" />
+            </Panel>
           ))}
-          <div style={{ textAlign: 'center', color: T.gray400, fontSize: 13, marginTop: 20 }}>
+          <div className="mt-5 text-center text-[13px] text-gray-400">
             加载中...
           </div>
         </div>
@@ -118,42 +119,33 @@ export default function TopicDetailPage() {
   // ── Render: Error ──
   if (error || !item) {
     return (
-      <div style={{ padding: '32px 40px', height: '100%', overflowY: 'auto' }}>
-        <div style={{ maxWidth: 760 }}>
-          <button
+      <div className="h-full overflow-y-auto px-10 py-8">
+        <div className="max-w-[760px]">
+          <Button
+            type="button"
             onClick={() => router.push('/')}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer', fontSize: 13,
-              color: T.gray500, display: 'flex', alignItems: 'center', gap: 4,
-              marginBottom: 24, padding: '4px 0',
-            }}
+            variant="ghost"
+            className="mb-6 min-h-0 px-0 py-1 text-[13px]"
           >
             <ArrowLeft size={15} strokeWidth={2} /> 返回
-          </button>
-          <div
-            style={{
-              background: T.redLight, borderRadius: T.radius, padding: 32,
-              textAlign: 'center', border: '1px solid #FECACA',
-            }}
-          >
-            <AlertTriangle size={34} color={T.red} strokeWidth={1.9} style={{ marginBottom: 12 }} />
-            <div style={{ fontSize: 16, fontWeight: 600, color: T.gray800, marginBottom: 8 }}>
+          </Button>
+          <Panel className="border-red/20 bg-red-light p-8 text-center">
+            <AlertTriangle size={34} className="mx-auto mb-3 text-red" strokeWidth={1.9} />
+            <div className="mb-2 text-base font-semibold text-gray-800">
               内容加载失败
             </div>
-            <div style={{ fontSize: 14, color: T.gray500, marginBottom: 20 }}>
+            <div className="mb-5 text-sm text-gray-500">
               {error || '未找到该内容'}
             </div>
-            <button
+            <Button
+              type="button"
               onClick={() => window.location.reload()}
-              style={{
-                padding: '8px 20px', fontSize: 13, fontWeight: 500,
-                background: T.white, color: T.gray700, border: `1px solid ${T.gray200}`,
-                borderRadius: T.radiusSm, cursor: 'pointer',
-              }}
+              variant="secondary"
+              className="text-[13px] font-medium"
             >
               重新加载
-            </button>
-          </div>
+            </Button>
+          </Panel>
         </div>
       </div>
     );
@@ -169,20 +161,18 @@ export default function TopicDetailPage() {
   const keyPoints = extractKeyPoints(analysis);
 
   return (
-    <div className="fade-in" style={{ padding: '32px 40px', height: '100%', overflowY: 'auto' }}>
+    <div className="fade-in h-full overflow-y-auto px-10 py-8">
       {/* Back */}
-      <button
+      <Button
+        type="button"
         onClick={() => router.push('/')}
-        style={{
-          background: 'none', border: 'none', cursor: 'pointer', fontSize: 13,
-          color: T.gray500, display: 'flex', alignItems: 'center', gap: 4,
-          marginBottom: 24, padding: '4px 0',
-        }}
+        variant="ghost"
+        className="mb-6 min-h-0 px-0 py-1 text-[13px]"
       >
         <ArrowLeft size={15} strokeWidth={2} /> 返回今日选题
-      </button>
+      </Button>
 
-      <div style={{ maxWidth: 760 }}>
+      <div className="max-w-[760px]">
         {/* Header Card */}
         <TopicHeaderCard
           item={item}
@@ -196,14 +186,9 @@ export default function TopicDetailPage() {
 
         {/* Scores */}
         {analysis && (
-          <div
-            style={{
-              background: T.white, borderRadius: T.radius, padding: 28,
-              marginBottom: 20, border: `1px solid ${T.gray100}`,
-            }}
-          >
+          <Panel className="mb-5 p-7">
             <SectionTitle>评分概览</SectionTitle>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24 }}>
+            <div className="grid gap-6 sm:grid-cols-3">
               <ScoreCard label="热度分" value={analysis.hot_score ?? 0} desc="当前传播热度" />
               <ScoreCard label="创作价值" value={analysis.creator_score ?? 0} desc="值得创作的程度" />
               <ScoreCard label="风险分" value={analysis.risk_score ?? 0} desc="内容风险等级" isRisk />
@@ -211,112 +196,102 @@ export default function TopicDetailPage() {
 
             {/* Curation score bar */}
             {analysis.curation_score != null && analysis.curation_score > 0 && (
-              <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${T.gray100}` }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: T.gray500 }}>精选评分</span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: T.primary, fontFamily: T.mono }}>
+              <div className="mt-5 border-t border-gray-100 pt-4">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-500">精选评分</span>
+                  <span className="font-mono text-xs font-semibold text-primary">
                     {Math.round(analysis.curation_score)} 分
                   </span>
                 </div>
-                <div style={{ height: 6, background: T.gray100, borderRadius: 3, overflow: 'hidden' }}>
+                <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
                   <div
                     style={{
                       height: '100%',
                       width: `${Math.min(100, analysis.curation_score)}%`,
-                      background: `linear-gradient(90deg, ${T.primary}, #FF8F65)`,
-                      borderRadius: 3,
-                      transition: 'width 0.5s ease',
                     }}
+                    className="rounded-full bg-primary transition-[width] duration-500"
                   />
                 </div>
               </div>
             )}
-          </div>
+          </Panel>
         )}
 
         {/* AI Summary */}
         {analysis?.summary && (
-          <div style={{ background: T.white, borderRadius: T.radius, padding: 28, marginBottom: 20, border: `1px solid ${T.gray100}` }}>
+          <Panel className="mb-5 p-7">
             <SectionTitle>AI 摘要</SectionTitle>
-            <p style={{ fontSize: 14, lineHeight: 1.8, color: T.gray600 }}>{analysis.summary}</p>
-          </div>
+            <p className="text-sm leading-8 text-gray-600">{analysis.summary}</p>
+          </Panel>
         )}
 
         {/* Key Points */}
         {keyPoints.length > 0 && (
-          <div style={{ background: T.white, borderRadius: T.radius, padding: 28, marginBottom: 20, border: `1px solid ${T.gray100}` }}>
+          <Panel className="mb-5 p-7">
             <SectionTitle>核心要点</SectionTitle>
-            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8, padding: 0, margin: 0 }}>
+            <ul className="m-0 flex list-none flex-col gap-2 p-0">
               {keyPoints.map((point, i) => (
-                <li key={i} style={{ fontSize: 14, lineHeight: 1.6, color: T.gray700, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <span style={{ color: T.primary, fontWeight: 700, flexShrink: 0 }}>•</span>
+                <li key={i} className="flex items-start gap-2 text-sm leading-6 text-gray-700">
+                  <span className="shrink-0 font-bold text-primary">•</span>
                   {point}
                 </li>
               ))}
             </ul>
-          </div>
+          </Panel>
         )}
 
         {/* Recommendation Reason */}
         {analysis?.recommended_reason && (
-          <div style={{ background: levelCfg.bg, borderRadius: T.radius, padding: 28, marginBottom: 20, border: `1px solid ${levelCfg.border}` }}>
+          <Panel className="mb-5 p-7" style={{ background: levelCfg.bg, borderColor: levelCfg.border }}>
             <SectionTitle>推荐理由</SectionTitle>
-            <p style={{ fontSize: 14, lineHeight: 1.8, color: T.gray700 }}>{analysis.recommended_reason}</p>
-          </div>
+            <p className="text-sm leading-8 text-gray-700">{analysis.recommended_reason}</p>
+          </Panel>
         )}
 
         {/* Creator Angles */}
         {angles.length > 0 && (
-          <div style={{ background: T.white, borderRadius: T.radius, padding: 28, marginBottom: 20, border: `1px solid ${T.gray100}` }}>
+          <Panel className="mb-5 p-7">
             <SectionTitle>可切入角度</SectionTitle>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="flex flex-col gap-2.5">
               {angles.map((angle, i) => (
-                <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '12px 16px', background: T.gray50, borderRadius: T.radiusSm }}>
-                  <span
-                    style={{
-                      width: 22, height: 22, borderRadius: '50%',
-                      background: `linear-gradient(135deg, ${T.primary}, #FF8F65)`,
-                      color: T.white, fontSize: 11, fontWeight: 600,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      flexShrink: 0, marginTop: 1,
-                    }}
-                  >
+                <div key={i} className="flex items-start gap-3 rounded-sm bg-gray-50 px-4 py-3">
+                  <span className="mt-px flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-semibold text-white">
                     {i + 1}
                   </span>
-                  <span style={{ fontSize: 14, lineHeight: 1.6, color: T.gray700 }}>{angle}</span>
+                  <span className="text-sm leading-6 text-gray-700">{angle}</span>
                 </div>
               ))}
             </div>
-          </div>
+          </Panel>
         )}
 
         {/* Title Suggestions */}
         {titleSuggestions.length > 0 && (
-          <div style={{ background: T.white, borderRadius: T.radius, padding: 28, marginBottom: 20, border: `1px solid ${T.gray100}` }}>
+          <Panel className="mb-5 p-7">
             <SectionTitle>备选标题建议</SectionTitle>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="flex flex-col gap-2">
               {titleSuggestions.map((title, i) => (
-                <div key={i} style={{ padding: '10px 14px', background: T.gray50, borderRadius: T.radiusSm, fontSize: 14, lineHeight: 1.5, color: T.gray700, borderLeft: `3px solid ${T.primary}` }}>
+                <div key={i} className="rounded-sm border-l-[3px] border-primary bg-gray-50 px-3.5 py-2.5 text-sm leading-6 text-gray-700">
                   {title}
                 </div>
               ))}
             </div>
-          </div>
+          </Panel>
         )}
 
         {/* Risk Notes */}
         {riskNotes.length > 0 && (
-          <div style={{ background: T.redLight, borderRadius: T.radius, padding: 28, marginBottom: 20, border: '1px solid #FECACA' }}>
+          <Panel className="mb-5 border-red/20 bg-red-light p-7">
             <SectionTitle>风险提示</SectionTitle>
-            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <ul className="flex list-none flex-col gap-2">
               {riskNotes.map((note, i) => (
-                <li key={i} style={{ fontSize: 13, lineHeight: 1.6, color: '#991B1B', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                  <span style={{ color: T.red, fontWeight: 700, flexShrink: 0 }}>!</span>
+                <li key={i} className="flex items-start gap-2 text-[13px] leading-6 text-red">
+                  <span className="shrink-0 font-bold text-red">!</span>
                   {note}
                 </li>
               ))}
             </ul>
-          </div>
+          </Panel>
         )}
 
         {/* Creation Plan Generator */}
@@ -324,16 +299,16 @@ export default function TopicDetailPage() {
 
         {/* No analysis hint */}
         {!analysis && (
-          <div style={{ background: T.amberLight, borderRadius: T.radius, padding: 28, marginBottom: 20, border: `1px solid ${T.amberBorder}` }}>
+          <Panel className="mb-5 border-amber-border bg-amber-light p-7">
             <SectionTitle>AI 分析</SectionTitle>
-            <p style={{ fontSize: 14, lineHeight: 1.8, color: T.gray600 }}>
+            <p className="text-sm leading-8 text-gray-600">
               该内容尚未完成 AI 分析。评分、摘要和创作建议将在分析完成后显示。
             </p>
-          </div>
+          </Panel>
         )}
 
         {/* Spacer at bottom */}
-        <div style={{ height: 40 }} />
+        <div className="h-10" />
       </div>
     </div>
   );

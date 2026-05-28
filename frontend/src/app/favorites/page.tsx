@@ -1,10 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Star, X } from 'lucide-react';
-import { T, LEVEL_CONFIG } from '@/lib/design-tokens';
+import { Star } from 'lucide-react';
 import { contentsApi } from '@/lib/api';
 import { useAppContext } from '@/components/ClientLayout';
+import { Badge, Panel, cx } from '@/components/ui';
+import ContentAnalysisPanel from '@/components/ContentAnalysisPanel';
 import type { ContentItem, ContentAnalysis } from '@/types';
 import { getRecommendLevel } from '@/types';
 
@@ -54,104 +55,76 @@ export default function FavoritesPage() {
   };
 
   return (
-    <div className="fade-in" style={{ padding: '32px 40px', height: '100%', overflowY: 'auto' }}>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 700, color: T.gray900, marginBottom: 6 }}>收藏夹</h1>
-        <p style={{ fontSize: 13, color: T.gray400 }}>
-          已收藏 <b style={{ color: T.primary, fontFamily: T.mono }}>{items.length}</b> 条内容
+    <div className="fade-in h-full overflow-y-auto px-10 py-8">
+      <div className="mb-7">
+        <h1 className="mb-1.5 text-[26px] font-bold text-gray-900">收藏夹</h1>
+        <p className="text-[13px] text-gray-400">
+          已收藏 <b className="font-mono text-primary">{items.length}</b> 条内容
         </p>
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
+        <div className="p-20 text-center text-sm text-gray-400">
           加载中...
         </div>
       ) : items.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: 80, color: T.gray400, fontSize: 14 }}>
-          <Star size={38} color={T.gray300} strokeWidth={1.8} style={{ marginBottom: 16, opacity: 0.7 }} />
+        <div className="p-20 text-center text-sm text-gray-400">
+          <Star size={38} className="mx-auto mb-4 text-gray-300 opacity-70" strokeWidth={1.8} />
           <div>还没有收藏任何内容</div>
-          <div style={{ fontSize: 12, marginTop: 4 }}>在今日选题中点击星标即可收藏</div>
+          <div className="mt-1 text-xs">在今日选题中点击星标即可收藏</div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, paddingBottom: 40 }}>
+        <div className="flex flex-col gap-4 pb-10">
           {items.map((item) => {
             const analysis = item.analysis as ContentAnalysis | null;
             const level = analysis ? getRecommendLevel(analysis) : null;
-            const levelCfg = level ? LEVEL_CONFIG[level] : null;
             return (
-              <div
+              <Panel
                 key={item.id}
-                style={{
-                  background: T.white,
-                  borderRadius: T.radius,
-                  border: `1px solid ${T.gray100}`,
-                  padding: '20px 24px',
-                  cursor: analysis ? 'pointer' : 'default',
-                  transition: 'box-shadow 0.15s',
-                }}
                 onClick={() => analysis && setSelectedAnalysis(analysis)}
-                onMouseEnter={(e) => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)')}
-                onMouseLeave={(e) => (e.currentTarget.style.boxShadow = 'none')}
+                className={cx('px-6 py-5 transition hover:shadow-md', analysis ? 'cursor-pointer' : 'cursor-default')}
               >
                 {/* Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, color: T.gray400 }}>{item.source_name}</span>
-                      <span style={{ fontSize: 11, color: T.gray300 }}>·</span>
-                      <span style={{ fontSize: 11, color: T.gray400 }}>{item.category}</span>
-                      <span style={{ fontSize: 11, color: T.gray300 }}>·</span>
-                      <span style={{ fontSize: 11, color: T.gray400 }}>{timeAgo(item.published_at || item.crawled_at)}</span>
+                <div className="mb-2 flex items-start justify-between gap-3">
+                  <div className="flex-1">
+                    <div className="mb-1.5 flex items-center gap-2 text-[11px] text-gray-400">
+                      <span>{item.source_name}</span>
+                      <span className="text-gray-300">·</span>
+                      <span>{item.category}</span>
+                      <span className="text-gray-300">·</span>
+                      <span>{timeAgo(item.published_at || item.crawled_at)}</span>
                     </div>
-                    <h3 style={{ fontSize: 15, fontWeight: 600, color: T.gray900, lineHeight: 1.5 }}>
+                    <h3 className="text-[15px] font-semibold leading-6 text-gray-900">
                       {item.title}
                     </h3>
                   </div>
                   <button
+                    type="button"
                     onClick={(e) => { e.stopPropagation(); handleUnfav(item.id); }}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: '#F59E0B',
-                      padding: '4px 8px',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                    }}
+                    className="inline-flex items-center border-0 bg-transparent px-2 py-1 text-primary"
                     title="取消收藏"
                   >
-                    <Star size={18} strokeWidth={2} fill="#F59E0B" />
+                    <Star size={18} strokeWidth={2} fill="#FF6B35" />
                   </button>
                 </div>
 
                 {/* Scores */}
                 {analysis && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <ScoreBadge label="创作" value={analysis.creator_score} color={T.primary} />
-                    <ScoreBadge label="爆文" value={analysis.viral_score} color="#F59E0B" />
-                    <ScoreBadge label="质量" value={analysis.quality_score} color="#10B981" />
-                    {levelCfg && (
-                      <span style={{
-                        fontSize: 11,
-                        fontWeight: 500,
-                        padding: '2px 8px',
-                        borderRadius: 4,
-                        background: levelCfg.bg,
-                        color: levelCfg.color,
-                      }}>
-                        {level}
-                      </span>
-                    )}
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <ScoreBadge label="创作" value={analysis.creator_score} colorClass="text-primary" />
+                    <ScoreBadge label="爆文" value={analysis.viral_score} colorClass="text-amber" />
+                    <ScoreBadge label="质量" value={analysis.quality_score} colorClass="text-teal" />
+                    {level && <RecommendBadge level={level} />}
                   </div>
                 )}
 
                 {/* Summary */}
                 {analysis?.summary && (
-                  <p style={{ fontSize: 13, color: T.gray500, marginTop: 8, lineHeight: 1.6 }}>
+                  <p className="mt-2 text-[13px] leading-6 text-gray-500">
                     {analysis.summary}
                   </p>
                 )}
-              </div>
+              </Panel>
             );
           })}
         </div>
@@ -162,99 +135,9 @@ export default function FavoritesPage() {
         <>
           <div
             onClick={() => setSelectedAnalysis(null)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.2)', zIndex: 999 }}
+            className="fixed inset-0 z-[999] bg-black/20"
           />
-          <div style={{
-            position: 'fixed', top: 0, right: 0, bottom: 0, width: 480, maxWidth: '90vw',
-            background: T.white, boxShadow: '-4px 0 24px rgba(0,0,0,0.1)', zIndex: 1000,
-            overflowY: 'auto', padding: 32,
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: T.gray900 }}>AI 分析报告</h2>
-              <button
-                onClick={() => setSelectedAnalysis(null)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: T.gray400, padding: 4, display: 'inline-flex', alignItems: 'center' }}
-                title="关闭"
-              >
-                <X size={18} strokeWidth={2} />
-              </button>
-            </div>
-
-            {/* Scores */}
-            <div style={{ marginBottom: 24 }}>
-              <h3 style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginBottom: 12 }}>多维评分</h3>
-              {[
-                { label: '质量', value: selectedAnalysis.quality_score, color: '#10B981' },
-                { label: '热度', value: selectedAnalysis.hot_score, color: '#EF4444' },
-                { label: '新鲜度', value: selectedAnalysis.freshness_score, color: '#3B82F6' },
-                { label: '创作价值', value: selectedAnalysis.creator_score, color: T.primary },
-                { label: '爆文潜力', value: selectedAnalysis.viral_score, color: '#F59E0B' },
-                { label: '风险', value: selectedAnalysis.risk_score, color: '#6B7280' },
-              ].map((s) => (
-                <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                  <span style={{ fontSize: 12, color: T.gray500, width: 56 }}>{s.label}</span>
-                  <div style={{ flex: 1, height: 6, background: T.gray100, borderRadius: 3, overflow: 'hidden' }}>
-                    <div style={{ width: `${s.value}%`, height: '100%', background: s.color, borderRadius: 3 }} />
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: T.gray700, width: 24, textAlign: 'right' }}>{Math.round(s.value)}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Summary */}
-            {selectedAnalysis.summary && (
-              <div style={{ marginBottom: 24 }}>
-                <h3 style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginBottom: 8 }}>内容摘要</h3>
-                <p style={{ fontSize: 13, color: T.gray600, lineHeight: 1.7 }}>{selectedAnalysis.summary}</p>
-              </div>
-            )}
-
-            {/* Key Points */}
-            {Array.isArray(selectedAnalysis.key_points) && selectedAnalysis.key_points.length > 0 && (
-              <div style={{ marginBottom: 24 }}>
-                <h3 style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginBottom: 8 }}>核心观点</h3>
-                {selectedAnalysis.key_points.map((point, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 8, paddingLeft: 12, borderLeft: `3px solid ${T.primary}` }}>
-                    <span style={{ fontSize: 13, color: T.gray600, lineHeight: 1.6 }}>{point}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Creator Angles */}
-            {Array.isArray(selectedAnalysis.creator_angles) && selectedAnalysis.creator_angles.length > 0 && (
-              <div style={{ marginBottom: 24 }}>
-                <h3 style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginBottom: 8 }}>创作角度</h3>
-                {selectedAnalysis.creator_angles.map((angle, i) => (
-                  <div key={i} style={{ display: 'flex', gap: 10, marginBottom: 8, paddingLeft: 12, borderLeft: `3px solid #10B981` }}>
-                    <span style={{ fontSize: 13, color: T.gray600, lineHeight: 1.6 }}>{angle}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Title Suggestions */}
-            {Array.isArray(selectedAnalysis.title_suggestions) && selectedAnalysis.title_suggestions.length > 0 && (
-              <div style={{ marginBottom: 24 }}>
-                <h3 style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginBottom: 8 }}>建议标题</h3>
-                {selectedAnalysis.title_suggestions.map((title, i) => (
-                  <div key={i} style={{ fontSize: 13, color: T.gray600, lineHeight: 1.7, marginBottom: 6 }}>
-                    <span style={{ color: T.primary, fontWeight: 600 }}>{i + 1}.</span> {title}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Recommended Reason */}
-            {selectedAnalysis.recommended_reason && (
-              <div style={{ marginBottom: 24 }}>
-                <h3 style={{ fontSize: 13, fontWeight: 600, color: T.gray700, marginBottom: 8 }}>推荐理由</h3>
-                <p style={{ fontSize: 13, color: T.gray600, lineHeight: 1.7, padding: 12, background: T.gray50, borderRadius: 8 }}>
-                  {selectedAnalysis.recommended_reason}
-                </p>
-              </div>
-            )}
-          </div>
+          <ContentAnalysisPanel analysis={selectedAnalysis} onClose={() => setSelectedAnalysis(null)} />
         </>
       )}
     </div>
@@ -263,11 +146,16 @@ export default function FavoritesPage() {
 
 // ─── Score Badge ───
 
-function ScoreBadge({ label, value, color }: { label: string; value: number; color: string }) {
+function ScoreBadge({ label, value, colorClass }: { label: string; value: number; colorClass: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-      <span style={{ fontSize: 11, color: T.gray500 }}>{label}</span>
-      <span style={{ fontSize: 12, fontWeight: 700, color }}>{Math.round(value)}</span>
+    <div className="flex items-center gap-1">
+      <span className="text-[11px] text-gray-500">{label}</span>
+      <span className={cx('text-xs font-bold', colorClass)}>{Math.round(value)}</span>
     </div>
   );
+}
+
+function RecommendBadge({ level }: { level: string }) {
+  const tone = level === '强烈建议写' ? 'primary' : level === '值得观察' ? 'teal' : level === '适合深挖' ? 'purple' : level === '适合蹭热点' ? 'amber' : 'neutral';
+  return <Badge tone={tone} className="rounded px-2 py-0.5 text-[11px] font-medium">{level}</Badge>;
 }

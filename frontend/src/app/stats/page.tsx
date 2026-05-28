@@ -14,7 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { T } from '@/lib/design-tokens';
+import { Badge, Button, Panel, cx } from '@/components/ui';
 import {
   statsApi,
   type StatsOverview,
@@ -25,17 +25,17 @@ import {
 } from '@/lib/api';
 
 // ── Color helpers ──────────────────────────────────────────────
-const BAR_COLORS = [T.primary, T.teal, T.amber, '#2563EB', '#E11D48', '#059669', '#D97706', '#64748B'];
+const BAR_COLORS = ['#FF6B35', '#00C9A7', '#D97706', '#2563EB', '#E11D48', '#059669', '#D97706', '#64748B'];
 const SOURCE_TYPE_COLOR: Record<string, string> = {
-  rss: T.teal,
+  rss: '#00C9A7',
   rsshub: '#059669',
-  hackernews: T.purple,
-  api: T.primary,
-  reddit: T.amber,
+  hackernews: '#8B5CF6',
+  api: '#FF6B35',
+  reddit: '#D97706',
   zhihu: '#2563EB',
   公众号: '#E11D48',
   小红书: '#EC4899',
-  unknown: T.gray400,
+  unknown: '#9CA3AF',
 };
 
 function barColor(idx: number) {
@@ -47,14 +47,13 @@ function barColor(idx: number) {
 function MiniBar({ value, max, color, height = 8 }: { value: number; max: number; color: string; height?: number }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return (
-    <div style={{ width: '100%', height, background: T.gray200, borderRadius: height / 2, overflow: 'hidden' }}>
+    <div className="w-full overflow-hidden bg-gray-200" style={{ height, borderRadius: height / 2 }}>
       <div
+        className="h-full transition-[width] duration-300"
         style={{
           width: `${pct}%`,
-          height: '100%',
           background: color,
           borderRadius: height / 2,
-          transition: 'width 0.4s ease',
         }}
       />
     </div>
@@ -71,12 +70,12 @@ function PanelTitle({
   hint?: string;
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-        <Icon size={16} color={T.primary} strokeWidth={2.2} />
-        <span style={{ fontSize: 14, fontWeight: 850, color: T.gray900 }}>{title}</span>
+    <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="flex min-w-0 items-center gap-2">
+        <Icon size={16} className="text-primary" strokeWidth={2.2} />
+        <span className="text-sm font-black text-gray-900">{title}</span>
       </div>
-      {hint && <span style={{ fontSize: 11, color: T.gray400, whiteSpace: 'nowrap' }}>{hint}</span>}
+      {hint && <span className="whitespace-nowrap text-[11px] text-gray-400">{hint}</span>}
     </div>
   );
 }
@@ -86,25 +85,19 @@ function Surface({
   icon,
   hint,
   children,
-  style,
+  className,
 }: {
   title: string;
   icon: LucideIcon;
   hint?: string;
   children: React.ReactNode;
-  style?: React.CSSProperties;
+  className?: string;
 }) {
   return (
-    <section style={{
-      background: T.white,
-      border: `1px solid ${T.gray200}`,
-      borderRadius: T.radius,
-      padding: '18px 20px',
-      ...style,
-    }}>
+    <Panel className={cx('px-5 py-4.5', className)}>
       <PanelTitle icon={icon} title={title} hint={hint} />
       {children}
-    </section>
+    </Panel>
   );
 }
 
@@ -120,40 +113,28 @@ function HorizontalBarChart({
   extraKey?: string;
 }) {
   if (!items || items.length === 0)
-    return <div style={{ color: T.gray400, fontSize: 13, padding: '12px 0' }}>暂无数据</div>;
+    return <div className="py-3 text-[13px] text-gray-400">暂无数据</div>;
 
   const maxVal = Math.max(...items.map(it => (it[valueKey] as number) || 0), 1);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div className="flex flex-col gap-2.5">
       {items.map((it, i) => {
         const val = (it[valueKey] as number) || 0;
         const label = (it[labelKey] as string) || '-';
         const extra = extraKey ? (it[extraKey] as string | number | null) : null;
         return (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div
-              style={{
-                width: 80,
-                fontSize: 13,
-                color: T.gray700,
-                fontWeight: 500,
-                textAlign: 'right',
-                flexShrink: 0,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
+          <div key={i} className="flex items-center gap-2.5">
+            <div className="w-20 shrink-0 truncate text-right text-[13px] font-medium text-gray-700">
               {label}
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="min-w-0 flex-1">
               <MiniBar value={val} max={maxVal} color={barColor(i)} height={14} />
             </div>
-            <div style={{ width: 56, fontSize: 12, fontFamily: T.mono, color: T.gray600, textAlign: 'right' }}>
+            <div className="w-14 text-right font-mono text-xs text-gray-600">
               {val}
               {extra !== null && extra !== undefined && (
-                <span style={{ color: T.gray400, marginLeft: 4, fontSize: 10 }}>{extra}</span>
+                <span className="ml-1 text-[10px] text-gray-400">{extra}</span>
               )}
             </div>
           </div>
@@ -176,12 +157,12 @@ function formatShortDate(dateKey: string) {
 }
 
 function getHeatColor(value: number, max: number) {
-  if (value <= 0) return T.gray100;
+  if (value <= 0) return '#F3F4F6';
   const ratio = value / Math.max(max, 1);
-  if (ratio >= 0.82) return T.teal;
-  if (ratio >= 0.56) return T.primary;
-  if (ratio >= 0.28) return T.primaryBorder;
-  return T.primaryLight;
+  if (ratio >= 0.82) return '#00C9A7';
+  if (ratio >= 0.56) return '#FF6B35';
+  if (ratio >= 0.28) return '#FFD0B5';
+  return '#FFF4EE';
 }
 
 function ContributionHeatmap({ data, days }: { data: StatsTrendItem[]; days: number }) {
@@ -224,44 +205,32 @@ function ContributionHeatmap({ data, days }: { data: StatsTrendItem[]; days: num
 
   return (
     <div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(118px, 1fr))', gap: 10, marginBottom: 14 }}>
+      <div className="mb-3.5 grid grid-cols-[repeat(auto-fit,minmax(118px,1fr))] gap-2.5">
         {[
-          { label: '入库总量', value: total, color: T.primary },
-          { label: '精选内容', value: curated, color: T.teal },
-          { label: '峰值日期', value: peak ? peak.content_count : 0, color: T.gray700, sub: peak ? formatShortDate(peak.date) : '-' },
+          { label: '入库总量', value: total, color: 'text-primary' },
+          { label: '精选内容', value: curated, color: 'text-teal' },
+          { label: '峰值日期', value: peak ? peak.content_count : 0, color: 'text-gray-700', sub: peak ? formatShortDate(peak.date) : '-' },
         ].map(item => (
-          <div
-            key={item.label}
-            style={{
-              border: `1px solid ${T.gray200}`,
-              borderRadius: T.radiusSm,
-              background: T.gray50,
-              padding: '10px 12px',
-              minWidth: 0,
-            }}
-          >
-            <div style={{ fontSize: 11, fontWeight: 800, color: T.gray500, marginBottom: 4 }}>{item.label}</div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
-              <span style={{ fontSize: 22, lineHeight: 1, fontWeight: 900, fontFamily: T.mono, color: item.color }}>
+          <div key={item.label} className="min-w-0 rounded-sm border border-gray-200 bg-gray-50 px-3 py-2.5">
+            <div className="mb-1 text-[11px] font-black text-gray-500">{item.label}</div>
+            <div className="flex min-w-0 items-baseline gap-1.5">
+              <span className={cx('font-mono text-[22px] font-black leading-none', item.color)}>
                 {item.value}
               </span>
-              <span style={{ fontSize: 11, color: T.gray400 }}>{item.sub ?? '条'}</span>
+              <span className="text-[11px] text-gray-400">{item.sub ?? '条'}</span>
             </div>
           </div>
         ))}
       </div>
 
       {cells.length > 0 ? (
-        <div style={{ overflowX: 'auto', paddingBottom: 2 }}>
+        <div className="overflow-x-auto pb-0.5">
           <div
+            className="grid w-max min-w-full gap-1"
             style={{
-              display: 'grid',
               gridTemplateRows: 'repeat(7, 14px)',
               gridAutoFlow: 'column',
               gridAutoColumns: 14,
-              gap: 4,
-              width: 'max-content',
-              minWidth: '100%',
             }}
           >
             {cells.map(cell => {
@@ -281,7 +250,7 @@ function ContributionHeatmap({ data, days }: { data: StatsTrendItem[]; days: num
                     height: 14,
                     borderRadius: 3,
                     background: cell.empty ? 'transparent' : getHeatColor(count, maxCount),
-                    border: cell.empty ? '1px solid transparent' : `1px solid ${count > 0 ? 'rgba(255,107,53,0.16)' : T.gray200}`,
+                    border: cell.empty ? '1px solid transparent' : `1px solid ${count > 0 ? 'rgba(255,107,53,0.16)' : '#E5E7EB'}`,
                   }}
                 />
               );
@@ -289,15 +258,15 @@ function ContributionHeatmap({ data, days }: { data: StatsTrendItem[]; days: num
           </div>
         </div>
       ) : (
-        <div style={{ color: T.gray400, fontSize: 13, padding: '12px 0' }}>暂无趋势数据</div>
+        <div className="py-3 text-[13px] text-gray-400">暂无趋势数据</div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 14, fontSize: 11, color: T.gray500, flexWrap: 'wrap' }}>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-3.5 text-[11px] text-gray-500">
           <span>起始 {formatShortDate(formatDayKey(start))}</span>
           <span>结束 {formatShortDate(formatDayKey(today))}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: T.gray400 }}>
+        <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
           <span>少</span>
           {[0, 1, 3, 6, 9].map(level => (
             <span
@@ -306,7 +275,7 @@ function ContributionHeatmap({ data, days }: { data: StatsTrendItem[]; days: num
                 width: 12,
                 height: 12,
                 borderRadius: 3,
-                border: `1px solid ${level === 0 ? T.gray200 : 'rgba(255,107,53,0.16)'}`,
+                border: `1px solid ${level === 0 ? '#E5E7EB' : 'rgba(255,107,53,0.16)'}`,
                 background: getHeatColor(level, 9),
               }}
             />
@@ -335,51 +304,40 @@ function formatSyncLabel(lastSync: string | null) {
 
 function NovelPlatformStats({ platforms }: { platforms: StatsNovelPlatform[] }) {
   if (platforms.length === 0) {
-    return <div style={{ color: T.gray400, fontSize: 13 }}>暂无数据</div>;
+    return <div className="text-[13px] text-gray-400">暂无数据</div>;
   }
 
   const platformColors = [
-    { bg: '#FFF4EE', color: T.primary, border: T.primaryBorder },
-    { bg: '#E6FAF5', color: T.teal, border: T.tealBorder },
+    { bg: 'bg-primary-light', color: 'text-primary', border: 'border-primary-border', dot: 'bg-primary' },
+    { bg: 'bg-teal-light', color: 'text-teal', border: 'border-teal-border', dot: 'bg-teal' },
     { bg: '#EFF6FF', color: '#2563EB', border: '#BFDBFE' },
   ];
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12 }}>
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
       {platforms.map((platform, i) => {
         const pc = platformColors[i % platformColors.length];
+        const customStyle = typeof pc.bg === 'string' && pc.bg.startsWith('#')
+          ? { background: pc.bg, borderColor: pc.border, color: pc.color }
+          : undefined;
         return (
           <div
             key={platform.table}
-            style={{
-              background: pc.bg,
-              border: `1px solid ${pc.border}`,
-              borderRadius: T.radiusSm,
-              padding: '14px 16px',
-              display: 'flex',
-              flexDirection: 'column',
-              minWidth: 0,
-            }}
+            className={cx('flex min-w-0 flex-col rounded-sm border px-4 py-3.5', !customStyle && pc.bg, !customStyle && pc.border)}
+            style={customStyle}
           >
-            <div style={{ fontSize: 13, fontWeight: 850, color: pc.color, marginBottom: 8 }}>
+            <div className={cx('mb-2 text-[13px] font-black', !customStyle && pc.color)}>
               {platform.name}
             </div>
-            <div style={{ fontSize: 30, fontWeight: 900, color: pc.color, fontFamily: T.mono, lineHeight: 1 }}>
+            <div className={cx('font-mono text-3xl font-black leading-none', !customStyle && pc.color)}>
               {platform.count}
-              <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 3, color: T.gray400 }}>条</span>
+              <span className="ml-1 text-xs font-medium text-gray-400">条</span>
             </div>
-            <div style={{ fontSize: 11, color: T.gray500, marginTop: 10, display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+            <div className="mt-2.5 flex min-w-0 items-center gap-1.5 text-[11px] text-gray-500">
               <span
-                style={{
-                  display: 'inline-block',
-                  width: 6,
-                  height: 6,
-                  borderRadius: '50%',
-                  background: platform.last_sync ? T.teal : T.gray300,
-                  flexShrink: 0,
-                }}
+                className={cx('inline-block h-1.5 w-1.5 shrink-0 rounded-full', platform.last_sync ? 'bg-teal' : 'bg-gray-300')}
               />
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span className="truncate">
                 最近同步: {formatSyncLabel(platform.last_sync)}
               </span>
             </div>
@@ -407,32 +365,24 @@ function KpiCard({
   sub: string;
   tone?: 'primary' | 'teal' | 'amber' | 'neutral';
 }) {
-  const toneStyle = {
-    primary: { bg: T.primaryLight, border: T.primaryBorder },
-    teal: { bg: T.tealLight, border: T.tealBorder },
-    amber: { bg: T.amberLight, border: T.amberBorder },
-    neutral: { bg: T.white, border: T.gray200 },
+  const toneClass = {
+    primary: 'border-primary-border bg-primary-light',
+    teal: 'border-teal-border bg-teal-light',
+    amber: 'border-amber-border bg-amber-light',
+    neutral: 'border-gray-200 bg-white',
   }[tone];
 
   return (
-    <div
-      style={{
-        background: toneStyle.bg,
-        border: `1px solid ${toneStyle.border}`,
-        borderRadius: T.radius,
-        padding: '16px 18px',
-        minWidth: 0,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-        <Icon size={15} color={color} strokeWidth={2.2} />
-        <span style={{ fontSize: 12, color: T.gray500, fontWeight: 800 }}>{label}</span>
+    <div className={cx('min-w-0 rounded-lg border px-4.5 py-4', toneClass)}>
+      <div className="mb-2.5 flex items-center gap-2">
+        <Icon size={15} strokeWidth={2.2} style={{ color }} />
+        <span className="text-xs font-black text-gray-500">{label}</span>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 800, color, fontFamily: T.mono, lineHeight: 1.05 }}>
+      <div className="font-mono text-[28px] font-black leading-tight" style={{ color }}>
         {value}
-        <span style={{ fontSize: 13, fontWeight: 500, marginLeft: 4, color: T.gray400 }}>{unit}</span>
+        <span className="ml-1 text-[13px] font-medium text-gray-400">{unit}</span>
       </div>
-      <div style={{ fontSize: 11, color: T.gray400, marginTop: 6 }}>{sub}</div>
+      <div className="mt-1.5 text-[11px] text-gray-400">{sub}</div>
     </div>
   );
 }
@@ -483,23 +433,23 @@ export default function StatsPage() {
   // ── Donut chart approximation via CSS ──
   function SourcePieChart() {
     if (sources.length === 0)
-      return <div style={{ color: T.gray400, fontSize: 13 }}>暂无数据</div>;
+      return <div className="text-[13px] text-gray-400">暂无数据</div>;
 
     const total = sources.reduce((s, it) => s + it.content_count, 0) || 1;
     // Build a horizontal stacked bar as a "pie" approximation
     return (
       <div>
-        <div style={{ display: 'flex', height: 18, borderRadius: 4, overflow: 'hidden', marginBottom: 14 }}>
+        <div className="mb-3.5 flex h-[18px] overflow-hidden rounded">
           {sources.map((src, i) => {
             const pct = (src.content_count / total) * 100;
             if (pct < 0.5) return null;
             return (
               <div
                 key={i}
+                className="transition-[width] duration-300"
                 style={{
                   width: `${pct}%`,
                   background: barColor(i),
-                  transition: 'width 0.3s',
                 }}
                 title={`${src.source_name}: ${src.content_count} (${pct.toFixed(1)}%)`}
               />
@@ -508,20 +458,17 @@ export default function StatsPage() {
         </div>
 
         {/* Legend */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <div className="flex flex-wrap gap-2">
           {sources.slice(0, 10).map((src, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+            <div key={i} className="flex items-center gap-1 text-xs">
               <div
+                className="h-2 w-2 shrink-0 rounded-full"
                 style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: '50%',
                   background: barColor(i),
-                  flexShrink: 0,
                 }}
               />
-              <span style={{ color: T.gray600, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{src.source_name}</span>
-              <span style={{ fontFamily: T.mono, color: T.gray400, fontSize: 11 }}>{src.content_count}</span>
+              <span className="max-w-[120px] truncate text-gray-600">{src.source_name}</span>
+              <span className="font-mono text-[11px] text-gray-400">{src.content_count}</span>
             </div>
           ))}
         </div>
@@ -530,102 +477,55 @@ export default function StatsPage() {
   }
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', background: T.bg }}>
-      <div style={{ padding: '28px 40px 64px', maxWidth: 1480, margin: '0 auto' }}>
-        <section style={{
-          position: 'relative',
-          overflow: 'hidden',
-          background: T.white,
-          border: `1px solid ${T.gray200}`,
-          borderRadius: T.radius,
-          padding: '22px 24px',
-          marginBottom: 18,
-          boxShadow: '0 14px 36px rgba(15, 23, 42, 0.06)',
-        }}>
-          <div style={{
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: 0,
-            height: 4,
-            background: `linear-gradient(90deg, ${T.primary}, ${T.teal})`,
-          }} />
-          <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 20, alignItems: 'start' }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginBottom: 12 }}>
-                <span style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  fontSize: 11,
-                  fontWeight: 900,
-                  color: T.primary,
-                  background: T.primaryLight,
-                  border: `1px solid ${T.primaryBorder}`,
-                  borderRadius: 999,
-                  padding: '4px 10px',
-                  fontFamily: T.mono,
-                }}>
+    <div className="flex-1 overflow-y-auto bg-page">
+      <div className="mx-auto max-w-[1480px] px-10 pb-16 pt-7">
+        <Panel className="relative mb-4.5 overflow-hidden px-6 py-5.5 shadow-[0_14px_36px_rgba(15,23,42,0.06)] before:absolute before:left-0 before:right-0 before:top-0 before:h-1 before:bg-gradient-to-r before:from-primary before:to-teal">
+          <div className="relative grid grid-cols-[minmax(0,1fr)_auto] items-start gap-5 max-md:grid-cols-1">
+            <div className="min-w-0">
+              <div className="mb-3 flex flex-wrap items-center gap-2.5">
+                <Badge tone="primary" className="gap-1.5 font-mono">
                   <BarChart3 size={13} strokeWidth={2.4} />
                   DATA DESK
-                </span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: T.gray500 }}>最近 {days} 天</span>
+                </Badge>
+                <span className="text-xs font-bold text-gray-500">最近 {days} 天</span>
               </div>
-              <h1 style={{ fontSize: 28, lineHeight: 1.12, fontWeight: 900, color: T.gray900, margin: 0 }}>
+              <h1 className="m-0 text-[28px] font-black leading-[1.12] text-gray-900">
                 数据统计工作台
               </h1>
-              <p style={{ fontSize: 13, lineHeight: 1.7, color: T.gray500, margin: '8px 0 0', maxWidth: 760 }}>
+              <p className="mt-2 max-w-[760px] text-[13px] leading-7 text-gray-500">
                 观察内容入库、精选效率、信源结构和分类覆盖，判断当前选题池是否健康、是否需要调整信源和筛选策略。
               </p>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {[7, 14, 30].map(d => (
-                <button
+                <Button
                   key={d}
+                  type="button"
+                  variant={days === d ? 'primary' : 'secondary'}
                   onClick={() => setDays(d)}
-                  style={{
-                    padding: '7px 12px',
-                    borderRadius: T.radiusSm,
-                    border: `1px solid ${days === d ? T.primary : T.gray200}`,
-                    cursor: 'pointer',
-                    fontSize: 12,
-                    fontWeight: 800,
-                    background: days === d ? T.primaryLight : T.white,
-                    color: days === d ? T.primary : T.gray600,
-                    transition: 'all 0.15s',
-                  }}
                 >
                   {d} 天
-                </button>
+                </Button>
               ))}
-              <button
+              <Button
+                type="button"
+                variant="secondary"
                 onClick={fetchAll}
                 title="刷新"
-                style={{
-                  width: 34,
-                  height: 34,
-                  borderRadius: T.radiusSm,
-                  border: `1px solid ${T.gray200}`,
-                  cursor: 'pointer',
-                  background: T.white,
-                  color: T.gray600,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
+                className="h-9 w-9 px-0"
               >
                 <RefreshCw size={15} />
-              </button>
+              </Button>
             </div>
           </div>
-        </section>
+        </Panel>
 
         {loading && (
-          <div style={{ textAlign: 'center', padding: 40, color: T.gray400 }}>加载中...</div>
+          <div className="p-10 text-center text-gray-400">加载中...</div>
         )}
 
         {error && (
-          <div style={{ padding: 16, background: T.redLight, borderRadius: 8, color: T.red, fontSize: 13, marginBottom: 20 }}>
+          <div className="mb-5 rounded-sm border border-red-light bg-red-light p-4 text-[13px] text-red">
             {error}
           </div>
         )}
@@ -636,13 +536,7 @@ export default function StatsPage() {
                 A. 入库趋势 + 网文雷达
                 ═══════════════════════════════════════════════════ */}
             <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 360px), 1fr))',
-                gap: 14,
-                marginBottom: 14,
-                alignItems: 'start',
-              }}
+              className="mb-3.5 grid grid-cols-[repeat(auto-fit,minmax(min(100%,360px),1fr))] items-start gap-3.5"
             >
               <Surface title="每日入库趋势" icon={CalendarDays} hint={`最近 ${days} 天`}>
                 <ContributionHeatmap data={trend} days={days} />
@@ -656,14 +550,14 @@ export default function StatsPage() {
             {/* ═══════════════════════════════════════════════════
                 B. 内容总览 KPI Cards
                 ═══════════════════════════════════════════════════ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
+            <div className="mb-4 grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-3">
               {[
                 {
                   icon: Database,
                   label: '总内容数',
                   value: overview?.total ?? 0,
                   unit: '条',
-                  color: T.gray700,
+                  color: '#374151',
                   sub: `已分析 ${overview?.analyzed ?? 0}`,
                   tone: 'neutral' as const,
                 },
@@ -672,7 +566,7 @@ export default function StatsPage() {
                   label: '精选内容',
                   value: overview?.curated ?? 0,
                   unit: '条',
-                  color: T.primary,
+                  color: '#FF6B35',
                   sub: `精选率 ${curatedRate}%`,
                   tone: 'primary' as const,
                 },
@@ -681,7 +575,7 @@ export default function StatsPage() {
                   label: '今日新增',
                   value: overview?.today_new ?? 0,
                   unit: '条',
-                  color: T.teal,
+                  color: '#00C9A7',
                   sub: '今日 0:00 起',
                   tone: 'teal' as const,
                 },
@@ -690,7 +584,7 @@ export default function StatsPage() {
                   label: '精选率',
                   value: curatedRate,
                   unit: '%',
-                  color: T.amber,
+                  color: '#D97706',
                   sub: `${overview?.curated ?? 0} / ${overview?.total ?? 0}`,
                   tone: 'amber' as const,
                 },
@@ -700,27 +594,21 @@ export default function StatsPage() {
             {/* ═══════════════════════════════════════════════════
                 C. 信源分布 + D. 分类分布 (side by side)
                 ═══════════════════════════════════════════════════ */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 14, marginBottom: 14, alignItems: 'start' }}>
+            <div className="mb-3.5 grid grid-cols-[repeat(auto-fit,minmax(360px,1fr))] items-start gap-3.5">
               {/* B. 信源分布 */}
               <Surface title="信源分布" icon={RadioTower} hint={`${sources.length} 个信源`}>
                 <SourcePieChart />
 
                 {/* Source table */}
                 {sources.length > 0 && (
-                  <div style={{ marginTop: 16 }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <div className="mt-4">
+                    <table className="w-full border-collapse text-xs">
                       <thead>
-                        <tr style={{ borderBottom: `1px solid ${T.gray200}` }}>
+                        <tr className="border-b border-gray-200">
                           {['信源', '类型', '数量', '精选', '精选率'].map(h => (
                             <th
                               key={h}
-                              style={{
-                                textAlign: 'left',
-                                padding: '4px 6px',
-                                color: T.gray400,
-                                fontWeight: 400,
-                                fontSize: 11,
-                              }}
+                              className="px-1.5 py-1 text-left text-[11px] font-normal text-gray-400"
                             >
                               {h}
                             </th>
@@ -729,19 +617,16 @@ export default function StatsPage() {
                       </thead>
                       <tbody>
                         {sources.slice(0, 8).map((src, i) => {
-                          const color = SOURCE_TYPE_COLOR[src.source_type.toLowerCase()] || T.gray400;
+                          const color = SOURCE_TYPE_COLOR[src.source_type.toLowerCase()] || '#9CA3AF';
                           return (
-                            <tr key={i} style={{ borderBottom: `1px solid ${T.gray100}` }}>
-                              <td style={{ padding: '6px', fontWeight: 500, color: T.gray800, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <tr key={i} className="border-b border-gray-100">
+                              <td className="max-w-[100px] truncate p-1.5 font-medium text-gray-800">
                                 {src.source_name}
                               </td>
-                              <td style={{ padding: '6px' }}>
+                              <td className="p-1.5">
                                 <span
+                                  className="inline-block rounded-full px-1.5 py-px text-[10px]"
                                   style={{
-                                    display: 'inline-block',
-                                    padding: '1px 6px',
-                                    borderRadius: 8,
-                                    fontSize: 10,
                                     background: color + '20',
                                     color: color,
                                   }}
@@ -749,13 +634,13 @@ export default function StatsPage() {
                                   {src.source_type.toUpperCase()}
                                 </span>
                               </td>
-                              <td style={{ padding: '6px', fontFamily: T.mono, color: T.gray600 }}>
+                              <td className="p-1.5 font-mono text-gray-600">
                                 {src.content_count}
                               </td>
-                              <td style={{ padding: '6px', fontFamily: T.mono, color: T.primary }}>
+                              <td className="p-1.5 font-mono text-primary">
                                 {src.curated_count}
                               </td>
-                              <td style={{ padding: '6px', fontFamily: T.mono, color: T.teal, fontSize: 11 }}>
+                              <td className="p-1.5 font-mono text-[11px] text-teal">
                                 {src.curation_rate}%
                               </td>
                             </tr>

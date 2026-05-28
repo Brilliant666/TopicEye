@@ -17,7 +17,7 @@ import {
   TrendingUp,
   X,
 } from 'lucide-react';
-import { T } from '@/lib/design-tokens';
+import { Button, Panel, Toolbar, cx } from '@/components/ui';
 import {
   fanqieApi,
   qimaoApi,
@@ -117,24 +117,17 @@ function getPositionChange(item: BookItem): number | null {
   return null;
 }
 
-function chipStyle(active: boolean, color: string = T.gray900): React.CSSProperties {
+function chipStyle(active: boolean, color: string = '#111827'): React.CSSProperties {
   return {
-    padding: '7px 11px',
-    borderRadius: T.radiusXs,
-    border: `1px solid ${active ? color : T.gray200}`,
-    background: active ? color : T.white,
-    color: active ? T.white : T.gray600,
-    fontSize: 12,
-    fontWeight: 700,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-    transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+    borderColor: active ? color : '#E5E7EB',
+    background: active ? color : '#FFFFFF',
+    color: active ? '#FFFFFF' : '#4B5563',
   };
 }
 
-function MetricPill({ children, color = T.gray500, bg = T.gray100 }: { children: React.ReactNode; color?: string; bg?: string }) {
+function MetricPill({ children, color = '#6B7280', bg = '#F3F4F6' }: { children: React.ReactNode; color?: string; bg?: string }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 7px', borderRadius: 999, background: bg, color, fontSize: 11, fontWeight: 700 }}>
+    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: bg, color }}>
       {children}
     </span>
   );
@@ -142,9 +135,9 @@ function MetricPill({ children, color = T.gray500, bg = T.gray100 }: { children:
 
 function LoadingState({ label }: { label: string }) {
   return (
-    <div style={{ padding: 36, display: 'flex', justifyContent: 'center', alignItems: 'center', color: T.gray400, gap: 10 }}>
+    <div className="flex items-center justify-center gap-2.5 p-9 text-gray-400">
       <RefreshCw size={16} className="fanqie-spin" />
-      <span style={{ fontSize: 13 }}>{label}</span>
+      <span className="text-[13px]">{label}</span>
     </div>
   );
 }
@@ -157,10 +150,10 @@ function EmptyState({
   desc?: string;
 }) {
   return (
-    <div style={{ padding: 48, textAlign: 'center', color: T.gray400 }}>
-      <BookOpen size={28} strokeWidth={1.8} />
-      <div style={{ marginTop: 10, fontSize: 14, fontWeight: 700, color: T.gray500 }}>{title}</div>
-      <div style={{ marginTop: 4, fontSize: 12 }}>{desc}</div>
+    <div className="p-12 text-center text-gray-400">
+      <BookOpen size={28} strokeWidth={1.8} className="mx-auto" />
+      <div className="mt-2.5 text-sm font-bold text-gray-500">{title}</div>
+      <div className="mt-1 text-xs">{desc}</div>
     </div>
   );
 }
@@ -197,7 +190,7 @@ function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platf
       return (
         <>
           {item.is_continue_top === 1 && <MetricPill color="#D97706" bg="#FFFBEB"><Crown size={12} />霸榜</MetricPill>}
-          {item.is_over === 1 && <MetricPill color={T.gray600} bg={T.gray100}><CheckCircle2 size={12} />完结</MetricPill>}
+          {item.is_over === 1 && <MetricPill color="#4B5563" bg="#F3F4F6"><CheckCircle2 size={12} />完结</MetricPill>}
           <MetricPill color="#DC2626" bg="#FEF2F2">{formatCount(item.collect_count)}收藏</MetricPill>
           <MetricPill>{item.words_num}</MetricPill>
         </>
@@ -226,34 +219,19 @@ function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platf
   })();
 
   return (
-    <article className="fanqie-book-card" style={{
-      display: 'grid',
-      gridTemplateColumns: 'var(--fanqie-card-cols, 44px 82px minmax(0, 1fr))',
-      gap: 'var(--fanqie-card-gap, 16px)',
-      padding: 16,
-      background: T.white,
-      border: `1px solid ${isTop ? '#FCD34D' : T.gray200}`,
-      borderRadius: T.radiusSm,
-      boxShadow: isTop ? '0 8px 22px rgba(245, 158, 11, 0.12)' : '0 1px 2px rgba(15, 23, 42, 0.04)',
-      minWidth: 0,
-    }}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-        <div style={{
-          width: 34,
-          height: 34,
-          borderRadius: 8,
-          display: 'grid',
-          placeItems: 'center',
-          background: isTop ? '#FFFBEB' : T.gray50,
-          color: isTop ? '#B45309' : T.gray400,
-          fontSize: 16,
-          fontWeight: 900,
-          fontFamily: T.mono,
-        }}>
+    <article
+      className={cx(
+        'fanqie-book-card grid min-w-0 gap-[var(--fanqie-card-gap,16px)] rounded-sm border bg-white p-4 shadow-sm',
+        isTop ? 'border-amber-border shadow-amber-100' : 'border-gray-200',
+      )}
+      style={{ gridTemplateColumns: 'var(--fanqie-card-cols, 44px 82px minmax(0, 1fr))' }}
+    >
+      <div className="flex flex-col items-center gap-1.5">
+        <div className={cx('grid h-[34px] w-[34px] place-items-center rounded-sm font-mono text-base font-black', isTop ? 'bg-amber-light text-amber' : 'bg-gray-50 text-gray-400')}>
           {pos}
         </div>
         {typeof diff === 'number' && diff !== 0 && (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, color: diff > 0 ? '#059669' : '#DC2626', fontSize: 11, fontWeight: 800, fontFamily: T.mono }}>
+          <span className={cx('inline-flex items-center gap-0.5 font-mono text-[11px] font-extrabold', diff > 0 ? 'text-teal' : 'text-red')}>
             {diff > 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
             {Math.abs(diff)}
           </span>
@@ -264,14 +242,7 @@ function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platf
         <img
           src={coverSrc}
           alt={title}
-          style={{
-            width: 'var(--fanqie-cover-w, 82px)',
-            height: 'var(--fanqie-cover-h, 108px)',
-            objectFit: 'cover',
-            borderRadius: 8,
-            background: T.gray100,
-            boxShadow: '0 8px 18px rgba(15, 23, 42, 0.14)',
-          }}
+          className="h-[var(--fanqie-cover-h,108px)] w-[var(--fanqie-cover-w,82px)] rounded-sm bg-gray-100 object-cover shadow-lg"
           onError={() => setCoverFailed(true)}
         />
       ) : (
@@ -280,52 +251,43 @@ function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platf
           style={{
             width: 'var(--fanqie-cover-w, 82px)',
             height: 'var(--fanqie-cover-h, 108px)',
-            borderRadius: 8,
-            background: `linear-gradient(160deg, ${platformMeta.bg}, ${T.gray50})`,
-            border: `1px solid ${T.gray200}`,
+            background: `linear-gradient(160deg, ${platformMeta.bg}, #FAFAFA)`,
             color: platformMeta.color,
-            display: 'grid',
-            placeItems: 'center',
-            textAlign: 'center',
-            padding: 8,
-            fontSize: 13,
-            lineHeight: 1.25,
-            fontWeight: 900,
-            boxShadow: '0 8px 18px rgba(15, 23, 42, 0.08)',
           }}
+          className="grid place-items-center rounded-sm border border-gray-200 p-2 text-center text-[13px] font-black leading-tight shadow-md"
         >
           {title.slice(0, 2) || '书'}
         </div>
       )}
 
-      <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <h2 style={{ margin: 0, color: T.gray900, fontSize: 17, lineHeight: 1.35, fontWeight: 850, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
-            <div style={{ marginTop: 3, color: T.gray500, fontSize: 12 }}>
-              {author}{categoryText && <span style={{ color: T.gray400 }}> · {categoryText}</span>}
+      <div className="flex min-w-0 flex-col gap-2">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <h2 className="m-0 truncate text-[17px] font-black leading-tight text-gray-900">{title}</h2>
+            <div className="mt-1 text-xs text-gray-500">
+              {author}{categoryText && <span className="text-gray-400"> · {categoryText}</span>}
             </div>
           </div>
           {itemUrl && (
-            <a href={itemUrl} target="_blank" rel="noreferrer" title="打开官网原文" style={{ color: T.gray400, padding: 4, borderRadius: 6 }}>
+            <a href={itemUrl} target="_blank" rel="noreferrer" title="打开官网原文" className="rounded-xs p-1 text-gray-400 transition hover:bg-gray-100 hover:text-primary">
               <ExternalLink size={16} />
             </a>
           )}
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{meta}</div>
+        <div className="flex flex-wrap gap-1.5">{meta}</div>
 
         {abstract && (
-          <p style={{ margin: 0, color: T.gray500, fontSize: 12, lineHeight: 1.65, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          <p className="line-clamp-3 m-0 text-xs leading-6 text-gray-500">
             {abstract}
           </p>
         )}
 
         {'latest_chapter_title' in item && item.latest_chapter_title && (
-          <div style={{ color: T.gray400, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>更新 {item.latest_chapter_title}</div>
+          <div className="truncate text-[11px] text-gray-400">更新 {item.latest_chapter_title}</div>
         )}
         {'last_chapter_title' in item && item.last_chapter_title && (
-          <div style={{ color: T.gray400, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>更新 {item.last_chapter_title}</div>
+          <div className="truncate text-[11px] text-gray-400">更新 {item.last_chapter_title}</div>
         )}
       </div>
     </article>
@@ -494,90 +456,83 @@ export default function FanqiePage() {
   const syncBusy = syncing || qimaoSyncing || zhihuSyncing;
 
   return (
-    <div style={{ height: '100%', overflow: 'hidden', background: T.bg, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ background: T.white, borderBottom: `1px solid ${T.gray200}`, padding: '18px 28px 16px', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <div style={{ width: 42, height: 42, borderRadius: 10, background: platformMeta.bg, color: platformMeta.color, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+    <div className="flex h-full flex-col overflow-hidden bg-page">
+      <div className="shrink-0 border-b border-gray-200 bg-white px-7 pb-4 pt-[18px]">
+        <div className="flex flex-wrap items-center gap-3.5">
+          <div className="grid h-[42px] w-[42px] shrink-0 place-items-center rounded-md" style={{ background: platformMeta.bg, color: platformMeta.color }}>
             <Library size={22} strokeWidth={2.2} />
           </div>
-          <div style={{ minWidth: 220 }}>
-            <h1 style={{ margin: 0, color: T.gray900, fontSize: 22, lineHeight: 1.15, fontWeight: 900 }}>网文雷达</h1>
-            <div style={{ marginTop: 4, color: T.gray500, fontSize: 12 }}>{contextLabel}</div>
+          <div className="min-w-[220px]">
+            <h1 className="m-0 text-[22px] font-black leading-tight text-gray-900">网文雷达</h1>
+            <div className="mt-1 text-xs text-gray-500">{contextLabel}</div>
           </div>
 
-          <div className="fanqie-platform-tabs" style={{ display: 'flex', gap: 6, padding: 3, background: T.gray100, borderRadius: T.radiusSm, border: `1px solid ${T.gray200}` }}>
+          <div className="fanqie-platform-tabs flex gap-1.5 rounded-sm border border-gray-200 bg-gray-100 p-1">
             {(Object.keys(PLATFORM_META) as Platform[]).map((key) => {
               const meta = PLATFORM_META[key];
               const active = platform === key;
               return (
-                <button key={key} onClick={() => { setPlatform(key); setQuery(''); }} style={{
-                  display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
-                  minWidth: 112, padding: '8px 10px', border: 'none', borderRadius: T.radiusXs,
-                  background: active ? T.white : 'transparent', color: active ? meta.color : T.gray500,
-                  cursor: 'pointer', boxShadow: active ? '0 1px 3px rgba(15, 23, 42, 0.1)' : 'none',
-                }}>
-                  <span style={{ fontSize: 13, fontWeight: 850 }}>{meta.label}</span>
-                  <span style={{ fontSize: 10, color: active ? T.gray500 : T.gray400 }}>{meta.subtitle}</span>
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => { setPlatform(key); setQuery(''); }}
+                  className={cx('flex min-w-28 cursor-pointer flex-col items-start gap-0.5 rounded-xs border-0 px-2.5 py-2 transition', active ? 'bg-white shadow-sm' : 'bg-transparent text-gray-500 hover:bg-white/60')}
+                  style={{ color: active ? meta.color : undefined }}
+                >
+                  <span className="text-[13px] font-black">{meta.label}</span>
+                  <span className={cx('text-[10px]', active ? 'text-gray-500' : 'text-gray-400')}>{meta.subtitle}</span>
                 </button>
               );
             })}
           </div>
 
-          <div style={{ flex: 1 }} />
-          <button onClick={handleSync} disabled={syncBusy} style={{
-            display: 'inline-flex', alignItems: 'center', gap: 7,
-            padding: '9px 14px', border: 'none', borderRadius: T.radiusSm,
-            background: syncBusy ? T.gray200 : platformMeta.color, color: T.white,
-            fontSize: 13, fontWeight: 800, cursor: syncBusy ? 'wait' : 'pointer',
-          }}>
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={handleSync}
+            disabled={syncBusy}
+            className="inline-flex items-center gap-2 rounded-sm border-0 px-3.5 py-2 text-[13px] font-extrabold text-white transition disabled:cursor-wait disabled:bg-gray-200"
+            style={{ background: syncBusy ? undefined : platformMeta.color }}
+          >
             <RefreshCw size={15} className={syncBusy ? 'fanqie-spin' : undefined} />
             {syncBusy ? '同步中' : `同步${platformMeta.label}`}
           </button>
         </div>
       </div>
 
-      <div className="fanqie-layout" style={{ flex: 1, minHeight: 0, display: 'grid', gap: 16, padding: 18 }}>
-        <aside className="fanqie-filter-panel" style={{ minHeight: 0, paddingRight: 2, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              <Filter size={16} color={platformMeta.color} />
-              <div style={{ fontSize: 13, fontWeight: 850, color: T.gray800 }}>筛选控制台</div>
+      <div className="fanqie-layout grid min-h-0 flex-1 gap-4 p-[18px]">
+        <aside className="fanqie-filter-panel flex min-h-0 flex-col gap-3 pr-0.5">
+          <Panel className="p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <Filter size={16} style={{ color: platformMeta.color }} />
+              <div className="text-[13px] font-black text-gray-800">筛选控制台</div>
             </div>
 
             {platform === 'fanqie' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="flex flex-col gap-3.5">
                 <FilterGroup title="频道">
                   {(Object.entries(GROUP_LABELS) as Array<[keyof typeof GROUP_LABELS, typeof GROUP_LABELS[keyof typeof GROUP_LABELS]]>).map(([key, value]) => (
-                    <button key={key} onClick={() => setGroupTab(key)} style={chipStyle(groupTab === key, value.color)}>{value.label}</button>
+                    <FilterChip key={key} active={groupTab === key} color={value.color} onClick={() => setGroupTab(key)}>{value.label}</FilterChip>
                   ))}
                 </FilterGroup>
                 <FilterGroup title="榜单">
                   {(Object.entries(RANK_TYPE_LABELS) as Array<[keyof typeof RANK_TYPE_LABELS, typeof RANK_TYPE_LABELS[keyof typeof RANK_TYPE_LABELS]]>).map(([key, value]) => (
-                    <button key={key} onClick={() => setRankTab(key)} style={chipStyle(rankTab === key, value.color)}>{value.label}</button>
+                    <FilterChip key={key} active={rankTab === key} color={value.color} onClick={() => setRankTab(key)}>{value.label}</FilterChip>
                   ))}
                 </FilterGroup>
                 <FilterGroup title={`分类 · ${categories.filter((cat) => cat.group === groupTab).length}`}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, maxHeight: 320, overflowY: 'auto', paddingRight: 4, width: '100%' }}>
+                  <div className="grid max-h-80 w-full grid-cols-2 gap-1.5 overflow-y-auto pr-1">
                     {categories.filter((cat) => cat.group === groupTab).map((cat) => (
-                      <button
+                      <FilterChip
                         key={cat.fanqie_id}
                         title={cat.name}
+                        active={activeCat === cat.fanqie_id}
+                        color="#111827"
                         onClick={() => setActiveCat(cat.fanqie_id)}
-                        style={{
-                          ...chipStyle(activeCat === cat.fanqie_id, T.gray900),
-                          width: '100%',
-                          minHeight: 32,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          padding: '8px 10px',
-                          overflow: 'hidden',
-                          textAlign: 'center',
-                          minWidth: 0,
-                        }}
+                        className="min-h-8 w-full justify-center overflow-hidden px-2.5 py-2 text-center"
                       >
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{cat.name}</span>
-                      </button>
+                        <span className="truncate">{cat.name}</span>
+                      </FilterChip>
                     ))}
                   </div>
                 </FilterGroup>
@@ -585,119 +540,98 @@ export default function FanqiePage() {
             )}
 
             {platform === 'qimao' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="flex flex-col gap-3.5">
                 <FilterGroup title="频道">
                   {(Object.entries(QIMAO_CHANNEL_LABELS) as Array<[keyof typeof QIMAO_CHANNEL_LABELS, typeof QIMAO_CHANNEL_LABELS[keyof typeof QIMAO_CHANNEL_LABELS]]>).map(([key, value]) => (
-                    <button key={key} onClick={() => setQimaoChannel(key)} style={chipStyle(qimaoChannel === key, value.color)}>{value.label}</button>
+                    <FilterChip key={key} active={qimaoChannel === key} color={value.color} onClick={() => setQimaoChannel(key)}>{value.label}</FilterChip>
                   ))}
                 </FilterGroup>
                 <FilterGroup title="榜单">
                   {(Object.entries(QIMAO_RANK_LABELS) as Array<[keyof typeof QIMAO_RANK_LABELS, typeof QIMAO_RANK_LABELS[keyof typeof QIMAO_RANK_LABELS]]>).map(([key, value]) => (
-                    <button key={key} onClick={() => setQimaoRank(key)} style={chipStyle(qimaoRank === key, value.color)}>{value.label}</button>
+                    <FilterChip key={key} active={qimaoRank === key} color={value.color} onClick={() => setQimaoRank(key)}>{value.label}</FilterChip>
                   ))}
                 </FilterGroup>
               </div>
             )}
 
             {platform === 'zhihu' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="flex flex-col gap-3.5">
                 <FilterGroup title="排序">
                   {(Object.entries(ZHIHU_SORT_LABELS) as Array<[keyof typeof ZHIHU_SORT_LABELS, typeof ZHIHU_SORT_LABELS[keyof typeof ZHIHU_SORT_LABELS]]>).map(([key, value]) => (
-                    <button key={key} onClick={() => setZhihuSort(key)} style={chipStyle(zhihuSort === key, value.color)}>{value.label}</button>
+                    <FilterChip key={key} active={zhihuSort === key} color={value.color} onClick={() => setZhihuSort(key)}>{value.label}</FilterChip>
                   ))}
                 </FilterGroup>
                 <FilterGroup title="故事分类">
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, width: '100%' }}>
+                  <div className="grid w-full grid-cols-2 gap-1.5">
                     {ZHIHU_SUBCATS.map((cat) => (
-                      <button key={cat.key} onClick={() => setZhihuSubcat(cat.key)} style={{ ...chipStyle(zhihuSubcat === cat.key, '#0066F5'), minWidth: 0 }}>{cat.label}</button>
+                      <FilterChip key={cat.key} active={zhihuSubcat === cat.key} color="#0066F5" onClick={() => setZhihuSubcat(cat.key)} className="min-w-0 justify-center">{cat.label}</FilterChip>
                     ))}
                   </div>
                 </FilterGroup>
               </div>
             )}
-          </div>
+          </Panel>
 
-          <div style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: T.gray800, fontSize: 13, fontWeight: 850, marginBottom: 12 }}>
-              <Sparkles size={16} color={platformMeta.color} />
+          <Panel className="p-4">
+            <div className="mb-3 flex items-center gap-2 text-[13px] font-black text-gray-800">
+              <Sparkles size={16} style={{ color: platformMeta.color }} />
               榜单摘要
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div className="grid grid-cols-2 gap-2">
               <SummaryTile label="当前条目" value={currentBooks.length} />
               <SummaryTile label="上升作品" value={risingCount} />
             </div>
             {topItem && (
-              <div style={{ marginTop: 12, padding: 12, borderRadius: T.radiusSm, background: platformMeta.bg, color: platformMeta.color }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 900, marginBottom: 5 }}>
+              <div className="mt-3 rounded-sm p-3" style={{ background: platformMeta.bg, color: platformMeta.color }}>
+                <div className="mb-1 flex items-center gap-1.5 text-[11px] font-black">
                   <Crown size={14} />
                   榜首
                 </div>
-                <div style={{ color: T.gray900, fontSize: 13, fontWeight: 850, lineHeight: 1.35 }}>{getItemTitle(topItem)}</div>
-                <div style={{ marginTop: 4, color: T.gray600, fontSize: 11 }}>{getItemAuthor(topItem)}</div>
+                <div className="text-[13px] font-black leading-tight text-gray-900">{getItemTitle(topItem)}</div>
+                <div className="mt-1 text-[11px] text-gray-600">{getItemAuthor(topItem)}</div>
               </div>
             )}
-          </div>
+          </Panel>
         </aside>
 
-        <main className="fanqie-main-panel" style={{ minHeight: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{ background: T.white, border: `1px solid ${T.gray200}`, borderRadius: T.radius, padding: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ minWidth: 220, flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, color: platformMeta.color, fontSize: 12, fontWeight: 900 }}>
+        <main className="fanqie-main-panel flex min-h-0 flex-col gap-3">
+          <Panel className="flex flex-wrap items-center gap-3 p-3.5">
+            <div className="min-w-[220px] flex-1">
+              <div className="flex items-center gap-2 text-xs font-black" style={{ color: platformMeta.color }}>
                 <TrendingUp size={15} />
                 {platformMeta.label}
               </div>
-              <div style={{ marginTop: 3, color: T.gray900, fontSize: 18, fontWeight: 900 }}>{contextLabel}</div>
-              <div style={{ marginTop: 4, color: T.gray400, fontSize: 12 }}>
+              <div className="mt-1 text-lg font-black text-gray-900">{contextLabel}</div>
+              <div className="mt-1 text-xs text-gray-400">
                 {query.trim() ? `筛出 ${filteredBooks.length} / ${currentBooks.length} 条` : `${currentBooks.length} 条榜单记录`}
               </div>
             </div>
-            <div style={{ position: 'relative', width: 280, maxWidth: '100%' }}>
-              <Search size={15} color={T.gray400} style={{ position: 'absolute', left: 11, top: 10 }} />
+            <div className="relative w-[280px] max-w-full">
+              <Search size={15} className="absolute left-3 top-2.5 text-gray-400" />
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="搜索书名、作者、简介"
-                style={{
-                  width: '100%',
-                  padding: '9px 36px 9px 34px',
-                  border: `1px solid ${T.gray200}`,
-                  borderRadius: T.radiusSm,
-                  outline: 'none',
-                  color: T.gray800,
-                  fontSize: 13,
-                }}
+                className="w-full rounded-sm border border-gray-200 py-2 pl-8 pr-9 text-[13px] text-gray-800 outline-none transition focus:border-primary"
               />
               {query && (
                 <button
                   type="button"
                   onClick={() => setQuery('')}
                   title="清空搜索"
-                  style={{
-                    position: 'absolute',
-                    right: 8,
-                    top: 7,
-                    width: 26,
-                    height: 26,
-                    border: 'none',
-                    borderRadius: 6,
-                    background: T.gray100,
-                    color: T.gray500,
-                    display: 'grid',
-                    placeItems: 'center',
-                    cursor: 'pointer',
-                  }}
+                  className="absolute right-2 top-1.5 grid h-[26px] w-[26px] cursor-pointer place-items-center rounded-xs border-0 bg-gray-100 text-gray-500"
                 >
                   <X size={14} />
                 </button>
               )}
             </div>
-          </div>
+          </Panel>
 
           {error && (
-            <div style={{ background: T.redLight, color: T.red, borderRadius: T.radiusSm, padding: '10px 12px', fontSize: 13, border: `1px solid ${T.redLight}` }}>{error}</div>
+            <div className="rounded-sm border border-red-light bg-red-light px-3 py-2.5 text-[13px] text-red">{error}</div>
           )}
 
-          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 2 }}>
+          <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
             {loading ? (
               <LoadingState label="正在拉取榜单" />
             ) : filteredBooks.length === 0 ? (
@@ -707,7 +641,7 @@ export default function FanqiePage() {
                 <EmptyState />
               )
             ) : (
-              <div className="fanqie-book-grid" style={{ display: 'grid', gap: 10 }}>
+              <div className="fanqie-book-grid grid gap-2.5">
                 {filteredBooks.map((item) => (
                   <BookCard
                     key={'book_id' in item ? `${platform}-${item.book_id}-${item.position}` : `${platform}-${item.business_id}-${item.position}`}
@@ -728,17 +662,45 @@ export default function FanqiePage() {
 function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <div style={{ color: T.gray500, fontSize: 11, fontWeight: 800, marginBottom: 7 }}>{title}</div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', width: '100%' }}>{children}</div>
+      <div className="mb-2 text-[11px] font-extrabold text-gray-500">{title}</div>
+      <div className="flex w-full flex-wrap gap-1.5">{children}</div>
     </div>
+  );
+}
+
+function FilterChip({
+  active,
+  color,
+  onClick,
+  children,
+  className,
+  title,
+}: {
+  active: boolean;
+  color: string;
+  onClick: () => void;
+  children: React.ReactNode;
+  className?: string;
+  title?: string;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className={cx('whitespace-nowrap rounded-xs border px-3 py-2 text-xs font-bold transition', className)}
+      style={chipStyle(active, color)}
+    >
+      {children}
+    </button>
   );
 }
 
 function SummaryTile({ label, value }: { label: string; value: string | number }) {
   return (
-    <div style={{ padding: 10, borderRadius: T.radiusSm, background: T.gray50, border: `1px solid ${T.gray100}` }}>
-      <div style={{ color: T.gray400, fontSize: 11, marginBottom: 4 }}>{label}</div>
-      <div style={{ color: T.gray900, fontFamily: T.mono, fontSize: 20, fontWeight: 900 }}>{value}</div>
+    <div className="rounded-sm border border-gray-100 bg-gray-50 p-2.5">
+      <div className="mb-1 text-[11px] text-gray-400">{label}</div>
+      <div className="font-mono text-xl font-black text-gray-900">{value}</div>
     </div>
   );
 }

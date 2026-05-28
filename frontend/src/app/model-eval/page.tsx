@@ -346,7 +346,7 @@ export default function ModelEvalPage() {
           <StatTile icon={ShieldCheck} label="主模型" value={primaryModel ? 1 : 0} hint={primaryModel?.name || '未设置'} color={T.amber} tone="amber" />
           <StatTile icon={Clock3} label="备用模型" value={fallbackModel ? 1 : 0} hint={fallbackModel?.name || '未设置'} color={T.gray700} />
           <StatTile icon={Gauge} label="30日 Token" value={usage ? formatTokens(usage.total.tokens_total) : '-'} hint={`输入 ${formatTokens(usage?.total.tokens_input || 0)} · 输出 ${formatTokens(usage?.total.tokens_output || 0)}`} color={T.purple} />
-          <StatTile icon={Coins} label="费用预估" value={usage ? formatCurrency(usage.total.estimated_cost) : '-'} hint={`${usage?.total.calls || 0} 次测评调用`} color={T.primary} tone="primary" />
+          <StatTile icon={Coins} label="费用预估" value={usage ? formatCurrency(usage.total.estimated_cost) : '-'} hint={`${usage?.total.calls || 0} 次模型调用`} color={T.primary} tone="primary" />
         </div>
       </section>
 
@@ -1001,6 +1001,7 @@ function UsageTab({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: 10 }}>
           <StatTile icon={Gauge} label="总 Token" value={formatTokens(usage.total.tokens_total)} hint={`输入 ${formatTokens(usage.total.tokens_input)} · 输出 ${formatTokens(usage.total.tokens_output)}`} color={T.purple} />
           <StatTile icon={Coins} label="费用预估" value={formatCurrency(usage.total.estimated_cost)} hint="按模型配置单价估算" color={T.primary} tone="primary" />
+          <StatTile icon={KeyRound} label="缓存命中" value={formatTokens(usage.total.cache_read_tokens)} hint={`实际输入 ${formatTokens(usage.total.billable_input_tokens)}`} color={T.gray700} />
           <StatTile icon={FlaskConical} label="调用次数" value={usage.total.calls} hint={`${usage.total.success_calls} 成功 · ${usage.total.failed_calls} 失败`} color={T.teal} tone="teal" />
           <StatTile icon={Clock3} label="平均耗时" value={`${usage.total.avg_duration_ms}ms`} hint={`成功率 ${(usage.total.success_rate * 100).toFixed(1)}%`} color={T.amber} tone="amber" />
         </div>

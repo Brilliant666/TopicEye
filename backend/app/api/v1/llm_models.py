@@ -24,6 +24,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -32,10 +33,28 @@ from sqlalchemy import select, desc, func, Integer as SAInteger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.llm_model import LlmModel, ModelEvaluation
+from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locked
+from app.models.llm_model import LlmCallLog, LlmModel, ModelEvaluation
 from app.services.llm.model_resolver import resolve_litellm_model
+from app.services.llm_usage import extract_usage, record_llm_call_in_new_session
 
 router = APIRouter(prefix="/models", tags=["models"])
+
+
+def _model_snapshot(model: LlmModel) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=model.id,
+        name=model.name,
+        provider=model.provider,
+        model_id=model.model_id,
+        api_key=model.api_key,
+        api_base=model.api_base,
+        temperature=model.temperature,
+        max_tokens=model.max_tokens,
+        cost_per_1k_input=model.cost_per_1k_input,
+        cost_per_1k_output=model.cost_per_1k_output,
+        extra_params=model.extra_params,
+    )
 
 
 def _resolve_litellm_model(model: LlmModel) -> str:
@@ -175,15 +194,12 @@ class ScoreRequest(BaseModel):
     notes: Optional[str] = None
 
 
-def _estimate_cost(
-    tokens_input: Optional[int],
-    tokens_output: Optional[int],
-    cost_per_1k_input: Optional[float],
-    cost_per_1k_output: Optional[float],
-) -> float:
-    input_cost = ((tokens_input or 0) / 1000) * (cost_per_1k_input or 0)
-    output_cost = ((tokens_output or 0) / 1000) * (cost_per_1k_output or 0)
-    return round(input_cost + output_cost, 6)
+async def _retry_write(db: AsyncSession, operation):
+    async def _wrapped():
+        await begin_immediate_for_sqlite(db)
+        return await operation()
+
+    return await retry_sqlite_locked(_wrapped, on_retry=db.rollback)
 
 
 def _per_1k_to_1m(value: Optional[float]) -> Optional[float]:
@@ -261,25 +277,27 @@ async def list_models(db: AsyncSession = Depends(get_db)):
 @router.post("")
 async def create_model(req: ModelCreateRequest, db: AsyncSession = Depends(get_db)):
     """Add a new LLM model configuration."""
-    model = LlmModel(
-        name=req.name,
-        provider=req.provider,
-        model_id=req.model_id,
-        api_key=req.api_key,
-        api_base=req.api_base,
-        enabled=req.enabled,
-        temperature=req.temperature,
-        max_tokens=req.max_tokens,
-        requests_per_minute=req.requests_per_minute,
-        description=req.description,
-        cost_per_1k_input=_model_cost_input(req),
-        cost_per_1k_output=_model_cost_output(req),
-        extra_params=_pricing_extra_params(req.extra_params, req.cost_per_1m_input_cache_hit),
-    )
-    db.add(model)
-    await db.flush()
-    await db.commit()
-    return {"id": model.id, "name": model.name, "message": "模型配置创建成功"}
+    async def _create():
+        model = LlmModel(
+            name=req.name,
+            provider=req.provider,
+            model_id=req.model_id,
+            api_key=req.api_key,
+            api_base=req.api_base,
+            enabled=req.enabled,
+            temperature=req.temperature,
+            max_tokens=req.max_tokens,
+            requests_per_minute=req.requests_per_minute,
+            description=req.description,
+            cost_per_1k_input=_model_cost_input(req),
+            cost_per_1k_output=_model_cost_output(req),
+            extra_params=_pricing_extra_params(req.extra_params, req.cost_per_1m_input_cache_hit),
+        )
+        db.add(model)
+        await db.flush()
+        return {"id": model.id, "name": model.name, "message": "模型配置创建成功"}
+
+    return await _retry_write(db, _create)
 
 
 @router.get("/usage/summary")
@@ -287,13 +305,13 @@ async def get_usage_summary(
     days: int = Query(30, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
 ):
-    """Summarize token usage and estimated cost from recorded model evaluations."""
+    """Summarize token usage and estimated cost from request-level LLM call logs."""
     since = datetime.utcnow() - timedelta(days=days)
     result = await db.execute(
-        select(ModelEvaluation, LlmModel)
-        .join(LlmModel, ModelEvaluation.model_id == LlmModel.id, isouter=True)
-        .where(ModelEvaluation.created_at >= since)
-        .order_by(desc(ModelEvaluation.created_at))
+        select(LlmCallLog, LlmModel)
+        .join(LlmModel, LlmCallLog.model_id == LlmModel.id, isouter=True)
+        .where(LlmCallLog.created_at >= since)
+        .order_by(desc(LlmCallLog.created_at))
     )
     rows = result.all()
 
@@ -305,41 +323,45 @@ async def get_usage_summary(
         "failed_calls": 0,
         "tokens_input": 0,
         "tokens_output": 0,
+        "cache_read_tokens": 0,
+        "cache_creation_tokens": 0,
+        "billable_input_tokens": 0,
         "estimated_cost": 0.0,
         "duration_ms": 0,
     }
 
-    for evaluation, model in rows:
-        tokens_input = evaluation.tokens_input or 0
-        tokens_output = evaluation.tokens_output or 0
-        estimated_cost = _estimate_cost(
-            evaluation.tokens_input,
-            evaluation.tokens_output,
-            model.cost_per_1k_input if model else None,
-            model.cost_per_1k_output if model else None,
-        )
-        is_done = evaluation.status == "DONE"
-        is_failed = evaluation.status == "FAILED"
+    for call_log, model in rows:
+        tokens_input = call_log.input_tokens or 0
+        tokens_output = call_log.output_tokens or 0
+        estimated_cost = call_log.total_cost or 0
+        is_done = call_log.status == "DONE"
+        is_failed = call_log.status == "FAILED"
 
         totals["calls"] += 1
         totals["success_calls"] += 1 if is_done else 0
         totals["failed_calls"] += 1 if is_failed else 0
         totals["tokens_input"] += tokens_input
         totals["tokens_output"] += tokens_output
+        totals["cache_read_tokens"] += call_log.cache_read_tokens or 0
+        totals["cache_creation_tokens"] += call_log.cache_creation_tokens or 0
+        totals["billable_input_tokens"] += call_log.billable_input_tokens or 0
         totals["estimated_cost"] += estimated_cost
-        totals["duration_ms"] += evaluation.duration_ms or 0
+        totals["duration_ms"] += call_log.duration_ms or 0
 
-        model_key = evaluation.model_id
+        model_key = call_log.model_id or 0
         if model_key not in by_model:
             by_model[model_key] = {
-                "model_id": evaluation.model_id,
-                "model_name": model.name if model else evaluation.model_name,
-                "provider": model.provider if model else None,
+                "model_id": call_log.model_id,
+                "model_name": model.name if model else (call_log.model_name or call_log.actual_model or "未配置模型"),
+                "provider": model.provider if model else call_log.provider,
                 "calls": 0,
                 "success_calls": 0,
                 "failed_calls": 0,
                 "tokens_input": 0,
                 "tokens_output": 0,
+                "cache_read_tokens": 0,
+                "cache_creation_tokens": 0,
+                "billable_input_tokens": 0,
                 "estimated_cost": 0.0,
                 "avg_duration_ms": 0,
                 "cost_per_1k_input": model.cost_per_1k_input if model else None,
@@ -358,10 +380,13 @@ async def get_usage_summary(
         model_stats["failed_calls"] += 1 if is_failed else 0
         model_stats["tokens_input"] += tokens_input
         model_stats["tokens_output"] += tokens_output
+        model_stats["cache_read_tokens"] += call_log.cache_read_tokens or 0
+        model_stats["cache_creation_tokens"] += call_log.cache_creation_tokens or 0
+        model_stats["billable_input_tokens"] += call_log.billable_input_tokens or 0
         model_stats["estimated_cost"] += estimated_cost
-        model_stats["avg_duration_ms"] += evaluation.duration_ms or 0
+        model_stats["avg_duration_ms"] += call_log.duration_ms or 0
 
-        prompt_key = evaluation.prompt_type
+        prompt_key = call_log.scene
         if prompt_key not in by_prompt:
             by_prompt[prompt_key] = {
                 "prompt_type": prompt_key,
@@ -370,6 +395,9 @@ async def get_usage_summary(
                 "failed_calls": 0,
                 "tokens_input": 0,
                 "tokens_output": 0,
+                "cache_read_tokens": 0,
+                "cache_creation_tokens": 0,
+                "billable_input_tokens": 0,
                 "estimated_cost": 0.0,
             }
         prompt_stats = by_prompt[prompt_key]
@@ -378,6 +406,9 @@ async def get_usage_summary(
         prompt_stats["failed_calls"] += 1 if is_failed else 0
         prompt_stats["tokens_input"] += tokens_input
         prompt_stats["tokens_output"] += tokens_output
+        prompt_stats["cache_read_tokens"] += call_log.cache_read_tokens or 0
+        prompt_stats["cache_creation_tokens"] += call_log.cache_creation_tokens or 0
+        prompt_stats["billable_input_tokens"] += call_log.billable_input_tokens or 0
         prompt_stats["estimated_cost"] += estimated_cost
 
     for stats in by_model.values():
@@ -400,6 +431,9 @@ async def get_usage_summary(
             "failed_calls": totals["failed_calls"],
             "tokens_input": totals["tokens_input"],
             "tokens_output": totals["tokens_output"],
+            "cache_read_tokens": totals["cache_read_tokens"],
+            "cache_creation_tokens": totals["cache_creation_tokens"],
+            "billable_input_tokens": totals["billable_input_tokens"],
             "tokens_total": total_tokens,
             "estimated_cost": round(totals["estimated_cost"], 6),
             "avg_duration_ms": avg_duration,
@@ -413,93 +447,101 @@ async def get_usage_summary(
 @router.put("/{model_id}")
 async def update_model(model_id: int, req: ModelUpdateRequest, db: AsyncSession = Depends(get_db)):
     """Update an existing model configuration."""
-    result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
-    model = result.scalar_one_or_none()
-    if not model:
-        raise HTTPException(404, f"Model {model_id} not found")
+    async def _update():
+        result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
+        model = result.scalar_one_or_none()
+        if not model:
+            raise HTTPException(404, f"Model {model_id} not found")
 
-    update_data = req.model_dump(exclude_unset=True)
-    for api_only_key in ("cost_per_1m_input", "cost_per_1m_input_cache_hit", "cost_per_1m_output"):
-        update_data.pop(api_only_key, None)
-    if "cost_per_1m_input" in req.model_fields_set:
-        update_data["cost_per_1k_input"] = _per_1m_to_1k(req.cost_per_1m_input)
-    if "cost_per_1m_output" in req.model_fields_set:
-        update_data["cost_per_1k_output"] = _per_1m_to_1k(req.cost_per_1m_output)
-    if "cost_per_1m_input_cache_hit" in req.model_fields_set:
-        update_data["extra_params"] = _pricing_extra_params(
-            update_data.get("extra_params", model.extra_params),
-            req.cost_per_1m_input_cache_hit,
-        )
-    for key, value in update_data.items():
-        setattr(model, key, value)
+        update_data = req.model_dump(exclude_unset=True)
+        for api_only_key in ("cost_per_1m_input", "cost_per_1m_input_cache_hit", "cost_per_1m_output"):
+            update_data.pop(api_only_key, None)
+        if "cost_per_1m_input" in req.model_fields_set:
+            update_data["cost_per_1k_input"] = _per_1m_to_1k(req.cost_per_1m_input)
+        if "cost_per_1m_output" in req.model_fields_set:
+            update_data["cost_per_1k_output"] = _per_1m_to_1k(req.cost_per_1m_output)
+        if "cost_per_1m_input_cache_hit" in req.model_fields_set:
+            update_data["extra_params"] = _pricing_extra_params(
+                update_data.get("extra_params", model.extra_params),
+                req.cost_per_1m_input_cache_hit,
+            )
+        for key, value in update_data.items():
+            setattr(model, key, value)
 
-    # Ensure only one primary / one fallback
-    if req.is_primary is True:
-        await db.execute(
-            LlmModel.__table__.update()
-            .where(LlmModel.id != model_id)
-            .values(is_primary=False)
-        )
-        model.is_fallback = False
-    if req.is_fallback is True:
-        await db.execute(
-            LlmModel.__table__.update()
-            .where(LlmModel.id != model_id)
-            .values(is_fallback=False)
-        )
-        model.is_primary = False
+        # Ensure only one primary / one fallback
+        if req.is_primary is True:
+            await db.execute(
+                LlmModel.__table__.update()
+                .where(LlmModel.id != model_id)
+                .values(is_primary=False)
+            )
+            model.is_fallback = False
+        if req.is_fallback is True:
+            await db.execute(
+                LlmModel.__table__.update()
+                .where(LlmModel.id != model_id)
+                .values(is_fallback=False)
+            )
+            model.is_primary = False
 
-    await db.commit()
-    return {"message": f"模型 {model.name} 更新成功"}
+        await db.flush()
+        return {"message": f"模型 {model.name} 更新成功"}
+
+    return await _retry_write(db, _update)
 
 
 @router.delete("/{model_id}")
 async def delete_model(model_id: int, db: AsyncSession = Depends(get_db)):
     """Delete a model configuration."""
-    result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
-    model = result.scalar_one_or_none()
-    if not model:
-        raise HTTPException(404, f"Model {model_id} not found")
-    await db.delete(model)
-    await db.commit()
-    return {"message": f"模型 {model.name} 已删除"}
+    async def _delete():
+        result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
+        model = result.scalar_one_or_none()
+        if not model:
+            raise HTTPException(404, f"Model {model_id} not found")
+        name = model.name
+        await db.delete(model)
+        await db.flush()
+        return {"message": f"模型 {name} 已删除"}
+
+    return await _retry_write(db, _delete)
 
 
 @router.post("/{model_id}/set-primary")
 async def set_primary(model_id: int, db: AsyncSession = Depends(get_db)):
     """Set a model as the primary model (unset others)."""
-    result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
-    model = result.scalar_one_or_none()
-    if not model:
-        raise HTTPException(404, f"Model {model_id} not found")
+    async def _set_primary():
+        result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
+        model = result.scalar_one_or_none()
+        if not model:
+            raise HTTPException(404, f"Model {model_id} not found")
 
-    # Unset all others
-    await db.execute(
-        LlmModel.__table__.update().values(is_primary=False)
-    )
-    model.is_primary = True
-    model.is_fallback = False
-    model.enabled = True
-    await db.commit()
-    return {"message": f"{model.name} 已设为主模型"}
+        await db.execute(LlmModel.__table__.update().values(is_primary=False))
+        model.is_primary = True
+        model.is_fallback = False
+        model.enabled = True
+        await db.flush()
+        return {"message": f"{model.name} 已设为主模型"}
+
+    return await _retry_write(db, _set_primary)
 
 
 @router.post("/{model_id}/set-fallback")
 async def set_fallback(model_id: int, db: AsyncSession = Depends(get_db)):
     """Set a model as the fallback model."""
-    result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
-    model = result.scalar_one_or_none()
-    if not model:
-        raise HTTPException(404, f"Model {model_id} not found")
+    async def _set_fallback():
+        result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
+        model = result.scalar_one_or_none()
+        if not model:
+            raise HTTPException(404, f"Model {model_id} not found")
 
-    await db.execute(
-        LlmModel.__table__.update().values(is_fallback=False)
-    )
-    model.is_fallback = True
-    model.is_primary = False
-    model.enabled = True
-    await db.commit()
-    return {"message": f"{model.name} 已设为备用模型"}
+        await db.execute(LlmModel.__table__.update().values(is_fallback=False))
+        model.is_fallback = True
+        model.is_primary = False
+        model.enabled = True
+        await db.flush()
+        return {"message": f"{model.name} 已设为备用模型"}
+
+    return await _retry_write(db, _set_fallback)
 
 
 @router.post("/{model_id}/test")
@@ -539,17 +581,35 @@ async def test_model(model_id: int, db: AsyncSession = Depends(get_db)):
         response = await asyncio.to_thread(completion, **kwargs)
         duration_ms = int((time.monotonic() - start) * 1000)
         content = response.choices[0].message.content or ""
-        usage = response.usage
+        usage = extract_usage(response)
+        await record_llm_call_in_new_session(
+            model=model,
+            request_model=resolved_model,
+            scene="model_test",
+            status="DONE",
+            duration_ms=duration_ms,
+            usage=usage,
+        )
         return {
             "status": "success",
             "model_name": model.name,
             "response": content,
             "duration_ms": duration_ms,
-            "tokens_input": usage.prompt_tokens if usage else None,
-            "tokens_output": usage.completion_tokens if usage else None,
+            "tokens_input": usage.input_tokens,
+            "tokens_output": usage.output_tokens,
+            "cache_read_tokens": usage.cache_read_tokens,
+            "cache_creation_tokens": usage.cache_creation_tokens,
         }
     except Exception as e:
         duration_ms = int((time.monotonic() - start) * 1000)
+        await record_llm_call_in_new_session(
+            model=model,
+            request_model=resolved_model,
+            scene="model_test",
+            status="FAILED",
+            duration_ms=duration_ms,
+            error_message=str(e),
+        )
         return {
             "status": "failed",
             "model_name": model.name,
@@ -623,9 +683,10 @@ async def run_evaluation(req: EvalRunRequest, db: AsyncSession = Depends(get_db)
     result = await db.execute(
         select(LlmModel).where(LlmModel.id.in_(req.model_ids), LlmModel.enabled == True)
     )
-    models = result.scalars().all()
+    models = [_model_snapshot(model) for model in result.scalars().all()]
     if not models:
         raise HTTPException(400, "没有找到启用的模型")
+    await db.rollback()
 
     # Build prompt
     prompt_template = EVAL_PROMPTS.get(req.prompt_type)
@@ -641,28 +702,44 @@ async def run_evaluation(req: EvalRunRequest, db: AsyncSession = Depends(get_db)
     eval_run_id = f"eval_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
 
     evaluations = []
-    for model in models:
-        eval_record = ModelEvaluation(
-            eval_run_id=eval_run_id,
-            model_id=model.id,
-            model_name=model.name,
-            prompt_type=req.prompt_type,
-            prompt_text=prompt_text[:2000],
-            status="PENDING",
-        )
-        db.add(eval_record)
-        evaluations.append((model, eval_record))
+    async def _create_records():
+        for model in models:
+            eval_record = ModelEvaluation(
+                eval_run_id=eval_run_id,
+                model_id=model.id,
+                model_name=model.name,
+                prompt_type=req.prompt_type,
+                prompt_text=prompt_text[:2000],
+                status="PENDING",
+            )
+            db.add(eval_record)
+            evaluations.append((model, eval_record))
+        await db.flush()
 
-    await db.flush()
+    await _retry_write(db, _create_records)
+    await db.commit()
 
     # Run each model sequentially (avoid rate limits)
     for model, eval_record in evaluations:
-        eval_record.status = "RUNNING"
-        await db.flush()
+        async def _mark_running():
+            result = await db.execute(select(ModelEvaluation).where(ModelEvaluation.id == eval_record.id))
+            current = result.scalar_one()
+            current.status = "RUNNING"
+            await db.flush()
+
+        await _retry_write(db, _mark_running)
+        await db.commit()
 
         if _missing_explicit_api_key(model):
-            eval_record.status = "FAILED"
-            eval_record.error_message = "模型配置缺少 API Key，请在模型配置中补充后再测评。"
+            async def _mark_missing_key():
+                result = await db.execute(select(ModelEvaluation).where(ModelEvaluation.id == eval_record.id))
+                current = result.scalar_one()
+                current.status = "FAILED"
+                current.error_message = "模型配置缺少 API Key，请在模型配置中补充后再测评。"
+                await db.flush()
+
+            await _retry_write(db, _mark_missing_key)
+            await db.commit()
             await asyncio.sleep(0.1)
             continue
 
@@ -684,26 +761,55 @@ async def run_evaluation(req: EvalRunRequest, db: AsyncSession = Depends(get_db)
             response = await asyncio.to_thread(completion, **kwargs)
             duration_ms = int((time.monotonic() - start) * 1000)
             content = response.choices[0].message.content or ""
-            usage = response.usage
+            usage = extract_usage(response)
 
-            eval_record.status = "DONE"
-            eval_record.response_text = content
-            eval_record.duration_ms = duration_ms
-            eval_record.tokens_input = usage.prompt_tokens if usage else None
-            eval_record.tokens_output = usage.completion_tokens if usage else None
+            async def _mark_done():
+                result = await db.execute(select(ModelEvaluation).where(ModelEvaluation.id == eval_record.id))
+                current = result.scalar_one()
+                current.status = "DONE"
+                current.response_text = content
+                current.duration_ms = duration_ms
+                current.tokens_input = usage.input_tokens
+                current.tokens_output = usage.output_tokens
+                current.auto_score = _auto_score_response(content)
+                await db.flush()
 
-            eval_record.auto_score = _auto_score_response(content)
+            await _retry_write(db, _mark_done)
+            await db.commit()
+            await record_llm_call_in_new_session(
+                model=model,
+                request_model=resolved_model,
+                scene=f"evaluation:{req.prompt_type}",
+                status="DONE",
+                duration_ms=duration_ms,
+                usage=usage,
+            )
 
         except Exception as e:
             duration_ms = int((time.monotonic() - start) * 1000)
-            eval_record.status = "FAILED"
-            eval_record.error_message = str(e)[:2000]
-            eval_record.duration_ms = duration_ms
+            error_message = str(e)
+
+            async def _mark_failed():
+                result = await db.execute(select(ModelEvaluation).where(ModelEvaluation.id == eval_record.id))
+                current = result.scalar_one()
+                current.status = "FAILED"
+                current.error_message = error_message[:2000]
+                current.duration_ms = duration_ms
+                await db.flush()
+
+            await _retry_write(db, _mark_failed)
+            await db.commit()
+            await record_llm_call_in_new_session(
+                model=model,
+                request_model=resolved_model,
+                scene=f"evaluation:{req.prompt_type}",
+                status="FAILED",
+                duration_ms=duration_ms,
+                error_message=error_message,
+            )
 
         # Rate limit between models
         await asyncio.sleep(1.5)
-
-    await db.commit()
 
     return {
         "eval_run_id": eval_run_id,

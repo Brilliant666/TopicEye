@@ -29,6 +29,7 @@ from tenacity import (
 )
 from app.config import settings
 from app.services.llm.model_resolver import resolve_litellm_model
+from app.services.llm_usage import extract_usage, record_llm_call_in_new_session
 
 logger = logging.getLogger(__name__)
 
@@ -242,6 +243,8 @@ async def _call_llm_single(
     temperature: float,
     max_tokens: int,
     response_format: Optional[dict],
+    model_config: Any = None,
+    scene: str = "general",
 ) -> str:
     """Make a single LLM call (no retry)."""
     await _rate_limiter.acquire()
@@ -261,10 +264,32 @@ async def _call_llm_single(
 
     logger.info("LLM call: model=%s, messages=%d", model, len(messages))
 
-    response = await asyncio.to_thread(completion, **kwargs)
-    content = response.choices[0].message.content
-    logger.info("LLM response: %d chars", len(content) if content else 0)
-    return content or ""
+    start = time.monotonic()
+    try:
+        response = await asyncio.to_thread(completion, **kwargs)
+        duration_ms = int((time.monotonic() - start) * 1000)
+        content = response.choices[0].message.content
+        await record_llm_call_in_new_session(
+            model=model_config,
+            request_model=model,
+            scene=scene,
+            status="DONE",
+            duration_ms=duration_ms,
+            usage=extract_usage(response),
+        )
+        logger.info("LLM response: %d chars", len(content) if content else 0)
+        return content or ""
+    except Exception as exc:
+        duration_ms = int((time.monotonic() - start) * 1000)
+        await record_llm_call_in_new_session(
+            model=model_config,
+            request_model=model,
+            scene=scene,
+            status="FAILED",
+            duration_ms=duration_ms,
+            error_message=str(exc),
+        )
+        raise
 
 
 @retry(
@@ -281,10 +306,12 @@ async def _call_with_retry(
     temperature: float,
     max_tokens: int,
     response_format: Optional[dict],
+    model_config: Any = None,
+    scene: str = "general",
 ) -> str:
     """Call LLM with a short retry on failure (not rate limit)."""
     return await _call_llm_single(
-        messages, model, api_key, api_base, temperature, max_tokens, response_format
+        messages, model, api_key, api_base, temperature, max_tokens, response_format, model_config, scene
     )
 
 
@@ -293,6 +320,7 @@ async def call_llm(
     temperature: float = 0.3,
     max_tokens: int = 2000,
     use_fallback: bool = True,
+    scene: str = "general",
 ) -> str:
     """
     Call LLM with automatic primary→fallback failover.
@@ -333,7 +361,7 @@ async def call_llm(
         # No fallback configured, just call primary
         return await _call_with_retry(
             messages, primary_model, primary_key, primary_base,
-            temperature, max_tokens, None,
+            temperature, max_tokens, None, db_primary, scene,
         )
 
     is_degraded = _failover.should_skip_primary()
@@ -344,7 +372,7 @@ async def call_llm(
         try:
             result = await _call_with_retry(
                 messages, primary_model, primary_key, primary_base,
-                temperature, max_tokens, None,
+                temperature, max_tokens, None, db_primary, scene,
             )
             _failover.on_success(used_primary=True)
             return result
@@ -362,7 +390,7 @@ async def call_llm(
     try:
         result = await _call_with_retry(
             messages, fallback_model, fallback_key, fallback_base,
-            temperature, max_tokens, None,
+            temperature, max_tokens, None, db_fallback, scene,
         )
         _failover.on_success(used_primary=False)
         return result
@@ -375,6 +403,7 @@ async def call_llm_json(
     messages: list,
     temperature: float = 0.2,
     max_tokens: int = 2000,
+    scene: str = "general",
 ) -> dict[str, Any]:
     """Call LLM and parse JSON response.
 
@@ -382,7 +411,7 @@ async def call_llm_json(
     """
     raw = ""
     for attempt in range(2):
-        raw = await call_llm(messages, temperature=temperature, max_tokens=max_tokens)
+        raw = await call_llm(messages, temperature=temperature, max_tokens=max_tokens, scene=scene)
 
         # Try to extract JSON from markdown code blocks or raw text
         text = raw.strip()

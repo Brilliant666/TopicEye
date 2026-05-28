@@ -70,7 +70,7 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
         {"role": "user", "content": analysis_prompt.format(title=title, content=truncated)},
     ]
 
-    result = await call_llm_json(messages, temperature=0.25, max_tokens=1500)
+    result = await call_llm_json(messages, temperature=0.25, max_tokens=1500, scene="content_analysis")
 
     # Extract scores
     scores = result.get("scores", {})

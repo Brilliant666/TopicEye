@@ -150,6 +150,51 @@ async def ensure_daily_report_version_schema(conn) -> None:
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_reports_cutoff_at ON daily_reports(cutoff_at)"))
 
 
+async def ensure_llm_call_logs_schema(conn) -> None:
+    """SQLite create_all does not update existing installs with new telemetry columns."""
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        return
+
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS llm_call_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            request_id VARCHAR(64) NOT NULL UNIQUE,
+            model_id INTEGER,
+            model_name VARCHAR(100),
+            provider VARCHAR(50),
+            request_model VARCHAR(200),
+            actual_model VARCHAR(200),
+            scene VARCHAR(50) NOT NULL DEFAULT 'general',
+            status VARCHAR(20) NOT NULL DEFAULT 'DONE',
+            error_message TEXT,
+            duration_ms INTEGER NOT NULL DEFAULT 0,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+            billable_input_tokens INTEGER NOT NULL DEFAULT 0,
+            input_cost FLOAT NOT NULL DEFAULT 0,
+            output_cost FLOAT NOT NULL DEFAULT 0,
+            cache_read_cost FLOAT NOT NULL DEFAULT 0,
+            cache_creation_cost FLOAT NOT NULL DEFAULT 0,
+            total_cost FLOAT NOT NULL DEFAULT 0,
+            cost_per_1m_input FLOAT,
+            cost_per_1m_output FLOAT,
+            cost_per_1m_input_cache_hit FLOAT,
+            cost_per_1m_input_cache_create FLOAT,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """))
+    await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_llm_call_logs_request_id ON llm_call_logs(request_id)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_llm_call_logs_model_id ON llm_call_logs(model_id)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_llm_call_logs_provider ON llm_call_logs(provider)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_llm_call_logs_scene ON llm_call_logs(scene)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_llm_call_logs_status ON llm_call_logs(status)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_llm_call_logs_created_at ON llm_call_logs(created_at)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_llm_call_logs_model_created ON llm_call_logs(model_id, created_at)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_llm_call_logs_scene_created ON llm_call_logs(scene, created_at)"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create all SQLite tables
@@ -158,6 +203,7 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
             await ensure_source_sort_order_column(conn)
             await ensure_daily_report_version_schema(conn)
+            await ensure_llm_call_logs_schema(conn)
     else:
         logger.info("Startup table creation skipped by config")
 

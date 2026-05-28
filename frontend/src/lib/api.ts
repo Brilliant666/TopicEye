@@ -1028,6 +1028,9 @@ export interface ModelUsageBucket {
   failed_calls: number;
   tokens_input: number;
   tokens_output: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  billable_input_tokens: number;
   estimated_cost: number;
 }
 
@@ -1081,7 +1084,7 @@ export const modelsApi = {
   setFallback(id: number): Promise<{ message: string }> {
     return request(`/models/${id}/set-fallback`, { method: 'POST' });
   },
-  test(id: number): Promise<{ status: string; model_name: string; response?: string; error?: string; duration_ms: number; tokens_input?: number; tokens_output?: number }> {
+  test(id: number): Promise<{ status: string; model_name: string; response?: string; error?: string; duration_ms: number; tokens_input?: number; tokens_output?: number; cache_read_tokens?: number; cache_creation_tokens?: number }> {
     return request(`/models/${id}/test`, { method: 'POST' });
   },
   runEvaluation(data: { model_ids: number[]; prompt_type: string; custom_prompt?: string; sample_content?: string }): Promise<{ eval_run_id: string; model_count: number; message: string }> {

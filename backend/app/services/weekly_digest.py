@@ -226,6 +226,7 @@ async def generate_weekly_digest(
             [{"role": "user", "content": prompt}],
             temperature=0.3,
             max_tokens=3000,
+            scene="weekly_digest",
         )
 
         # Validate LLM returned useful content — empty dict is a failure

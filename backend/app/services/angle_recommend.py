@@ -93,6 +93,7 @@ async def generate_angles_for_topic(
         messages,
         temperature=0.3,
         max_tokens=800,
+        scene="angle_recommend",
     )
 
     # 防御：如果 LLM 返回格式不对

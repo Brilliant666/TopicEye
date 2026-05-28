@@ -4,6 +4,7 @@ LLM model configuration & evaluation models.
 Tables:
   - llm_models: model provider configs (name, model_id, api_key, base_url, enabled, is_default …)
   - model_evaluations: A/B test results for each model on eval prompts
+  - llm_call_logs: request-level token and cost logs for model calls
 """
 from datetime import datetime
 from typing import Optional
@@ -72,3 +73,42 @@ class ModelEvaluation(Base):
 
     def __repr__(self) -> str:
         return f"<ModelEvaluation {self.model_name} {self.prompt_type} {self.status}>"
+
+
+class LlmCallLog(Base):
+    __tablename__ = "llm_call_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    request_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    model_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    model_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    provider: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    request_model: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    actual_model: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    scene: Mapped[str] = mapped_column(String(50), nullable=False, default="general", index=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="DONE", index=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cache_creation_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    billable_input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    input_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    output_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cache_read_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cache_creation_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    cost_per_1m_input: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cost_per_1m_output: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cost_per_1m_input_cache_hit: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    cost_per_1m_input_cache_create: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        Index("ix_llm_call_logs_model_created", "model_id", "created_at"),
+        Index("ix_llm_call_logs_scene_created", "scene", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<LlmCallLog {self.request_id} {self.actual_model or self.request_model} {self.status}>"

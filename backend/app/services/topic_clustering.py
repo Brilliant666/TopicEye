@@ -131,7 +131,7 @@ async def _name_clusters(
         ]
 
         try:
-            data = await call_llm_json(prompt)
+            data = await call_llm_json(prompt, scene="topic_clustering")
             name = data.get("name", "未命名话题")[:20]
             summary = data.get("summary", "")[:50]
         except Exception:

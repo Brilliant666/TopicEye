@@ -214,6 +214,7 @@ async def classify_async(
             messages,
             temperature=0.1,
             max_tokens=300,
+            scene="classification",
         )
 
         category = result.get("category", "").strip()

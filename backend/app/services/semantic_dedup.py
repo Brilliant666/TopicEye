@@ -88,7 +88,7 @@ async def _dedup_one_batch(items: list[dict]) -> dict[int, int]:
     ]
 
     try:
-        data = await call_llm_json(prompt, temperature=0.1, max_tokens=1500)
+        data = await call_llm_json(prompt, temperature=0.1, max_tokens=1500, scene="semantic_dedup")
         raw = data.get("duplicates", [])
         if not isinstance(raw, list):
             logger.warning("semantic_dedup: unexpected LLM response type %s", type(raw))

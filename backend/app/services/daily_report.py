@@ -301,7 +301,7 @@ async def generate_daily_report(
     )
 
     try:
-        result = await call_llm_json([{"role": "user", "content": prompt}])
+        result = await call_llm_json([{"role": "user", "content": prompt}], scene="daily_report")
         overview = result.get("overview", "")
         if not overview or "raw_response" in result:
             raise ValueError(f"LLM返回空内容或格式无效: {str(result)[:200]}")

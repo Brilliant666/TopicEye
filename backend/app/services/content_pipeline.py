@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.source import Source, SourceType, SourceStatus
@@ -105,10 +105,8 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
         existing_hashes = {row[0] for row in result.all()}
 
         # ── Step 4+5: Classify, tag and persist ──────────────────────
-        from app.repositories.category_repo import CategoryRepository
-        cat_repo = CategoryRepository(db)
-
         new_items: list[ContentItem] = []
+        category_counts: dict[str, int] = {}
         for entry in entries:
             ch = entry["_content_hash"]
             if ch in existing_hashes:
@@ -141,6 +139,8 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
                 status=ContentStatus.PENDING,
             )
             new_items.append(item)
+            if category:
+                category_counts[category] = category_counts.get(category, 0) + 1
             new_count += 1
             existing_hashes.add(ch)
 
@@ -152,8 +152,7 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
             for item in new_items:
                 db.add(item)
             await db.flush()
-            # Deferred batch category count update (runs after flush in background)
-            _deferred_batch_category_increment(db, new_items)
+            await _increment_category_counts(db, category_counts)
 
         # ── Step 6: Update source ────────────────────────────────────
         _update_source_status(source, SourceStatus.ACTIVE)
@@ -182,32 +181,22 @@ def _update_source_status(source: Source, status: SourceStatus) -> None:
     source.updated_at = datetime.utcnow()
 
 
-def _deferred_batch_category_increment(db: AsyncSession, items: list[ContentItem]) -> None:
+async def _increment_category_counts(db: AsyncSession, counts: dict[str, int]) -> None:
     """
-    Batch-increment category content_count after items are flushed.
+    Batch-increment category content_count in the current transaction.
+
+    Do not spawn background tasks with the request/session object; SQLAlchemy
+    sessions are not safe for concurrent use and SQLite has a single writer.
     One UPDATE per unique category = minimal DB round-trips.
     """
-    from collections import Counter
-    from sqlalchemy import text
-
-    counts = Counter(item.category for item in items if item.category)
     if not counts:
         return
 
-    async def _do_it():
-        for cat_name, count in counts.items():
-            await db.execute(
-                text("UPDATE categories SET content_count = content_count + :n WHERE name = :name"),
-                {"n": count, "name": cat_name}
-            )
-        await db.flush()
-
-    import asyncio
-    try:
-        loop = asyncio.get_running_loop()
-        asyncio.create_task(_do_it())
-    except Exception:
-        pass  # fire-and-forget, non-critical
+    for cat_name, count in counts.items():
+        await db.execute(
+            text("UPDATE categories SET content_count = content_count + :n WHERE name = :name"),
+            {"n": count, "name": cat_name},
+        )
 
 
 def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> None:

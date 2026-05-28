@@ -153,7 +153,7 @@ async def enrich_content(
     ]
 
     try:
-        result_data = await call_llm_json(messages, temperature=0.2, max_tokens=1200)
+        result_data = await call_llm_json(messages, temperature=0.2, max_tokens=1200, scene="content_enrichment")
 
         # Validate structure
         enrichment = {

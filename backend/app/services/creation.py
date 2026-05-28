@@ -159,7 +159,7 @@ async def generate_creation_plan(
 
     # 3. Call LLM
     try:
-        plan = await call_llm_json(messages)
+        plan = await call_llm_json(messages, scene="creation_plan")
         if isinstance(plan, dict) and "error" not in plan:
             plan["_meta"] = {
                 "content_id": content_id,

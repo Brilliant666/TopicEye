@@ -174,9 +174,9 @@ export function SummaryGrid({ data }: { data: ScoringFlowResponse }) {
 
 export function Funnel({ data, selectedKey }: { data: ScoringFlowResponse; selectedKey?: string }) {
   const max = Math.max(...data.stages.map((s) => s.count), 1);
-  const clampWidth = (count: number) => {
-    if (count <= 0) return 8;
-    return Math.max(14, Math.min(100, (count / max) * 100));
+  const barWidth = (count: number) => {
+    if (count <= 0) return 0;
+    return Math.max(3, Math.min(100, (count / max) * 100));
   };
 
   return (
@@ -186,13 +186,13 @@ export function Funnel({ data, selectedKey }: { data: ScoringFlowResponse; selec
           <Filter size={16} color={COLORS.primary} />
           <div className="text-sm font-black text-gray-800">评分漏斗</div>
         </div>
-        <div className="text-xs text-gray-400">宽度按样本留存比例缩放</div>
+        <div className="text-xs text-gray-400">横向长度按累计留存比例缩放</div>
       </div>
 
-      <div className="mx-auto flex max-w-[880px] flex-col gap-2.5">
+      <div className="flex flex-col gap-2.5">
         {data.stages.map((stage, index) => {
           const palette = STAGE_COLORS[stage.key] || STAGE_COLORS.candidates;
-          const width = clampWidth(stage.count);
+          const width = barWidth(stage.count);
           const active = selectedKey === stage.key;
           const previous = data.stages[index - 1];
           const lost = previous ? Math.max(0, previous.count - stage.count) : 0;
@@ -200,46 +200,47 @@ export function Funnel({ data, selectedKey }: { data: ScoringFlowResponse; selec
           return (
             <div
               key={stage.key}
-              className="grid grid-cols-[92px_minmax(0,1fr)_86px] items-center gap-3"
+              className="grid min-w-0 grid-cols-1 gap-2 rounded-sm border p-3 transition md:grid-cols-[116px_minmax(0,1fr)_84px_76px] md:items-center"
+              style={{
+                borderColor: active ? palette.color : palette.border,
+                background: active ? palette.soft : '#FFFFFF',
+                boxShadow: active ? `0 0 0 2px ${palette.color}18, 0 10px 22px rgba(15,23,42,0.05)` : 'none',
+              }}
             >
-              <div className="min-w-0 text-right">
+              <div className="min-w-0">
                 <div className="truncate text-xs font-black" style={{ color: palette.color }}>{stage.label}</div>
-                <div className="mt-1 font-mono text-[11px] text-gray-400">{pct(stageShare)}</div>
-              </div>
-
-              <div className="relative h-[58px] min-w-0">
-                <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-gray-100" />
-                <div
-                  className="absolute left-1/2 top-0 flex h-full -translate-x-1/2 items-center justify-between gap-3 overflow-hidden rounded-sm border px-4 transition"
-                  style={{
-                    width: `${width}%`,
-                    minWidth: stage.count > 0 ? 112 : 60,
-                    maxWidth: '100%',
-                    borderColor: active ? palette.color : palette.border,
-                    background: `linear-gradient(135deg, ${palette.bg}, ${palette.soft})`,
-                    boxShadow: active ? `0 0 0 2px ${palette.color}22, 0 14px 26px rgba(15,23,42,0.08)` : '0 8px 18px rgba(15,23,42,0.04)',
-                    clipPath: 'polygon(3% 0, 97% 0, 100% 100%, 0 100%)',
-                  }}
-                >
-                  <span className="truncate text-[13px] font-black text-gray-800">{stage.label}</span>
-                  <span className="shrink-0 font-mono text-xl font-black leading-none" style={{ color: palette.color }}>
-                    {stage.count}
-                  </span>
-                </div>
+                <div className="mt-1 font-mono text-[11px] text-gray-400">{stage.key.toUpperCase()}</div>
               </div>
 
               <div className="min-w-0">
-                {previous ? (
-                  <>
-                    <div className="font-mono text-xs font-black text-gray-700">-{lost}</div>
-                    <div className="mt-1 text-[10px] text-gray-400">流失</div>
-                  </>
-                ) : (
-                  <>
-                    <div className="font-mono text-xs font-black text-gray-700">{stage.count}</div>
-                    <div className="mt-1 text-[10px] text-gray-400">入口</div>
-                  </>
-                )}
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-medium text-gray-500">累计留存</span>
+                  <span className="font-mono text-[11px] font-black text-gray-600">{pct(stageShare)}</span>
+                </div>
+                <div className="relative h-5 overflow-hidden rounded-xs bg-gray-100">
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-xs transition-all"
+                    style={{ width: `${width}%`, background: `linear-gradient(90deg, ${palette.color}, ${palette.border})` }}
+                  />
+                  {stage.count === 0 && (
+                    <div className="absolute inset-y-0 left-0 w-1 rounded-xs" style={{ background: palette.border }} />
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-baseline justify-between gap-2 md:block md:text-right">
+                <span className="text-[11px] text-gray-400 md:block">样本</span>
+                <span className="font-mono text-lg font-black leading-none text-gray-900 md:mt-1 md:block">{stage.count}</span>
+              </div>
+
+              <div className="flex items-baseline justify-between gap-2 md:block md:text-right">
+                <span className="text-[11px] text-gray-400 md:block">{previous ? '流失' : '入口'}</span>
+                <div
+                  className="font-mono text-sm font-black leading-none md:mt-1"
+                  style={{ color: previous && lost > 0 ? COLORS.red : COLORS.gray500 }}
+                >
+                  {previous ? `-${lost}` : stage.count}
+                </div>
               </div>
             </div>
           );

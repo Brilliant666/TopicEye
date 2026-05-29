@@ -174,6 +174,11 @@ export function SummaryGrid({ data }: { data: ScoringFlowResponse }) {
 
 export function Funnel({ data, selectedKey }: { data: ScoringFlowResponse; selectedKey?: string }) {
   const max = Math.max(...data.stages.map((s) => s.count), 1);
+  const clampWidth = (count: number) => {
+    if (count <= 0) return 8;
+    return Math.max(14, Math.min(100, (count / max) * 100));
+  };
+
   return (
     <Panel className="overflow-hidden p-4 lg:p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -181,30 +186,60 @@ export function Funnel({ data, selectedKey }: { data: ScoringFlowResponse; selec
           <Filter size={16} color={COLORS.primary} />
           <div className="text-sm font-black text-gray-800">评分漏斗</div>
         </div>
-        <div className="text-xs text-gray-400">候选样本沿路径逐级收缩</div>
+        <div className="text-xs text-gray-400">宽度按样本留存比例缩放</div>
       </div>
-      <div className="grid auto-cols-[148px] grid-flow-col gap-3 overflow-x-auto pb-1 lg:grid-flow-row lg:grid-cols-6">
-        {data.stages.map((stage) => {
+
+      <div className="mx-auto flex max-w-[880px] flex-col gap-2.5">
+        {data.stages.map((stage, index) => {
           const palette = STAGE_COLORS[stage.key] || STAGE_COLORS.candidates;
-          const width = 52 + (stage.count / max) * 48;
+          const width = clampWidth(stage.count);
           const active = selectedKey === stage.key;
+          const previous = data.stages[index - 1];
+          const lost = previous ? Math.max(0, previous.count - stage.count) : 0;
+          const stageShare = stage.count / max;
           return (
             <div
               key={stage.key}
-              className="relative min-w-0 overflow-hidden rounded-sm border p-3 transition"
-              style={{
-                borderColor: active ? palette.color : palette.border,
-                background: `linear-gradient(180deg, ${palette.soft}, ${palette.bg})`,
-                boxShadow: active ? `0 0 0 2px ${palette.color}22, 0 12px 24px rgba(15,23,42,0.06)` : 'none',
-              }}
+              className="grid grid-cols-[92px_minmax(0,1fr)_86px] items-center gap-3"
             >
-              <div className="mb-3 truncate text-xs font-black" style={{ color: palette.color }}>{stage.label}</div>
-              <div className="flex h-12 items-center justify-center">
-                <div className="h-9 rounded-xs opacity-90" style={{ width: `${width}%`, background: palette.color }} />
+              <div className="min-w-0 text-right">
+                <div className="truncate text-xs font-black" style={{ color: palette.color }}>{stage.label}</div>
+                <div className="mt-1 font-mono text-[11px] text-gray-400">{pct(stageShare)}</div>
               </div>
-              <div className="mt-3 flex items-baseline justify-between">
-                <span className="font-mono text-[22px] font-black leading-none text-gray-900">{stage.count}</span>
-                <span className="text-[11px] text-gray-500">{pct(stage.retention)}</span>
+
+              <div className="relative h-[58px] min-w-0">
+                <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-gray-100" />
+                <div
+                  className="absolute left-1/2 top-0 flex h-full -translate-x-1/2 items-center justify-between gap-3 overflow-hidden rounded-sm border px-4 transition"
+                  style={{
+                    width: `${width}%`,
+                    minWidth: stage.count > 0 ? 112 : 60,
+                    maxWidth: '100%',
+                    borderColor: active ? palette.color : palette.border,
+                    background: `linear-gradient(135deg, ${palette.bg}, ${palette.soft})`,
+                    boxShadow: active ? `0 0 0 2px ${palette.color}22, 0 14px 26px rgba(15,23,42,0.08)` : '0 8px 18px rgba(15,23,42,0.04)',
+                    clipPath: 'polygon(3% 0, 97% 0, 100% 100%, 0 100%)',
+                  }}
+                >
+                  <span className="truncate text-[13px] font-black text-gray-800">{stage.label}</span>
+                  <span className="shrink-0 font-mono text-xl font-black leading-none" style={{ color: palette.color }}>
+                    {stage.count}
+                  </span>
+                </div>
+              </div>
+
+              <div className="min-w-0">
+                {previous ? (
+                  <>
+                    <div className="font-mono text-xs font-black text-gray-700">-{lost}</div>
+                    <div className="mt-1 text-[10px] text-gray-400">流失</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="font-mono text-xs font-black text-gray-700">{stage.count}</div>
+                    <div className="mt-1 text-[10px] text-gray-400">入口</div>
+                  </>
+                )}
               </div>
             </div>
           );

@@ -61,14 +61,12 @@ async def build_scoring_flow_payload(
 
 def build_stage_counts(scored: list[tuple[ScoreBreakdown, ScoringInput]]) -> list[dict[str, Any]]:
     total = len(scored)
-    counts = [
-        total,
-        sum(1 for breakdown, _ in scored if breakdown.quality_factor > 0.55),
-        sum(1 for breakdown, _ in scored if breakdown.risk_factor > 0.55),
-        sum(1 for breakdown, _ in scored if breakdown.time_decay >= 0.6),
-        sum(1 for breakdown, _ in scored if breakdown.diversity_factor >= 0.85),
-        sum(1 for breakdown, _ in scored if breakdown.selected),
-    ]
+    quality_pass = [(breakdown, item) for breakdown, item in scored if breakdown.quality_factor > 0.55]
+    risk_pass = [(breakdown, item) for breakdown, item in quality_pass if breakdown.risk_factor > 0.55]
+    freshness_pass = [(breakdown, item) for breakdown, item in risk_pass if breakdown.time_decay >= 0.6]
+    diversity_pass = [(breakdown, item) for breakdown, item in freshness_pass if breakdown.diversity_factor >= 0.85]
+    selected = [(breakdown, item) for breakdown, item in diversity_pass if breakdown.selected]
+    counts = [total, len(quality_pass), len(risk_pass), len(freshness_pass), len(diversity_pass), len(selected)]
     return [
         {
             "key": key,

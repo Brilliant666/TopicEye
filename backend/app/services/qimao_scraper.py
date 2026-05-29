@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any
+from typing import Optional, Any
 
 from playwright.async_api import async_playwright, Browser, Page
 
@@ -26,7 +26,7 @@ def _get_proxy_settings():
     return None
 
 
-async def fetch_list_data(channel: str, rank_type: str) -> list[dict] | None:
+async def fetch_list_data(channel: str, rank_type: str) -> Optional[list[dict]]:
     """用 Playwright 打开页面，等待 NUXT 数据注入，返回 listData。"""
     url = f"{BASE_URL}/{channel}/{rank_type}/"
     proxy = _get_proxy_settings()
@@ -41,7 +41,7 @@ async def fetch_list_data(channel: str, rank_type: str) -> list[dict] | None:
                 await page.goto(url, wait_until="networkidle", timeout=15000)
 
                 # 从 window.__NUXT__ 中取 listData
-                list_data: list[dict] | None = await page.evaluate("""
+                list_data: Optional[list[dict]] = await page.evaluate("""
                     () => {
                         try {
                             const nuxt = window.__NUXT__;

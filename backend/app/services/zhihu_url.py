@@ -1,6 +1,8 @@
 """Zhihu URL normalization helpers."""
 from __future__ import annotations
 
+from typing import Optional
+
 from urllib.parse import urlparse
 
 
@@ -13,7 +15,7 @@ _ZHIHU_HOSTS = {
 }
 
 
-def _id_after(parts: list[str], names: set[str]) -> str | None:
+def _id_after(parts: list[str], names: set[str]) -> Optional[str]:
     for idx, part in enumerate(parts):
         if part in names and idx + 1 < len(parts):
             candidate = parts[idx + 1].strip()
@@ -22,7 +24,7 @@ def _id_after(parts: list[str], names: set[str]) -> str | None:
     return None
 
 
-def normalize_zhihu_url(url: str | None) -> str:
+def normalize_zhihu_url(url: Optional[str]) -> str:
     """Convert Zhihu API resource URLs into browser-friendly web URLs."""
     if not url:
         return ""

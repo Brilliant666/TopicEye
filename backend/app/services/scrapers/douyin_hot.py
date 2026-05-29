@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import Optional, Any
 
 import httpx
 
@@ -60,7 +60,7 @@ def _parse_hot_value(raw: Any) -> int:
 class DouyinHotScraper(BaseScraper):
     """抖音热榜 — 热点榜/种草榜/娱乐榜/社会榜/北京榜"""
 
-    def __init__(self, source_url: str, source_config: dict | None = None):
+    def __init__(self, source_url: str, source_config: Optional[dict] = None):
         super().__init__(source_url, source_config or {})
         self.fetch_limit: int = self.config.get("fetch_limit", 50)
 

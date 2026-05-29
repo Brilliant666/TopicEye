@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Union
 
 import httpx
 from sqlalchemy import delete, select
@@ -24,7 +24,7 @@ from app.services.zhihu_url import normalize_zhihu_url
 logger = logging.getLogger(__name__)
 
 
-async def sync_trending_source(source_name: str, db: AsyncSession) -> Dict[str, int | str]:
+async def sync_trending_source(source_name: str, db: AsyncSession) -> Dict[str, Union[int, str]]:
     """同步单个趋势源。返回 {"fetched": N}"""
     scraper_cls = get_trending_cls(source_name)
     if scraper_cls is None:

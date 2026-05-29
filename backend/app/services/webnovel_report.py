@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Optional, Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,12 +39,12 @@ def _movement_item(
     *,
     platform: str,
     title: str,
-    author: str | None,
-    category: str | None,
+    author: Optional[str],
+    category: Optional[str],
     rank_type: str,
     position: int,
     change: int,
-    url: str | None = None,
+    url: Optional[str] = None,
 ) -> dict:
     return {
         "platform": platform,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import TypeVar
+from typing import Optional, TypeVar
 
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
@@ -25,9 +25,9 @@ async def retry_sqlite_locked(
     *,
     attempts: int = 4,
     base_delay: float = 0.15,
-    on_retry: Callable[[], Awaitable[None]] | None = None,
+    on_retry: Optional[Callable[[], Awaitable[None]]] = None,
 ) -> T:
-    last_exc: OperationalError | None = None
+    last_exc: Optional[OperationalError] = None
     for index in range(attempts):
         try:
             return await operation()

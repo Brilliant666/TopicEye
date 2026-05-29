@@ -39,7 +39,7 @@ USER_AGENT = (
 
 # ── curl-based HTTP helper ──────────────────────────────────────────
 
-async def _curl_get(url: str, params: dict[str, Any] | None = None) -> Optional[Any]:
+async def _curl_get(url: str, params: Optional[dict[str, Any]] = None) -> Optional[Any]:
     """Run curl subprocess to fetch JSON from Zhihu, bypassing TLS fingerprinting."""
     if params:
         full_url = f"{url}?{urlencode(params)}"
@@ -131,7 +131,7 @@ class ZhihuScraper(BaseScraper):
     using curl to bypass potential TLS fingerprinting.
     """
 
-    def __init__(self, source_url: str, source_config: dict | None = None):
+    def __init__(self, source_url: str, source_config: Optional[dict] = None):
         super().__init__(source_url, source_config or {})
         # source_url is not used for Zhihu (hot list is fixed)
         self.fetch_limit = min(self.config.get("fetch_limit", 50), 50)

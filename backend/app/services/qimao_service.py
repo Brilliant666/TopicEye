@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import Literal
+from typing import Optional, Literal
 
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,7 +28,7 @@ RANK_CONFIGS = [
 def _parse_book(item: dict, channel: str, rank_type: str, position: int) -> dict:
     """将原始字段映射为 QimaoBook 字段。"""
     # 处理收藏数 "143.0万" -> int
-    collect_count: int | None = None
+    collect_count: Optional[int] = None
     number_str = str(item.get("number", ""))
     if number_str and item.get("unit") == "万":
         try:

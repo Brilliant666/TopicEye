@@ -20,7 +20,7 @@ class DailyReportRepository(BaseRepository[DailyReport]):
 
     model = DailyReport
 
-    async def get_by_date(self, report_date: str, edition: str | None = None) -> Optional[DailyReport]:
+    async def get_by_date(self, report_date: str, edition: Optional[str] = None) -> Optional[DailyReport]:
         """Fetch final report for a date, or latest snapshot if final does not exist."""
         if edition:
             stmt = (

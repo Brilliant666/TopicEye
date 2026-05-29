@@ -76,7 +76,7 @@ class TwitterRSSScraper(BaseScraper):
     Supports optional API key authentication via source_config or env var.
     """
 
-    def __init__(self, source_url: str, source_config: dict | None = None):
+    def __init__(self, source_url: str, source_config: Optional[dict] = None):
         super().__init__(source_url, source_config or {})
         self.api_key = self.config.get("api_key") or os.environ.get("XGO_API_KEY", "")
         self.fetch_limit = min(self.config.get("fetch_limit", 50), 100)

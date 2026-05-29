@@ -1,6 +1,6 @@
 """Content API endpoints — delegates all DB work to repositories."""
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Set
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -35,8 +35,8 @@ async def _score_content_page(
     *,
     filters: dict,
     ignored_ids: list[int],
-    time_cutoff: datetime | None,
-    exclude_source_types: set[str] | None,
+    time_cutoff: Optional[datetime],
+    exclude_source_types: Optional[Set[str]],
     page: int,
     page_size: int,
     score_fn,
@@ -75,7 +75,7 @@ async def _score_content_page(
     }
 
 
-def _with_scoring_breakdown(item_map: dict, breakdown, scoring_input) -> dict | None:
+def _with_scoring_breakdown(item_map: dict, breakdown, scoring_input) -> Optional[dict]:
     item = item_map.get(scoring_input.content_id)
     if not item:
         return None

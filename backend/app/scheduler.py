@@ -16,6 +16,8 @@ Job tracking:
 """
 from __future__ import annotations
 
+from typing import Optional
+
 import asyncio
 import logging
 from datetime import datetime, timedelta
@@ -36,8 +38,8 @@ logger = logging.getLogger(__name__)
 
 # Semaphore to limit concurrent DB write tasks — SQLite single-writer constraint.
 _MAX_CONCURRENT_SYNCS = 3
-_sync_semaphore: asyncio.Semaphore | None = None
-_post_sync_lock: asyncio.Lock | None = None
+_sync_semaphore: Optional[asyncio.Semaphore] = None
+_post_sync_lock: Optional[asyncio.Lock] = None
 _post_sync_rerun_requested = False
 
 

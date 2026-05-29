@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Optional, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -85,7 +85,7 @@ def build_sample_payload(
     scoring_input: ScoringInput,
     item_map: dict[int, Any],
     feedback_scores: dict[int, float],
-) -> dict[str, Any] | None:
+) -> Optional[dict[str, Any]]:
     item = item_map.get(scoring_input.content_id)
     if not item:
         return None

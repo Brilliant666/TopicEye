@@ -11,7 +11,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from html import unescape
-from typing import Any
+from typing import Optional, Any
 
 import httpx
 
@@ -31,7 +31,7 @@ class TwitterScraper(BaseScraper):
 
     config keys:
         users: list[str]          — @handles to monitor
-        search_query: str | None  — optional search instead of profiles
+        search_query: Optional[str]  — optional search instead of profiles
         fetch_limit: int          — max items per run (default 50)
         actor_id: str             — Apify actor ID (default altimis/scweet)
     """
@@ -134,7 +134,7 @@ class TwitterScraper(BaseScraper):
             return []
 
     @staticmethod
-    def _parse_item(raw: dict) -> dict[str, Any] | None:
+    def _parse_item(raw: dict) -> Optional[dict[str, Any]]:
         """Parse a single tweet from Apify/scweet output."""
         try:
             created_at_str = raw.get("created_at")

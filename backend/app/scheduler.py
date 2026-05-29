@@ -20,7 +20,7 @@ from typing import Optional
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -156,7 +156,12 @@ async def _sync_all_trending() -> None:
 
 
 async def _sync_single_source(source_id: int) -> None:
-    """Job handler: sync one source by ID, then run shared post-sync pipeline."""
+    """Job handler: sync one source by ID.
+
+    Keep this job narrow: one source fetch + one source status update. Global
+    analysis/clustering runs on its own throttled schedule so many source jobs
+    do not stampede SQLite with heavy post-sync writes.
+    """
     sem = _get_semaphore()
     async with sem:
         async with async_session() as db:
@@ -174,10 +179,9 @@ async def _sync_single_source(source_id: int) -> None:
                 logger.exception("Scheduler: failed to sync source id=%d", source_id)
                 await db.rollback()
 
-    # Shared post-sync: analyze pending + cluster + trends
-    await _run_post_sync_pipeline()
 
-
+@track_job("post_sync_pipeline", name="同步后分析聚合", timeout=600,
+           description="节流处理待分析内容、话题聚类和趋势快照，避免每个信源同步后重复触发")
 async def _run_post_sync_pipeline() -> None:
     """Run shared post-sync work, coalescing overlapping sync completions."""
     global _post_sync_rerun_requested
@@ -204,13 +208,21 @@ async def _run_post_sync_pipeline_once() -> None:
         content_repo = ContentRepo(db)
         pending = await content_repo.get_by_status(ContentStatus.PENDING, limit=BATCH_SIZE)
         pending_ids = [item.id for item in pending]
+    if not pending_ids:
+        logger.info("Scheduler: post-sync pipeline skipped — no pending content")
+        return
+
+    analyzed = False
     if pending_ids:
         try:
             async with async_session() as db:
                 await analyze_batch(pending_ids, db)
             logger.info("Scheduler: auto-analysis complete for %d items", len(pending_ids))
+            analyzed = True
         except Exception:
             logger.exception("Scheduler: auto-analysis failed")
+    if not analyzed:
+        return
     try:
         async with async_session() as db:
             from app.services.topic_clustering import cluster_and_dedup
@@ -245,14 +257,19 @@ async def _rescan_sources() -> None:
 
     for source in sources:
         job_id = f"{source_job_prefix}{source.id}"
-        interval_minutes = source.fetch_interval_minutes or 60
+        interval_minutes = _normalize_source_interval(source.fetch_interval_minutes)
+        next_run_time = _next_source_run_time(source.last_sync_at, interval_minutes)
 
         existing = scheduler.get_job(job_id)
         if existing:
-            existing_interval = existing.trigger.interval.seconds // 60
+            existing_interval = int(existing.trigger.interval.total_seconds() // 60)
             if existing_interval != interval_minutes:
                 scheduler.reschedule_job(job_id, trigger=IntervalTrigger(minutes=interval_minutes))
+                scheduler.modify_job(job_id, next_run_time=next_run_time)
                 logger.info("Scheduler: updated job %s interval to %d min", job_id, interval_minutes)
+            elif _source_job_is_overdue(existing, next_run_time):
+                scheduler.modify_job(job_id, next_run_time=next_run_time)
+                logger.info("Scheduler: advanced overdue job %s to %s", job_id, next_run_time)
         else:
             scheduler.add_job(
                 _sync_single_source,
@@ -261,10 +278,46 @@ async def _rescan_sources() -> None:
                 name=f"Sync source: {source.name}",
                 replace_existing=True,
                 kwargs={"source_id": source.id},
+                next_run_time=next_run_time,
             )
-            logger.info("Scheduler: added job %s (%s) interval=%d min", job_id, source.name, interval_minutes)
+            logger.info(
+                "Scheduler: added job %s (%s) interval=%d min next=%s",
+                job_id,
+                source.name,
+                interval_minutes,
+                next_run_time,
+            )
 
     logger.info("Scheduler: source rescan complete — %d active jobs", len(sources))
+
+
+def _normalize_source_interval(value: Optional[int]) -> int:
+    """Keep source sync interval inside the product-supported lower bound."""
+    return max(int(value or 60), 5)
+
+
+def _next_source_run_time(last_sync_at: Optional[datetime], interval_minutes: int) -> datetime:
+    """Compute the next APScheduler run time from source sync metadata."""
+    scheduler_now = datetime.now(scheduler.timezone)
+    if last_sync_at is None:
+        return scheduler_now + timedelta(seconds=10)
+
+    if last_sync_at.tzinfo is None:
+        last_sync_utc = last_sync_at.replace(tzinfo=timezone.utc)
+    else:
+        last_sync_utc = last_sync_at.astimezone(timezone.utc)
+
+    due_utc = last_sync_utc + timedelta(minutes=interval_minutes)
+    if due_utc <= datetime.now(timezone.utc):
+        return scheduler_now + timedelta(seconds=10)
+    return due_utc.astimezone(scheduler.timezone)
+
+
+def _source_job_is_overdue(job, expected_next_run_time: datetime) -> bool:
+    """Return true when a registered job is later than the source-derived due time."""
+    if job.next_run_time is None:
+        return True
+    return job.next_run_time > expected_next_run_time + timedelta(seconds=30)
 
 
 @track_job("save_trending_snapshots", name="趋势快照保存", timeout=120,
@@ -423,6 +476,16 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
+    # Shared post-sync processing is intentionally throttled and decoupled from
+    # per-source jobs to keep source fetch intervals reliable on SQLite.
+    scheduler.add_job(
+        _run_post_sync_pipeline,
+        trigger=IntervalTrigger(minutes=15),
+        id="post_sync_pipeline",
+        name="Process pending analysis after source sync",
+        replace_existing=True,
+    )
+
     # Trending snapshot: save daily snapshot at 00:30
     scheduler.add_job(
         _save_trending_snapshots,
@@ -514,7 +577,7 @@ def start_scheduler() -> None:
         logger.warning("Scheduler: could not schedule initial rescan (no event loop)")
 
     logger.info(
-        "Scheduler started: per-source sync + 10min rescan + cleanup + "
+        "Scheduler started: per-source sync + 10min rescan + 15min post-sync + cleanup + "
         "daily_report(12:00/20:00 + final 00:30) + weekly_digest(Mon 09:00)"
     )
 

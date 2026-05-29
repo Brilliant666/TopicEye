@@ -44,12 +44,15 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
 
     try:
         # ── Step 1: Resolve scraper ──────────────────────────────────
-        source_type_str = source.source_type.value if source.source_type else "RSS"
+        source_type = source.source_type
+        source_type_str = source_type.value if source_type else "RSS"
 
         # Skip ZHIHU: its hot topics are now served exclusively via trending radar
         # and should not be duplicated into the content feed.
-        if source_type_str == "ZHIHU":
+        if source_type == SourceType.ZHIHU or source_type_str.upper() == "ZHIHU":
             logger.info("Source '%s' (ZHIHU): skipped — topics served via trending radar", source.name)
+            _update_source_status(source, SourceStatus.ACTIVE)
+            await db.flush()
             return {"fetched": 0, "new": 0, "duplicates": 0}
 
         scraper_cls = get_scraper_cls(source_type_str)
@@ -59,6 +62,8 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
                 "No scraper registered for source_type '%s' (source %d)",
                 source_type_str, source.id,
             )
+            _update_source_error(source, f"No scraper registered for source_type '{source_type_str}'")
+            await db.flush()
             return {"fetched": 0, "new": 0, "duplicates": 0}
 
         # Build scraper config from source metadata (stored as JSON in DB)
@@ -165,9 +170,7 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
 
     except Exception as exc:
         logger.exception("Error ingesting source %s (%d)", source.name, source.id)
-        source.status = SourceStatus.ERROR
-        source.sync_error = str(exc)[:500]
-        source.updated_at = datetime.utcnow()
+        _update_source_error(source, str(exc))
         await db.flush()
 
     return {"fetched": fetched_count, "new": new_count, "duplicates": duplicate_count}
@@ -178,6 +181,14 @@ def _update_source_status(source: Source, status: SourceStatus) -> None:
     source.last_sync_at = datetime.utcnow()
     source.status = status
     source.sync_error = None
+    source.updated_at = datetime.utcnow()
+
+
+def _update_source_error(source: Source, message: str) -> None:
+    """Record a failed sync attempt without causing immediate retry loops."""
+    source.last_sync_at = datetime.utcnow()
+    source.status = SourceStatus.ERROR
+    source.sync_error = message[:500]
     source.updated_at = datetime.utcnow()
 
 

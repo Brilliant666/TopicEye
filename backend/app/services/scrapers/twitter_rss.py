@@ -68,6 +68,7 @@ def _clean_tweet_text(text: str) -> str:
 
 
 @register_scraper("TWITTER_RSS")
+@register_scraper("TwitterRSS")
 class TwitterRSSScraper(BaseScraper):
     """
     Fetch tweets via xgo.ing RSS feeds.

@@ -14,6 +14,9 @@ import type {
   PaginatedResponse,
   SyncResult,
   TopicInfo,
+  MonthlyDigest,
+  MonthlyDigestListResponse,
+  MonthlyDigestMonthsResponse,
   WeeklyDigest,
   WeeklyDigestListResponse,
   WeeklyDigestWeeksResponse,
@@ -577,6 +580,36 @@ export const weeklyDigestApi = {
   generate(weekKey?: string): Promise<WeeklyDigest> {
     const query = weekKey ? `?week_key=${encodeURIComponent(weekKey)}` : '';
     return request(`/weekly-digests/generate${query}`, { method: 'POST' });
+  },
+};
+
+// ─── Monthly Digest (月刊) API ───
+
+export const monthlyDigestApi = {
+  /** 获取最新完整月刊（不存在则自动生成） */
+  getCurrent(): Promise<MonthlyDigest> {
+    return request('/monthly-digests/current');
+  },
+
+  /** 按 month_key 获取月刊 */
+  getByMonth(monthKey: string): Promise<MonthlyDigest> {
+    return request(`/monthly-digests/by-month?month_key=${encodeURIComponent(monthKey)}`);
+  },
+
+  /** 获取所有有月刊的月份列表 */
+  listMonths(): Promise<MonthlyDigestMonthsResponse> {
+    return request('/monthly-digests/months');
+  },
+
+  /** 获取月刊列表 */
+  list(limit: number = 12): Promise<MonthlyDigestListResponse> {
+    return request(`/monthly-digests?limit=${limit}`);
+  },
+
+  /** 强制重新生成月刊 */
+  generate(monthKey?: string): Promise<MonthlyDigest> {
+    const query = monthKey ? `?month_key=${encodeURIComponent(monthKey)}` : '';
+    return request(`/monthly-digests/generate${query}`, { method: 'POST' });
   },
 };
 

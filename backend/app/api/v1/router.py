@@ -11,6 +11,7 @@ from app.api.v1.categories import router as categories_router
 from app.api.v1.stats import router as stats_router
 from app.api.v1.feedback import router as feedback_router
 from app.api.v1.weekly_digests import router as weekly_digests_router
+from app.api.v1.monthly_digests import router as monthly_digests_router
 from app.api.v1.trending import router as trending_router
 from app.api.v1.mother_topics import router as mother_topics_router
 from app.api.v1.fanqie import router as fanqie_router
@@ -33,6 +34,7 @@ router.include_router(categories_router)
 router.include_router(stats_router)
 router.include_router(feedback_router)
 router.include_router(weekly_digests_router)
+router.include_router(monthly_digests_router)
 router.include_router(trending_router)
 router.include_router(mother_topics_router)
 router.include_router(fanqie_router)

@@ -15,6 +15,7 @@ import app.models.daily_report  # noqa: F401
 import app.models.category  # noqa: F401
 import app.models.feedback  # noqa: F401
 import app.models.weekly_digest  # noqa: F401
+import app.models.monthly_digest  # noqa: F401
 import app.models.trending  # noqa: F401
 import app.models.mother_topic  # noqa: F401
 import app.models.fanqie  # noqa: F401

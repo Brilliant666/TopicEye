@@ -8,15 +8,18 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models.weekly_digest import WeeklyDigest
-from app.models.content import ContentItem
-from app.models.analysis import AiAnalysis
 from app.services.llm import call_llm_json
 from app.services.llm.prompts.weekly_digest import WEEKLY_DIGEST_PROMPT
+from app.services.digest_context import (
+    build_category_stats,
+    build_category_text,
+    build_items_text,
+    fetch_analyzed_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -49,67 +52,12 @@ async def _fetch_weekly_analyzed(db: AsyncSession, week_start: str, week_end: st
     Tries DuckDB analytical layer first for better performance.
     Falls back to SQLite if DuckDB is not available.
     """
-    # ── Try DuckDB fast path ──
-    try:
-        from app.services.duckdb_service import query_content_for_weekly
-        data = query_content_for_weekly(start_date=week_start, end_date=week_end)
-        if data:
-            return data
-    except Exception:
-        pass  # Fall through to SQLite
-
-    # ── SQLite fallback ──
-    start_dt = datetime.combine(date.fromisoformat(week_start), datetime.min.time())
-    end_dt = datetime.combine(date.fromisoformat(week_end), datetime.max.time())
-
-    query = (
-        select(ContentItem)
-        .options(selectinload(ContentItem.analyses))
-        .join(ContentItem.analyses)
-        .where(ContentItem.crawled_at >= start_dt)
-        .where(ContentItem.crawled_at <= end_dt)
-        .where(ContentItem.analyses.any())
-    )
-    result = await db.execute(query)
-    items = result.scalars().unique().all()
-
-    data = []
-    for item in items:
-        if not item.analyses:
-            continue
-        a = item.analyses[-1]
-        data.append({
-            "id": item.id,
-            "title": item.title,
-            "category": item.category or "未分类",
-            "source_name": item.source_name or "",
-            "platform": item.platform or "",
-            "creator_score": a.creator_score or 0,
-            "viral_score": a.viral_score or 0,
-            "quality_score": a.quality_score or 0,
-            "risk_score": a.risk_score or 0,
-            "curation_score": a.curation_score or 0,
-            "summary": a.summary or "",
-            "tags": a.tags or [],
-            "recommendation": a.recommendation or "",
-        })
-
-    # Sort by curation_score descending, then creator_score
-    data.sort(key=lambda x: (x["curation_score"], x["creator_score"]), reverse=True)
-    return data
+    return await fetch_analyzed_content(db, week_start, week_end)
 
 
 def _build_category_stats(items: list[dict]) -> dict:
     """Build category-level statistics from items."""
-    cats: dict[str, dict] = {}
-    for item in items:
-        cat = item["category"]
-        if cat not in cats:
-            cats[cat] = {"count": 0, "scores": [], "titles": []}
-        cats[cat]["count"] += 1
-        cats[cat]["scores"].append(item["creator_score"])
-        cats[cat]["titles"].append(item["title"])
-    return cats
+    return build_category_stats(items)
 
 
 async def generate_weekly_digest(
@@ -172,25 +120,11 @@ async def generate_weekly_digest(
         return digest
 
     # Build items text for prompt (top 25)
-    items_text = ""
-    for i, item in enumerate(items_data[:25], 1):
-        items_text += f"\n{i}. [{item['category']}] {item['title']}"
-        items_text += (
-            f"\n   来源: {item['source_name']} | "
-            f"精选:{item['curation_score']:.0f} 创作:{item['creator_score']:.0f} "
-            f"爆文:{item['viral_score']:.0f} 质量:{item['quality_score']:.0f} 风险:{item['risk_score']:.0f}"
-        )
-        if item.get("summary"):
-            items_text += f"\n   摘要: {item['summary'][:120]}"
-        if item.get("recommendation"):
-            items_text += f"\n   推荐语: {item['recommendation'][:80]}"
+    items_text = build_items_text(items_data, limit=25)
 
     # Build category stats text
     cat_stats = _build_category_stats(items_data)
-    category_text = ""
-    for cat, info in sorted(cat_stats.items(), key=lambda x: x[1]["count"], reverse=True):
-        avg = sum(info["scores"]) / len(info["scores"]) if info["scores"] else 0
-        category_text += f"\n- {cat}: {info['count']}篇, 平均创作分 {avg:.0f}, 热门: {info['titles'][0][:40]}"
+    category_text = build_category_text(cat_stats)
 
     prompt = WEEKLY_DIGEST_PROMPT.format(
         week_label=week_label,

@@ -331,3 +331,45 @@ export interface WeeklyDigestListResponse {
 export interface WeeklyDigestWeeksResponse {
   weeks: WeeklyDigestWeekSummary[];
 }
+
+// ─── Monthly Digest (月刊) ───
+
+export interface MonthlyDigest {
+  id: number;
+  month_key: string;
+  month_label: string;
+  month_start: string;
+  month_end: string;
+  overview: string | null;
+  takeaway: string | null;
+  keywords: string[] | null;
+  trends: WeeklyDigestTrend[] | null;
+  top_picks: WeeklyDigestTopPick[] | null;
+  category_summary: Record<string, { count: number; avg_score: number; top_title: string }> | null;
+  platform_tips: Record<string, string[]> | null;
+  topic_clusters: WeeklyDigestTopicCluster[] | null;
+  action_items: WeeklyDigestActionItem[] | null;
+  content_count: number;
+  analyzed_count: number;
+  source_count: number;
+  category_count: number;
+  status: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface MonthlyDigestMonthSummary {
+  month_key: string;
+  month_label: string;
+  takeaway: string | null;
+  status: string;
+}
+
+export interface MonthlyDigestListResponse {
+  items: MonthlyDigest[];
+  total: number;
+}
+
+export interface MonthlyDigestMonthsResponse {
+  months: MonthlyDigestMonthSummary[];
+}

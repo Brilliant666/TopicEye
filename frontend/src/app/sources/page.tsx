@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Activity, List, Network, Plus, Upload } from 'lucide-react';
+import { Activity, FileSearch, List, Network, Plus, Upload } from 'lucide-react';
 import { sourcesApi, settingsApi } from '@/lib/api';
-import type { RSSHubInstance, CreateSourceRequest, UpdateSourceRequest } from '@/lib/api';
+import type { RSSHubInstance, CreateSourceRequest, DailyBriefImportItem, UpdateSourceRequest } from '@/lib/api';
 import { timeAgo } from '@/lib/utils';
 import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
 import SourceForm, { FormState, emptyForm } from '@/components/SourceForm';
@@ -240,7 +240,14 @@ export default function SourcesPage() {
   const [rsshubError, setRsshubError] = useState<string | null>(null);
   const [newInstanceUrl, setNewInstanceUrl] = useState('');
   const opmlInputRef = useRef<HTMLInputElement>(null);
+  const dailyBriefInputRef = useRef<HTMLInputElement>(null);
   const [, setImportingOPML] = useState(false);
+  const [showDailyBriefImport, setShowDailyBriefImport] = useState(false);
+  const [dailyBriefContent, setDailyBriefContent] = useState('');
+  const [dailyBriefCategory, setDailyBriefCategory] = useState('DailyBrief');
+  const [dailyBriefPreview, setDailyBriefPreview] = useState<DailyBriefImportItem[]>([]);
+  const [dailyBriefPreviewing, setDailyBriefPreviewing] = useState(false);
+  const [dailyBriefImporting, setDailyBriefImporting] = useState(false);
 
   // ─── Fetch sources ───
   const fetchSources = useCallback(async (p: number = 1) => {
@@ -417,6 +424,59 @@ export default function SourcesPage() {
     } finally {
       setImportingOPML(false);
       if (opmlInputRef.current) opmlInputRef.current.value = '';
+    }
+  };
+
+  const handleDailyBriefFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setDailyBriefContent(await file.text());
+    setDailyBriefPreview([]);
+    if (dailyBriefInputRef.current) dailyBriefInputRef.current.value = '';
+  };
+
+  const handleDailyBriefPreview = async () => {
+    if (!dailyBriefContent.trim()) {
+      setError('请先粘贴 DailyBrief 配置或上传文件');
+      return;
+    }
+    setDailyBriefPreviewing(true);
+    setError(null);
+    try {
+      const result = await sourcesApi.previewDailyBrief({
+        content: dailyBriefContent,
+        category: dailyBriefCategory || 'DailyBrief',
+      });
+      setDailyBriefPreview(result.items || []);
+      if ((result.items || []).length === 0) {
+        setError('没有识别到可导入的 URL 或 RSS 配置');
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'DailyBrief 预览失败');
+    } finally {
+      setDailyBriefPreviewing(false);
+    }
+  };
+
+  const handleDailyBriefImport = async () => {
+    if (!dailyBriefContent.trim()) return;
+    setDailyBriefImporting(true);
+    setError(null);
+    try {
+      const result = await sourcesApi.importDailyBrief({
+        content: dailyBriefContent,
+        category: dailyBriefCategory || 'DailyBrief',
+      });
+      setRsshubError(result.message);
+      setShowDailyBriefImport(false);
+      setDailyBriefContent('');
+      setDailyBriefPreview([]);
+      await fetchSources();
+      await fetchSourceMap();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'DailyBrief 导入失败');
+    } finally {
+      setDailyBriefImporting(false);
     }
   };
 
@@ -637,8 +697,18 @@ export default function SourcesPage() {
             <Upload size={15} strokeWidth={2} />
             导入 OPML
           </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setShowDailyBriefImport(true)}
+            className="whitespace-nowrap"
+          >
+            <FileSearch size={15} strokeWidth={2} />
+            导入 DailyBrief
+          </Button>
         </Toolbar>
         <input ref={opmlInputRef} type="file" accept=".opml,.xml" className="hidden" onChange={handleOPMLImport} />
+        <input ref={dailyBriefInputRef} type="file" accept=".json,.md,.txt,.opml,.xml" className="hidden" onChange={handleDailyBriefFile} />
       </div>
 
       {/* Search & Filter Bar */}
@@ -904,6 +974,113 @@ export default function SourcesPage() {
               <Button type="button" variant="primary" onClick={handleCreate} disabled={submitting || !form.name.trim()} className="px-5">
                 {submitting ? '提交中…' : '添加'}
               </Button>
+            </div>
+          </Panel>
+        </div>
+      )}
+
+      {/* DailyBrief Import Modal */}
+      {showDailyBriefImport && (
+        <div
+          className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/30 px-4"
+          onClick={() => setShowDailyBriefImport(false)}
+        >
+          <Panel onClick={(event) => event.stopPropagation()} className="flex max-h-[86vh] w-full max-w-[860px] flex-col overflow-hidden p-0 shadow-2xl">
+            <div className="border-b border-gray-100 px-6 py-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="mb-1 text-xl font-black text-gray-900">导入 DailyBrief 信源</h2>
+                  <p className="text-xs leading-5 text-gray-500">
+                    支持粘贴 DailyBrief 配置、JSON 数组、Markdown 链接清单或 OPML 内容；先预览重复项，再确认写入。
+                  </p>
+                </div>
+                <Button type="button" variant="ghost" onClick={() => setShowDailyBriefImport(false)} className="min-h-8 px-2">
+                  ×
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-0 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="border-r border-gray-100 p-5">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <input
+                    value={dailyBriefCategory}
+                    onChange={(event) => setDailyBriefCategory(event.target.value)}
+                    placeholder="导入分类"
+                    className="h-9 w-44 rounded-sm border border-gray-200 px-3 text-[13px] outline-none transition focus:border-primary-border focus:ring-2 focus:ring-primary-light"
+                  />
+                  <Button type="button" variant="secondary" onClick={() => dailyBriefInputRef.current?.click()}>
+                    <Upload size={15} />
+                    选择文件
+                  </Button>
+                  <Button type="button" variant="primary" onClick={handleDailyBriefPreview} disabled={dailyBriefPreviewing || !dailyBriefContent.trim()}>
+                    {dailyBriefPreviewing ? '预览中…' : '解析预览'}
+                  </Button>
+                </div>
+                <textarea
+                  value={dailyBriefContent}
+                  onChange={(event) => {
+                    setDailyBriefContent(event.target.value);
+                    setDailyBriefPreview([]);
+                  }}
+                  placeholder={'粘贴 DailyBrief sources 配置，或类似：\n- [OpenAI Blog](https://openai.com/blog/rss.xml)\n- https://example.com/feed.xml'}
+                  className="h-[420px] w-full resize-none rounded-sm border border-gray-200 bg-gray-50 p-3 font-mono text-xs leading-6 text-gray-700 outline-none transition focus:border-primary-border focus:bg-white focus:ring-2 focus:ring-primary-light"
+                />
+              </div>
+
+              <div className="flex min-h-0 flex-col p-5">
+                <div className="mb-3 grid grid-cols-3 gap-2">
+                  <div className="rounded-sm border border-gray-100 bg-gray-50 p-2.5">
+                    <div className="text-[10px] text-gray-400">识别</div>
+                    <div className="font-mono text-xl font-black text-gray-900">{dailyBriefPreview.length}</div>
+                  </div>
+                  <div className="rounded-sm border border-gray-100 bg-gray-50 p-2.5">
+                    <div className="text-[10px] text-gray-400">可导入</div>
+                    <div className="font-mono text-xl font-black text-teal">{dailyBriefPreview.filter((item) => !item.duplicate).length}</div>
+                  </div>
+                  <div className="rounded-sm border border-gray-100 bg-gray-50 p-2.5">
+                    <div className="text-[10px] text-gray-400">重复</div>
+                    <div className="font-mono text-xl font-black text-amber">{dailyBriefPreview.filter((item) => item.duplicate).length}</div>
+                  </div>
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-y-auto rounded-sm border border-gray-100">
+                  {dailyBriefPreview.length === 0 ? (
+                    <div className="p-6 text-center text-xs leading-6 text-gray-400">
+                      解析后会在这里显示信源名称、类型和重复状态。
+                    </div>
+                  ) : dailyBriefPreview.map((item) => (
+                    <div key={item.url} className="border-b border-gray-100 p-3 last:border-b-0">
+                      <div className="mb-1 flex items-start justify-between gap-2">
+                        <div className="min-w-0 truncate text-[13px] font-black text-gray-800">{item.name}</div>
+                        <Badge tone={item.duplicate ? 'amber' : 'teal'} className="shrink-0 py-0.5">
+                          {item.duplicate ? '重复' : '新增'}
+                        </Badge>
+                      </div>
+                      <div className="break-all font-mono text-[11px] leading-5 text-gray-400">{item.url}</div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{sourceTypeLabel(item.source_type)}</span>
+                        <span className="rounded bg-primary-light px-1.5 py-0.5 text-[10px] text-primary">{item.category}</span>
+                        {item.platform && <span className="rounded bg-teal-light px-1.5 py-0.5 text-[10px] text-teal">{item.platform}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex justify-end gap-2">
+                  <Button type="button" variant="secondary" onClick={() => setShowDailyBriefImport(false)} disabled={dailyBriefImporting}>
+                    取消
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    onClick={handleDailyBriefImport}
+                    disabled={dailyBriefImporting || dailyBriefPreview.filter((item) => !item.duplicate).length === 0}
+                  >
+                    {dailyBriefImporting ? '导入中…' : '确认导入'}
+                  </Button>
+                </div>
+              </div>
             </div>
           </Panel>
         </div>

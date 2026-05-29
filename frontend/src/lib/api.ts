@@ -140,7 +140,37 @@ export const sourcesApi = {
       body: formData,
     }).then(r => r.json());
   },
+
+  /** 预览 DailyBrief/链接清单信源 */
+  previewDailyBrief(data: { content: string; category?: string; enabled?: boolean; weight?: number }): Promise<{
+    items: DailyBriefImportItem[];
+    total: number;
+    duplicates: number;
+    importable: number;
+  }> {
+    return request('/sources/preview-dailybrief', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** 导入 DailyBrief/链接清单信源 */
+  importDailyBrief(data: { content: string; category?: string; enabled?: boolean; weight?: number }): Promise<{ created: number; skipped: number; total: number; message: string }> {
+    return request('/sources/import-dailybrief', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
 };
+
+export interface DailyBriefImportItem {
+  name: string;
+  url: string;
+  source_type: string;
+  category: string;
+  platform: string | null;
+  duplicate: boolean;
+}
 
 // ─── Contents API ───
 

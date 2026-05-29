@@ -1,10 +1,11 @@
 from __future__ import annotations
-from typing import Optional
+from typing import Any, Optional
 import json
 import re
 import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +20,189 @@ from app.repositories.source_repo import SourceRepository
 from app.services.content_pipeline import ingest_from_source
 
 router = APIRouter(prefix="/sources", tags=["sources"])
+
+
+class DailyBriefImportRequest(BaseModel):
+    content: str = Field(..., min_length=1)
+    category: str = "DailyBrief"
+    enabled: bool = True
+    weight: int = Field(default=3, ge=1, le=5)
+
+
+class DailyBriefImportItem(BaseModel):
+    name: str
+    url: str
+    source_type: str
+    category: str
+    platform: Optional[str] = None
+    duplicate: bool = False
+
+
+def _guess_source_type(url: str) -> SourceType:
+    lower = url.lower()
+    if "xgo.ing" in lower or "twitter.com" in lower or "x.com/" in lower:
+        return SourceType.TWITTER_RSS if "xgo.ing" in lower else SourceType.X
+    if "rsshub" in lower:
+        return SourceType.RSSHub
+    if "reddit.com" in lower:
+        return SourceType.REDDIT
+    if "youtube.com" in lower or "youtu.be" in lower:
+        return SourceType.YOUTUBE
+    if "zhihu.com" in lower:
+        return SourceType.ZHIHU
+    if "/feed" in lower or lower.endswith((".xml", ".rss", ".atom")) or "rss" in lower:
+        return SourceType.RSS
+    return SourceType.WEBSITE
+
+
+def _guess_platform(url: str) -> Optional[str]:
+    lower = url.lower()
+    if "github.com" in lower:
+        return "GitHub"
+    if "x.com" in lower or "twitter.com" in lower or "xgo.ing" in lower:
+        return "X"
+    if "reddit.com" in lower:
+        return "Reddit"
+    if "youtube.com" in lower or "youtu.be" in lower:
+        return "YouTube"
+    if "zhihu.com" in lower:
+        return "知乎"
+    if "rsshub" in lower:
+        return "RSSHub"
+    return None
+
+
+def _as_source_item(raw: Any, default_category: str) -> Optional[dict]:
+    if not isinstance(raw, dict):
+        return None
+    url = (
+        raw.get("url")
+        or raw.get("feed")
+        or raw.get("rss")
+        or raw.get("rss_url")
+        or raw.get("feedUrl")
+        or raw.get("feed_url")
+        or raw.get("xmlUrl")
+        or raw.get("href")
+    )
+    if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+        return None
+    name = (
+        raw.get("name")
+        or raw.get("title")
+        or raw.get("label")
+        or raw.get("site")
+        or raw.get("source")
+        or url
+    )
+    category = raw.get("category") or raw.get("group") or raw.get("type") or default_category
+    source_type = raw.get("source_type") or raw.get("sourceType")
+    try:
+        parsed_type = SourceType(source_type) if source_type else _guess_source_type(url)
+    except ValueError:
+        parsed_type = _guess_source_type(url)
+    return {
+        "name": str(name).strip()[:255] or url,
+        "url": url.strip(),
+        "source_type": parsed_type,
+        "category": str(category).strip()[:100] or default_category,
+        "platform": raw.get("platform") or _guess_platform(url),
+    }
+
+
+def _walk_json_sources(value: Any, default_category: str) -> list[dict]:
+    found: list[dict] = []
+    item = _as_source_item(value, default_category)
+    if item:
+        found.append(item)
+    if isinstance(value, dict):
+        for child in value.values():
+            found.extend(_walk_json_sources(child, default_category))
+    elif isinstance(value, list):
+        for child in value:
+            found.extend(_walk_json_sources(child, default_category))
+    return found
+
+
+def _parse_dailybrief_sources(content: str, default_category: str) -> list[dict]:
+    text = content.strip()
+    sources: list[dict] = []
+
+    if text.startswith("<"):
+        try:
+            root = ET.fromstring(text.encode())
+            for outline in root.findall(".//outline[@xmlUrl]"):
+                url = outline.get("xmlUrl", "").strip()
+                if not url:
+                    continue
+                sources.append({
+                    "name": (outline.get("title") or outline.get("text") or url).strip()[:255],
+                    "url": url,
+                    "source_type": _guess_source_type(url),
+                    "category": outline.get("category") or default_category,
+                    "platform": _guess_platform(url),
+                })
+        except ET.ParseError:
+            pass
+
+    try:
+        parsed = json.loads(text)
+        sources.extend(_walk_json_sources(parsed, default_category))
+    except json.JSONDecodeError:
+        pass
+
+    markdown_link_re = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+    for name, url in markdown_link_re.findall(text):
+        sources.append({
+            "name": name.strip()[:255],
+            "url": url.strip(),
+            "source_type": _guess_source_type(url),
+            "category": default_category,
+            "platform": _guess_platform(url),
+        })
+
+    line_url_re = re.compile(r"(?P<url>https?://[^\s)\]\"']+)")
+    for line in text.splitlines():
+        clean_line = line.strip(" -\t")
+        match = line_url_re.search(clean_line)
+        if not match:
+            continue
+        url = match.group("url").rstrip(".,;")
+        name = clean_line.replace(url, "").strip(" :-—|") or url
+        sources.append({
+            "name": name[:255],
+            "url": url,
+            "source_type": _guess_source_type(url),
+            "category": default_category,
+            "platform": _guess_platform(url),
+        })
+
+    deduped: dict[str, dict] = {}
+    for item in sources:
+        url = item["url"].strip()
+        if url and url not in deduped:
+            deduped[url] = item
+    return list(deduped.values())
+
+
+async def _preview_dailybrief_items(db: AsyncSession, content: str, category: str) -> list[DailyBriefImportItem]:
+    parsed = _parse_dailybrief_sources(content, category)
+    if not parsed:
+        return []
+    urls = [item["url"] for item in parsed]
+    existing_result = await db.execute(select(Source.url).where(Source.url.in_(urls)))
+    existing_urls = set(existing_result.scalars().all())
+    return [
+        DailyBriefImportItem(
+            name=item["name"],
+            url=item["url"],
+            source_type=item["source_type"].value,
+            category=item["category"],
+            platform=item.get("platform"),
+            duplicate=item["url"] in existing_urls,
+        )
+        for item in parsed
+    ]
 
 
 @router.post("", response_model=SourceResponse, status_code=201)
@@ -133,6 +317,63 @@ async def import_opml(
     return {
         "created": created, "skipped": skipped, "total": len(outlines),
         "message": f"成功导入 {created} 个源，跳过 {skipped} 个重复。",
+    }
+
+
+@router.post("/preview-dailybrief")
+async def preview_dailybrief_sources(
+    data: DailyBriefImportRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Preview DailyBrief-style source config before importing."""
+    items = await _preview_dailybrief_items(db, data.content, data.category)
+    return {
+        "items": items,
+        "total": len(items),
+        "duplicates": sum(1 for item in items if item.duplicate),
+        "importable": sum(1 for item in items if not item.duplicate),
+    }
+
+
+@router.post("/import-dailybrief")
+async def import_dailybrief_sources(
+    data: DailyBriefImportRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Import sources from DailyBrief-style JSON/Markdown/OPML text."""
+    items = await _preview_dailybrief_items(db, data.content, data.category)
+    repo = SourceRepository(db)
+    max_order = await db.scalar(select(func.max(Source.sort_order)))
+    next_order = (max_order or 0) + 10
+    created = skipped = 0
+
+    for item in items:
+        if item.duplicate:
+            skipped += 1
+            continue
+        try:
+            source_type = SourceType(item.source_type)
+        except ValueError:
+            source_type = SourceType.RSS
+        await repo.create(
+            name=item.name,
+            url=item.url,
+            source_type=source_type,
+            category=item.category,
+            platform=item.platform,
+            weight=data.weight,
+            sort_order=next_order,
+            enabled=data.enabled,
+            status=SourceStatus.ACTIVE if data.enabled else SourceStatus.DISABLED,
+        )
+        next_order += 10
+        created += 1
+
+    return {
+        "created": created,
+        "skipped": skipped,
+        "total": len(items),
+        "message": f"成功导入 {created} 个 DailyBrief 信源，跳过 {skipped} 个重复。",
     }
 
 

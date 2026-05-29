@@ -22,6 +22,9 @@ class RSSScraper(BaseScraper):
 
     async def fetch(self, client: httpx.AsyncClient) -> list[dict[str, Any]]:
         resp = await client.get(self.url)
+        if resp.status_code == 304:
+            logger.info("RSS feed not modified: %s", self.url)
+            return []
         resp.raise_for_status()
 
         feed = feedparser.parse(resp.text)

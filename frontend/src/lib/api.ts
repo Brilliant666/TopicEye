@@ -914,6 +914,59 @@ export const fanqieApi = {
   },
 };
 
+export interface WebnovelMovementItem {
+  platform: 'fanqie' | 'qimao' | 'zhihu';
+  platform_label: string;
+  title: string;
+  author: string;
+  category: string;
+  rank_type: string;
+  position: number;
+  change: number;
+  url: string | null;
+}
+
+export interface WebnovelCategoryItem {
+  category: string;
+  count: number;
+}
+
+export interface WebnovelWeeklyReport {
+  period: {
+    start: string;
+    end: string;
+    days: number;
+    label: string;
+  };
+  generated_at: string;
+  summary: {
+    total_items: number;
+    snapshot_days: number;
+    rising_count: number;
+    falling_count: number;
+    read_count_delta: number;
+  };
+  platforms: Array<{
+    platform: 'fanqie' | 'qimao' | 'zhihu';
+    label: string;
+    item_count: number;
+    rising_count: number;
+    falling_count: number;
+    history_days: number;
+  }>;
+  daily_counts: Array<{ date: string; count: number }>;
+  top_risers: WebnovelMovementItem[];
+  top_fallers: WebnovelMovementItem[];
+  category_mix: Record<string, WebnovelCategoryItem[]>;
+  notes: string[];
+}
+
+export const webnovelReportsApi = {
+  weekly(days = 7): Promise<WebnovelWeeklyReport> {
+    return request(`/webnovel/reports/weekly?days=${days}`);
+  },
+};
+
 // ─── 知乎盐选 API ──────────────────────────────────...
 
 // ─── 七猫小说 API ────────────────────────────────────────────────────────────

@@ -17,6 +17,7 @@ from app.api.v1.mother_topics import router as mother_topics_router
 from app.api.v1.fanqie import router as fanqie_router
 from app.api.v1.qimao import router as qimao_router
 from app.api.v1.zhihu import router as zhihu_router
+from app.api.v1.webnovel_reports import router as webnovel_reports_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.scheduler import router as scheduler_router
 from app.api.v1.llm_models import router as llm_models_router
@@ -40,6 +41,7 @@ router.include_router(mother_topics_router)
 router.include_router(fanqie_router)
 router.include_router(qimao_router)
 router.include_router(zhihu_router)
+router.include_router(webnovel_reports_router)
 router.include_router(notifications_router)
 router.include_router(scheduler_router)
 router.include_router(llm_models_router)

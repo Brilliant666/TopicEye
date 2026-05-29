@@ -11,6 +11,7 @@ import {
   Filter,
   Flame,
   Library,
+  LineChart,
   RefreshCw,
   Search,
   Sparkles,
@@ -21,15 +22,19 @@ import { Button, Panel, Toolbar, cx } from '@/components/ui';
 import {
   fanqieApi,
   qimaoApi,
+  webnovelReportsApi,
   zhihuApi,
   type FanqieCategory,
   type FanqieBook,
   type QimaoBook,
+  type WebnovelMovementItem,
+  type WebnovelWeeklyReport,
   type ZhihuAlbum,
 } from '@/lib/api';
 
 type Platform = 'fanqie' | 'qimao' | 'zhihu';
 type BookItem = FanqieBook | QimaoBook | ZhihuAlbum;
+type ViewMode = 'rankings' | 'weekly';
 
 const PLATFORM_META: Record<Platform, { label: string; subtitle: string; color: string; bg: string }> = {
   fanqie: { label: '番茄小说', subtitle: '免费网文热榜', color: '#DC2626', bg: '#FEF2F2' },
@@ -154,6 +159,170 @@ function EmptyState({
       <BookOpen size={28} strokeWidth={1.8} className="mx-auto" />
       <div className="mt-2.5 text-sm font-bold text-gray-500">{title}</div>
       <div className="mt-1 text-xs">{desc}</div>
+    </div>
+  );
+}
+
+function formatDate(value: string): string {
+  const [, month, day] = value.split('-');
+  return `${Number(month)}.${Number(day)}`;
+}
+
+function MovementBadge({ change }: { change: number }) {
+  const rising = change > 0;
+  return (
+    <span className={cx('inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 font-mono text-[11px] font-black', rising ? 'bg-teal-light text-teal' : 'bg-red-light text-red')}>
+      {rising ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+      {Math.abs(change)}
+    </span>
+  );
+}
+
+function MovementList({ title, items, tone }: { title: string; items: WebnovelMovementItem[]; tone: 'up' | 'down' }) {
+  return (
+    <Panel className="p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-[13px] font-black text-gray-800">
+          {tone === 'up' ? <ArrowUp size={16} className="text-teal" /> : <ArrowDown size={16} className="text-red" />}
+          {title}
+        </div>
+        <span className="rounded-full bg-gray-100 px-2 py-0.5 font-mono text-[11px] text-gray-500">{items.length}</span>
+      </div>
+      <div className="flex flex-col gap-2">
+        {items.length === 0 ? (
+          <div className="rounded-sm border border-gray-100 bg-gray-50 p-4 text-center text-xs text-gray-400">暂无明显变化</div>
+        ) : items.map((item, index) => (
+          <a
+            key={`${item.platform}-${item.title}-${item.rank_type}-${index}`}
+            href={item.url || undefined}
+            target="_blank"
+            rel="noreferrer"
+            className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-2 rounded-sm border border-gray-100 bg-gray-50 p-3 text-left transition hover:border-primary-border hover:bg-white"
+          >
+            <div className="grid h-6 w-6 place-items-center rounded-xs bg-white font-mono text-[11px] font-black text-gray-500">{index + 1}</div>
+            <div className="min-w-0">
+              <div className="truncate text-[13px] font-black text-gray-900">{item.title}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-gray-400">
+                <span>{item.platform_label}</span>
+                <span>{item.category}</span>
+                <span>#{item.position}</span>
+              </div>
+            </div>
+            <MovementBadge change={item.change} />
+          </a>
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function WebnovelWeeklyPanel({ report, loading, onRefresh }: { report: WebnovelWeeklyReport | null; loading: boolean; onRefresh: () => void }) {
+  const maxDaily = Math.max(...(report?.daily_counts.map((item) => item.count) || [1]), 1);
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto p-[18px]">
+      {loading ? (
+        <LoadingState label="正在生成网文周报" />
+      ) : !report ? (
+        <EmptyState title="暂无网文周报" desc="同步网文榜单后再刷新周报。" />
+      ) : (
+        <div className="mx-auto flex max-w-6xl flex-col gap-4">
+          <Panel className="overflow-hidden p-0">
+            <div className="border-b border-gray-100 bg-white px-5 py-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <div className="mb-2 flex items-center gap-2 text-xs font-black text-primary">
+                    <LineChart size={16} />
+                    WEBNOVEL WEEKLY
+                  </div>
+                  <h2 className="m-0 text-[24px] font-black text-gray-900">网文周报</h2>
+                  <p className="mt-1 text-xs text-gray-500">{report.period.label} · {report.summary.snapshot_days} 天番茄历史快照</p>
+                </div>
+                <Button type="button" variant="secondary" onClick={onRefresh}>
+                  <RefreshCw size={15} />
+                  刷新周报
+                </Button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-0 border-b border-gray-100 md:grid-cols-4">
+              <SummaryMetric label="榜单样本" value={report.summary.total_items} />
+              <SummaryMetric label="上升作品" value={report.summary.rising_count} tone="teal" />
+              <SummaryMetric label="下跌作品" value={report.summary.falling_count} tone="red" />
+              <SummaryMetric label="阅读增量" value={formatCount(report.summary.read_count_delta)} />
+            </div>
+            <div className="grid grid-cols-1 gap-3 p-4 lg:grid-cols-3">
+              {report.platforms.map((platform) => (
+                <div key={platform.platform} className="rounded-sm border border-gray-100 bg-gray-50 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="text-sm font-black text-gray-900">{platform.label}</div>
+                    <span className="rounded-full bg-white px-2 py-0.5 font-mono text-[11px] text-gray-500">{platform.history_days}d</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <MiniMetric label="样本" value={platform.item_count} />
+                    <MiniMetric label="上升" value={platform.rising_count} tone="teal" />
+                    <MiniMetric label="下跌" value={platform.falling_count} tone="red" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Panel>
+
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+              <MovementList title="上升最快" items={report.top_risers} tone="up" />
+              <MovementList title="下跌明显" items={report.top_fallers} tone="down" />
+            </div>
+
+            <div className="flex flex-col gap-4">
+              <Panel className="p-4">
+                <div className="mb-3 flex items-center gap-2 text-[13px] font-black text-gray-800">
+                  <LineChart size={16} className="text-primary" />
+                  番茄快照覆盖
+                </div>
+                <div className="flex items-end gap-1.5">
+                  {report.daily_counts.length === 0 ? (
+                    <div className="rounded-sm border border-gray-100 bg-gray-50 p-4 text-center text-xs text-gray-400">暂无历史快照</div>
+                  ) : report.daily_counts.map((item) => (
+                    <div key={item.date} className="flex flex-1 flex-col items-center gap-1.5">
+                      <div className="w-full rounded-t-xs bg-primary" style={{ height: `${Math.max(12, (item.count / maxDaily) * 86)}px` }} />
+                      <span className="text-[10px] text-gray-400">{formatDate(item.date)}</span>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+
+              <Panel className="p-4">
+                <div className="mb-3 flex items-center gap-2 text-[13px] font-black text-gray-800">
+                  <Sparkles size={16} className="text-amber" />
+                  分类热度
+                </div>
+                <div className="flex flex-col gap-3">
+                  {Object.entries(report.category_mix).map(([platform, items]) => (
+                    <div key={platform}>
+                      <div className="mb-1.5 text-[11px] font-black text-gray-400">{PLATFORM_META[platform as Platform]?.label || platform}</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {items.slice(0, 6).map((item) => (
+                          <span key={`${platform}-${item.category}`} className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-[11px] font-bold text-gray-600">
+                            {item.category} · {item.count}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+
+              <Panel className="p-4">
+                <div className="mb-2 text-[13px] font-black text-gray-800">数据说明</div>
+                <div className="space-y-2 text-xs leading-6 text-gray-500">
+                  {report.notes.map((note, index) => (
+                    <p key={index} className="m-0">{note}</p>
+                  ))}
+                </div>
+              </Panel>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -295,9 +464,12 @@ function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platf
 }
 
 export default function FanqiePage() {
+  const [viewMode, setViewMode] = useState<ViewMode>('rankings');
   const [platform, setPlatform] = useState<Platform>('fanqie');
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [weeklyReport, setWeeklyReport] = useState<WebnovelWeeklyReport | null>(null);
+  const [weeklyLoading, setWeeklyLoading] = useState(false);
 
   const [categories, setCategories] = useState<FanqieCategory[]>([]);
   const [booksMap, setBooksMap] = useState<Record<string, FanqieBook[]>>({});
@@ -319,6 +491,18 @@ export default function FanqiePage() {
   const [zhihuSyncing, setZhihuSyncing] = useState(false);
   const [zhihuSort, setZhihuSort] = useState<keyof typeof ZHIHU_SORT_LABELS>('hottest');
   const [zhihuSubcat, setZhihuSubcat] = useState('');
+
+  const fetchWeeklyReport = useCallback(async () => {
+    setWeeklyLoading(true);
+    setError(null);
+    try {
+      setWeeklyReport(await webnovelReportsApi.weekly(7));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '网文周报加载失败');
+    } finally {
+      setWeeklyLoading(false);
+    }
+  }, []);
 
   const fetchFanqieData = useCallback(async (rt: string, isInit = false) => {
     if (isInit) setInitLoading(true); else setSwitching(true);
@@ -393,6 +577,10 @@ export default function FanqiePage() {
   useEffect(() => {
     if (platform === 'zhihu') void fetchZhihuData();
   }, [platform, zhihuSort, zhihuSubcat, fetchZhihuData]);
+
+  useEffect(() => {
+    if (viewMode === 'weekly' && !weeklyReport && !weeklyLoading) void fetchWeeklyReport();
+  }, [viewMode, weeklyReport, weeklyLoading, fetchWeeklyReport]);
 
   const fanqieBooks = useMemo(() => booksMap[`${activeCat}|${rankTab}`] || [], [activeCat, booksMap, rankTab]);
   const currentBooks: BookItem[] = platform === 'fanqie' ? fanqieBooks : platform === 'qimao' ? qimaoBooks : zhihuAlbums;
@@ -487,6 +675,22 @@ export default function FanqiePage() {
           </div>
 
           <div className="flex-1" />
+          <div className="flex rounded-sm border border-gray-200 bg-gray-100 p-1">
+            <button
+              type="button"
+              onClick={() => setViewMode('rankings')}
+              className={cx('rounded-xs px-3 py-2 text-xs font-black transition', viewMode === 'rankings' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:bg-white/60')}
+            >
+              榜单
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('weekly')}
+              className={cx('rounded-xs px-3 py-2 text-xs font-black transition', viewMode === 'weekly' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:bg-white/60')}
+            >
+              周报
+            </button>
+          </div>
           <button
             type="button"
             onClick={handleSync}
@@ -500,6 +704,9 @@ export default function FanqiePage() {
         </div>
       </div>
 
+      {viewMode === 'weekly' ? (
+        <WebnovelWeeklyPanel report={weeklyReport} loading={weeklyLoading} onRefresh={fetchWeeklyReport} />
+      ) : (
       <div className="fanqie-layout grid min-h-0 flex-1 gap-4 p-[18px]">
         <aside className="fanqie-filter-panel flex min-h-0 flex-col gap-3 pr-0.5">
           <Panel className="p-4">
@@ -655,6 +862,7 @@ export default function FanqiePage() {
           </div>
         </main>
       </div>
+      )}
     </div>
   );
 }
@@ -664,6 +872,26 @@ function FilterGroup({ title, children }: { title: string; children: React.React
     <div>
       <div className="mb-2 text-[11px] font-extrabold text-gray-500">{title}</div>
       <div className="flex w-full flex-wrap gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+function SummaryMetric({ label, value, tone = 'neutral' }: { label: string; value: string | number; tone?: 'neutral' | 'teal' | 'red' }) {
+  const toneClass = tone === 'teal' ? 'text-teal' : tone === 'red' ? 'text-red' : 'text-gray-900';
+  return (
+    <div className="border-r border-gray-100 p-4 last:border-r-0">
+      <div className="mb-1 text-[11px] text-gray-400">{label}</div>
+      <div className={cx('font-mono text-2xl font-black leading-none', toneClass)}>{value}</div>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value, tone = 'neutral' }: { label: string; value: string | number; tone?: 'neutral' | 'teal' | 'red' }) {
+  const toneClass = tone === 'teal' ? 'text-teal' : tone === 'red' ? 'text-red' : 'text-gray-900';
+  return (
+    <div className="rounded-xs bg-white px-2 py-2">
+      <div className="text-[10px] text-gray-400">{label}</div>
+      <div className={cx('mt-0.5 font-mono text-sm font-black', toneClass)}>{value}</div>
     </div>
   );
 }

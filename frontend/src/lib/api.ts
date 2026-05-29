@@ -141,29 +141,29 @@ export const sourcesApi = {
     }).then(r => r.json());
   },
 
-  /** 预览 DailyBrief/链接清单信源 */
-  previewDailyBrief(data: { content: string; category?: string; enabled?: boolean; weight?: number }): Promise<{
-    items: DailyBriefImportItem[];
+  /** 预览批量信源配置 */
+  previewBatchSources(data: { content: string; category?: string; enabled?: boolean; weight?: number }): Promise<{
+    items: SourceBatchImportItem[];
     total: number;
     duplicates: number;
     importable: number;
   }> {
-    return request('/sources/preview-dailybrief', {
+    return request('/sources/preview-batch', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 
-  /** 导入 DailyBrief/链接清单信源 */
-  importDailyBrief(data: { content: string; category?: string; enabled?: boolean; weight?: number }): Promise<{ created: number; skipped: number; total: number; message: string }> {
-    return request('/sources/import-dailybrief', {
+  /** 导入批量信源配置 */
+  importBatchSources(data: { content: string; category?: string; enabled?: boolean; weight?: number }): Promise<{ created: number; skipped: number; total: number; message: string }> {
+    return request('/sources/import-batch', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   },
 };
 
-export interface DailyBriefImportItem {
+export interface SourceBatchImportItem {
   name: string;
   url: string;
   source_type: string;

@@ -22,14 +22,14 @@ from app.services.content_pipeline import ingest_from_source
 router = APIRouter(prefix="/sources", tags=["sources"])
 
 
-class DailyBriefImportRequest(BaseModel):
+class SourceBatchImportRequest(BaseModel):
     content: str = Field(..., min_length=1)
-    category: str = "DailyBrief"
+    category: str = "批量导入"
     enabled: bool = True
     weight: int = Field(default=3, ge=1, le=5)
 
 
-class DailyBriefImportItem(BaseModel):
+class SourceBatchImportItem(BaseModel):
     name: str
     url: str
     source_type: str
@@ -124,7 +124,7 @@ def _walk_json_sources(value: Any, default_category: str) -> list[dict]:
     return found
 
 
-def _parse_dailybrief_sources(content: str, default_category: str) -> list[dict]:
+def _parse_source_batch(content: str, default_category: str) -> list[dict]:
     text = content.strip()
     sources: list[dict] = []
 
@@ -185,15 +185,15 @@ def _parse_dailybrief_sources(content: str, default_category: str) -> list[dict]
     return list(deduped.values())
 
 
-async def _preview_dailybrief_items(db: AsyncSession, content: str, category: str) -> list[DailyBriefImportItem]:
-    parsed = _parse_dailybrief_sources(content, category)
+async def _preview_source_batch_items(db: AsyncSession, content: str, category: str) -> list[SourceBatchImportItem]:
+    parsed = _parse_source_batch(content, category)
     if not parsed:
         return []
     urls = [item["url"] for item in parsed]
     existing_result = await db.execute(select(Source.url).where(Source.url.in_(urls)))
     existing_urls = set(existing_result.scalars().all())
     return [
-        DailyBriefImportItem(
+        SourceBatchImportItem(
             name=item["name"],
             url=item["url"],
             source_type=item["source_type"].value,
@@ -320,13 +320,13 @@ async def import_opml(
     }
 
 
-@router.post("/preview-dailybrief")
-async def preview_dailybrief_sources(
-    data: DailyBriefImportRequest,
+@router.post("/preview-batch")
+async def preview_source_batch(
+    data: SourceBatchImportRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Preview DailyBrief-style source config before importing."""
-    items = await _preview_dailybrief_items(db, data.content, data.category)
+    """Preview JSON/Markdown/OPML source config before importing."""
+    items = await _preview_source_batch_items(db, data.content, data.category)
     return {
         "items": items,
         "total": len(items),
@@ -335,13 +335,13 @@ async def preview_dailybrief_sources(
     }
 
 
-@router.post("/import-dailybrief")
-async def import_dailybrief_sources(
-    data: DailyBriefImportRequest,
+@router.post("/import-batch")
+async def import_source_batch(
+    data: SourceBatchImportRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Import sources from DailyBrief-style JSON/Markdown/OPML text."""
-    items = await _preview_dailybrief_items(db, data.content, data.category)
+    """Import sources from JSON/Markdown/OPML text."""
+    items = await _preview_source_batch_items(db, data.content, data.category)
     repo = SourceRepository(db)
     max_order = await db.scalar(select(func.max(Source.sort_order)))
     next_order = (max_order or 0) + 10
@@ -373,7 +373,7 @@ async def import_dailybrief_sources(
         "created": created,
         "skipped": skipped,
         "total": len(items),
-        "message": f"成功导入 {created} 个 DailyBrief 信源，跳过 {skipped} 个重复。",
+        "message": f"成功导入 {created} 个信源，跳过 {skipped} 个重复。",
     }
 
 

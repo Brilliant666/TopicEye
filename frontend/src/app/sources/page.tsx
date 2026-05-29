@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Activity, FileSearch, List, Network, Plus, Upload } from 'lucide-react';
 import { sourcesApi, settingsApi } from '@/lib/api';
-import type { RSSHubInstance, CreateSourceRequest, DailyBriefImportItem, UpdateSourceRequest } from '@/lib/api';
+import type { RSSHubInstance, CreateSourceRequest, SourceBatchImportItem, UpdateSourceRequest } from '@/lib/api';
 import { timeAgo } from '@/lib/utils';
 import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
 import SourceForm, { FormState, emptyForm } from '@/components/SourceForm';
@@ -240,14 +240,14 @@ export default function SourcesPage() {
   const [rsshubError, setRsshubError] = useState<string | null>(null);
   const [newInstanceUrl, setNewInstanceUrl] = useState('');
   const opmlInputRef = useRef<HTMLInputElement>(null);
-  const dailyBriefInputRef = useRef<HTMLInputElement>(null);
+  const batchImportInputRef = useRef<HTMLInputElement>(null);
   const [, setImportingOPML] = useState(false);
-  const [showDailyBriefImport, setShowDailyBriefImport] = useState(false);
-  const [dailyBriefContent, setDailyBriefContent] = useState('');
-  const [dailyBriefCategory, setDailyBriefCategory] = useState('DailyBrief');
-  const [dailyBriefPreview, setDailyBriefPreview] = useState<DailyBriefImportItem[]>([]);
-  const [dailyBriefPreviewing, setDailyBriefPreviewing] = useState(false);
-  const [dailyBriefImporting, setDailyBriefImporting] = useState(false);
+  const [showBatchImport, setShowBatchImport] = useState(false);
+  const [batchImportContent, setBatchImportContent] = useState('');
+  const [batchImportCategory, setBatchImportCategory] = useState('批量导入');
+  const [batchImportPreview, setBatchImportPreview] = useState<SourceBatchImportItem[]>([]);
+  const [batchImportPreviewing, setBatchImportPreviewing] = useState(false);
+  const [batchImporting, setBatchImporting] = useState(false);
 
   // ─── Fetch sources ───
   const fetchSources = useCallback(async (p: number = 1) => {
@@ -427,56 +427,56 @@ export default function SourcesPage() {
     }
   };
 
-  const handleDailyBriefFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBatchImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    setDailyBriefContent(await file.text());
-    setDailyBriefPreview([]);
-    if (dailyBriefInputRef.current) dailyBriefInputRef.current.value = '';
+    setBatchImportContent(await file.text());
+    setBatchImportPreview([]);
+    if (batchImportInputRef.current) batchImportInputRef.current.value = '';
   };
 
-  const handleDailyBriefPreview = async () => {
-    if (!dailyBriefContent.trim()) {
-      setError('请先粘贴 DailyBrief 配置或上传文件');
+  const handleBatchImportPreview = async () => {
+    if (!batchImportContent.trim()) {
+      setError('请先粘贴信源配置或上传文件');
       return;
     }
-    setDailyBriefPreviewing(true);
+    setBatchImportPreviewing(true);
     setError(null);
     try {
-      const result = await sourcesApi.previewDailyBrief({
-        content: dailyBriefContent,
-        category: dailyBriefCategory || 'DailyBrief',
+      const result = await sourcesApi.previewBatchSources({
+        content: batchImportContent,
+        category: batchImportCategory || '批量导入',
       });
-      setDailyBriefPreview(result.items || []);
+      setBatchImportPreview(result.items || []);
       if ((result.items || []).length === 0) {
         setError('没有识别到可导入的 URL 或 RSS 配置');
       }
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'DailyBrief 预览失败');
+      setError(err instanceof Error ? err.message : '批量导入预览失败');
     } finally {
-      setDailyBriefPreviewing(false);
+      setBatchImportPreviewing(false);
     }
   };
 
-  const handleDailyBriefImport = async () => {
-    if (!dailyBriefContent.trim()) return;
-    setDailyBriefImporting(true);
+  const handleBatchImport = async () => {
+    if (!batchImportContent.trim()) return;
+    setBatchImporting(true);
     setError(null);
     try {
-      const result = await sourcesApi.importDailyBrief({
-        content: dailyBriefContent,
-        category: dailyBriefCategory || 'DailyBrief',
+      const result = await sourcesApi.importBatchSources({
+        content: batchImportContent,
+        category: batchImportCategory || '批量导入',
       });
       setRsshubError(result.message);
-      setShowDailyBriefImport(false);
-      setDailyBriefContent('');
-      setDailyBriefPreview([]);
+      setShowBatchImport(false);
+      setBatchImportContent('');
+      setBatchImportPreview([]);
       await fetchSources();
       await fetchSourceMap();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'DailyBrief 导入失败');
+      setError(err instanceof Error ? err.message : '批量导入失败');
     } finally {
-      setDailyBriefImporting(false);
+      setBatchImporting(false);
     }
   };
 
@@ -700,15 +700,15 @@ export default function SourcesPage() {
           <Button
             type="button"
             variant="secondary"
-            onClick={() => setShowDailyBriefImport(true)}
+            onClick={() => setShowBatchImport(true)}
             className="whitespace-nowrap"
           >
             <FileSearch size={15} strokeWidth={2} />
-            导入 DailyBrief
+            批量导入
           </Button>
         </Toolbar>
         <input ref={opmlInputRef} type="file" accept=".opml,.xml" className="hidden" onChange={handleOPMLImport} />
-        <input ref={dailyBriefInputRef} type="file" accept=".json,.md,.txt,.opml,.xml" className="hidden" onChange={handleDailyBriefFile} />
+        <input ref={batchImportInputRef} type="file" accept=".json,.md,.txt,.opml,.xml" className="hidden" onChange={handleBatchImportFile} />
       </div>
 
       {/* Search & Filter Bar */}
@@ -979,22 +979,22 @@ export default function SourcesPage() {
         </div>
       )}
 
-      {/* DailyBrief Import Modal */}
-      {showDailyBriefImport && (
+      {/* Batch Import Modal */}
+      {showBatchImport && (
         <div
           className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/30 px-4"
-          onClick={() => setShowDailyBriefImport(false)}
+          onClick={() => setShowBatchImport(false)}
         >
           <Panel onClick={(event) => event.stopPropagation()} className="flex max-h-[86vh] w-full max-w-[860px] flex-col overflow-hidden p-0 shadow-2xl">
             <div className="border-b border-gray-100 px-6 py-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <h2 className="mb-1 text-xl font-black text-gray-900">导入 DailyBrief 信源</h2>
+                  <h2 className="mb-1 text-xl font-black text-gray-900">批量导入信源</h2>
                   <p className="text-xs leading-5 text-gray-500">
-                    支持粘贴 DailyBrief 配置、JSON 数组、Markdown 链接清单或 OPML 内容；先预览重复项，再确认写入。
+                    支持粘贴信源配置、JSON 数组、Markdown 链接清单或 OPML 内容；先预览重复项，再确认写入。
                   </p>
                 </div>
-                <Button type="button" variant="ghost" onClick={() => setShowDailyBriefImport(false)} className="min-h-8 px-2">
+                <Button type="button" variant="ghost" onClick={() => setShowBatchImport(false)} className="min-h-8 px-2">
                   ×
                 </Button>
               </div>
@@ -1004,26 +1004,26 @@ export default function SourcesPage() {
               <div className="border-r border-gray-100 p-5">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <input
-                    value={dailyBriefCategory}
-                    onChange={(event) => setDailyBriefCategory(event.target.value)}
+                    value={batchImportCategory}
+                    onChange={(event) => setBatchImportCategory(event.target.value)}
                     placeholder="导入分类"
                     className="h-9 w-44 rounded-sm border border-gray-200 px-3 text-[13px] outline-none transition focus:border-primary-border focus:ring-2 focus:ring-primary-light"
                   />
-                  <Button type="button" variant="secondary" onClick={() => dailyBriefInputRef.current?.click()}>
+                  <Button type="button" variant="secondary" onClick={() => batchImportInputRef.current?.click()}>
                     <Upload size={15} />
                     选择文件
                   </Button>
-                  <Button type="button" variant="primary" onClick={handleDailyBriefPreview} disabled={dailyBriefPreviewing || !dailyBriefContent.trim()}>
-                    {dailyBriefPreviewing ? '预览中…' : '解析预览'}
+                  <Button type="button" variant="primary" onClick={handleBatchImportPreview} disabled={batchImportPreviewing || !batchImportContent.trim()}>
+                    {batchImportPreviewing ? '预览中…' : '解析预览'}
                   </Button>
                 </div>
                 <textarea
-                  value={dailyBriefContent}
+                  value={batchImportContent}
                   onChange={(event) => {
-                    setDailyBriefContent(event.target.value);
-                    setDailyBriefPreview([]);
+                    setBatchImportContent(event.target.value);
+                    setBatchImportPreview([]);
                   }}
-                  placeholder={'粘贴 DailyBrief sources 配置，或类似：\n- [OpenAI Blog](https://openai.com/blog/rss.xml)\n- https://example.com/feed.xml'}
+                  placeholder={'粘贴 JSON / Markdown / OPML 信源配置，或类似：\n- [OpenAI Blog](https://openai.com/blog/rss.xml)\n- https://example.com/feed.xml'}
                   className="h-[420px] w-full resize-none rounded-sm border border-gray-200 bg-gray-50 p-3 font-mono text-xs leading-6 text-gray-700 outline-none transition focus:border-primary-border focus:bg-white focus:ring-2 focus:ring-primary-light"
                 />
               </div>
@@ -1032,24 +1032,24 @@ export default function SourcesPage() {
                 <div className="mb-3 grid grid-cols-3 gap-2">
                   <div className="rounded-sm border border-gray-100 bg-gray-50 p-2.5">
                     <div className="text-[10px] text-gray-400">识别</div>
-                    <div className="font-mono text-xl font-black text-gray-900">{dailyBriefPreview.length}</div>
+                    <div className="font-mono text-xl font-black text-gray-900">{batchImportPreview.length}</div>
                   </div>
                   <div className="rounded-sm border border-gray-100 bg-gray-50 p-2.5">
                     <div className="text-[10px] text-gray-400">可导入</div>
-                    <div className="font-mono text-xl font-black text-teal">{dailyBriefPreview.filter((item) => !item.duplicate).length}</div>
+                    <div className="font-mono text-xl font-black text-teal">{batchImportPreview.filter((item) => !item.duplicate).length}</div>
                   </div>
                   <div className="rounded-sm border border-gray-100 bg-gray-50 p-2.5">
                     <div className="text-[10px] text-gray-400">重复</div>
-                    <div className="font-mono text-xl font-black text-amber">{dailyBriefPreview.filter((item) => item.duplicate).length}</div>
+                    <div className="font-mono text-xl font-black text-amber">{batchImportPreview.filter((item) => item.duplicate).length}</div>
                   </div>
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-y-auto rounded-sm border border-gray-100">
-                  {dailyBriefPreview.length === 0 ? (
+                  {batchImportPreview.length === 0 ? (
                     <div className="p-6 text-center text-xs leading-6 text-gray-400">
                       解析后会在这里显示信源名称、类型和重复状态。
                     </div>
-                  ) : dailyBriefPreview.map((item) => (
+                  ) : batchImportPreview.map((item) => (
                     <div key={item.url} className="border-b border-gray-100 p-3 last:border-b-0">
                       <div className="mb-1 flex items-start justify-between gap-2">
                         <div className="min-w-0 truncate text-[13px] font-black text-gray-800">{item.name}</div>
@@ -1068,16 +1068,16 @@ export default function SourcesPage() {
                 </div>
 
                 <div className="mt-4 flex justify-end gap-2">
-                  <Button type="button" variant="secondary" onClick={() => setShowDailyBriefImport(false)} disabled={dailyBriefImporting}>
+                  <Button type="button" variant="secondary" onClick={() => setShowBatchImport(false)} disabled={batchImporting}>
                     取消
                   </Button>
                   <Button
                     type="button"
                     variant="primary"
-                    onClick={handleDailyBriefImport}
-                    disabled={dailyBriefImporting || dailyBriefPreview.filter((item) => !item.duplicate).length === 0}
+                    onClick={handleBatchImport}
+                    disabled={batchImporting || batchImportPreview.filter((item) => !item.duplicate).length === 0}
                   >
-                    {dailyBriefImporting ? '导入中…' : '确认导入'}
+                    {batchImporting ? '导入中…' : '确认导入'}
                   </Button>
                 </div>
               </div>

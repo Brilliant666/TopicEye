@@ -2,13 +2,14 @@
 DuckDB analytics layer for TopicEye.
 
 Architecture:
-    DuckDB connects in-memory and ATTACHes the SQLite file (READ_ONLY).
-    All analytical queries run directly against the attached SQLite tables.
-    Zero sync, zero redundancy — data is always fresh.
+    DuckDB connects in-memory and ATTACHes the configured OLTP database
+    (SQLite or PostgreSQL) in READ_ONLY mode.  Analytical queries run directly
+    against the attached tables.  Zero sync, zero redundancy — data is always
+    fresh.
 
-    SQLite: OLTP source of truth (all writes go here).
+    SQLAlchemy: OLTP source of truth (SQLite or PostgreSQL writes).
     DuckDB: OLAP layer (reads only, for analytical/aggregation queries).
-    Fallback: if DuckDB sqlite extension fails, callers fall back to SQLAlchemy.
+    Fallback: if DuckDB extension loading fails, callers fall back to SQLAlchemy.
 
 Usage:
     from app.services.duckdb_service import DuckDBAnalytics
@@ -18,44 +19,37 @@ Usage:
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from app.config import settings
+from app.core.db_backend import create_database_profile, duckdb_attach_sql, duckdb_extension_name
 
 logger = logging.getLogger(__name__)
-
-# ── SQLite path resolution ─────────────────────────────────────────────
-
-def _sqlite_path() -> str:
-    """Resolve the SQLite database file path from DATABASE_URL."""
-    url = settings.DATABASE_URL
-    if ":///" in url:
-        path = url.split(":///", 1)[1]
-    else:
-        path = "./topiceye.db"
-    return os.path.abspath(path)
-
 
 # ── DuckDB Analytics singleton ─────────────────────────────────────────
 
 class DuckDBAnalytics:
     """
-    Thread-local DuckDB connection that attaches SQLite in READ_ONLY mode.
+    Thread-local DuckDB connection that attaches OLTP data in READ_ONLY mode.
 
-    Each thread gets its own in-memory DuckDB instance with the SQLite file
-    attached. This avoids concurrency issues and ensures fresh data.
+    Each thread gets its own in-memory DuckDB instance with the configured
+    source attached. This avoids concurrency issues and ensures fresh data.
     """
 
     def __init__(self) -> None:
         self._local = threading.local()
-        self._sqlite_path = _sqlite_path()
+        self._profile = create_database_profile(
+            settings.DATABASE_URL,
+            sqlite_domain_split_enabled=settings.DATABASE_SQLITE_DOMAIN_SPLIT_ENABLED,
+            sqlite_domain_dir=settings.DATABASE_SQLITE_DOMAIN_DIR,
+        )
+        self._attach_alias = "sqlite_db"
         self._available: Optional[bool] = None  # tri-state: None=unchecked
 
     def _get_conn(self):
-        """Get or create a thread-local DuckDB connection with SQLite attached."""
+        """Get or create a thread-local DuckDB connection with OLTP attached."""
         conn = getattr(self._local, "conn", None)
         if conn is not None:
             return conn
@@ -63,19 +57,18 @@ class DuckDBAnalytics:
         import duckdb
 
         conn = duckdb.connect(":memory:")
-        conn.execute("SET threads=2")
-        conn.execute("SET memory_limit='256MB'")
+        conn.execute(f"SET threads={int(settings.DUCKDB_THREADS)}")
+        conn.execute(f"SET memory_limit='{settings.DUCKDB_MEMORY_LIMIT}'")
 
-        # Load sqlite extension and attach
-        conn.execute("INSTALL sqlite; LOAD sqlite;")
-        conn.execute(
-            f"ATTACH '{self._sqlite_path}' AS sqlite_db (TYPE SQLITE, READ_ONLY)"
-        )
+        extension = duckdb_extension_name(self._profile)
+        conn.execute(f"INSTALL {extension}; LOAD {extension};")
+        conn.execute(duckdb_attach_sql(self._profile, alias=self._attach_alias))
 
         self._local.conn = conn
         logger.info(
-            "DuckDB analytics: attached SQLite %s (thread %s)",
-            self._sqlite_path,
+            "DuckDB analytics: attached %s OLTP source as %s (thread %s)",
+            self._profile.backend,
+            self._attach_alias,
             threading.current_thread().name,
         )
         return conn

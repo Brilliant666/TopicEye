@@ -2,21 +2,30 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import event
 from app.config import settings
+from app.core.db_backend import create_database_profile, sqlalchemy_connect_args
 import logging
 
 logger = logging.getLogger(__name__)
 
-engine = create_async_engine(
+database_profile = create_database_profile(
     settings.DATABASE_URL,
+    sqlite_domain_split_enabled=settings.DATABASE_SQLITE_DOMAIN_SPLIT_ENABLED,
+    sqlite_domain_dir=settings.DATABASE_SQLITE_DOMAIN_DIR,
+)
+
+engine = create_async_engine(
+    database_profile.url,
     echo=False,
     pool_pre_ping=True,
-    connect_args={"check_same_thread": False},
+    connect_args=sqlalchemy_connect_args(database_profile),
 )
 
 
 # Enable WAL mode for SQLite to reduce lock contention
 @event.listens_for(engine.sync_engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
+    if not database_profile.is_sqlite:
+        return
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA busy_timeout=30000")

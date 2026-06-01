@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.database import engine, Base
+from app.core.database import database_profile
 from app.api.v1.router import router as v1_router
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.core.exceptions import AppException
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 async def ensure_source_sort_order_column(conn) -> None:
     """SQLite create_all does not add columns to existing tables."""
-    if not settings.DATABASE_URL.startswith("sqlite"):
+    if not database_profile.is_sqlite:
         return
 
     result = await conn.execute(text("PRAGMA table_info(sources)"))
@@ -43,7 +44,7 @@ async def ensure_source_sort_order_column(conn) -> None:
 
 async def ensure_daily_report_version_schema(conn) -> None:
     """SQLite create_all does not remove old unique constraints; rebuild daily_reports if needed."""
-    if not settings.DATABASE_URL.startswith("sqlite"):
+    if not database_profile.is_sqlite:
         return
 
     table_exists = await conn.execute(text(
@@ -153,7 +154,7 @@ async def ensure_daily_report_version_schema(conn) -> None:
 
 async def ensure_llm_call_logs_schema(conn) -> None:
     """SQLite create_all does not update existing installs with new telemetry columns."""
-    if not settings.DATABASE_URL.startswith("sqlite"):
+    if not database_profile.is_sqlite:
         return
 
     await conn.execute(text("""
@@ -240,11 +241,14 @@ async def lifespan(app: FastAPI):
         from app.services.duckdb_service import get_analytics
         analytics = get_analytics()
         if analytics.available:
-            logger.info("DuckDB analytical layer initialized (ATTACH SQLite READ_ONLY)")
+            logger.info(
+                "DuckDB analytical layer initialized (ATTACH %s READ_ONLY)",
+                database_profile.backend,
+            )
         else:
-            logger.warning("DuckDB analytical layer not available — falling back to SQLite queries")
+            logger.warning("DuckDB analytical layer not available — falling back to SQLAlchemy queries")
     except Exception as e:
-        logger.warning("DuckDB init skipped: %s — falling back to SQLite queries", e)
+        logger.warning("DuckDB init skipped: %s — falling back to SQLAlchemy queries", e)
 
     # Start the periodic scheduler
     if settings.SCHEDULER_ENABLED:

@@ -12,26 +12,32 @@ import sqlite3
 import time
 from pathlib import Path
 
-from sqlalchemy import text
 from app.config import settings
+from app.core.db_backend import create_database_profile
 
 logger = logging.getLogger(__name__)
 
 
 def get_db_path() -> str:
-    url = settings.DATABASE_URL
-    if "sqlite" in url and ":///" in url:
-        return url.split(":///")[1]
-    return "./topiceye.db"
+    profile = create_database_profile(
+        settings.DATABASE_URL,
+        sqlite_domain_split_enabled=settings.DATABASE_SQLITE_DOMAIN_SPLIT_ENABLED,
+        sqlite_domain_dir=settings.DATABASE_SQLITE_DOMAIN_DIR,
+    )
+    if not profile.sqlite_path:
+        raise RuntimeError("SQLite database path is only available for SQLite backends")
+    return profile.sqlite_path
 
 
 def get_sync_engine():
     """Get a synchronous engine for migration scripts."""
     from sqlalchemy import create_engine
-    url = settings.DATABASE_URL
-    # Use sync driver for migration
-    sync_url = url.replace("sqlite+aiosqlite", "sqlite").replace("+aiosqlite", "")
-    return create_engine(sync_url, echo=False)
+    profile = create_database_profile(
+        settings.DATABASE_URL,
+        sqlite_domain_split_enabled=settings.DATABASE_SQLITE_DOMAIN_SPLIT_ENABLED,
+        sqlite_domain_dir=settings.DATABASE_SQLITE_DOMAIN_DIR,
+    )
+    return create_engine(profile.sync_url, echo=False)
 
 
 def add_indexes(conn: sqlite3.Connection) -> None:
@@ -127,6 +133,19 @@ def optimize_pragmas(conn: sqlite3.Connection) -> None:
 
 
 def run_migration() -> None:
+    profile = create_database_profile(
+        settings.DATABASE_URL,
+        sqlite_domain_split_enabled=settings.DATABASE_SQLITE_DOMAIN_SPLIT_ENABLED,
+        sqlite_domain_dir=settings.DATABASE_SQLITE_DOMAIN_DIR,
+    )
+    if not profile.is_sqlite:
+        logger.info(
+            "db_optimization currently contains SQLite PRAGMA/index maintenance only; "
+            "skip for backend=%s",
+            profile.backend,
+        )
+        return
+
     db_path = get_db_path()
     db_path = str(Path(db_path).resolve())
     logger.info(f"Database: {db_path}")

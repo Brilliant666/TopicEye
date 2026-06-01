@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 import threading
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -59,6 +60,9 @@ class DuckDBAnalytics:
         conn = duckdb.connect(":memory:")
         conn.execute(f"SET threads={int(settings.DUCKDB_THREADS)}")
         conn.execute(f"SET memory_limit='{settings.DUCKDB_MEMORY_LIMIT}'")
+        extension_dir = Path(settings.DUCKDB_EXTENSION_DIR).expanduser().resolve()
+        extension_dir.mkdir(parents=True, exist_ok=True)
+        conn.execute(f"SET extension_directory='{str(extension_dir)}'")
 
         extension = duckdb_extension_name(self._profile)
         conn.execute(f"INSTALL {extension}; LOAD {extension};")

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     # READ_ONLY. SQLite and PostgreSQL are both supported as DuckDB sources.
     DUCKDB_THREADS: int = 2
     DUCKDB_MEMORY_LIMIT: str = "256MB"
+    DUCKDB_EXTENSION_DIR: str = "./data/duckdb_extensions"
 
     # ── Startup behavior ──
     AUTO_CREATE_TABLES_ON_STARTUP: bool = True

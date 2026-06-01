@@ -5,6 +5,7 @@ const backendApiUrl = process.env.BACKEND_API_URL || 'http://localhost:8000';
 
 const nextConfig = {
   reactStrictMode: true,
+  allowedDevOrigins: ['localhost', '127.0.0.1'],
   turbopack: {
     root: path.resolve(__dirname),
   },

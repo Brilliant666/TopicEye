@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import NotificationBell from '@/components/NotificationBell';
 import { sourcesApi, contentsApi } from '@/lib/api';
@@ -8,15 +8,17 @@ import { sourcesApi, contentsApi } from '@/lib/api';
 // App context - shared across pages
 interface AppContextType {
   favorites: Set<number>;
+  favoritePendingIds: Set<number>;
   topicCount: number;
-  toggleFavorite: (id: number) => void;
+  toggleFavorite: (id: number, options?: { throwOnError?: boolean }) => Promise<boolean>;
   refreshCounts: () => void;
 }
 
 const AppContext = createContext<AppContextType>({
   favorites: new Set(),
+  favoritePendingIds: new Set(),
   topicCount: 0,
-  toggleFavorite: () => {},
+  toggleFavorite: async () => false,
   refreshCounts: () => {},
 });
 
@@ -47,6 +49,8 @@ function saveFavoritesToStorage(favSet: Set<number>): void {
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
+  const [favoritePendingIds, setFavoritePendingIds] = useState<Set<number>>(new Set());
+  const favoritePendingRef = useRef<Set<number>>(new Set());
   const [contentCount, setContentCount] = useState(0);
   const [sourceCount, setSourceCount] = useState(0);
   const [compactNav, setCompactNav] = useState(false);
@@ -84,7 +88,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     saveFavoritesToStorage(favorites);
   }, [favorites]);
 
-  const toggleFavorite = useCallback(async (id: number) => {
+  const toggleFavorite = useCallback(async (id: number, options?: { throwOnError?: boolean }): Promise<boolean> => {
+    if (favoritePendingRef.current.has(id)) {
+      return favorites.has(id);
+    }
+    favoritePendingRef.current.add(id);
+    setFavoritePendingIds((prev) => new Set(prev).add(id));
     try {
       const result = await contentsApi.toggleFavorite(id);
       setFavorites((prev) => {
@@ -96,13 +105,25 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         }
         return next;
       });
+      return result.is_favorited;
     } catch (err) {
       console.error('Toggle favorite failed:', err);
+      if (options?.throwOnError) {
+        throw err;
+      }
+      return favorites.has(id);
+    } finally {
+      favoritePendingRef.current.delete(id);
+      setFavoritePendingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
-  }, []);
+  }, [favorites]);
 
   return (
-    <AppContext.Provider value={{ favorites, topicCount: contentCount, toggleFavorite, refreshCounts }}>
+    <AppContext.Provider value={{ favorites, favoritePendingIds, topicCount: contentCount, toggleFavorite, refreshCounts }}>
       <div className="flex h-dvh overflow-hidden">
         <Sidebar topicCount={contentCount} favCount={favorites.size} sourceCount={sourceCount} compact={compactNav} />
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-page">

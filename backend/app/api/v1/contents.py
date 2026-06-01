@@ -4,9 +4,14 @@ from typing import Optional, Set
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select, text, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.config import settings
+from app.core.sqlite_retry import retry_sqlite_locked, is_sqlite_locked
+from app.models.content import ContentItem
 from app.repositories.content_repo import ContentRepo
 from app.repositories.analysis_repo import AnalysisRepository
 from app.schemas.content import ContentResponse, ContentListResponse
@@ -255,14 +260,39 @@ async def get_content(content_id: int, db: AsyncSession = Depends(get_db)):
 @router.post("/{content_id}/favorite")
 async def toggle_favorite(content_id: int, db: AsyncSession = Depends(get_db)):
     """Toggle favorite status for a content item."""
-    repo = ContentRepo(db)
-    content = await repo.get_by_id(content_id)
-    if not content:
+    result = await db.execute(select(ContentItem.is_favorited).where(ContentItem.id == content_id))
+    current = result.scalar_one_or_none()
+    if current is None:
         raise HTTPException(404, "Content not found")
-    content.is_favorited = not content.is_favorited
-    content.updated_at = datetime.utcnow()
-    await db.flush()
-    return {"is_favorited": content.is_favorited}
+
+    next_value = not bool(current)
+
+    async def _write() -> None:
+        await db.execute(
+            update(ContentItem)
+            .where(ContentItem.id == content_id)
+            .values(is_favorited=next_value, updated_at=datetime.utcnow())
+        )
+        await db.flush()
+
+    restore_busy_timeout = False
+    try:
+        if settings.DATABASE_URL.startswith("sqlite"):
+            await db.execute(text("PRAGMA busy_timeout=500"))
+            restore_busy_timeout = True
+        await retry_sqlite_locked(_write, attempts=3, base_delay=0.1, on_retry=db.rollback)
+    except OperationalError as exc:
+        await db.rollback()
+        if is_sqlite_locked(exc):
+            raise HTTPException(status_code=503, detail="数据库繁忙，请稍后重试")
+        raise
+    finally:
+        if restore_busy_timeout:
+            try:
+                await db.execute(text("PRAGMA busy_timeout=30000"))
+            except Exception:
+                await db.rollback()
+    return {"is_favorited": next_value}
 
 
 @router.post("/{content_id}/ignore")

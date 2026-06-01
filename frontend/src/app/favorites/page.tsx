@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Star } from 'lucide-react';
+import { AlertCircle, RefreshCw, Star } from 'lucide-react';
 import { contentsApi } from '@/lib/api';
 import { useAppContext } from '@/components/ClientLayout';
 import { Badge, Panel, cx } from '@/components/ui';
@@ -28,18 +28,23 @@ function timeAgo(dateStr: string | null): string {
 }
 
 export default function FavoritesPage() {
-  const { toggleFavorite } = useAppContext();
+  const { favoritePendingIds, toggleFavorite } = useAppContext();
   const [items, setItems] = useState<ContentItem[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedAnalysis, setSelectedAnalysis] = useState<ContentAnalysis | null>(null);
 
   const fetchFavorites = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);
       const res = await contentsApi.listFavorites({ page_size: 100 });
       setItems(res.items || []);
+      setTotal(res.total ?? res.items?.length ?? 0);
     } catch (err) {
       console.error('Failed to fetch favorites:', err);
+      setError(err instanceof Error ? err.message : '收藏夹加载失败');
     } finally {
       setLoading(false);
     }
@@ -50,8 +55,18 @@ export default function FavoritesPage() {
   }, [fetchFavorites]);
 
   const handleUnfav = async (id: number) => {
-    await toggleFavorite(id);
-    setItems((prev) => prev.filter((item) => item.id !== id));
+    setError(null);
+    try {
+      const isFavorited = await toggleFavorite(id, { throwOnError: true });
+      if (!isFavorited) {
+        setItems((prev) => prev.filter((item) => item.id !== id));
+        setTotal((prev) => Math.max(0, prev - 1));
+      } else {
+        setError('取消收藏未生效，请稍后重试');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '取消收藏失败');
+    }
   };
 
   return (
@@ -59,9 +74,26 @@ export default function FavoritesPage() {
       <div className="mb-7">
         <h1 className="mb-1.5 text-[26px] font-bold text-gray-900">收藏夹</h1>
         <p className="text-[13px] text-gray-400">
-          已收藏 <b className="font-mono text-primary">{items.length}</b> 条内容
+          已收藏 <b className="font-mono text-primary">{total}</b> 条内容
         </p>
       </div>
+
+      {error && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-sm border border-red/20 bg-red-light px-4 py-3 text-[13px] text-red">
+          <div className="flex min-w-0 items-center gap-2">
+            <AlertCircle size={15} className="shrink-0" />
+            <span className="break-words">{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void fetchFavorites()}
+            className="inline-flex shrink-0 items-center gap-1 rounded-xs border border-red/20 bg-white px-2.5 py-1 text-[11px] font-bold text-red"
+          >
+            <RefreshCw size={12} />
+            重试
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <div className="p-20 text-center text-sm text-gray-400">
@@ -101,7 +133,8 @@ export default function FavoritesPage() {
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); handleUnfav(item.id); }}
-                    className="inline-flex items-center border-0 bg-transparent px-2 py-1 text-primary"
+                    disabled={favoritePendingIds.has(item.id)}
+                    className="inline-flex items-center border-0 bg-transparent px-2 py-1 text-primary disabled:cursor-wait disabled:opacity-50"
                     title="取消收藏"
                   >
                     <Star size={18} strokeWidth={2} fill="#FF6B35" />

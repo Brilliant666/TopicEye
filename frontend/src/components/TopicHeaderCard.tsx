@@ -12,6 +12,7 @@ interface TopicHeaderCardProps {
   level: RecommendLevel;
   tags: string[];
   isFav: boolean;
+  favoritePending?: boolean;
   onToggleFavorite: () => void;
   timeAgoStr: string;
 }
@@ -22,6 +23,7 @@ export default function TopicHeaderCard({
   level,
   tags,
   isFav,
+  favoritePending = false,
   onToggleFavorite,
   timeAgoStr,
 }: TopicHeaderCardProps) {
@@ -66,9 +68,10 @@ export default function TopicHeaderCard({
           type="button"
           variant={isFav ? 'primary' : 'secondary'}
           onClick={onToggleFavorite}
+          disabled={favoritePending}
         >
           <Star size={14} strokeWidth={2} fill={isFav ? '#FFFFFF' : 'none'} />
-          {isFav ? '已收藏' : '收藏选题'}
+          {favoritePending ? '处理中' : isFav ? '已收藏' : '收藏选题'}
         </Button>
 
         {item.url && (

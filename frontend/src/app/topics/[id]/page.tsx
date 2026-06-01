@@ -20,7 +20,7 @@ import TopicCreationGenerator from '@/components/TopicCreationGenerator';
 export default function TopicDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const { favorites, toggleFavorite } = useAppContext();
+  const { favorites, favoritePendingIds, toggleFavorite } = useAppContext();
 
   const [item, setItem] = useState<ContentItem | null>(null);
   const [analysis, setAnalysis] = useState<ContentAnalysis | null>(null);
@@ -71,15 +71,15 @@ export default function TopicDetailPage() {
 
   // Handlers
   const isFav = item ? favorites.has(item.id) : false;
+  const favoritePending = item ? favoritePendingIds.has(item.id) : false;
 
   const handleToggleFavorite = async () => {
-    if (!item) return;
+    if (!item || favoritePending) return;
     try {
-      const res = await contentsApi.toggleFavorite(item.id);
-      toggleFavorite(item.id);
-      setItem(prev => prev ? { ...prev, is_favorited: res.is_favorited } : prev);
-    } catch {
-      // Silently fail
+      const isFavorited = await toggleFavorite(item.id, { throwOnError: true });
+      setItem(prev => prev ? { ...prev, is_favorited: isFavorited } : prev);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '收藏状态更新失败');
     }
   };
 
@@ -180,6 +180,7 @@ export default function TopicDetailPage() {
           level={level}
           tags={tags}
           isFav={isFav}
+          favoritePending={favoritePending}
           onToggleFavorite={handleToggleFavorite}
           timeAgoStr={item.published_at ? timeAgo(item.published_at) : ''}
         />

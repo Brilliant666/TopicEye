@@ -5,8 +5,12 @@ from typing import Optional
 class Settings(BaseSettings):
     # ── Database ──
     DATABASE_URL: str = "sqlite+aiosqlite:///./topiceye.db"
-    # DUCKDB_PATH is no longer needed — DuckDB connects in-memory and
-    # ATTACHes the SQLite file directly (READ_ONLY). No separate DuckDB file.
+    DATABASE_SQLITE_DOMAIN_SPLIT_ENABLED: bool = False
+    DATABASE_SQLITE_DOMAIN_DIR: str = "./data/domains"
+    # DuckDB connects in-memory and ATTACHes the configured OLTP database
+    # READ_ONLY. SQLite and PostgreSQL are both supported as DuckDB sources.
+    DUCKDB_THREADS: int = 2
+    DUCKDB_MEMORY_LIMIT: str = "256MB"
 
     # ── Startup behavior ──
     AUTO_CREATE_TABLES_ON_STARTUP: bool = True

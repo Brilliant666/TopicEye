@@ -12,6 +12,7 @@ backend/venv/
 # DuckDB files
 *.duckdb
 *.duckdb.wal
+backend/data/duckdb_extensions/
 
 # Frontend
 frontend/node_modules/

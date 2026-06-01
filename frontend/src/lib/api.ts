@@ -683,8 +683,9 @@ export const trendingApi = {
   },
 
   /** 获取可用信源列表 */
-  listSources(): Promise<{ sources: TrendingSource[] }> {
-    return request('/trending/sources');
+  async listSources(): Promise<TrendingSource[]> {
+    const data = await request<TrendingSource[] | { sources?: TrendingSource[] }>('/trending/sources');
+    return Array.isArray(data) ? data : data.sources || [];
   },
 
   /** 同步单个信源 */

@@ -437,7 +437,7 @@ function TrendingPage() {
         trendingApi.listSources(),
       ]);
       setItems(itemList);
-      setSources(srcList.sources || []);
+      setSources(srcList);
     } catch (e) {
       console.error('Failed to fetch trending:', e);
     } finally {

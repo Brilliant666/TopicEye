@@ -14,9 +14,10 @@ import enum
 from datetime import datetime, date
 from typing import Optional, List
 
-from sqlalchemy import String, Integer, DateTime, Date, Enum, JSON
+from sqlalchemy import String, Integer, DateTime, Date, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
+from app.models.enum_types import value_enum
 
 
 class TrendingSource(str, enum.Enum):
@@ -57,8 +58,8 @@ class TrendingItem(Base):
     __tablename__ = "trending_items"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    source: Mapped[str] = mapped_column(Enum(TrendingSource), nullable=False, index=True)
-    category: Mapped[str] = mapped_column(Enum(TrendingCategory), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(value_enum(TrendingSource), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(value_enum(TrendingCategory), nullable=False, index=True)
     rank: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     url: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
@@ -82,7 +83,7 @@ class TrendingSnapshot(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     snapshot_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     snapshot_hour: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 8/12/18/22
-    source: Mapped[str] = mapped_column(Enum(TrendingSource), nullable=False)
+    source: Mapped[str] = mapped_column(value_enum(TrendingSource), nullable=False)
     category: Mapped[str] = mapped_column(String(20), nullable=False, default="hot")
     items: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

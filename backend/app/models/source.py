@@ -2,9 +2,10 @@ from __future__ import annotations
 from typing import Optional
 import enum
 from datetime import datetime
-from sqlalchemy import String, Integer, Text, DateTime, Enum
+from sqlalchemy import String, Integer, Text, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
+from app.models.enum_types import value_enum
 
 
 class SourceType(str, enum.Enum):
@@ -34,14 +35,14 @@ class Source(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    source_type: Mapped[str] = mapped_column(Enum(SourceType), nullable=False, default=SourceType.RSS)
+    source_type: Mapped[str] = mapped_column(value_enum(SourceType), nullable=False, default=SourceType.RSS)
     url: Mapped[str] = mapped_column(String(1024), nullable=False)
     keyword: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     platform: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     weight: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    status: Mapped[str] = mapped_column(Enum(SourceStatus), nullable=False, default=SourceStatus.ACTIVE)
+    status: Mapped[str] = mapped_column(value_enum(SourceStatus), nullable=False, default=SourceStatus.ACTIVE)
     last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     fetch_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
     sync_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

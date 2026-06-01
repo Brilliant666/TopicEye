@@ -2,9 +2,10 @@ from __future__ import annotations
 from typing import Optional
 import enum
 from datetime import datetime
-from sqlalchemy import String, Integer, Text, DateTime, Enum, ForeignKey, JSON, Boolean, Float
+from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, JSON, Boolean, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
+from app.models.enum_types import value_enum
 
 
 class ContentStatus(str, enum.Enum):
@@ -34,7 +35,7 @@ class ContentItem(Base):
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     tags: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     language: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
-    status: Mapped[str] = mapped_column(Enum(ContentStatus), nullable=False, default=ContentStatus.PENDING)
+    status: Mapped[str] = mapped_column(value_enum(ContentStatus), nullable=False, default=ContentStatus.PENDING)
     is_favorited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Topic clustering fields

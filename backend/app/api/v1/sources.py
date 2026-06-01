@@ -418,6 +418,8 @@ async def sync_source(source_id: int, db: AsyncSession = Depends(get_db)):
 
     stats = await ingest_from_source(source, db)
     await db.refresh(source)
+    if source.status == SourceStatus.ERROR or source.sync_error:
+        raise HTTPException(status_code=502, detail=source.sync_error or "信源同步失败")
     return SyncResultResponse(
         fetched=stats["fetched"], new=stats["new"], duplicates=stats["duplicates"],
         source_info=SourceResponse.model_validate(source),

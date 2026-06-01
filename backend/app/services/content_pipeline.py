@@ -7,7 +7,9 @@ single source. Uses the scraper registry to dispatch by SourceType.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import Any
 
@@ -17,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.source import Source, SourceType, SourceStatus
 from app.models.content import ContentItem, ContentStatus
+from app.config import settings
 from app.services.dedup import build_hash
 from app.services.classifier import classify, extract_tags, classify_async
 from app.services.scrapers import get_scraper_cls
@@ -38,9 +41,24 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
 
     Returns ``{"fetched": N, "new": N, "duplicates": N}``.
     """
+    try:
+        return await asyncio.wait_for(
+            _ingest_from_source_inner(source, db),
+            timeout=settings.SOURCE_SYNC_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        message = f"Source sync timed out after {settings.SOURCE_SYNC_TIMEOUT_SECONDS}s"
+        logger.warning("Source %s (%d): %s", source.name, source.id, message)
+        _update_source_error(source, message)
+        await db.flush()
+        return {"fetched": 0, "new": 0, "duplicates": 0}
+
+
+async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[str, int]:
     fetched_count = 0
     new_count = 0
     duplicate_count = 0
+    started_at = time.perf_counter()
 
     try:
         # ── Step 1: Resolve scraper ──────────────────────────────────
@@ -85,12 +103,17 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
         client_kwargs = {"timeout": 30, "follow_redirects": True}
         if proxy_url:
             client_kwargs["proxy"] = proxy_url
+        fetch_started_at = time.perf_counter()
         async with httpx.AsyncClient(**client_kwargs) as client:
             entries = await scraper.fetch(client)
         fetched_count = len(entries)
+        fetch_elapsed_ms = int((time.perf_counter() - fetch_started_at) * 1000)
 
         if not entries:
-            logger.info("Source %s (%d): no entries fetched", source.name, source.id)
+            logger.info(
+                "Source %s (%d): no entries fetched in %dms",
+                source.name, source.id, fetch_elapsed_ms,
+            )
             _update_source_status(source, SourceStatus.ACTIVE)
             await db.flush()
             return {"fetched": 0, "new": 0, "duplicates": 0}
@@ -112,6 +135,7 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
         # ── Step 4+5: Classify, tag and persist ──────────────────────
         new_items: list[ContentItem] = []
         category_counts: dict[str, int] = {}
+        classify_elapsed_ms = 0
         for entry in entries:
             ch = entry["_content_hash"]
             if ch in existing_hashes:
@@ -122,7 +146,9 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
             summary = entry.get("summary", "")
 
             # LLM-driven classification with keyword fallback
+            classify_started_at = time.perf_counter()
             class_result = await classify_async(title, summary, db)
+            classify_elapsed_ms += int((time.perf_counter() - classify_started_at) * 1000)
             category = class_result["category"]
             tags = class_result["tags"]
 
@@ -153,19 +179,24 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
             _maybe_save_metrics(entry, item, db)
 
         # Batch flush: single round-trip for all items this source
+        db_elapsed_ms = 0
         if new_items:
             for item in new_items:
                 db.add(item)
+            db_started_at = time.perf_counter()
             await db.flush()
             await _increment_category_counts(db, category_counts)
+            db_elapsed_ms = int((time.perf_counter() - db_started_at) * 1000)
 
         # ── Step 6: Update source ────────────────────────────────────
         _update_source_status(source, SourceStatus.ACTIVE)
         await db.flush()
 
         logger.info(
-            "Source %s (%d): fetched=%d, new=%d, dupes=%d",
+            "Source %s (%d): fetched=%d, new=%d, dupes=%d, fetch=%dms, classify=%dms, db=%dms, total=%dms",
             source.name, source.id, fetched_count, new_count, duplicate_count,
+            fetch_elapsed_ms, classify_elapsed_ms, db_elapsed_ms,
+            int((time.perf_counter() - started_at) * 1000),
         )
 
     except Exception as exc:

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.content_repo import ContentRepo
 from app.repositories.ignored_repo import IgnoredRepo
-from app.services.scoring_engine import ScoreBreakdown, ScoringInput, score_items
+from app.services.scoring_engine import CONFIG, ScoreBreakdown, ScoringInput, score_items
 from app.services.scoring_inputs import build_scoring_inputs
 
 
@@ -27,7 +27,12 @@ async def build_scoring_flow_payload(
     """Return scoring funnel stages, candidate samples, and mix pressure data."""
     time_cutoff = datetime.utcnow() - timedelta(hours=hours)
     ignored_ids = await IgnoredRepo(db).list_ignored_ids()
-    items, total = await ContentRepo(db).list_for_scoring(
+    content_repo = ContentRepo(db)
+    _, analyzed_total = await content_repo.list_for_scoring(
+        exclude_ids=ignored_ids,
+        limit=1,
+    )
+    items, total = await content_repo.list_for_scoring(
         exclude_ids=ignored_ids,
         time_cutoff=time_cutoff,
         limit=limit,
@@ -43,6 +48,17 @@ async def build_scoring_flow_payload(
         "total": total,
         "scored": len(scored),
         "hours": hours,
+        "diagnostics": build_diagnostics(
+            analyzed_total=analyzed_total,
+            window_total=total,
+            loaded_count=len(items),
+            scoring_input_count=len(scoring_inputs),
+            scored_count=len(scored),
+            ignored_count=len(ignored_ids),
+            limit=limit,
+            sample_limit=sample_limit,
+        ),
+        "scoring_config": build_scoring_config_summary(),
         "stages": build_stage_counts(scored),
         "samples": [
             sample
@@ -57,6 +73,67 @@ async def build_scoring_flow_payload(
         "category_mix": [{"label": k, "count": v} for k, v in category_counts.most_common(8)],
         "source_mix": [{"label": k, "count": v} for k, v in source_counts.most_common(8)],
     }
+
+
+def build_diagnostics(
+    *,
+    analyzed_total: int,
+    window_total: int,
+    loaded_count: int,
+    scoring_input_count: int,
+    scored_count: int,
+    ignored_count: int,
+    limit: int,
+    sample_limit: int,
+) -> dict[str, Any]:
+    """Explain why the scoring-flow payload is empty or partial."""
+    if analyzed_total <= 0:
+        empty_reason = "no_analyzed_content"
+    elif window_total <= 0:
+        empty_reason = "no_content_in_window"
+    elif loaded_count <= 0:
+        empty_reason = "candidate_limit_empty"
+    elif scoring_input_count <= 0:
+        empty_reason = "no_scoring_inputs"
+    elif scored_count <= 0:
+        empty_reason = "all_candidates_filtered"
+    else:
+        empty_reason = "ok"
+
+    return {
+        "analyzed_total": analyzed_total,
+        "window_total": window_total,
+        "loaded_count": loaded_count,
+        "scoring_input_count": scoring_input_count,
+        "scored_count": scored_count,
+        "ignored_count": ignored_count,
+        "candidate_limit": limit,
+        "sample_limit": sample_limit,
+        "empty_reason": empty_reason,
+        "generated_at": datetime.utcnow().isoformat(),
+    }
+
+
+def build_scoring_config_summary() -> dict[str, Any]:
+    """Expose stable scoring knobs for UI explanation, not mutation."""
+    keys = (
+        "curation_mode",
+        "curation_percentile",
+        "curation_threshold",
+        "min_selected_base_score",
+        "quality_gate_min",
+        "quality_gate_strong",
+        "quality_gate_floor",
+        "risk_threshold",
+        "risk_soft_start",
+        "risk_soft_floor",
+        "time_decay_lambda",
+        "time_decay_floor",
+        "diversity_top_n",
+        "same_source_grace",
+        "same_category_grace",
+    )
+    return {key: CONFIG[key] for key in keys}
 
 
 def build_stage_counts(scored: list[tuple[ScoreBreakdown, ScoringInput]]) -> list[dict[str, Any]]:

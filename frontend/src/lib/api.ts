@@ -273,10 +273,43 @@ export interface ScoringFlowSample {
   dimension_scores: Record<string, number>;
 }
 
+export interface ScoringFlowDiagnostics {
+  analyzed_total: number;
+  window_total: number;
+  loaded_count: number;
+  scoring_input_count: number;
+  scored_count: number;
+  ignored_count: number;
+  candidate_limit: number;
+  sample_limit: number;
+  empty_reason: string;
+  generated_at: string;
+}
+
+export interface ScoringFlowConfig {
+  curation_mode: string;
+  curation_percentile?: number;
+  curation_threshold: number;
+  min_selected_base_score: number;
+  quality_gate_min: number;
+  quality_gate_strong: number;
+  quality_gate_floor: number;
+  risk_threshold: number;
+  risk_soft_start: number;
+  risk_soft_floor: number;
+  time_decay_lambda: number;
+  time_decay_floor: number;
+  diversity_top_n: number;
+  same_source_grace: number;
+  same_category_grace: number;
+}
+
 export interface ScoringFlowResponse {
   total: number;
   scored: number;
   hours: number;
+  diagnostics?: ScoringFlowDiagnostics;
+  scoring_config?: ScoringFlowConfig;
   stages: ScoringFlowStage[];
   samples: ScoringFlowSample[];
   category_mix: Array<{ label: string; count: number }>;

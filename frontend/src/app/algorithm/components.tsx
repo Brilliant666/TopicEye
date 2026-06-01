@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  AlertTriangle,
   CheckCircle2,
   ExternalLink,
   Filter,
@@ -10,6 +11,7 @@ import {
   RefreshCw,
   ShieldAlert,
   SlidersHorizontal,
+  TimerReset,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Badge, Button, Metric, Panel, Toolbar } from '@/components/ui';
@@ -56,6 +58,46 @@ function pct(value: number) {
 
 function fmt(value: number | undefined, digits = 1) {
   return Number(value ?? 0).toFixed(digits);
+}
+
+function emptyReasonText(reason?: string) {
+  const map: Record<string, { title: string; detail: string; action: string }> = {
+    no_analyzed_content: {
+      title: '还没有可评分内容',
+      detail: '评分流程只读取已完成分析的内容。当前数据库里没有 ANALYZED 状态的内容。',
+      action: '先同步信源并运行内容分析，再回到这里查看评分路径。',
+    },
+    no_content_in_window: {
+      title: '当前观察窗口没有样本',
+      detail: '数据库里有已分析内容，但不在当前时间窗口内。',
+      action: '切换到 7 天窗口，或刷新信源获取近期内容。',
+    },
+    candidate_limit_empty: {
+      title: '候选查询没有返回内容',
+      detail: '候选池查询结果为空，可能被忽略列表或筛选条件全部排除。',
+      action: '检查忽略列表、内容状态和信源同步结果。',
+    },
+    no_scoring_inputs: {
+      title: '候选内容缺少评分输入',
+      detail: '候选内容存在，但没有足够的分析维度构造成评分输入。',
+      action: '检查内容分析任务是否完整写入了质量、风险、创作价值等字段。',
+    },
+    all_candidates_filtered: {
+      title: '候选被风险或规则过滤',
+      detail: '评分输入存在，但进入评分引擎后没有样本留下。',
+      action: '检查风险阈值、内容状态和评分配置。',
+    },
+    ok: {
+      title: '评分流程正常',
+      detail: '当前窗口有可评分样本。',
+      action: '点击候选样本查看评分路径。',
+    },
+  };
+  return map[reason || ''] || {
+    title: '评分流程暂无样本',
+    detail: '当前返回没有候选样本，原因未明确标记。',
+    action: '刷新页面或扩大观察窗口后再检查。',
+  };
 }
 
 function FactorBar({ label, value, color }: { label: string; value: number; color: string }) {
@@ -151,7 +193,7 @@ export function SummaryGrid({ data }: { data: ScoringFlowResponse }) {
     { label: '数据库候选', value: data.total, icon: SlidersHorizontal, colorClass: 'text-gray-800', iconClass: 'text-gray-800' },
     { label: '参与评分', value: data.scored, icon: GitBranch, colorClass: 'text-teal', iconClass: 'text-teal' },
     { label: '精选输出', value: data.stages.find((s) => s.key === 'selected')?.count || 0, icon: CheckCircle2, colorClass: 'text-primary', iconClass: 'text-primary' },
-    { label: '观察窗口', value: data.hours === 168 ? '7天' : `${data.hours}h`, icon: ShieldAlert, colorClass: 'text-amber', iconClass: 'text-amber' },
+    { label: '已分析总量', value: data.diagnostics?.analyzed_total ?? '-', icon: ShieldAlert, colorClass: 'text-amber', iconClass: 'text-amber' },
   ];
 
   return (
@@ -169,6 +211,61 @@ export function SummaryGrid({ data }: { data: ScoringFlowResponse }) {
         );
       })}
     </div>
+  );
+}
+
+export function DiagnosticsPanel({ data }: { data: ScoringFlowResponse }) {
+  const diagnostics = data.diagnostics;
+  const config = data.scoring_config;
+  const reason = emptyReasonText(diagnostics?.empty_reason);
+  const isEmpty = !data.samples.length;
+
+  return (
+    <Panel className="mb-4 overflow-hidden p-4 lg:p-5">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <div
+            className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-sm"
+            style={{ background: isEmpty ? COLORS.amberLight : COLORS.tealLight, color: isEmpty ? COLORS.amber : COLORS.teal }}
+          >
+            {isEmpty ? <AlertTriangle size={17} /> : <CheckCircle2 size={17} />}
+          </div>
+          <div className="min-w-0">
+            <div className="text-sm font-black text-gray-900">{reason.title}</div>
+            <div className="mt-1 max-w-3xl text-xs leading-6 text-gray-500">{reason.detail}</div>
+            <div className="mt-1 text-xs font-bold text-gray-700">{reason.action}</div>
+          </div>
+        </div>
+        <Badge tone={isEmpty ? 'amber' : 'teal'} className="gap-1.5 rounded-xs font-mono">
+          <TimerReset size={12} />
+          {data.hours === 168 ? '7D' : `${data.hours}H`}
+        </Badge>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {[
+          ['窗口候选', diagnostics?.window_total ?? data.total],
+          ['已加载', diagnostics?.loaded_count ?? data.samples.length],
+          ['评分输入', diagnostics?.scoring_input_count ?? data.scored],
+          ['忽略排除', diagnostics?.ignored_count ?? 0],
+        ].map(([label, value]) => (
+          <div key={label as string} className="rounded-sm border border-gray-100 bg-gray-50 px-3 py-2.5">
+            <div className="text-[10px] font-bold text-gray-400">{label}</div>
+            <div className="mt-1 font-mono text-lg font-black leading-none text-gray-800">{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {config && (
+        <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-gray-500">
+          <span className="rounded-xs bg-gray-100 px-2 py-1 font-mono">mode={config.curation_mode}</span>
+          <span className="rounded-xs bg-gray-100 px-2 py-1 font-mono">threshold={fmt(config.curation_threshold)}</span>
+          <span className="rounded-xs bg-gray-100 px-2 py-1 font-mono">p{config.curation_percentile ?? '-'}</span>
+          <span className="rounded-xs bg-gray-100 px-2 py-1 font-mono">risk&lt;={fmt(config.risk_threshold)}</span>
+          <span className="rounded-xs bg-gray-100 px-2 py-1 font-mono">quality floor={fmt(config.quality_gate_floor, 2)}</span>
+        </div>
+      )}
+    </Panel>
   );
 }
 
@@ -299,7 +396,11 @@ export function SampleList({
         <div className="font-mono text-[11px] text-gray-400">FINAL SCORE</div>
       </div>
       <div className="max-h-[628px] overflow-y-auto">
-        {samples.map((sample) => {
+        {samples.length === 0 ? (
+          <div className="flex min-h-[300px] items-center justify-center px-6 text-center text-sm text-gray-400">
+            当前没有候选样本。上方诊断面板会说明数据断点。
+          </div>
+        ) : samples.map((sample) => {
           const active = sample.id === selectedId;
           return (
             <button

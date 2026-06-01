@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { contentsApi, feedbackApi, type FeedbackType, type ScoringFlowResponse, type ScoringFlowSample } from '@/lib/api';
 import {
   AlgorithmHeader,
+  DiagnosticsPanel,
   Funnel,
   MixList,
   PathPanel,
@@ -28,18 +29,23 @@ export default function AlgorithmPage() {
   const [loading, setLoading] = useState(true);
   const [feedbacking, setFeedbacking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestSeqRef = useRef(0);
 
   const fetchFlow = useCallback(async () => {
+    const requestSeq = requestSeqRef.current + 1;
+    requestSeqRef.current = requestSeq;
     setLoading(true);
     setError(null);
     try {
       const result = await contentsApi.scoringFlow({ hours, limit: 160 });
+      if (requestSeq !== requestSeqRef.current) return;
       setData(result);
       setSelected((prev) => result.samples.find((s) => s.id === prev?.id) || result.samples[0]);
     } catch (err) {
+      if (requestSeq !== requestSeqRef.current) return;
       setError(err instanceof Error ? err.message : '算法流程加载失败');
     } finally {
-      setLoading(false);
+      if (requestSeq === requestSeqRef.current) setLoading(false);
     }
   }, [hours]);
 
@@ -83,6 +89,7 @@ export default function AlgorithmPage() {
         ) : data ? (
           <>
             <SummaryGrid data={data} />
+            <DiagnosticsPanel data={data} />
             <Funnel data={data} selectedKey={selectedKey} />
 
             <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[280px_minmax(560px,1fr)_380px]">

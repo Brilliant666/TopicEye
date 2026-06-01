@@ -324,14 +324,14 @@ class DuckDBAnalytics:
         # ── Daily volume trend ─────────────────────────────────────────────
         trend_rows = conn.execute(f"""
             SELECT
-                DATE(c.crawled_at) AS crawl_date,
+                CAST(c.crawled_at AS DATE) AS crawl_date,
                 COUNT(DISTINCT c.id) AS content_count,
                 COUNT(DISTINCT CASE WHEN a.curation_score >= 70 THEN c.id END) AS curated_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_curation
             FROM sqlite_db.content_items c
             LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
-            GROUP BY DATE(c.crawled_at)
+            GROUP BY CAST(c.crawled_at AS DATE)
             ORDER BY crawl_date ASC
         """).fetchall()
 
@@ -412,8 +412,8 @@ class DuckDBAnalytics:
                    a.recommended_reason
             FROM sqlite_db.content_items c
             LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
-            WHERE DATE(c.crawled_at) >= '{start_date}'
-              AND DATE(c.crawled_at) <= '{end_date}'
+            WHERE CAST(c.crawled_at AS DATE) >= DATE '{start_date}'
+              AND CAST(c.crawled_at AS DATE) <= DATE '{end_date}'
               AND a.curation_score IS NOT NULL
             ORDER BY COALESCE(a.curation_score, 0) DESC, COALESCE(a.creator_score, 0) DESC
         """).fetchall()

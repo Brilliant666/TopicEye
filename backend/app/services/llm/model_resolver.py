@@ -20,13 +20,18 @@ def resolve_litellm_model(model: ModelLike) -> str:
     provider = (model.provider or "").strip().lower()
     api_base = model.api_base or ""
 
-    if "/" in model_id:
+    if "opencode.ai/zen" in api_base and model_id.startswith("opencode/"):
+        return f"openai/{model_id.removeprefix('opencode/')}"
+
+    if "/" in model_id and not (api_base and provider in OPENAI_COMPATIBLE_PROVIDER):
         return model_id
 
     if "open.bigmodel.cn" in api_base:
         return f"openai/{model_id}"
 
     if api_base and provider in OPENAI_COMPATIBLE_PROVIDER:
+        if model_id.startswith("openai/"):
+            return model_id
         return f"openai/{model_id}"
 
     if provider:

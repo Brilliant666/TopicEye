@@ -1,7 +1,9 @@
 from types import SimpleNamespace
 
 from app.api.v1.llm_models import (
+    LLM_COMPLETION_TIMEOUT_SECONDS,
     _auto_score_response,
+    _completion_kwargs,
     _resolve_litellm_model,
     _sample_payload,
 )
@@ -28,6 +30,36 @@ def test_shared_model_resolver_preserves_already_prefixed_model_id():
     model = SimpleNamespace(provider="deepseek", model_id="deepseek/deepseek-chat", api_base=None)
 
     assert resolve_litellm_model(model) == "deepseek/deepseek-chat"
+
+
+def test_shared_model_resolver_maps_opencode_zen_alias_to_openai_model():
+    model = SimpleNamespace(
+        provider="custom",
+        model_id="opencode/deepseek-v4-flash-free",
+        api_base="https://opencode.ai/zen/v1",
+    )
+
+    assert resolve_litellm_model(model) == "openai/deepseek-v4-flash-free"
+
+
+def test_completion_kwargs_passes_openai_compatible_timeout_and_endpoint():
+    model = SimpleNamespace(
+        api_key="test-key",
+        api_base="https://opencode.ai/zen/v1",
+    )
+
+    kwargs = _completion_kwargs(
+        model,
+        "openai/deepseek-v4-flash-free",
+        [{"role": "user", "content": "hello"}],
+        temperature=0.3,
+        max_tokens=200,
+    )
+
+    assert kwargs["model"] == "openai/deepseek-v4-flash-free"
+    assert kwargs["api_key"] == "test-key"
+    assert kwargs["api_base"] == "https://opencode.ai/zen/v1"
+    assert kwargs["timeout"] == LLM_COMPLETION_TIMEOUT_SECONDS
 
 
 def test_sample_payload_parses_title_and_content_from_json():

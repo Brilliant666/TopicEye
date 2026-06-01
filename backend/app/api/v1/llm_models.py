@@ -35,10 +35,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locked
 from app.models.llm_model import LlmCallLog, LlmModel, ModelEvaluation
+from app.services.llm.provider import invalidate_model_cache
 from app.services.llm.model_resolver import resolve_litellm_model
 from app.services.llm_usage import extract_usage, record_llm_call_in_new_session
 
 router = APIRouter(prefix="/models", tags=["models"])
+
+LLM_COMPLETION_TIMEOUT_SECONDS = 25
 
 
 def _model_snapshot(model: LlmModel) -> SimpleNamespace:
@@ -64,6 +67,28 @@ def _resolve_litellm_model(model: LlmModel) -> str:
 def _missing_explicit_api_key(model: LlmModel) -> bool:
     """OpenAI-compatible custom endpoints need an explicit key in this app."""
     return bool(model.api_base) and not bool(model.api_key)
+
+
+def _completion_kwargs(
+    model: LlmModel,
+    resolved_model: str,
+    messages: list[dict],
+    *,
+    temperature: float,
+    max_tokens: int,
+) -> dict:
+    kwargs = {
+        "model": resolved_model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "timeout": LLM_COMPLETION_TIMEOUT_SECONDS,
+    }
+    if model.api_key:
+        kwargs["api_key"] = model.api_key
+    if model.api_base:
+        kwargs["api_base"] = model.api_base
+    return kwargs
 
 
 def _sample_payload(sample_content: Optional[str]) -> dict:
@@ -202,6 +227,13 @@ async def _retry_write(db: AsyncSession, operation):
     return await retry_sqlite_locked(_wrapped, on_retry=db.rollback)
 
 
+async def _retry_write_and_invalidate_models(db: AsyncSession, operation):
+    result = await _retry_write(db, operation)
+    await db.commit()
+    await invalidate_model_cache()
+    return result
+
+
 def _per_1k_to_1m(value: Optional[float]) -> Optional[float]:
     return round(value * 1000, 6) if value is not None else None
 
@@ -297,7 +329,7 @@ async def create_model(req: ModelCreateRequest, db: AsyncSession = Depends(get_d
         await db.flush()
         return {"id": model.id, "name": model.name, "message": "模型配置创建成功"}
 
-    return await _retry_write(db, _create)
+    return await _retry_write_and_invalidate_models(db, _create)
 
 
 @router.get("/usage/summary")
@@ -487,7 +519,7 @@ async def update_model(model_id: int, req: ModelUpdateRequest, db: AsyncSession 
         await db.flush()
         return {"message": f"模型 {model.name} 更新成功"}
 
-    return await _retry_write(db, _update)
+    return await _retry_write_and_invalidate_models(db, _update)
 
 
 @router.delete("/{model_id}")
@@ -503,7 +535,7 @@ async def delete_model(model_id: int, db: AsyncSession = Depends(get_db)):
         await db.flush()
         return {"message": f"模型 {name} 已删除"}
 
-    return await _retry_write(db, _delete)
+    return await _retry_write_and_invalidate_models(db, _delete)
 
 
 @router.post("/{model_id}/set-primary")
@@ -522,7 +554,7 @@ async def set_primary(model_id: int, db: AsyncSession = Depends(get_db)):
         await db.flush()
         return {"message": f"{model.name} 已设为主模型"}
 
-    return await _retry_write(db, _set_primary)
+    return await _retry_write_and_invalidate_models(db, _set_primary)
 
 
 @router.post("/{model_id}/set-fallback")
@@ -541,7 +573,7 @@ async def set_fallback(model_id: int, db: AsyncSession = Depends(get_db)):
         await db.flush()
         return {"message": f"{model.name} 已设为备用模型"}
 
-    return await _retry_write(db, _set_fallback)
+    return await _retry_write_and_invalidate_models(db, _set_fallback)
 
 
 @router.post("/{model_id}/test")
@@ -565,16 +597,13 @@ async def test_model(model_id: int, db: AsyncSession = Depends(get_db)):
     resolved_model = _resolve_litellm_model(model)
 
     test_prompt = "请用一句话介绍你自己，包括你的模型名称。"
-    kwargs = {
-        "model": resolved_model,
-        "messages": [{"role": "user", "content": test_prompt}],
-        "temperature": 0.3,
-        "max_tokens": 200,
-    }
-    if model.api_key:
-        kwargs["api_key"] = model.api_key
-    if model.api_base:
-        kwargs["api_base"] = model.api_base
+    kwargs = _completion_kwargs(
+        model,
+        resolved_model,
+        [{"role": "user", "content": test_prompt}],
+        temperature=0.3,
+        max_tokens=200,
+    )
 
     start = time.monotonic()
     try:
@@ -745,16 +774,13 @@ async def run_evaluation(req: EvalRunRequest, db: AsyncSession = Depends(get_db)
 
         resolved_model = _resolve_litellm_model(model)
 
-        kwargs = {
-            "model": resolved_model,
-            "messages": [{"role": "user", "content": prompt_text}],
-            "temperature": model.temperature,
-            "max_tokens": model.max_tokens,
-        }
-        if model.api_key:
-            kwargs["api_key"] = model.api_key
-        if model.api_base:
-            kwargs["api_base"] = model.api_base
+        kwargs = _completion_kwargs(
+            model,
+            resolved_model,
+            [{"role": "user", "content": prompt_text}],
+            temperature=model.temperature,
+            max_tokens=model.max_tokens,
+        )
 
         start = time.monotonic()
         try:

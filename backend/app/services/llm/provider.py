@@ -95,6 +95,15 @@ class ModelConfigCache:
 
 _model_cache = ModelConfigCache()
 
+
+async def invalidate_model_cache() -> None:
+    """Force the next LLM call to reload model settings from the database."""
+    async with _model_cache._lock:
+        _model_cache._primary = None
+        _model_cache._fallback = None
+        _model_cache._last_refresh = 0.0
+    _failover.reset()
+
 # ── Model failover state tracker ──────────────────────────────────────
 
 class ModelFailover:
@@ -136,6 +145,12 @@ class ModelFailover:
                 logger.info("ModelFailover: PRIMARY recovered, switching back")
                 self._state = self.HEALTHY
                 self._reset_at = None
+
+    def reset(self):
+        """Reset failover state after model configuration changes."""
+        with self._lock:
+            self._state = self.HEALTHY
+            self._reset_at = None
 
     def should_skip_primary(self) -> bool:
         """Return True if we should use fallback. Check reset time before probing."""

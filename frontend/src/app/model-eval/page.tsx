@@ -70,7 +70,7 @@ const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
   custom: {
     label: '自定义 OpenAI 兼容',
     baseUrl: '',
-    modelPlaceholder: 'provider/model-name',
+    modelPlaceholder: 'opencode/deepseek-v4-flash-free',
   },
 };
 

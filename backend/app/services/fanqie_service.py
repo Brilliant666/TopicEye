@@ -170,6 +170,7 @@ async def _upsert_books(db: AsyncSession, book_list: list[dict], rank_type: str,
             setattr(existing, pos_field, new_pos)
             existing.current_pos = new_pos or existing.current_pos
             existing.rank_type = rank_type
+            _refresh_book_metadata(existing, item, extra)
             existing.crawled_at = datetime.now()
         else:
             book = FanqieBook(
@@ -190,6 +191,20 @@ async def _upsert_books(db: AsyncSession, book_list: list[dict], rank_type: str,
                 **{pos_field: item.get("currentPos")},
             )
             db.add(book)
+
+
+def _refresh_book_metadata(book: FanqieBook, item: dict, extra: dict) -> None:
+    """Refresh mutable metadata, including signed cover URLs that expire."""
+    book.book_name = item.get("bookName", book.book_name)
+    book.author = item.get("author", book.author)
+    book.abstract = item.get("abstract", book.abstract)
+    book.category_id = book.category_id or extra.get("category_id", "")
+    book.category_name = book.category_name or extra.get("category_name", "")
+    book.thumb_uri = item.get("thumbUri") or book.thumb_uri
+    book.read_count = str(item.get("read_count", book.read_count or ""))
+    book.word_number = str(item.get("wordNumber", book.word_number or ""))
+    book.last_chapter_title = item.get("lastChapterTitle", book.last_chapter_title)
+    book.last_chapter_update_time = item.get("lastChapterUpdateTime", book.last_chapter_update_time)
 
 
 async def full_sync() -> dict:

@@ -14,7 +14,7 @@ SYSTEM_PROMPT = """你是一位资深内容策展分析师，负责评估内容�
 - 来源权威度（一手信源 > 二手转载）
 - 时效性（首发/独家 > 已被广泛报道）
 
-所有评分范围 0-100。所有文本使用中文。语气直接、有态度、不说客套话。"""
+所有评分范围 0-100。所有输出文本使用中文。语气直接、有态度、不说客套话。"""
 
 ANALYSIS_PROMPT = """请对以下内容进行完整分析。
 
@@ -41,7 +41,7 @@ ANALYSIS_PROMPT = """请对以下内容进行完整分析。
     "source_weight": <0-100, 来源权威度：匿名/营销号=10-30, 二手转载=40-60, 一手信源/官方/KOL=70-100>,
     "curation_score": <0-100, 综合精选分（加权：信息密度30%+可操作性25%+创作者价值20%+爆文潜力15%+来源10%，风险分>70则扣20分）>
   }},
-  "recommendation": "精选推荐理由（50字以内，内行视角点评。要求：①先说这事牛在哪或不同在哪（具体功能/数据/差异点，不要用'神器''炸裂'等夸大词）②点出谁该关注③给一个具体行动建议。风格：老手之间的推荐，不是营销号喊话。例：'一键转代码不稀奇，但兼容Cursor这套组合拳让它成了产设研协作的新选项，做项目的上手试试'）",
+  "recommendation": "中文摘要式推荐理由（50字以内）。先用一句话概括这条内容的核心信息，再点出为什么值得关注/适合写；不要翻译腔、不要英文、不要营销夸张词、不要只写行动建议。例：'OpenCode Zen 把优选编码模型做成统一网关，适合关注 AI 编程工具生态的人跟进'）",
   "creator_angles": ["创作角度1", "创作角度2", "创作角度3"],
   "title_suggestions": ["建议标题1", "建议标题2", "建议标题3"]
 }}
@@ -73,7 +73,7 @@ IMPORTANT — Content from HackerNews, Reddit, and similar English communities o
 
 When scoring such content, DO NOT penalize for brevity or discussion format. A concise HN post about a new tool can legitimately score 80+ on curation_score if it surfaces something new and actionable.
 
-All scores are 0-100. Output language should match the content being evaluated (English in, English out). Be direct, opinionated, no platitudes."""
+All scores are 0-100. IMPORTANT: all output text must be Chinese, even if the source content is English. Be direct, opinionated, no platitudes."""
 
 ANALYSIS_PROMPT_EN = """Analyze the following content thoroughly.
 
@@ -83,8 +83,8 @@ Content: {content}
 Output strictly in this JSON format (no other text):
 
 {{
-  "summary": "One-line summary (30 chars max)",
-  "key_points": ["Core point 1", "Core point 2", "Core point 3"],
+  "summary": "中文一句话摘要（30字以内）",
+  "key_points": ["中文核心观点1", "中文核心观点2", "中文核心观点3"],
   "tags": ["tag1", "tag2"],
   "scores": {{
     "quality_score": <0-100, information density and logical coherence>,
@@ -94,16 +94,16 @@ Output strictly in this JSON format (no other text):
     "viral_score": <0-100, viral传播 potential>,
     "risk_score": <0-100, content risk>
   }},
-  "risk_notes": "Risk description or empty string. Rule: when risk_score > 50, must provide specific risk note (e.g. 'sensitive topic', 'may cause controversy', 'unverified claims', 'copyright issue'), max 20 chars; when risk_score <= 50, output empty string \"\"",
+  "risk_notes": "中文风险说明或空字符串。规则：当risk_score > 50时，必须填写具体风险说明（如：话题敏感、可能引发争议、涉及未证实信息、版权风险等），20字以内；当risk_score <= 50时，输出空字符串 \"\"",
   "curation": {{
     "info_density": <0-100, info density: pure share/empty talk=0-20, has opinions=40-60, has data/case/method=70-100>,
     "actionability": <0-100, actionability: pure news=10-30, reference value=40-60, directly actionable=70-100>,
     "source_weight": <0-100, source authority: anonymous/spam=10-30, second-hand=40-60, first-hand/official/KOL=70-100>,
     "curation_score": <0-100, 综合精选分（weighted: info density 30%+ actionability 25%+ creator value 20%+ viral potential 15%+ source 10%, risk>70 deducts 20 points）>
   }},
-  "recommendation": "Curation reason (50 chars max, expert insider perspective). Requirements: ① state what's genuinely notable or different (specific features/data/differences — no hype words like 'amazing' or 'game-changer') ② who should pay attention ③ a concrete action suggestion. Style: peer recommendation between practitioners, not marketing copy. Example: 'HN frontpage' tool is common, but this one adds GitHub trending integration that actually surfaces repos before they go viral — worth monitoring if you track dev tools on Product Hunt'",
-  "creator_angles": ["Creator angle 1", "Creator angle 2", "Creator angle 3"],
-  "title_suggestions": ["Suggested title 1", "Suggested title 2", "Suggested title 3"]
+  "recommendation": "中文摘要式推荐理由（50字以内）。先用一句话概括这条英文内容的核心信息，再点出为什么值得中文创作者关注/适合写；不要输出英文、不要翻译腔、不要营销夸张词、不要只写行动建议。例：'OpenCode Zen 把优选编码模型做成统一网关，适合关注 AI 编程工具生态的人跟进'",
+  "creator_angles": ["中文创作角度1", "中文创作角度2", "中文创作角度3"],
+  "title_suggestions": ["中文建议标题1", "中文建议标题2", "中文建议标题3"]
 }}
 
 Curation score (curation_score) guidelines:

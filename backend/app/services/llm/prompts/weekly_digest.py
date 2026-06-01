@@ -22,7 +22,7 @@ WEEKLY_DIGEST_PROMPT = """你是一位资深内容策划顾问。请根据以下
     {{"title": "趋势标题", "desc": "趋势描述（50字内）", "color": "#3B82F6", "momentum": "up"}}
   ],
   "top_picks": [
-    {{"rank": 1, "title": "选题标题", "source": "来源名称", "category": "分类", "reason": "推荐理由（60字内）", "score": 85, "platforms": ["公众号", "小红书"]}}
+    {{"rank": 1, "title": "选题标题", "source": "来源名称", "category": "分类", "reason": "中文摘要式推荐理由（60字内，概括核心信息+为什么值得写）", "score": 85, "platforms": ["公众号", "小红书"]}}
   ],
   "category_summary": {{
     "AI": {{"count": 5, "avg_score": 78, "top_title": "最热标题"}},
@@ -45,6 +45,7 @@ WEEKLY_DIGEST_PROMPT = """你是一位资深内容策划顾问。请根据以下
 要求：
 - trends 给出 3-5 个本周内容趋势，momentum 为 up/down/stable
 - top_picks 从上面数据中选 8-10 个最值得写的选题，按推荐度排序
+- top_picks.reason 必须是中文摘要式推荐理由：先概括这条内容讲了什么，再说明为什么值得写；不要输出英文、不要营销夸张词、不要只写“建议关注/可以写”
 - category_summary 按分类统计本周内容（count=数量, avg_score=平均创作分, top_title=该分类最热内容）
 - platform_tips 给出各平台本周的创作建议（每平台2-3条）
 - topic_clusters 识别 3-6 个热门话题聚类

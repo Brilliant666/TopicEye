@@ -21,6 +21,7 @@ class SourceType(str, enum.Enum):
     ZHIHU = "Zhihu"
     BILIBILI = "B站"
     DOUYIN_HOT = "DouyinHot"
+    API = "API"
     CUSTOM = "自定义"
 
 
@@ -37,7 +38,7 @@ class Source(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     source_type: Mapped[str] = mapped_column(value_enum(SourceType), nullable=False, default=SourceType.RSS)
     url: Mapped[str] = mapped_column(String(1024), nullable=False)
-    keyword: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    keyword: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     platform: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     category: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     weight: Mapped[int] = mapped_column(Integer, nullable=False, default=3)

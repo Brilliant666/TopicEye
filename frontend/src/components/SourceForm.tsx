@@ -7,6 +7,7 @@ export interface FormState {
   name: string;
   source_type: string;
   url: string;
+  keyword: string;
   category: string;
   weight: number;
   enabled: boolean;
@@ -16,13 +17,14 @@ export const emptyForm: FormState = {
   name: '',
   source_type: 'RSS',
   url: '',
+  keyword: '',
   category: 'AI',
   weight: 3,
   enabled: true,
 };
 
 export const CATEGORIES = ['AI', '商业', '科技', '教育', '自媒体', '生活', '职场', '产品'];
-export const SOURCE_TYPES = ['RSS', 'RSSHub', 'Reddit', 'TwitterRSS', '公众号', '网站', 'Zhihu'];
+export const SOURCE_TYPES = ['RSS', 'RSSHub', 'Reddit', 'TwitterRSS', 'API', '公众号', '网站', 'Zhihu'];
 
 interface SourceFormProps {
   form: FormState;
@@ -66,12 +68,27 @@ export default function SourceForm({ form, setForm }: SourceFormProps) {
         <FieldLabel>URL / 地址</FieldLabel>
         <input
           type="text"
-          placeholder="https://example.com/feed"
+          placeholder={form.source_type === 'API' ? 'https://example.com/api/items' : 'https://example.com/feed'}
           value={form.url}
           onChange={(e) => setForm((f) => ({ ...f, url: e.target.value }))}
           className={cx(inputClass, 'font-mono')}
         />
       </div>
+
+      {form.source_type === 'API' && (
+        <div>
+          <FieldLabel>
+            API 配置
+            <span className="ml-2 text-[11px] font-normal text-gray-400">JSON，可选</span>
+          </FieldLabel>
+          <textarea
+            value={form.keyword}
+            onChange={(e) => setForm((f) => ({ ...f, keyword: e.target.value }))}
+            placeholder={'{"items_path":"data.items","fields":{"title":"title","url":"url","summary":"summary"}}'}
+            className="min-h-28 w-full resize-y rounded-xs border border-gray-200 bg-white px-3 py-2 font-mono text-xs leading-5 text-gray-800 outline-none transition placeholder:text-gray-300 focus:border-primary-border focus:ring-2 focus:ring-primary-light"
+          />
+        </div>
+      )}
 
       <div>
         <FieldLabel>分类</FieldLabel>

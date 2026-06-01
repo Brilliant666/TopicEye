@@ -96,3 +96,4 @@ from . import reddit as _reddit_mod       # noqa: E402, F401
 from . import zhihu as _zhihu_mod         # noqa: E402, F401
 from . import twitter_rss as _twitter_rss_mod  # noqa: E402, F401
 from . import douyin_hot as _douyin_hot_mod    # noqa: E402, F401
+from . import api_source as _api_source_mod    # noqa: E402, F401

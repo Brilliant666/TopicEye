@@ -393,6 +393,7 @@ export default function SourcesPage() {
         name: form.name.trim(),
         source_type: form.source_type,
         url: form.url.trim(),
+        keyword: form.keyword.trim() || null,
         category: form.category,
         weight: form.weight,
         enabled: form.enabled,
@@ -489,6 +490,7 @@ export default function SourcesPage() {
         name: form.name.trim(),
         source_type: form.source_type,
         url: form.url.trim(),
+        keyword: form.keyword.trim() || null,
         category: form.category,
         weight: form.weight,
         enabled: form.enabled,
@@ -511,6 +513,7 @@ export default function SourcesPage() {
       name: src.name,
       source_type: src.source_type,
       url: src.url,
+      keyword: src.keyword || '',
       category: src.category,
       weight: src.weight ?? 3,
       enabled: src.enabled,
@@ -726,12 +729,13 @@ export default function SourcesPage() {
           className="h-9 cursor-pointer rounded-sm border border-gray-200 bg-white px-3 text-[13px] outline-none transition focus:border-primary-border focus:ring-2 focus:ring-primary-light"
         >
           <option value="">全部类型</option>
-          <option value="rss">RSS</option>
-          <option value="rsshub">RSSHub</option>
-          <option value="twitter_rss">Twitter RSS</option>
-          <option value="reddit">Reddit</option>
-          <option value="zhihu">知乎</option>
-          <option value="hackernews">HackerNews</option>
+          <option value="RSS">RSS</option>
+          <option value="RSSHub">RSSHub</option>
+          <option value="TwitterRSS">Twitter RSS</option>
+          <option value="Reddit">Reddit</option>
+          <option value="API">API</option>
+          <option value="Zhihu">知乎</option>
+          <option value="网站">网站</option>
         </select>
         <select
           value={filterEnabled === undefined ? '' : filterEnabled ? 'yes' : 'no'}

@@ -10,7 +10,7 @@ export interface BackendSource {
   name: string;
   source_type: string;
   url: string;
-  keyword?: string;
+  keyword?: string | null;
   platform?: string;
   category: string;
   weight: number;
@@ -27,6 +27,7 @@ export interface BackendSource {
 const typeColors: Record<string, string> = {
   RSS: 'bg-purple-light text-purple',
   RSSHub: 'bg-teal-light text-teal',
+  API: 'bg-primary-light text-primary',
   公众号: 'bg-red-light text-red',
   网站: 'bg-amber-light text-amber',
 };

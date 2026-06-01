@@ -24,13 +24,16 @@ export const syncBoardOrder: SyncBoardKey[] = ['running', 'due', 'waiting', 'fre
 
 export function sourceTypeLabel(type: string): string {
   const map: Record<string, string> = {
-    rss: 'RSS',
-    rsshub: 'RSSHub',
-    twitter_rss: 'Twitter RSS',
-    reddit: 'Reddit',
-    hackernews: 'HackerNews',
-    zhihu: '知乎',
-    douyin_hot: '抖音热榜',
+    RSS: 'RSS',
+    RSSHub: 'RSSHub',
+    TwitterRSS: 'Twitter RSS',
+    Reddit: 'Reddit',
+    API: 'API',
+    Zhihu: '知乎',
+    DouyinHot: '抖音热榜',
+    网站: '网站',
+    公众号: '公众号',
+    自定义: '自定义',
   };
   return map[type] || type;
 }

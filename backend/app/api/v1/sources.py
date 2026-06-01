@@ -40,6 +40,8 @@ class SourceBatchImportItem(BaseModel):
 
 def _guess_source_type(url: str) -> SourceType:
     lower = url.lower()
+    if "/api/" in lower or lower.endswith(".json"):
+        return SourceType.API
     if "xgo.ing" in lower or "twitter.com" in lower or "x.com/" in lower:
         return SourceType.TWITTER_RSS if "xgo.ing" in lower else SourceType.X
     if "rsshub" in lower:

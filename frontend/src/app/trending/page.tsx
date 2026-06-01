@@ -418,6 +418,12 @@ function TrendingPage() {
   const [sources, setSources] = useState<TrendingSource[]>([]);
   const [clusters, setClusters] = useState<CrossPlatformCluster[]>([]);
   const [persistentTopics, setPersistentTopics] = useState<PersistentTopic[]>([]);
+  const [stats, setStats] = useState({
+    sourceCount: 0,
+    sampleCount: 0,
+    resonanceCount: 0,
+    persistentCount: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [minResonance, setMinResonance] = useState(2);
@@ -438,6 +444,11 @@ function TrendingPage() {
       ]);
       setItems(itemList);
       setSources(srcList);
+      setStats(prev => ({
+        ...prev,
+        sourceCount: srcList.length,
+        sampleCount: srcList.reduce((sum, source) => sum + source.count, 0),
+      }));
     } catch (e) {
       console.error('Failed to fetch trending:', e);
     } finally {
@@ -450,6 +461,9 @@ function TrendingPage() {
     try {
       const data = await trendingApi.crossPlatform({ min_resonance: minResonance, limit: 50 });
       setClusters(data.clusters || []);
+      if (minResonance === 2) {
+        setStats(prev => ({ ...prev, resonanceCount: data.total ?? data.clusters?.length ?? 0 }));
+      }
     } catch (e) {
       console.error('Failed to fetch cross-platform:', e);
     } finally {
@@ -462,6 +476,7 @@ function TrendingPage() {
     try {
       const data = await trendingApi.persistent({ min_days: 2, min_sources: 1, days_back: 7 });
       setPersistentTopics(data.topics || []);
+      setStats(prev => ({ ...prev, persistentCount: data.total ?? data.topics?.length ?? 0 }));
     } catch (e) {
       console.error('Failed to fetch persistent:', e);
     } finally {
@@ -475,10 +490,34 @@ function TrendingPage() {
     else fetchPersistent();
   }, [tab, fetchList, fetchClusters, fetchPersistent]);
 
+  const fetchStats = useCallback(async () => {
+    try {
+      const [srcList, resonance, persistent] = await Promise.all([
+        trendingApi.listSources(),
+        trendingApi.crossPlatform({ min_resonance: 2, limit: 50 }),
+        trendingApi.persistent({ min_days: 2, min_sources: 1, days_back: 7 }),
+      ]);
+      setStats({
+        sourceCount: srcList.length,
+        sampleCount: srcList.reduce((sum, source) => sum + source.count, 0),
+        resonanceCount: resonance.total ?? resonance.clusters?.length ?? 0,
+        persistentCount: persistent.total ?? persistent.topics?.length ?? 0,
+      });
+      setSources(prev => (prev.length > 0 ? prev : srcList));
+    } catch (e) {
+      console.error('Failed to fetch trending stats:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
   const handleSyncAll = async () => {
     setSyncing(true);
     try {
       await trendingApi.syncAll();
+      await fetchStats();
       if (tab === 'list') await fetchList();
       else await fetchClusters();
     } catch (e) {
@@ -529,10 +568,10 @@ function TrendingPage() {
           </Button>
         </div>
         <div className="mt-4.5 grid grid-cols-4 gap-2.5 max-md:grid-cols-2">
-          <StatTile icon={Rss} label="信源" value={filteredSources.length || sources.length} hint="当前可扫描平台" colorClass="text-primary" />
-          <StatTile icon={Layers3} label="样本" value={items.length} hint="榜单候选内容" colorClass="text-teal" />
-          <StatTile icon={Activity} label="共振" value={clusters.length} hint={`最低 ${minResonance} 平台`} colorClass="text-red" />
-          <StatTile icon={Clock3} label="持续" value={persistentTopics.length} hint="近 7 天持续话题" colorClass="text-amber" />
+          <StatTile icon={Rss} label="信源" value={stats.sourceCount || filteredSources.length || sources.length} hint="当前可扫描平台" colorClass="text-primary" />
+          <StatTile icon={Layers3} label="样本" value={stats.sampleCount || items.length} hint="榜单候选内容" colorClass="text-teal" />
+          <StatTile icon={Activity} label="共振" value={stats.resonanceCount} hint="最低 2 平台" colorClass="text-red" />
+          <StatTile icon={Clock3} label="持续" value={stats.persistentCount} hint="近 7 天持续话题" colorClass="text-amber" />
         </div>
       </Panel>
 

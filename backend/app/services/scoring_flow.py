@@ -38,6 +38,10 @@ def get_cached_scoring_flow_json(
     return json_bytes, age_seconds
 
 
+def invalidate_scoring_flow_cache() -> None:
+    _CACHE.clear()
+
+
 async def build_scoring_flow_payload(
     db: AsyncSession,
     *,

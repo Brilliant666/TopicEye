@@ -15,6 +15,7 @@ from app.schemas.feedback import (
     FeedbackResponse,
     FeedbackStatsResponse,
 )
+from app.services.content_read_cache import invalidate_content_read_caches
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
@@ -55,6 +56,7 @@ async def submit_feedback(
             await db.execute(delete(UserFeedback).where(UserFeedback.id.in_(stale_ids)))
         await db.flush()
         await db.refresh(existing)
+        invalidate_content_read_caches()
         return existing
 
     feedback = UserFeedback(
@@ -66,6 +68,7 @@ async def submit_feedback(
     db.add(feedback)
     await db.flush()
     await db.refresh(feedback)
+    invalidate_content_read_caches()
     return feedback
 
 

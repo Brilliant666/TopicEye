@@ -1,5 +1,6 @@
 """Content API endpoints — delegates all DB work to repositories."""
 from __future__ import annotations
+import json
 from typing import Optional, Set
 from datetime import datetime
 
@@ -235,7 +236,6 @@ async def today_picks(
 async def scoring_flow(
     hours: int = Query(48, ge=1, le=720),
     limit: int = Query(120, ge=20, le=500),
-    db: AsyncSession = Depends(get_db),
 ):
     """Return a read-only explanation payload for the content scoring funnel."""
     from app.services.scoring_flow import build_scoring_flow_payload, get_cached_scoring_flow_json
@@ -249,7 +249,13 @@ async def scoring_flow(
             headers={"X-Scoring-Flow-Cache": f"HIT; age={age_seconds:.3f}s"},
         )
 
-    return await build_scoring_flow_payload(db, hours=hours, limit=limit)
+    async with async_session() as db:
+        payload = await build_scoring_flow_payload(db, hours=hours, limit=limit)
+        return Response(
+            content=json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str),
+            media_type="application/json",
+            headers={"X-Scoring-Flow-Cache": "MISS"},
+        )
 
 
 @router.get("/favorites/list", response_model=ContentListResponse)

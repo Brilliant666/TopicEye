@@ -5,6 +5,9 @@ from app.services.scoring_flow import (
     build_sample_payload,
     build_scoring_config_summary,
     build_stage_counts,
+    cache_payload,
+    get_cached_scoring_flow_json,
+    invalidate_scoring_flow_cache,
 )
 
 
@@ -122,3 +125,21 @@ def test_build_scoring_config_summary_exposes_readonly_thresholds():
     assert "curation_threshold" in config
     assert "risk_threshold" in config
     assert "quality_gate_floor" in config
+
+
+def test_scoring_flow_cache_can_be_invalidated():
+    invalidate_scoring_flow_cache()
+    cache_key = (48, 160, 80)
+
+    cache_payload(cache_key, build_empty_payload(
+        hours=48,
+        analyzed_total=0,
+        window_total=0,
+        ignored_count=0,
+        limit=160,
+        sample_limit=80,
+    ))
+
+    assert get_cached_scoring_flow_json(hours=48, limit=160) is not None
+    invalidate_scoring_flow_cache()
+    assert get_cached_scoring_flow_json(hours=48, limit=160) is None

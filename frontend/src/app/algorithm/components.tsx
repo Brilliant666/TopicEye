@@ -60,6 +60,13 @@ function fmt(value: number | undefined, digits = 1) {
   return Number(value ?? 0).toFixed(digits);
 }
 
+function windowLabel(hours: number) {
+  if (hours === 720) return '30 天';
+  if (hours === 168) return '7 天';
+  if (hours === 24) return '24 小时';
+  return `${hours} 小时`;
+}
+
 function emptyReasonText(reason?: string) {
   const map: Record<string, { title: string; detail: string; action: string }> = {
     no_analyzed_content: {
@@ -70,7 +77,7 @@ function emptyReasonText(reason?: string) {
     no_content_in_window: {
       title: '当前观察窗口没有样本',
       detail: '数据库里有已分析内容，但不在当前时间窗口内。',
-      action: '切换到 7 天窗口，或刷新信源获取近期内容。',
+      action: '切换到 7 天或 30 天窗口查看历史样本，或刷新信源获取近期内容。',
     },
     candidate_limit_empty: {
       title: '候选查询没有返回内容',
@@ -148,7 +155,7 @@ export function AlgorithmHeader({
               <GitBranch size={13} strokeWidth={2.4} />
               SCORING FLOW
             </Badge>
-            <span className="text-xs font-bold text-gray-500">最近 {hours === 168 ? '7 天' : `${hours} 小时`}</span>
+            <span className="text-xs font-bold text-gray-500">最近 {windowLabel(hours)}</span>
           </div>
           <h1 className="m-0 text-[28px] font-black leading-tight text-gray-900">算法流程</h1>
           <p className="mt-2 max-w-3xl text-sm leading-7 text-gray-500">
@@ -158,7 +165,7 @@ export function AlgorithmHeader({
 
         <Toolbar className="lg:justify-end">
           <div className="inline-flex rounded-sm border border-gray-200 bg-gray-100 p-1">
-            {[24, 48, 168].map((h) => {
+            {[24, 48, 168, 720].map((h) => {
               const active = hours === h;
               return (
                 <button
@@ -168,7 +175,7 @@ export function AlgorithmHeader({
                     active ? 'bg-white text-primary shadow-[0_1px_3px_rgba(15,23,42,0.08)]' : 'text-gray-500 hover:text-gray-800'
                   }`}
                 >
-                  {h === 168 ? '7天' : `${h}h`}
+                  {h === 720 ? '30天' : h === 168 ? '7天' : `${h}h`}
                 </button>
               );
             })}
@@ -238,7 +245,7 @@ export function DiagnosticsPanel({ data }: { data: ScoringFlowResponse }) {
         </div>
         <Badge tone={isEmpty ? 'amber' : 'teal'} className="gap-1.5 rounded-xs font-mono">
           <TimerReset size={12} />
-          {data.hours === 168 ? '7D' : `${data.hours}H`}
+          {data.hours === 720 ? '30D' : data.hours === 168 ? '7D' : `${data.hours}H`}
         </Badge>
       </div>
 

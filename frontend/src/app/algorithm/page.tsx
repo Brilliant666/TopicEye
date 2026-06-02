@@ -23,7 +23,7 @@ function selectedStageKey(sample?: ScoringFlowSample) {
 }
 
 export default function AlgorithmPage() {
-  const [hours, setHours] = useState(48);
+  const [hours, setHours] = useState(168);
   const [data, setData] = useState<ScoringFlowResponse | null>(null);
   const [selected, setSelected] = useState<ScoringFlowSample | undefined>();
   const [loading, setLoading] = useState(true);

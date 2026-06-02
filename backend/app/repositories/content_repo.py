@@ -440,6 +440,26 @@ class ContentRepo(BaseRepository[ContentItem]):
         result = await self.db.execute(stmt)
         return int(result.scalar() or 0)
 
+    async def count_collected_for_scoring_window(
+        self,
+        *,
+        exclude_ids: Optional[set] = None,
+        exclude_source_types: Optional[set[str]] = None,
+        time_cutoff: Optional[datetime] = None,
+    ) -> int:
+        """Count collected content in the same source scope as scoring diagnostics."""
+        stmt = select(func.count(self.model.id))
+
+        if exclude_ids:
+            stmt = stmt.where(self.model.id.notin_(exclude_ids))
+        if exclude_source_types:
+            stmt = stmt.where(self.model.source_type.notin_(exclude_source_types))
+        if time_cutoff:
+            stmt = stmt.where(self.model.crawled_at >= time_cutoff)
+
+        result = await self.db.execute(stmt)
+        return int(result.scalar() or 0)
+
     async def list_scoring_rows(
         self,
         *,

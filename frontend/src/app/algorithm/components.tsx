@@ -74,6 +74,11 @@ function emptyReasonText(reason?: string) {
       detail: '评分流程只读取已完成分析的内容。当前数据库里没有 ANALYZED 状态的内容。',
       action: '先同步信源并运行内容分析，再回到这里查看评分路径。',
     },
+    collected_not_analyzed: {
+      title: '内容已采集，仍在等待分析',
+      detail: '当前窗口有新内容进入内容流，但这些内容还没有写入 AI 分析结果，所以暂时不能进入评分漏斗。',
+      action: '先运行内容分析任务；分析完成后，24 小时窗口会出现评分样本。',
+    },
     no_content_in_window: {
       title: '当前观察窗口没有样本',
       detail: '数据库里有已分析内容，但不在当前时间窗口内。',
@@ -197,10 +202,10 @@ export function AlgorithmHeader({
 
 export function SummaryGrid({ data }: { data: ScoringFlowResponse }) {
   const cards: Array<{ label: string; value: number | string; icon: LucideIcon; colorClass: string; iconClass: string }> = [
-    { label: '数据库候选', value: data.total, icon: SlidersHorizontal, colorClass: 'text-gray-800', iconClass: 'text-gray-800' },
+    { label: '采集内容', value: data.diagnostics?.collected_window_total ?? data.total, icon: SlidersHorizontal, colorClass: 'text-gray-800', iconClass: 'text-gray-800' },
+    { label: '待分析', value: data.diagnostics?.pending_analysis_total ?? 0, icon: AlertTriangle, colorClass: 'text-amber', iconClass: 'text-amber' },
     { label: '参与评分', value: data.scored, icon: GitBranch, colorClass: 'text-teal', iconClass: 'text-teal' },
     { label: '精选输出', value: data.stages.find((s) => s.key === 'selected')?.count || 0, icon: CheckCircle2, colorClass: 'text-primary', iconClass: 'text-primary' },
-    { label: '已分析总量', value: data.diagnostics?.analyzed_total ?? '-', icon: ShieldAlert, colorClass: 'text-amber', iconClass: 'text-amber' },
   ];
 
   return (
@@ -275,7 +280,9 @@ export function DiagnosticsPanel({
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {[
+          ['采集内容', diagnostics?.collected_window_total ?? 0],
           ['窗口候选', diagnostics?.window_total ?? data.total],
+          ['待分析', diagnostics?.pending_analysis_total ?? 0],
           ['已加载', diagnostics?.loaded_count ?? data.samples.length],
           ['评分输入', diagnostics?.scoring_input_count ?? data.scored],
           ['忽略排除', diagnostics?.ignored_count ?? 0],
@@ -315,6 +322,20 @@ export function DiagnosticsPanel({
               </button>
             );
           })}
+        </div>
+      ) : null}
+
+      {diagnostics?.collected_window_options?.length ? (
+        <div className="mt-3 rounded-sm border border-gray-100 bg-gray-50 p-3">
+          <div className="mb-2 text-[11px] font-black text-gray-500">采集内容窗口分布</div>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {diagnostics.collected_window_options.map((option) => (
+              <div key={option.hours} className="rounded-xs bg-white px-3 py-2">
+                <div className="text-[10px] font-bold text-gray-400">{windowLabel(option.hours)}</div>
+                <div className="mt-1 font-mono text-base font-black text-gray-800">{option.count}</div>
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
 

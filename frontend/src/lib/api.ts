@@ -424,7 +424,10 @@ export interface ScoringFlowSample {
 export interface ScoringFlowDiagnostics {
   analyzed_total: number;
   window_total: number;
+  collected_window_total?: number;
+  pending_analysis_total?: number;
   window_options: Array<{ hours: number; count: number }>;
+  collected_window_options?: Array<{ hours: number; count: number }>;
   recommended_hours?: number | null;
   loaded_count: number;
   scoring_input_count: number;

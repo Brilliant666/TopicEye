@@ -61,6 +61,16 @@ async def build_scoring_flow_payload(
     ignored_ids = await IgnoredRepo(db).list_ignored_ids()
     content_repo = ContentRepo(db)
     window_counts = await build_window_counts(content_repo, ignored_ids)
+    collected_window_counts = await build_collected_window_counts(content_repo, ignored_ids)
+    collected_window_total = next(
+        (item["count"] for item in collected_window_counts if item["hours"] == hours),
+        None,
+    )
+    if collected_window_total is None:
+        collected_window_total = await content_repo.count_collected_for_scoring_window(
+            exclude_ids=ignored_ids,
+            time_cutoff=time_cutoff,
+        )
     window_total = next(
         (item["count"] for item in window_counts if item["hours"] == hours),
         None,
@@ -76,7 +86,9 @@ async def build_scoring_flow_payload(
             hours=hours,
             analyzed_total=analyzed_total,
             window_total=window_total,
+            collected_window_total=collected_window_total,
             window_counts=window_counts,
+            collected_window_counts=collected_window_counts,
             ignored_count=len(ignored_ids),
             limit=limit,
             sample_limit=sample_limit,
@@ -103,7 +115,9 @@ async def build_scoring_flow_payload(
         "diagnostics": build_diagnostics(
             analyzed_total=analyzed_total,
             window_total=window_total,
+            collected_window_total=collected_window_total,
             window_counts=window_counts,
+            collected_window_counts=collected_window_counts,
             loaded_count=len(items),
             scoring_input_count=len(scoring_inputs),
             scored_count=len(scored),
@@ -138,6 +152,22 @@ async def build_window_counts(
     counts: list[dict[str, int]] = []
     for hours in DEBUG_WINDOW_HOURS:
         count = await content_repo.count_for_scoring(
+            exclude_ids=ignored_ids,
+            time_cutoff=now - timedelta(hours=hours),
+        )
+        counts.append({"hours": hours, "count": count})
+    return counts
+
+
+async def build_collected_window_counts(
+    content_repo: ContentRepo,
+    ignored_ids: list[int],
+) -> list[dict[str, int]]:
+    """Count collected items for explaining pre-analysis gaps."""
+    now = datetime.utcnow()
+    counts: list[dict[str, int]] = []
+    for hours in DEBUG_WINDOW_HOURS:
+        count = await content_repo.count_collected_for_scoring_window(
             exclude_ids=ignored_ids,
             time_cutoff=now - timedelta(hours=hours),
         )
@@ -209,7 +239,9 @@ def build_empty_payload(
     ignored_count: int,
     limit: int,
     sample_limit: int,
+    collected_window_total: int = 0,
     window_counts: Optional[list[dict[str, int]]] = None,
+    collected_window_counts: Optional[list[dict[str, int]]] = None,
 ) -> dict[str, Any]:
     """Build a scoring-flow response without loading ORM rows when no samples exist."""
     return {
@@ -219,7 +251,9 @@ def build_empty_payload(
         "diagnostics": build_diagnostics(
             analyzed_total=analyzed_total,
             window_total=window_total,
+            collected_window_total=collected_window_total,
             window_counts=window_counts,
+            collected_window_counts=collected_window_counts,
             loaded_count=0,
             scoring_input_count=0,
             scored_count=0,
@@ -245,10 +279,14 @@ def build_diagnostics(
     ignored_count: int,
     limit: int,
     sample_limit: int,
+    collected_window_total: int = 0,
     window_counts: Optional[list[dict[str, int]]] = None,
+    collected_window_counts: Optional[list[dict[str, int]]] = None,
 ) -> dict[str, Any]:
     """Explain why the scoring-flow payload is empty or partial."""
-    if analyzed_total <= 0:
+    if collected_window_total > 0 and window_total <= 0:
+        empty_reason = "collected_not_analyzed"
+    elif analyzed_total <= 0:
         empty_reason = "no_analyzed_content"
     elif window_total <= 0:
         empty_reason = "no_content_in_window"
@@ -270,7 +308,10 @@ def build_diagnostics(
     return {
         "analyzed_total": analyzed_total,
         "window_total": window_total,
+        "collected_window_total": collected_window_total,
+        "pending_analysis_total": max(0, collected_window_total - window_total),
         "window_options": normalized_window_counts,
+        "collected_window_options": collected_window_counts or [],
         "recommended_hours": recommended_hours,
         "loaded_count": loaded_count,
         "scoring_input_count": scoring_input_count,

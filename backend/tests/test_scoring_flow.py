@@ -119,6 +119,37 @@ def test_build_diagnostics_explains_empty_window():
     assert diagnostics["window_options"][2] == {"hours": 168, "count": 12}
 
 
+def test_build_diagnostics_explains_collected_pending_analysis():
+    diagnostics = build_diagnostics(
+        analyzed_total=1141,
+        window_total=0,
+        collected_window_total=1485,
+        loaded_count=0,
+        scoring_input_count=0,
+        scored_count=0,
+        ignored_count=0,
+        limit=160,
+        sample_limit=80,
+        window_counts=[
+            {"hours": 24, "count": 0},
+            {"hours": 48, "count": 0},
+            {"hours": 168, "count": 1141},
+            {"hours": 720, "count": 1141},
+        ],
+        collected_window_counts=[
+            {"hours": 24, "count": 1485},
+            {"hours": 48, "count": 1485},
+            {"hours": 168, "count": 1485},
+            {"hours": 720, "count": 1485},
+        ],
+    )
+
+    assert diagnostics["empty_reason"] == "collected_not_analyzed"
+    assert diagnostics["collected_window_total"] == 1485
+    assert diagnostics["pending_analysis_total"] == 1485
+    assert diagnostics["collected_window_options"][0] == {"hours": 24, "count": 1485}
+
+
 def test_build_empty_payload_keeps_diagnostics_and_empty_collections():
     payload = build_empty_payload(
         hours=48,

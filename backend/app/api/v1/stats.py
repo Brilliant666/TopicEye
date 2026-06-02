@@ -15,6 +15,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.database import async_session
 from app.services.json_cache import get_cached_json, set_cached_json
 
@@ -75,7 +76,7 @@ async def get_overview(days: int = Query(7, ge=1, le=90)):
     - today_new: 今日新增
     """
     cache_key = f"stats:overview:{days}"
-    cached = get_cached_json(cache_key, ttl_seconds=10.0)
+    cached = get_cached_json(cache_key, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
     if cached:
         content, age_seconds = cached
         return Response(
@@ -85,63 +86,67 @@ async def get_overview(days: int = Query(7, ge=1, le=90)):
         )
 
     async with async_session() as db:
-        cutoff = datetime.utcnow() - timedelta(days=days)
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-        thr = await _p70_threshold(db, cutoff)
-
-        # Total & analyzed & curated in date range
-        row = await db.execute(
-            select(
-                func.count(text("content_items.id")).label("total"),
-                func.count(
-                    case(
-                        (
-                            text("ai_analyses.curation_score IS NOT NULL"),
-                            text("content_items.id"),
-                        )
-                    )
-                ).label("analyzed"),
-                func.count(
-                    case(
-                        (
-                            text(f"ai_analyses.curation_score >= {thr:.1f}"),
-                            text("content_items.id"),
-                        )
-                    )
-                ).label("curated"),
-            )
-            .select_from(text("content_items"))
-            .outerjoin(text("ai_analyses"), text("ai_analyses.content_id = content_items.id"))
-            .where(text("content_items.crawled_at >= :cutoff"), text("content_items.duplicate_of IS NULL"))
-            .params(cutoff=cutoff.isoformat())
-        )
-        r = row.fetchone()
-
-        # Today new
-        today_row = await db.execute(
-            select(func.count(text("content_items.id")))
-            .select_from(text("content_items"))
-            .where(
-                text("content_items.crawled_at >= :today_start"),
-                text("content_items.duplicate_of IS NULL"),
-            )
-            .params(today_start=today_start.isoformat())
-        )
-        today_new = today_row.scalar() or 0
-
-        payload = {
-            "total": r.total or 0,
-            "analyzed": r.analyzed or 0,
-            "curated": r.curated or 0,
-            "curation_threshold": round(thr, 1),
-            "today_new": today_new,
-        }
+        payload = await build_overview_payload(db, days=days)
         content = set_cached_json(cache_key, payload)
         return Response(
             content=content,
             media_type="application/json",
             headers={"X-Stats-Cache": "MISS"},
         )
+
+
+async def build_overview_payload(db: AsyncSession, *, days: int) -> dict:
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    thr = await _p70_threshold(db, cutoff)
+
+    # Total & analyzed & curated in date range
+    row = await db.execute(
+        select(
+            func.count(text("content_items.id")).label("total"),
+            func.count(
+                case(
+                    (
+                        text("ai_analyses.curation_score IS NOT NULL"),
+                        text("content_items.id"),
+                    )
+                )
+            ).label("analyzed"),
+            func.count(
+                case(
+                    (
+                        text(f"ai_analyses.curation_score >= {thr:.1f}"),
+                        text("content_items.id"),
+                    )
+                )
+            ).label("curated"),
+        )
+        .select_from(text("content_items"))
+        .outerjoin(text("ai_analyses"), text("ai_analyses.content_id = content_items.id"))
+        .where(text("content_items.crawled_at >= :cutoff"), text("content_items.duplicate_of IS NULL"))
+        .params(cutoff=cutoff.isoformat())
+    )
+    r = row.fetchone()
+
+    # Today new
+    today_row = await db.execute(
+        select(func.count(text("content_items.id")))
+        .select_from(text("content_items"))
+        .where(
+            text("content_items.crawled_at >= :today_start"),
+            text("content_items.duplicate_of IS NULL"),
+        )
+        .params(today_start=today_start.isoformat())
+    )
+    today_new = today_row.scalar() or 0
+
+    return {
+        "total": r.total or 0,
+        "analyzed": r.analyzed or 0,
+        "curated": r.curated or 0,
+        "curation_threshold": round(thr, 1),
+        "today_new": today_new,
+    }
 
 
 # ────────────────────────────────────────────────────────────────

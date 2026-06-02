@@ -206,7 +206,7 @@ async def list_favorites(
     db: AsyncSession = Depends(get_db),
 ):
     cache_key = f"contents:favorites:list:{page}:{page_size}"
-    cached = get_cached_json(cache_key, ttl_seconds=10.0)
+    cached = get_cached_json(cache_key, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
     if cached:
         content, age_seconds = cached
         return Response(

@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     AUTO_CREATE_TABLES_ON_STARTUP: bool = True
     STARTUP_SEED_ENABLED: bool = True
     SCHEDULER_ENABLED: bool = True
+    CACHE_WARMUP_ENABLED: bool = True
+    READ_CACHE_TTL_SECONDS: float = 60.0
     SOURCE_SYNC_TIMEOUT_SECONDS: int = 120
 
     # ── Legacy DeepSeek config (backward compatible) ──

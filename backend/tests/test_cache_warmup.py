@@ -1,0 +1,87 @@
+from datetime import datetime
+
+import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app.config import settings
+from app.database import Base
+from app.models.analysis import AiAnalysis
+from app.models.content import ContentItem, ContentStatus
+from app.models.source import Source, SourceStatus, SourceType
+from app.services import cache_warmup
+from app.services.json_cache import get_cached_json, invalidate_json_cache
+from app.services.scoring_flow import get_cached_scoring_flow_json
+
+
+@pytest.mark.asyncio
+async def test_warmup_read_caches_populates_hot_read_cache_keys(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    invalidate_json_cache()
+    monkeypatch.setattr(cache_warmup, "async_session", session_factory)
+
+    async with session_factory() as db:
+        db.add(
+            Source(
+                id=1,
+                name="测试信源",
+                source_type=SourceType.RSS,
+                url="https://example.com/rss.xml",
+                category="AI",
+                status=SourceStatus.ACTIVE,
+                enabled=True,
+                sort_order=10,
+            )
+        )
+        db.add(
+            ContentItem(
+                id=1,
+                title="测试选题",
+                url="https://example.com/topic",
+                source_id=1,
+                source_name="测试信源",
+                source_type="RSS",
+                category="AI",
+                status=ContentStatus.ANALYZED,
+                is_favorited=True,
+                crawled_at=datetime.utcnow(),
+            )
+        )
+        db.add(
+            AiAnalysis(
+                content_id=1,
+                curation_score=82,
+                info_density=75,
+                actionability=70,
+                source_weight=80,
+                quality_score=78,
+                hot_score=65,
+                freshness_score=90,
+                creator_score=72,
+                viral_score=61,
+                risk_score=15,
+                recommendation="适合作为创作者选题观察样本",
+            )
+        )
+        await db.commit()
+
+    result = await cache_warmup.warmup_read_caches()
+
+    assert set(result["warmed"]) == {
+        "sources:list:1:20",
+        "contents:favorites:list:1:20",
+        "stats:overview:7",
+        "scoring-flow:48:160",
+    }
+    assert result["errors"] == []
+    ttl = settings.READ_CACHE_TTL_SECONDS
+    assert get_cached_json("sources:list:1:20:::None:", ttl_seconds=ttl) is not None
+    assert get_cached_json("contents:favorites:list:1:20", ttl_seconds=ttl) is not None
+    assert get_cached_json("stats:overview:7", ttl_seconds=ttl) is not None
+    assert get_cached_scoring_flow_json(hours=48, limit=160) is not None
+
+    invalidate_json_cache()
+    await engine.dispose()

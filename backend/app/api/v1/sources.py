@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.dependencies import get_db
 from app.core.exceptions import NotFoundError
 from app.models.source import Source, SourceType, SourceStatus
@@ -236,7 +237,7 @@ async def list_sources(
     db: AsyncSession = Depends(get_db),
 ):
     cache_key = f"sources:list:{page}:{page_size}:{source_type or ''}:{status or ''}:{enabled}:{keyword or ''}"
-    cached = get_cached_json(cache_key, ttl_seconds=10.0)
+    cached = get_cached_json(cache_key, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
     if cached:
         content, age_seconds = cached
         return Response(

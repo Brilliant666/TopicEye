@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 import time
+from typing import Optional
 from sqlalchemy import text
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,6 +33,7 @@ import app.models.user  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+_cache_warmup_task: Optional[asyncio.Task] = None
 
 
 async def ensure_source_sort_order_column(conn) -> None:
@@ -337,6 +340,8 @@ async def ensure_user_auth_schema(conn) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _cache_warmup_task
+
     # Startup: create all SQLite tables
     if settings.AUTO_CREATE_TABLES_ON_STARTUP:
         async with engine.begin() as conn:
@@ -399,9 +404,21 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Application startup complete — scheduler disabled by config")
 
+    if settings.CACHE_WARMUP_ENABLED:
+        from app.services.cache_warmup import warmup_read_caches
+
+        _cache_warmup_task = asyncio.create_task(warmup_read_caches())
+        logger.info("Read cache warmup scheduled")
+
     yield
 
     # Shutdown: stop scheduler, close connections, dispose engine
+    if _cache_warmup_task and not _cache_warmup_task.done():
+        _cache_warmup_task.cancel()
+        try:
+            await _cache_warmup_task
+        except asyncio.CancelledError:
+            pass
     shutdown_scheduler()
 
     # Close DuckDB analytics connection

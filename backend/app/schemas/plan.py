@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -23,3 +23,5 @@ class PlanCatalogResponse(BaseModel):
     paid_area: list[str]
     currency: str
     source: str
+    current_plan: str = "free"
+    current_tier: Optional[PlanTierResponse] = None

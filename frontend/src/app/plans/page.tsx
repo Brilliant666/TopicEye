@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Check, Gem, LockKeyhole, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Check, Gem, LockKeyhole, RefreshCw, ShieldCheck, Sparkles, UserRound } from 'lucide-react';
+import { useAppContext } from '@/components/ClientLayout';
 import { plansApi } from '@/lib/api';
 import { Badge, Button, Panel, cx } from '@/components/ui';
 import type { PlanCatalogResponse, PlanTier } from '@/types';
@@ -23,11 +24,12 @@ function formatLimit(value: unknown): string {
 }
 
 export default function PlansPage() {
+  const { currentUser, authLoading } = useAppContext();
   const [catalog, setCatalog] = useState<PlanCatalogResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchPlans = async () => {
+  const fetchPlans = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -37,13 +39,18 @@ export default function PlansPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    void fetchPlans();
   }, []);
 
+  useEffect(() => {
+    if (authLoading) return;
+    void fetchPlans();
+  }, [authLoading, currentUser?.plan, fetchPlans]);
+
   const recommended = useMemo(() => catalog?.tiers.find((tier) => tier.recommended), [catalog]);
+  const currentTier = useMemo(
+    () => catalog?.current_tier || catalog?.tiers.find((tier) => tier.key === catalog.current_plan) || null,
+    [catalog],
+  );
 
   return (
     <div className="fade-in h-full overflow-y-auto px-6 py-6 lg:px-10 lg:py-8">
@@ -58,16 +65,30 @@ export default function PlansPage() {
             把 PRD 里的商业模式拆成可查询的产品边界，后续权限控制、导航提示和付费功能开关都以这份配置为准。
           </p>
         </div>
-        {recommended && (
-          <Panel className="min-w-[260px] p-4">
-            <div className="mb-1 flex items-center gap-2 text-xs font-black text-primary">
-              <Sparkles size={14} />
-              当前建议主推
-            </div>
-            <div className="text-lg font-black text-gray-900">{recommended.name}</div>
-            <div className="mt-1 text-xs leading-5 text-gray-500">{recommended.highlight}</div>
-          </Panel>
-        )}
+        <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[560px]">
+          {currentTier && (
+            <Panel className="p-4">
+              <div className="mb-1 flex items-center gap-2 text-xs font-black text-teal">
+                <UserRound size={14} />
+                当前账号权益
+              </div>
+              <div className="text-lg font-black text-gray-900">{currentTier.name}</div>
+              <div className="mt-1 text-xs leading-5 text-gray-500">
+                {currentUser ? `${currentUser.display_name || currentUser.email} · ${currentTier.highlight}` : '未登录时按免费版边界展示'}
+              </div>
+            </Panel>
+          )}
+          {recommended && (
+            <Panel className="p-4">
+              <div className="mb-1 flex items-center gap-2 text-xs font-black text-primary">
+                <Sparkles size={14} />
+                当前建议主推
+              </div>
+              <div className="text-lg font-black text-gray-900">{recommended.name}</div>
+              <div className="mt-1 text-xs leading-5 text-gray-500">{recommended.highlight}</div>
+            </Panel>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -91,7 +112,7 @@ export default function PlansPage() {
 
           <div className="grid gap-3 pb-10 xl:grid-cols-4">
             {catalog.tiers.map((tier) => (
-              <PlanCard key={tier.key} tier={tier} />
+              <PlanCard key={tier.key} tier={tier} current={tier.key === catalog.current_plan} />
             ))}
           </div>
         </>
@@ -129,11 +150,20 @@ function AreaPanel({
   );
 }
 
-function PlanCard({ tier }: { tier: PlanTier }) {
+function PlanCard({ tier, current }: { tier: PlanTier; current: boolean }) {
   return (
-    <Panel className={cx('relative flex min-h-[420px] flex-col p-5', tier.recommended && 'border-primary-border shadow-sm')}>
+    <Panel className={cx(
+      'relative flex min-h-[420px] flex-col p-5',
+      tier.recommended && 'border-primary-border shadow-sm',
+      current && 'border-teal-border shadow-sm',
+    )}>
+      {current && (
+        <Badge tone="teal" className="absolute right-4 top-4 rounded-sm">
+          当前
+        </Badge>
+      )}
       {tier.recommended && (
-        <Badge tone="primary" className="absolute right-4 top-4 rounded-sm">
+        <Badge tone="primary" className={cx('absolute rounded-sm', current ? 'right-16 top-4' : 'right-4 top-4')}>
           推荐
         </Badge>
       )}

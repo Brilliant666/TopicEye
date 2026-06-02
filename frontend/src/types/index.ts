@@ -43,6 +43,8 @@ export interface PlanCatalogResponse {
   paid_area: string[];
   currency: string;
   source: string;
+  current_plan: string;
+  current_tier?: PlanTier | null;
 }
 
 // ─── Source (信源) ───

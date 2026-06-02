@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 
 PLAN_TIERS: list[dict[str, Any]] = [
@@ -128,4 +128,19 @@ def get_plan_catalog() -> dict[str, Any]:
         "paid_area": PAID_AREA,
         "currency": "CNY",
         "source": "docs/创作者选题雷达_1_0_prd_融合版.md#商业模式初稿",
+    }
+
+
+def get_tier_by_key(plan_key: Optional[str]) -> dict[str, Any]:
+    normalized = (plan_key or "free").strip().lower() or "free"
+    return next((tier for tier in PLAN_TIERS if tier["key"] == normalized), PLAN_TIERS[0])
+
+
+def get_plan_catalog_for_user(plan_key: Optional[str] = None) -> dict[str, Any]:
+    catalog = get_plan_catalog()
+    current_tier = get_tier_by_key(plan_key)
+    return {
+        **catalog,
+        "current_plan": current_tier["key"],
+        "current_tier": current_tier,
     }

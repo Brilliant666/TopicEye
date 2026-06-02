@@ -21,6 +21,7 @@ from app.api.v1.webnovel_reports import router as webnovel_reports_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.scheduler import router as scheduler_router
 from app.api.v1.llm_models import router as llm_models_router
+from app.api.v1.favorites import router as favorites_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(sources_router)
@@ -45,3 +46,4 @@ router.include_router(webnovel_reports_router)
 router.include_router(notifications_router)
 router.include_router(scheduler_router)
 router.include_router(llm_models_router)
+router.include_router(favorites_router)

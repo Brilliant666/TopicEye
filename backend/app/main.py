@@ -26,6 +26,7 @@ import app.models.qimao  # noqa: F401
 import app.models.zhihu  # noqa: F401
 import app.models.scheduled_job  # noqa: F401
 import app.models.llm_model  # noqa: F401
+import app.models.favorite  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -227,6 +228,71 @@ async def ensure_content_status_values(conn) -> None:
     """))
 
 
+async def ensure_favorite_items_schema(conn) -> None:
+    """Ensure the generic favorites table exists on upgraded SQLite installs."""
+    if not database_profile.is_sqlite:
+        return
+
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS favorite_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_type VARCHAR(20) NOT NULL,
+            target_id INTEGER,
+            target_key VARCHAR(255) NOT NULL,
+            title VARCHAR(500) NOT NULL,
+            url VARCHAR(1024),
+            cover_url VARCHAR(1024),
+            source_name VARCHAR(255),
+            collection_id INTEGER,
+            tags JSON,
+            note TEXT,
+            status VARCHAR(20) NOT NULL DEFAULT 'inbox',
+            snapshot JSON,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            CONSTRAINT uq_favorite_target UNIQUE (target_type, target_key)
+        )
+    """))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_favorite_items_type_created "
+        "ON favorite_items(target_type, created_at)"
+    ))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_favorite_items_status_created "
+        "ON favorite_items(status, created_at)"
+    ))
+    await conn.execute(text("""
+        INSERT OR IGNORE INTO favorite_items (
+            target_type, target_id, target_key, title, url, cover_url, source_name,
+            status, snapshot, created_at, updated_at
+        )
+        SELECT
+            'content',
+            id,
+            CAST(id AS TEXT),
+            title,
+            url,
+            cover_url,
+            source_name,
+            'inbox',
+            json_object(
+                'content_id', id,
+                'category', category,
+                'source_type', source_type,
+                'platform', platform,
+                'author', author,
+                'published_at', published_at,
+                'crawled_at', crawled_at,
+                'summary', summary
+            ),
+            COALESCE(updated_at, created_at, CURRENT_TIMESTAMP),
+            COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+        FROM content_items
+        WHERE is_favorited = 1
+    """))
+
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create all SQLite tables
@@ -238,6 +304,7 @@ async def lifespan(app: FastAPI):
             await ensure_llm_call_logs_schema(conn)
             await ensure_performance_indexes(conn)
             await ensure_content_status_values(conn)
+            await ensure_favorite_items_schema(conn)
     else:
         logger.info("Startup table creation skipped by config")
 

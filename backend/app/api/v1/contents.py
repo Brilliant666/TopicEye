@@ -14,6 +14,7 @@ from app.config import settings
 from app.core.sqlite_retry import retry_sqlite_locked, is_sqlite_locked
 from app.models.content import ContentItem
 from app.repositories.content_repo import ContentRepo
+from app.repositories.favorite_repo import FavoriteRepo
 from app.repositories.analysis_repo import AnalysisRepository
 from app.schemas.content import ContentResponse, ContentListResponse
 from app.schemas.analysis import AiAnalysisResponse
@@ -283,6 +284,11 @@ async def toggle_favorite(content_id: int, db: AsyncSession = Depends(get_db)):
             .where(ContentItem.id == content_id)
             .values(is_favorited=next_value, updated_at=datetime.utcnow())
         )
+        favorite_repo = FavoriteRepo(db)
+        if next_value:
+            await favorite_repo.create_from_content(content_id)
+        else:
+            await favorite_repo.remove_by_content(content_id)
         await db.flush()
 
     restore_busy_timeout = False

@@ -11,6 +11,11 @@ from app.schemas.source import SourceListResponse
 from app.services.content_list_cache import HOME_CONTENT_LIST_CACHE_LABEL, home_content_list_cache_params, set_cached_content_list
 from app.services.content_serialization import content_with_latest_analysis
 from app.services.json_cache import set_cached_json
+from app.services.source_cache import (
+    SOURCE_LIST_DEFAULT_CACHE_LABEL,
+    default_source_list_cache_params,
+    set_cached_source_list,
+)
 from app.services.today_picks_cache import (
     TODAY_PICKS_DEFAULT_CACHE_LABEL,
     default_today_picks_cache_params,
@@ -29,7 +34,7 @@ async def warmup_read_caches() -> dict[str, Any]:
     async with async_session() as db:
         try:
             await warmup_sources_list(db)
-            warmed.append("sources:list:1:20")
+            warmed.append(SOURCE_LIST_DEFAULT_CACHE_LABEL)
         except Exception as exc:
             logger.warning("Source list cache warmup skipped: %s", exc)
             errors.append(f"sources:{exc}")
@@ -75,16 +80,17 @@ async def warmup_read_caches() -> dict[str, Any]:
 
 
 async def warmup_sources_list(db) -> None:
+    params = default_source_list_cache_params()
     repo = SourceRepository(db)
     items, total = await repo.list_paginated(
-        page=1,
-        page_size=20,
+        page=params.page,
+        page_size=params.page_size,
         filters={},
         sort_by="sort_order",
         sort_order="asc",
     )
-    payload = SourceListResponse(items=items, total=total, page=1, page_size=20).model_dump()
-    set_cached_json("sources:list:1:20:::None:", payload)
+    payload = SourceListResponse(items=items, total=total, page=params.page, page_size=params.page_size).model_dump()
+    set_cached_source_list(params, payload)
 
 
 async def warmup_content_favorites(db) -> None:

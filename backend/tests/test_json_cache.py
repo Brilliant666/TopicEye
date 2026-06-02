@@ -11,6 +11,7 @@ from app.services.scoring_flow import (
     get_cached_scoring_flow_json,
     invalidate_scoring_flow_cache,
 )
+from app.services.source_cache import SourceListCacheParams, invalidate_source_list_cache
 from app.services.today_picks_cache import TodayPicksCacheParams, invalidate_today_picks_cache
 from app.services.trending_cache import (
     TRENDING_CROSS_PLATFORM_CACHE_PREFIX,
@@ -84,6 +85,21 @@ def test_today_picks_cache_key_and_invalidation():
     set_cached_json(key, {"items": [], "total": 0})
     set_cached_json("contents:list:example", {"items": []})
     invalidate_today_picks_cache()
+
+    assert get_cached_json(key, ttl_seconds=10) is None
+    assert get_cached_json("contents:list:example", ttl_seconds=10) is not None
+    invalidate_json_cache()
+
+
+def test_source_list_cache_key_and_invalidation():
+    invalidate_json_cache()
+    params = SourceListCacheParams(page=1, page_size=20, enabled=True, keyword="AI")
+    key = params.key
+    assert key == "sources:list:page=1&page_size=20&enabled=1&keyword=AI"
+
+    set_cached_json(key, {"items": [], "total": 0})
+    set_cached_json("contents:list:example", {"items": []})
+    invalidate_source_list_cache()
 
     assert get_cached_json(key, ttl_seconds=10) is None
     assert get_cached_json("contents:list:example", ttl_seconds=10) is not None

@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.database import async_session
 from app.core.dependencies import get_db
 from app.core.exceptions import NotFoundError
 from app.models.source import Source, SourceType, SourceStatus
@@ -20,13 +21,18 @@ from app.schemas.source import (
 )
 from app.repositories.source_repo import SourceRepository
 from app.services.content_pipeline import ingest_from_source
-from app.services.json_cache import get_cached_json, invalidate_json_cache, set_cached_json
+from app.services.source_cache import (
+    SourceListCacheParams,
+    get_cached_source_list,
+    invalidate_source_list_cache,
+    set_cached_source_list,
+)
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
 
 def _invalidate_source_cache() -> None:
-    invalidate_json_cache("sources:list:")
+    invalidate_source_list_cache()
 
 
 class SourceBatchImportRequest(BaseModel):
@@ -234,10 +240,16 @@ async def list_sources(
     status: Optional[str] = None,
     enabled: Optional[bool] = None,
     keyword: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
 ):
-    cache_key = f"sources:list:{page}:{page_size}:{source_type or ''}:{status or ''}:{enabled}:{keyword or ''}"
-    cached = get_cached_json(cache_key, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
+    cache_params = SourceListCacheParams(
+        page=page,
+        page_size=page_size,
+        source_type=source_type,
+        status=status,
+        enabled=enabled,
+        keyword=keyword,
+    )
+    cached = get_cached_source_list(cache_params, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
     if cached:
         content, age_seconds = cached
         return Response(
@@ -246,22 +258,23 @@ async def list_sources(
             headers={"X-Sources-Cache": f"HIT; age={age_seconds:.3f}s"},
         )
 
-    repo = SourceRepository(db)
-    filters = {
-        "source_type": source_type,
-        "status": status,
-        "enabled": enabled,
-    }
-    if keyword:
-        filters["name"] = f"%{keyword}%"
+    async with async_session() as db:
+        repo = SourceRepository(db)
+        filters = {
+            "source_type": source_type,
+            "status": status,
+            "enabled": enabled,
+        }
+        if keyword:
+            filters["name"] = f"%{keyword}%"
 
-    items, total = await repo.list_paginated(
-        page=page, page_size=page_size,
-        filters={k: v for k, v in filters.items() if v is not None},
-        sort_by="sort_order", sort_order="asc",
-    )
+        items, total = await repo.list_paginated(
+            page=page, page_size=page_size,
+            filters={k: v for k, v in filters.items() if v is not None},
+            sort_by="sort_order", sort_order="asc",
+        )
     payload = SourceListResponse(items=items, total=total, page=page, page_size=page_size).model_dump()
-    content = set_cached_json(cache_key, payload)
+    content = set_cached_source_list(cache_params, payload)
     return Response(
         content=content,
         media_type="application/json",

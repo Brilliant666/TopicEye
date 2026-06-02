@@ -190,9 +190,14 @@ export default function Sidebar({
         {currentUser ? (
           <div className={cx('flex items-center gap-2', compact ? 'justify-center p-0' : 'justify-between px-3')}>
             <div className="flex min-w-0 items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal to-[#7DD3C0] text-xs font-semibold text-white">
+              <button
+                type="button"
+                onClick={() => router.push('/profile')}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal to-[#7DD3C0] text-xs font-semibold text-white transition hover:opacity-90"
+                title="个人中心"
+              >
                 <UserRound size={14} strokeWidth={2} />
-              </div>
+              </button>
               {!compact && (
                 <div className="min-w-0">
                   <div className="truncate text-xs font-medium text-gray-700">{currentUser.display_name || currentUser.email}</div>
@@ -224,6 +229,16 @@ export default function Sidebar({
           >
             <LogIn size={16} strokeWidth={2} />
             {!compact && <span>{authLoading ? '检查登录' : '登录'}</span>}
+          </button>
+        )}
+        {currentUser && !compact && (
+          <button
+            type="button"
+            onClick={() => router.push('/profile')}
+            className="mt-2 flex w-full items-center justify-start gap-2 rounded-sm px-3 py-2 text-left text-xs font-bold text-gray-500 transition hover:bg-gray-50 hover:text-primary"
+          >
+            <UserRound size={14} strokeWidth={2} />
+            个人中心
           </button>
         )}
       </div>

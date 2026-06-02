@@ -24,10 +24,12 @@ from app.api.v1.llm_models import router as llm_models_router
 from app.api.v1.favorites import router as favorites_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.plans import router as plans_router
+from app.api.v1.integrations import router as integrations_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(auth_router)
 router.include_router(plans_router)
+router.include_router(integrations_router)
 router.include_router(sources_router)
 router.include_router(contents_router)
 router.include_router(topics_router)

@@ -1,0 +1,168 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.models.content import ContentItem, ContentStatus
+from app.models.source import Source, SourceStatus, SourceType
+from app.models.user_integration import UserIntegration
+from app.services.content_read_cache import invalidate_content_read_caches
+from app.services.dedup import build_hash
+from app.services.integration_service import WEREAD_PROVIDER
+
+WEREAD_SOURCE_URL = "https://weread.qq.com/r/weread-skills"
+WEREAD_SOURCE_NAME = "微信读书素材"
+
+
+def _entry_url(entry: dict[str, Any]) -> str:
+    return str(
+        entry.get("url")
+        or entry.get("book_url")
+        or entry.get("bookUrl")
+        or entry.get("review_url")
+        or entry.get("reviewUrl")
+        or WEREAD_SOURCE_URL
+    )
+
+
+def normalize_weread_entries(payload: Any) -> list[dict[str, Any]]:
+    raw_items: list[Any]
+    if isinstance(payload, list):
+        raw_items = payload
+    elif isinstance(payload, dict):
+        raw_items = []
+        for key in ("items", "data", "books", "notes", "reviews", "highlights"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                raw_items.extend(value)
+    else:
+        raw_items = []
+
+    entries: list[dict[str, Any]] = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        title = str(raw.get("title") or raw.get("book_title") or raw.get("bookTitle") or raw.get("name") or "").strip()
+        note = str(raw.get("note") or raw.get("review") or raw.get("markText") or raw.get("abstract") or raw.get("summary") or "").strip()
+        if not title and not note:
+            continue
+        author = raw.get("author") or raw.get("book_author") or raw.get("bookAuthor")
+        entries.append({
+            "title": title or note[:80],
+            "url": _entry_url(raw),
+            "author": str(author).strip() if author else None,
+            "summary": note[:1000],
+            "raw_content": note or title,
+            "cover_url": raw.get("cover") or raw.get("cover_url") or raw.get("coverUrl"),
+            "published_at": datetime.utcnow(),
+        })
+    return entries
+
+
+async def fetch_weread_materials(api_key: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    endpoint = str(settings.WEREAD_SKILL_API_URL or "").strip()
+    if not endpoint:
+        raise RuntimeError("微信读书 Skill API endpoint 未配置，请先接入真实 Skill 服务地址")
+
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        response = await client.get(
+            endpoint,
+            headers={"Authorization": f"Bearer {api_key.strip()}"},
+            params={"limit": limit},
+        )
+        response.raise_for_status()
+        return normalize_weread_entries(response.json())
+
+
+async def ensure_weread_source(db: AsyncSession) -> Source:
+    result = await db.execute(select(Source).where(Source.url == WEREAD_SOURCE_URL))
+    source = result.scalar_one_or_none()
+    if source:
+        return source
+
+    source = Source(
+        name=WEREAD_SOURCE_NAME,
+        source_type=SourceType.API,
+        url=WEREAD_SOURCE_URL,
+        platform="微信读书",
+        category="阅读素材",
+        weight=4,
+        status=SourceStatus.ACTIVE,
+        enabled=True,
+    )
+    db.add(source)
+    await db.flush()
+    await db.refresh(source)
+    return source
+
+
+async def sync_weread_materials(
+    db: AsyncSession,
+    integration: UserIntegration,
+    *,
+    limit: int = 50,
+) -> dict[str, int | str]:
+    if integration.provider != WEREAD_PROVIDER or not integration.api_key:
+        raise ValueError("微信读书 API Key 未配置")
+
+    source = await ensure_weread_source(db)
+    fetched = new = duplicates = 0
+    now = datetime.utcnow()
+    try:
+        entries = await fetch_weread_materials(integration.api_key, limit=limit)
+        fetched = len(entries)
+        for entry in entries:
+            content_hash = build_hash(str(entry.get("title") or "") + str(entry.get("url") or ""))
+            exists = await db.scalar(select(ContentItem.id).where(ContentItem.content_hash == content_hash))
+            if exists:
+                duplicates += 1
+                continue
+            db.add(ContentItem(
+                title=str(entry["title"])[:500],
+                url=str(entry.get("url") or WEREAD_SOURCE_URL)[:1024],
+                source_id=source.id,
+                source_name=source.name,
+                source_type=SourceType.API.value,
+                platform="微信读书",
+                author=entry.get("author"),
+                published_at=entry.get("published_at") or now,
+                content_hash=content_hash,
+                summary=entry.get("summary") or None,
+                raw_content=entry.get("raw_content") or None,
+                cover_url=entry.get("cover_url"),
+                category="阅读素材",
+                tags=["微信读书", "阅读笔记"],
+                status=ContentStatus.PENDING,
+            ))
+            new += 1
+
+        source.last_sync_at = now
+        source.status = SourceStatus.ACTIVE
+        source.sync_error = None
+        integration.last_sync_at = now
+        integration.last_sync_status = "success"
+        integration.last_sync_error = None
+        await db.flush()
+        if new:
+            invalidate_content_read_caches()
+        return {
+            "fetched": fetched,
+            "new": new,
+            "duplicates": duplicates,
+            "source_name": source.name,
+        }
+    except Exception as exc:
+        message = str(exc)
+        source.last_sync_at = now
+        source.status = SourceStatus.ERROR
+        source.sync_error = message[:500]
+        integration.last_sync_at = now
+        integration.last_sync_status = "error"
+        integration.last_sync_error = message[:500]
+        await db.flush()
+        raise

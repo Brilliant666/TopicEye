@@ -29,6 +29,7 @@ import app.models.scheduled_job  # noqa: F401
 import app.models.llm_model  # noqa: F401
 import app.models.favorite  # noqa: F401
 import app.models.user  # noqa: F401
+import app.models.user_integration  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -373,6 +374,33 @@ async def ensure_user_auth_schema(conn) -> None:
     ))
 
 
+async def ensure_user_integrations_schema(conn) -> None:
+    """Ensure user-level integration credentials exist on upgraded SQLite installs."""
+    if not database_profile.is_sqlite:
+        return
+
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS user_integrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            provider VARCHAR(50) NOT NULL,
+            api_key TEXT,
+            config JSON,
+            last_sync_at DATETIME,
+            last_sync_status VARCHAR(20),
+            last_sync_error TEXT,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            CONSTRAINT uq_user_integrations_user_provider UNIQUE (user_id, provider),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_user_integrations_user_provider "
+        "ON user_integrations(user_id, provider)"
+    ))
+
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -389,6 +417,7 @@ async def lifespan(app: FastAPI):
             await ensure_content_status_values(conn)
             await ensure_favorite_items_schema(conn)
             await ensure_user_auth_schema(conn)
+            await ensure_user_integrations_schema(conn)
     else:
         logger.info("Startup table creation skipped by config")
 

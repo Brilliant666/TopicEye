@@ -23,6 +23,29 @@ export interface AuthTokenResponse {
   user: AuthUser;
 }
 
+// ─── Integrations (个人集成) ───
+
+export interface IntegrationStatus {
+  provider: string;
+  configured: boolean;
+  api_key_hint?: string | null;
+  config: Record<string, unknown>;
+  sync_endpoint_configured: boolean;
+  install_command?: string | null;
+  docs_url?: string | null;
+  last_sync_at?: string | null;
+  last_sync_status?: string | null;
+  last_sync_error?: string | null;
+}
+
+export interface WeReadSyncResult {
+  fetched: number;
+  new: number;
+  duplicates: number;
+  message: string;
+  source_name: string;
+}
+
 // ─── Plans (功能权益) ───
 
 export interface PlanTier {

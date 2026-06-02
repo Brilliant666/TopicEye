@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     READ_CACHE_TTL_SECONDS: float = 60.0
     SOURCE_SYNC_TIMEOUT_SECONDS: int = 120
     CREATION_PLAN_TIMEOUT_SECONDS: int = 45
+    WEREAD_SKILL_API_URL: Optional[str] = None
 
     # ── Legacy DeepSeek config (backward compatible) ──
     DEEPSEEK_API_KEY: Optional[str] = None

@@ -25,7 +25,9 @@ import type {
   WeeklyDigestWeeksResponse,
   AuthTokenResponse,
   AuthUser,
+  IntegrationStatus,
   PlanCatalogResponse,
+  WeReadSyncResult,
 } from '@/types';
 import type { FavoriteCreatePayload, FavoriteTargetState } from '@/lib/favorites';
 
@@ -130,6 +132,29 @@ export const authApi = {
 export const plansApi = {
   list(): Promise<PlanCatalogResponse> {
     return request('/plans');
+  },
+};
+
+// ─── Integrations API ───
+
+export const integrationsApi = {
+  getWeRead(): Promise<IntegrationStatus> {
+    return request('/integrations/weread');
+  },
+
+  updateWeRead(data: { api_key: string; config?: Record<string, unknown> }): Promise<IntegrationStatus> {
+    return request('/integrations/weread', {
+      method: 'PUT',
+      body: JSON.stringify({ api_key: data.api_key, config: data.config || {} }),
+    });
+  },
+
+  clearWeRead(): Promise<IntegrationStatus> {
+    return request('/integrations/weread', { method: 'DELETE' });
+  },
+
+  syncWeRead(limit = 50): Promise<WeReadSyncResult> {
+    return request(`/integrations/weread/sync?limit=${limit}`, { method: 'POST' });
   },
 };
 

@@ -6,7 +6,8 @@
     "dev": "next dev --webpack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "skills:install-weread": "npx skills add Tencent/WeChatReading -g"
   },
   "dependencies": {
     "lucide-react": "^1.16.0",

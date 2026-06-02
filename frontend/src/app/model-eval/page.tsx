@@ -93,6 +93,9 @@ const toneClasses: Record<Tone, { text: string; border: string; bg: string; metr
 
 function deepSeekPricingForModel(modelId: string) {
   const normalized = modelId.toLowerCase();
+  if (normalized.includes('deepseek-v4-flash-free')) {
+    return { input: 0, cacheHit: 0, output: 0 };
+  }
   if (normalized.includes('v4-pro')) {
     return { input: 3, cacheHit: 0.025, output: 6 };
   }
@@ -100,6 +103,7 @@ function deepSeekPricingForModel(modelId: string) {
 }
 
 function pricingForProviderModel(provider: string, modelId: string) {
+  if (modelId.toLowerCase().includes('deepseek-v4-flash-free')) return deepSeekPricingForModel(modelId);
   if (provider === 'deepseek') return deepSeekPricingForModel(modelId);
   const preset = PROVIDER_PRESETS[provider];
   if (!preset?.costPer1MInput && !preset?.costPer1MOutput && !preset?.costPer1MInputCacheHit) return null;
@@ -446,6 +450,11 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
                 </div>
                 <div className="text-base font-black leading-5 text-gray-900">{m.name}</div>
                 <div className="mt-1 truncate font-mono text-[11px] text-gray-400">{m.model_id}</div>
+                {m.resolved_model !== m.model_id && (
+                  <div className="mt-1 truncate font-mono text-[11px] text-primary">
+                    实际请求 {m.resolved_model}
+                  </div>
+                )}
               </div>
               <StatusPill tone={m.enabled ? 'teal' : 'neutral'}>
                 <Power size={11} />

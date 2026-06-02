@@ -1243,6 +1243,7 @@ export interface LlmModelItem {
   name: string;
   provider: string;
   model_id: string;
+  resolved_model: string;
   api_base: string | null;
   api_key_set: boolean;
   enabled: boolean;

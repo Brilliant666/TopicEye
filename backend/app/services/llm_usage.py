@@ -8,6 +8,7 @@ from typing import Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.llm_model import LlmCallLog, LlmModel
+from app.services.llm.model_pricing import normalized_model_pricing
 
 logger = logging.getLogger(__name__)
 
@@ -129,12 +130,13 @@ def pricing_from_model(model: Optional[LlmModel]) -> dict[str, Optional[float]]:
             "cache_create": None,
         }
 
+    pricing = normalized_model_pricing(model)
     extra_params = model.extra_params if isinstance(model.extra_params, dict) else {}
     cache_create = _to_float(extra_params.get("cost_per_1m_input_cache_create"))
     return {
-        "input": _to_float(model.cost_per_1k_input) * 1000 if model.cost_per_1k_input is not None else None,
-        "output": _to_float(model.cost_per_1k_output) * 1000 if model.cost_per_1k_output is not None else None,
-        "cache_hit": _to_float(extra_params.get("cost_per_1m_input_cache_hit")),
+        "input": pricing["cost_per_1m_input"],
+        "output": pricing["cost_per_1m_output"],
+        "cache_hit": pricing["cost_per_1m_input_cache_hit"],
         "cache_create": cache_create,
     }
 

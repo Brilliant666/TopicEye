@@ -32,7 +32,7 @@ def test_shared_model_resolver_preserves_already_prefixed_model_id():
     assert resolve_litellm_model(model) == "deepseek/deepseek-chat"
 
 
-def test_shared_model_resolver_maps_opencode_zen_alias_to_openai_model():
+def test_shared_model_resolver_routes_opencode_zen_through_openai_compatible_provider():
     model = SimpleNamespace(
         provider="custom",
         model_id="opencode/deepseek-v4-flash-free",

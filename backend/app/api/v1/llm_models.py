@@ -37,6 +37,7 @@ from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locke
 from app.models.llm_model import LlmCallLog, LlmModel, ModelEvaluation
 from app.services.llm.provider import invalidate_model_cache
 from app.services.llm.model_resolver import resolve_litellm_model
+from app.services.llm.model_pricing import is_free_model, normalized_model_pricing
 from app.services.llm_usage import extract_usage, record_llm_call_in_new_session
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -266,12 +267,13 @@ def _model_cost_output(req: ModelCreateRequest | ModelUpdateRequest) -> Optional
 
 
 def _model_payload(m: LlmModel) -> dict:
-    extra_params = m.extra_params if isinstance(m.extra_params, dict) else {}
+    pricing = normalized_model_pricing(m)
     return {
         "id": m.id,
         "name": m.name,
         "provider": m.provider,
         "model_id": m.model_id,
+        "resolved_model": _resolve_litellm_model(m),
         "api_base": m.api_base,
         "api_key_set": bool(m.api_key),
         "enabled": m.enabled,
@@ -281,11 +283,11 @@ def _model_payload(m: LlmModel) -> dict:
         "max_tokens": m.max_tokens,
         "requests_per_minute": m.requests_per_minute,
         "description": m.description,
-        "cost_per_1k_input": m.cost_per_1k_input,
-        "cost_per_1k_output": m.cost_per_1k_output,
-        "cost_per_1m_input": _per_1k_to_1m(m.cost_per_1k_input),
-        "cost_per_1m_input_cache_hit": extra_params.get("cost_per_1m_input_cache_hit"),
-        "cost_per_1m_output": _per_1k_to_1m(m.cost_per_1k_output),
+        "cost_per_1k_input": pricing["cost_per_1k_input"],
+        "cost_per_1k_output": pricing["cost_per_1k_output"],
+        "cost_per_1m_input": pricing["cost_per_1m_input"],
+        "cost_per_1m_input_cache_hit": pricing["cost_per_1m_input_cache_hit"],
+        "cost_per_1m_output": pricing["cost_per_1m_output"],
         "extra_params": m.extra_params,
         "created_at": m.created_at.isoformat() if m.created_at else None,
         "updated_at": m.updated_at.isoformat() if m.updated_at else None,
@@ -310,6 +312,13 @@ async def list_models(db: AsyncSession = Depends(get_db)):
 async def create_model(req: ModelCreateRequest, db: AsyncSession = Depends(get_db)):
     """Add a new LLM model configuration."""
     async def _create():
+        cost_per_1k_input = _model_cost_input(req)
+        cost_per_1k_output = _model_cost_output(req)
+        cache_hit_price = req.cost_per_1m_input_cache_hit
+        if is_free_model(req.model_id):
+            cost_per_1k_input = 0.0
+            cost_per_1k_output = 0.0
+            cache_hit_price = 0.0
         model = LlmModel(
             name=req.name,
             provider=req.provider,
@@ -321,9 +330,9 @@ async def create_model(req: ModelCreateRequest, db: AsyncSession = Depends(get_d
             max_tokens=req.max_tokens,
             requests_per_minute=req.requests_per_minute,
             description=req.description,
-            cost_per_1k_input=_model_cost_input(req),
-            cost_per_1k_output=_model_cost_output(req),
-            extra_params=_pricing_extra_params(req.extra_params, req.cost_per_1m_input_cache_hit),
+            cost_per_1k_input=cost_per_1k_input,
+            cost_per_1k_output=cost_per_1k_output,
+            extra_params=_pricing_extra_params(req.extra_params, cache_hit_price),
         )
         db.add(model)
         await db.flush()
@@ -499,6 +508,11 @@ async def update_model(model_id: int, req: ModelUpdateRequest, db: AsyncSession 
             )
         for key, value in update_data.items():
             setattr(model, key, value)
+
+        if is_free_model(model.model_id):
+            model.cost_per_1k_input = 0.0
+            model.cost_per_1k_output = 0.0
+            model.extra_params = _pricing_extra_params(model.extra_params, 0.0)
 
         # Ensure only one primary / one fallback
         if req.is_primary is True:

@@ -72,6 +72,7 @@ def test_calculate_cost_keeps_anthropic_input_tokens_as_fresh_tokens():
 
 def test_pricing_from_model_converts_legacy_per_1k_columns_to_per_1m():
     model = SimpleNamespace(
+        model_id="deepseek-chat",
         cost_per_1k_input=0.001,
         cost_per_1k_output=0.002,
         extra_params={"cost_per_1m_input_cache_hit": 0.02},
@@ -83,5 +84,23 @@ def test_pricing_from_model_converts_legacy_per_1k_columns_to_per_1m():
         "input": 1.0,
         "output": 2.0,
         "cache_hit": 0.02,
+        "cache_create": None,
+    }
+
+
+def test_pricing_from_model_zeroes_deepseek_v4_flash_free():
+    model = SimpleNamespace(
+        model_id="opencode/deepseek-v4-flash-free",
+        cost_per_1k_input=0.001,
+        cost_per_1k_output=0.002,
+        extra_params={"cost_per_1m_input_cache_hit": 0.02},
+    )
+
+    pricing = pricing_from_model(model)
+
+    assert pricing == {
+        "input": 0.0,
+        "output": 0.0,
+        "cache_hit": 0.0,
         "cache_create": None,
     }

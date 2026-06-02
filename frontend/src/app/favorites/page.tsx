@@ -127,6 +127,18 @@ function getSnapshotMeta(item: FavoriteItem): string {
   ].filter(Boolean).join(' · ');
 }
 
+function getFavoriteTags(item: FavoriteItem): string[] {
+  const rawTags = item.tags;
+  if (Array.isArray(rawTags)) return rawTags.map(String).map((tag) => tag.trim()).filter(Boolean);
+  if (typeof rawTags === 'string') return rawTags.split(',').map((tag) => tag.trim()).filter(Boolean);
+  return [];
+}
+
+function parseTagInput(value: string): string[] | null {
+  const tags = value.split(/[,，]/).map((tag) => tag.trim()).filter(Boolean);
+  return tags.length > 0 ? Array.from(new Set(tags)) : null;
+}
+
 export default function FavoritesPage() {
   const { refreshCounts } = useAppContext();
   const [items, setItems] = useState<FavoriteItem[]>([]);
@@ -151,6 +163,10 @@ export default function FavoritesPage() {
     plan: CreationPlan;
   } | null>(null);
   const [creatingKey, setCreatingKey] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editNote, setEditNote] = useState('');
+  const [editTags, setEditTags] = useState('');
+  const [editPending, setEditPending] = useState(false);
 
   const fetchFavorites = useCallback(async () => {
     try {
@@ -209,6 +225,36 @@ export default function FavoritesPage() {
   const dragEnabled = !targetType && !keyword.trim() && total === items.length;
 
   const handleSearch = () => setKeyword(draftKeyword);
+
+  const startEdit = (item: FavoriteItem) => {
+    setEditingId(item.id);
+    setEditNote(item.note || '');
+    setEditTags(getFavoriteTags(item).join(', '));
+    setError(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditNote('');
+    setEditTags('');
+  };
+
+  const saveFavoriteMeta = async (item: FavoriteItem) => {
+    setEditPending(true);
+    setError(null);
+    try {
+      const updated = await favoritesApi.update(item.id, {
+        note: editNote.trim() || null,
+        tags: parseTagInput(editTags),
+      });
+      setItems((prev) => prev.map((row) => (row.id === item.id ? updated : row)));
+      cancelEdit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '收藏备注保存失败');
+    } finally {
+      setEditPending(false);
+    }
+  };
 
   const toggleSelected = (id: number) => {
     setSelectedIds((prev) => {
@@ -560,6 +606,15 @@ export default function FavoritesPage() {
               onRemove={removeFavorite}
               onGeneratePlan={generateCreationPlan}
               creatingKey={creatingKey}
+              editingId={editingId}
+              editNote={editNote}
+              editTags={editTags}
+              editPending={editPending}
+              onStartEdit={startEdit}
+              onCancelEdit={cancelEdit}
+              onEditNote={setEditNote}
+              onEditTags={setEditTags}
+              onSaveMeta={saveFavoriteMeta}
               draggingId={draggingId}
               dropTarget={dropTarget}
               dragEnabled={dragEnabled}
@@ -611,6 +666,15 @@ function FavoriteColumn({
   onRemove,
   onGeneratePlan,
   creatingKey,
+  editingId,
+  editNote,
+  editTags,
+  editPending,
+  onStartEdit,
+  onCancelEdit,
+  onEditNote,
+  onEditTags,
+  onSaveMeta,
   onDragStart,
   onDragHover,
   onDragEnd,
@@ -628,6 +692,15 @@ function FavoriteColumn({
   onRemove: (item: FavoriteItem) => void;
   onGeneratePlan: (item: FavoriteItem, platform: string) => void;
   creatingKey: string | null;
+  editingId: number | null;
+  editNote: string;
+  editTags: string;
+  editPending: boolean;
+  onStartEdit: (item: FavoriteItem) => void;
+  onCancelEdit: () => void;
+  onEditNote: (value: string) => void;
+  onEditTags: (value: string) => void;
+  onSaveMeta: (item: FavoriteItem) => void;
   onDragStart: (id: number) => void;
   onDragHover: (target: { status: FavoriteStatus; beforeId: number | null } | null) => void;
   onDragEnd: () => void;
@@ -699,6 +772,15 @@ function FavoriteColumn({
             onRemove={onRemove}
             onGeneratePlan={onGeneratePlan}
             creatingKey={creatingKey}
+            editing={editingId === item.id}
+            editNote={editNote}
+            editTags={editTags}
+            editPending={editPending}
+            onStartEdit={onStartEdit}
+            onCancelEdit={onCancelEdit}
+            onEditNote={onEditNote}
+            onEditTags={onEditTags}
+            onSaveMeta={onSaveMeta}
             onDragStart={onDragStart}
             onDragHover={(beforeId) => onDragHover({ status: column.value, beforeId })}
             onDragEnd={onDragEnd}
@@ -722,6 +804,15 @@ function FavoriteCard({
   onRemove,
   onGeneratePlan,
   creatingKey,
+  editing,
+  editNote,
+  editTags,
+  editPending,
+  onStartEdit,
+  onCancelEdit,
+  onEditNote,
+  onEditTags,
+  onSaveMeta,
   onDragStart,
   onDragHover,
   onDragEnd,
@@ -738,6 +829,15 @@ function FavoriteCard({
   onRemove: (item: FavoriteItem) => void;
   onGeneratePlan: (item: FavoriteItem, platform: string) => void;
   creatingKey: string | null;
+  editing: boolean;
+  editNote: string;
+  editTags: string;
+  editPending: boolean;
+  onStartEdit: (item: FavoriteItem) => void;
+  onCancelEdit: () => void;
+  onEditNote: (value: string) => void;
+  onEditTags: (value: string) => void;
+  onSaveMeta: (item: FavoriteItem) => void;
   onDragStart: (id: number) => void;
   onDragHover: (beforeId: number) => void;
   onDragEnd: () => void;
@@ -745,6 +845,7 @@ function FavoriteCard({
 }) {
   const snapshotText = getSnapshotText(item);
   const metaText = getSnapshotMeta(item);
+  const tags = getFavoriteTags(item);
   const statusTone = item.status === 'inbox' ? 'amber' : item.status === 'researching' ? 'teal' : item.status === 'drafting' ? 'primary' : 'neutral';
   return (
     <article
@@ -815,6 +916,45 @@ function FavoriteCard({
 
       {metaText && <div className="mb-1.5 line-clamp-1 text-[11px] font-bold text-gray-400">{metaText}</div>}
       {snapshotText && <p className="mb-2.5 line-clamp-3 text-xs leading-5 text-gray-500">{snapshotText}</p>}
+      {(item.note || tags.length > 0) && (
+        <div className="mb-2.5 rounded-sm border border-gray-100 bg-gray-50 px-2.5 py-2">
+          {item.note && <p className="mb-1.5 whitespace-pre-wrap text-xs leading-5 text-gray-600">{item.note}</p>}
+          {tags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {tags.map((tag) => (
+                <span key={tag} className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-gray-500">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {editing && (
+        <div className="mb-2.5 rounded-sm border border-primary-border bg-primary-light/35 p-2">
+          <textarea
+            value={editNote}
+            onChange={(event) => onEditNote(event.target.value)}
+            rows={3}
+            className="mb-2 w-full resize-none rounded-xs border border-gray-200 bg-white px-2 py-1.5 text-xs leading-5 text-gray-700 outline-none focus:border-primary-border"
+            placeholder="写下选题判断、创作角度或待验证问题"
+          />
+          <input
+            value={editTags}
+            onChange={(event) => onEditTags(event.target.value)}
+            className="mb-2 h-8 w-full rounded-xs border border-gray-200 bg-white px-2 text-xs text-gray-700 outline-none focus:border-primary-border"
+            placeholder="标签，用逗号分隔"
+          />
+          <div className="flex justify-end gap-1.5">
+            <Button type="button" variant="secondary" disabled={editPending} onClick={onCancelEdit}>
+              取消
+            </Button>
+            <Button type="button" variant="primary" disabled={editPending} onClick={() => onSaveMeta(item)}>
+              {editPending ? '保存中...' : '保存备注'}
+            </Button>
+          </div>
+        </div>
+      )}
       <div className="mb-2.5 text-[11px] text-gray-300">{timeAgo(item.created_at)}</div>
 
       {item.target_type === 'content' && item.target_id && (
@@ -896,6 +1036,15 @@ function FavoriteCard({
             原文
           </a>
         )}
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => (editing ? onCancelEdit() : onStartEdit(item))}
+          className="inline-flex h-8 items-center gap-1 rounded-sm border border-gray-200 bg-white px-2 text-xs font-bold text-gray-500 hover:text-primary disabled:cursor-wait disabled:opacity-60"
+        >
+          <PenLine size={13} />
+          {editing ? '收起' : '备注'}
+        </button>
         <button
           type="button"
           disabled={pending}

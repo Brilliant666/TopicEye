@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Activity, FileSearch, List, Network, Plus, Upload } from 'lucide-react';
-import { sourcesApi, settingsApi } from '@/lib/api';
+import { Activity, FileSearch, List, Network, Plus, Star, Upload } from 'lucide-react';
+import { favoritesApi, sourcesApi, settingsApi } from '@/lib/api';
 import type { RSSHubInstance, CreateSourceRequest, SourceBatchImportItem, UpdateSourceRequest } from '@/lib/api';
+import { useAppContext } from '@/components/ClientLayout';
 import { timeAgo } from '@/lib/utils';
 import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
 import SourceForm, { FormState, emptyForm } from '@/components/SourceForm';
@@ -11,6 +12,7 @@ import SourceRowComponent, { type BackendSource } from '@/components/SourceRow';
 import { Spinner } from '@/components/SourceRow';
 import SourceSyncBoard from '@/components/SourceSyncBoard';
 import { buildSourceSyncBoard, sourceTypeLabel } from '@/lib/source-sync-board';
+import { getFavoriteTargetKey } from '@/lib/favorites';
 
 // ─── Page Component ───
 
@@ -34,8 +36,11 @@ function getSourceTier(source: BackendSource): SourceTierKey {
 function SourceMapView({
   sourceMap,
   syncingIds,
+  favoriteTargets,
+  favoriteTargetPendingKeys,
   onEdit,
   onSync,
+  onFavorite,
   onMove,
 }: {
   sourceMap: {
@@ -46,8 +51,11 @@ function SourceMapView({
     coreCount: number;
   };
   syncingIds: Set<number>;
+  favoriteTargets: Set<string>;
+  favoriteTargetPendingKeys: Set<string>;
   onEdit: (source: BackendSource) => void;
   onSync: (id: number) => void;
+  onFavorite: (source: BackendSource) => void;
   onMove: (source: BackendSource, targetTier: SourceTierKey, orderedIds: number[]) => void;
 }) {
   const tierKeys: SourceTierKey[] = ['core', 'stable', 'watch', 'attention'];
@@ -147,9 +155,18 @@ function SourceMapView({
                 }}
               >
                 {sourceMap.tiers[key].map((source) => (
-                  <div
+                  <SourceMapCard
                     key={source.id}
-                    draggable
+                    source={source}
+                    tierKey={key}
+                    syncing={syncingIds.has(source.id)}
+                    favoriteTargets={favoriteTargets}
+                    favoriteTargetPendingKeys={favoriteTargetPendingKeys}
+                    draggedId={draggedId}
+                    dropTarget={dropTarget}
+                    onEdit={onEdit}
+                    onSync={onSync}
+                    onFavorite={onFavorite}
                     onDragOver={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -171,37 +188,7 @@ function SourceMapView({
                       setDraggedId(null);
                       setDropTarget(null);
                     }}
-                    className={cx(
-                      'cursor-grab rounded-sm border bg-white p-3 transition',
-                      source.sync_error ? 'border-red-light' : 'border-gray-200',
-                      draggedId === source.id && 'opacity-50 shadow-lg',
-                      dropTarget?.tier === key && dropTarget.beforeId === source.id && `border-t-4 ${meta.border}`,
-                    )}
-                    title="拖动到其他分组可调整信源等级"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="truncate text-[13px] font-black text-gray-800">{source.name}</div>
-                        <div className="mt-1.5 flex flex-wrap gap-1.5">
-                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{sourceTypeLabel(source.source_type)}</span>
-                          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{source.category || '未分类'}</span>
-                          <span className="rounded bg-primary-light px-1.5 py-0.5 text-[10px] text-primary">权重 {source.weight ?? 3}</span>
-                        </div>
-                      </div>
-                      <span className={cx('mt-1.5 h-2 w-2 shrink-0 rounded-full', sourceTierMeta[getSourceTier(source)].dot)} />
-                    </div>
-                    <div className={cx('mt-2 text-[11px] leading-5', source.sync_error ? 'text-red' : 'text-gray-400')}>
-                      {source.sync_error ? source.sync_error : `最近同步 ${timeAgo(source.last_sync_at)}`}
-                    </div>
-                    <div className="mt-2.5 flex gap-1.5">
-                      <Button type="button" variant="success" onClick={() => onSync(source.id)} disabled={syncingIds.has(source.id)} className="min-h-7 flex-1 px-2 py-1 text-[11px]">
-                        {syncingIds.has(source.id) ? '同步中' : '同步'}
-                      </Button>
-                      <Button type="button" variant="secondary" onClick={() => onEdit(source)} className="min-h-7 flex-1 px-2 py-1 text-[11px]">
-                        编辑
-                      </Button>
-                    </div>
-                  </div>
+                  />
                 ))}
                 {sourceMap.tiers[key].length === 0 && (
                   <div className="rounded-sm border border-dashed border-gray-200 bg-gray-50 p-4 text-center text-xs text-gray-400">暂无信源</div>
@@ -215,9 +202,105 @@ function SourceMapView({
   );
 }
 
+function SourceMapCard({
+  source,
+  tierKey,
+  syncing,
+  favoriteTargets,
+  favoriteTargetPendingKeys,
+  draggedId,
+  dropTarget,
+  onEdit,
+  onSync,
+  onFavorite,
+  onDragOver,
+  onDrop,
+  onDragStart,
+  onDragEnd,
+}: {
+  source: BackendSource;
+  tierKey: SourceTierKey;
+  syncing: boolean;
+  favoriteTargets: Set<string>;
+  favoriteTargetPendingKeys: Set<string>;
+  draggedId: number | null;
+  dropTarget: DropTarget | null;
+  onEdit: (source: BackendSource) => void;
+  onSync: (id: number) => void;
+  onFavorite: (source: BackendSource) => void;
+  onDragOver: React.DragEventHandler<HTMLDivElement>;
+  onDrop: React.DragEventHandler<HTMLDivElement>;
+  onDragStart: React.DragEventHandler<HTMLDivElement>;
+  onDragEnd: React.DragEventHandler<HTMLDivElement>;
+}) {
+  const favoriteKey = getFavoriteTargetKey({ target_type: 'source', target_id: source.id });
+  const isFavorite = favoriteTargets.has(favoriteKey);
+  const favoritePending = favoriteTargetPendingKeys.has(favoriteKey);
+  const meta = sourceTierMeta[tierKey];
+
+  return (
+    <div
+      draggable
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className={cx(
+        'cursor-grab rounded-sm border bg-white p-3 transition',
+        source.sync_error ? 'border-red-light' : 'border-gray-200',
+        draggedId === source.id && 'opacity-50 shadow-lg',
+        dropTarget?.tier === tierKey && dropTarget.beforeId === source.id && `border-t-4 ${meta.border}`,
+      )}
+      title="拖动到其他分组可调整信源等级"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-[13px] font-black text-gray-800">{source.name}</div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{sourceTypeLabel(source.source_type)}</span>
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{source.category || '未分类'}</span>
+            <span className="rounded bg-primary-light px-1.5 py-0.5 text-[10px] text-primary">权重 {source.weight ?? 3}</span>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            disabled={favoritePending}
+            onClick={(event) => {
+              event.stopPropagation();
+              onFavorite(source);
+            }}
+            className={cx(
+              'flex h-7 w-7 items-center justify-center rounded-sm border transition disabled:cursor-wait disabled:opacity-60',
+              isFavorite ? 'border-amber-border bg-amber-light text-amber' : 'border-gray-200 bg-white text-gray-300 hover:text-amber',
+            )}
+            title={isFavorite ? '移出收藏' : '收藏信源'}
+          >
+            <Star size={13} fill={isFavorite ? 'currentColor' : 'none'} />
+          </button>
+          <span className={cx('h-2 w-2 rounded-full', sourceTierMeta[getSourceTier(source)].dot)} />
+        </div>
+      </div>
+      <div className={cx('mt-2 text-[11px] leading-5', source.sync_error ? 'text-red' : 'text-gray-400')}>
+        {source.sync_error ? source.sync_error : `最近同步 ${timeAgo(source.last_sync_at)}`}
+      </div>
+      <div className="mt-2.5 flex gap-1.5">
+        <Button type="button" variant="success" onClick={() => onSync(source.id)} disabled={syncing} className="min-h-7 flex-1 px-2 py-1 text-[11px]">
+          {syncing ? '同步中' : '同步'}
+        </Button>
+        <Button type="button" variant="secondary" onClick={() => onEdit(source)} className="min-h-7 flex-1 px-2 py-1 text-[11px]">
+          编辑
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function SourcesPage() {
+  const { favoriteTargets, favoriteTargetPendingKeys, toggleFavoriteTarget, refreshCounts } = useAppContext();
   const [sources, setSources] = useState<BackendSource[]>([]);
   const [mapSources, setMapSources] = useState<BackendSource[]>([]);
+  const [sourceFavoriteKeys, setSourceFavoriteKeys] = useState<Set<string>>(new Set());
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
@@ -325,6 +408,33 @@ export default function SourcesPage() {
     fetchSourceMap();
     fetchRSSHubInstances();
   }, [fetchSources, fetchSourceMap, fetchRSSHubInstances]);
+
+  useEffect(() => {
+    const ids = Array.from(new Set([...sources, ...mapSources].map((source) => source.id)));
+    if (ids.length === 0) {
+      setSourceFavoriteKeys(new Set());
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await favoritesApi.state({ target_type: 'source', target_ids: ids });
+        if (cancelled) return;
+        const favoriteIds = new Set(
+          res.items
+            .filter((item) => item.is_favorited)
+            .map((item) => Number(item.target_key))
+            .filter((id) => Number.isFinite(id)),
+        );
+        setSourceFavoriteKeys(new Set(ids.filter((id) => favoriteIds.has(id)).map((id) => getFavoriteTargetKey({ target_type: 'source', target_id: id }))));
+      } catch {
+        if (!cancelled) setSourceFavoriteKeys(new Set());
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [sources, mapSources]);
 
   // ─── Toggle instance enabled ───
   const toggleInstance = async (url: string) => {
@@ -629,6 +739,71 @@ export default function SourcesPage() {
     }
   };
 
+  const handleToggleSourceFavorite = async (source: BackendSource) => {
+    const favoriteKey = getFavoriteTargetKey({ target_type: 'source', target_id: source.id });
+    const isFavorited = favoriteTargets.has(favoriteKey) || sourceFavoriteKeys.has(favoriteKey);
+    const payload = {
+      target_type: 'source' as const,
+      target_id: source.id,
+      title: source.name,
+      url: source.url,
+      source_name: source.name,
+      snapshot: {
+        source_type: source.source_type,
+        category: source.category,
+        status: source.status,
+        enabled: source.enabled,
+        weight: source.weight,
+        last_sync_at: source.last_sync_at,
+      },
+    };
+
+    try {
+      if (isFavorited && favoriteTargets.has(favoriteKey)) {
+        const nextFavorited = await toggleFavoriteTarget(payload, { throwOnError: true });
+        setSourceFavoriteKeys((prev) => {
+          const next = new Set(prev);
+          if (nextFavorited) {
+            next.add(favoriteKey);
+          } else {
+            next.delete(favoriteKey);
+          }
+          return next;
+        });
+        return;
+      }
+
+      if (isFavorited) {
+        const state = await favoritesApi.state({ target_type: 'source', target_ids: [source.id] });
+        const favoriteId = state.items.find((item) => item.is_favorited)?.favorite_id;
+        if (!favoriteId) {
+          throw new Error('收藏记录不存在，请刷新后重试');
+        }
+        await favoritesApi.delete(favoriteId);
+        setSourceFavoriteKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(favoriteKey);
+          return next;
+        });
+        refreshCounts();
+        return;
+      }
+
+      const nextFavorited = await toggleFavoriteTarget(payload, { throwOnError: true });
+      setSourceFavoriteKeys((prev) => {
+        const next = new Set(prev);
+        if (nextFavorited) {
+          next.add(favoriteKey);
+        } else {
+          next.delete(favoriteKey);
+        }
+        return next;
+      });
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '收藏信源失败');
+    }
+  };
+
   // ─── Stats ───
   const activeCount = sources.filter((s) => s.status === 'active' && s.enabled).length;
   const sourceMap = useMemo(() => {
@@ -806,8 +981,11 @@ export default function SourcesPage() {
         <SourceMapView
           sourceMap={sourceMap}
           syncingIds={syncingIds}
+          favoriteTargets={new Set([...favoriteTargets, ...sourceFavoriteKeys])}
+          favoriteTargetPendingKeys={favoriteTargetPendingKeys}
           onEdit={openEditModal}
           onSync={handleSync}
+          onFavorite={handleToggleSourceFavorite}
           onMove={handleMoveSourceTier}
         />
       )}
@@ -909,7 +1087,11 @@ export default function SourcesPage() {
                 <SourceRowComponent key={src.id} source={src} syncing={syncingIds.has(src.id)} syncResult={syncResults[src.id] || null}
                   deleting={deletingIds.has(src.id)} onSync={() => handleSync(src.id)} onEdit={() => openEditModal(src)}
                   onDelete={() => handleDelete(src.id)} onWeightChange={(w) => handleWeightChange(src.id, w)}
-                  onIntervalChange={(mins) => handleIntervalChange(src.id, mins)} />
+                  onIntervalChange={(mins) => handleIntervalChange(src.id, mins)}
+                  favorite={favoriteTargets.has(getFavoriteTargetKey({ target_type: 'source', target_id: src.id })) || sourceFavoriteKeys.has(getFavoriteTargetKey({ target_type: 'source', target_id: src.id }))}
+                  favoritePending={favoriteTargetPendingKeys.has(getFavoriteTargetKey({ target_type: 'source', target_id: src.id }))}
+                  onFavorite={() => handleToggleSourceFavorite(src)}
+                />
               ))}
             </Panel>
           )}

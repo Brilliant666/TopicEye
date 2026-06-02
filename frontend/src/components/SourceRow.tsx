@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Star } from 'lucide-react';
 import { Button, cx } from '@/components/ui';
 import { timeAgo } from '@/lib/utils';
 
@@ -60,6 +60,9 @@ interface SourceRowProps {
   onDelete: () => void;
   onWeightChange?: (w: number) => void;
   onIntervalChange?: (minutes: number) => void;
+  favorite?: boolean;
+  favoritePending?: boolean;
+  onFavorite?: () => void;
 }
 
 export default function SourceRowComponent({
@@ -72,6 +75,9 @@ export default function SourceRowComponent({
   onDelete,
   onWeightChange,
   onIntervalChange,
+  favorite = false,
+  favoritePending = false,
+  onFavorite,
 }: SourceRowProps) {
   const [intervalOpen, setIntervalOpen] = useState(false);
   const typeClass = typeColors[source.source_type] || 'bg-gray-100 text-gray-600';
@@ -158,6 +164,20 @@ export default function SourceRowComponent({
       </div>
 
       <div className="flex items-center gap-2">
+        {onFavorite && (
+          <button
+            type="button"
+            onClick={onFavorite}
+            disabled={favoritePending}
+            className={cx(
+              'inline-flex h-7 w-7 items-center justify-center rounded-sm border transition disabled:cursor-wait disabled:opacity-60',
+              favorite ? 'border-amber-border bg-amber-light text-amber' : 'border-gray-200 bg-white text-gray-300 hover:text-amber',
+            )}
+            title={favorite ? '移出收藏' : '收藏信源'}
+          >
+            <Star size={13} fill={favorite ? 'currentColor' : 'none'} />
+          </button>
+        )}
         <Button type="button" onClick={onSync} disabled={syncing} variant={syncing ? 'secondary' : 'success'} className="min-h-7 px-2.5 py-1 text-[11px]">
           {syncing ? <Spinner /> : null}
           {syncing ? '同步中' : '同步'}

@@ -24,6 +24,7 @@ import type {
   WeeklyDigestListResponse,
   WeeklyDigestWeeksResponse,
 } from '@/types';
+import type { FavoriteCreatePayload, FavoriteTargetState } from '@/lib/favorites';
 
 export type { ContentItem, CreateSourceRequest, UpdateSourceRequest };
 export type FeedbackType = 'like' | 'dislike' | 'skip' | 'not_relevant' | 'outdated' | 'great_pick';
@@ -268,6 +269,25 @@ export const favoritesApi = {
         ).toString()
       : '';
     return request(`/favorites${query}`);
+  },
+
+  create(data: FavoriteCreatePayload): Promise<FavoriteItem> {
+    return request('/favorites', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  state(params: {
+    target_type: FavoriteTargetType;
+    target_ids?: number[];
+    target_keys?: string[];
+  }): Promise<{ items: FavoriteTargetState[] }> {
+    const qs = new URLSearchParams();
+    qs.set('target_type', params.target_type);
+    if (params.target_ids?.length) qs.set('target_ids', params.target_ids.join(','));
+    if (params.target_keys?.length) qs.set('target_keys', params.target_keys.join(','));
+    return request(`/favorites/state?${qs.toString()}`);
   },
 
   update(id: number, data: { status?: FavoriteStatus; note?: string | null; tags?: unknown }): Promise<FavoriteItem> {

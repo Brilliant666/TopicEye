@@ -21,6 +21,28 @@ export interface AuthTokenResponse {
   user: AuthUser;
 }
 
+// ─── Plans (功能权益) ───
+
+export interface PlanTier {
+  key: 'free' | 'pro' | 'studio' | 'enterprise' | string;
+  name: string;
+  price_label: string;
+  positioning: string;
+  highlight: string;
+  features: string[];
+  limits: Record<string, number | string | boolean | null>;
+  cta: string;
+  recommended: boolean;
+}
+
+export interface PlanCatalogResponse {
+  tiers: PlanTier[];
+  free_area: string[];
+  paid_area: string[];
+  currency: string;
+  source: string;
+}
+
 // ─── Source (信源) ───
 
 export type SourceType = 'RSS' | 'RSSHub' | 'Reddit' | '公众号' | '网站' | 'Zhihu' | 'X' | 'TwitterRSS' | 'YouTube' | '小红书' | 'B站' | 'DouyinHot' | 'API' | '自定义';

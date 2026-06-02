@@ -25,6 +25,7 @@ import type {
   WeeklyDigestWeeksResponse,
   AuthTokenResponse,
   AuthUser,
+  PlanCatalogResponse,
 } from '@/types';
 import type { FavoriteCreatePayload, FavoriteTargetState } from '@/lib/favorites';
 
@@ -121,6 +122,14 @@ export const authApi = {
 
   logout(): Promise<{ logged_out: boolean }> {
     return request('/auth/logout', { method: 'POST' });
+  },
+};
+
+// ─── Plans API ───
+
+export const plansApi = {
+  list(): Promise<PlanCatalogResponse> {
+    return request('/plans');
   },
 };
 

@@ -12,6 +12,7 @@ import {
   Crosshair,
   GitBranch,
   Flame,
+  Gem,
   Lightbulb,
   LogIn,
   LogOut,
@@ -107,6 +108,7 @@ export default function Sidebar({
         { id: 'sources', label: '信源管理', href: '/sources', icon: RadioTower, count: sourceCount },
         { id: 'fanqie', label: '网文雷达', href: '/fanqie', icon: BookOpen },
         { id: 'model-eval', label: 'AI 引擎', href: '/model-eval', icon: BrainCircuit },
+        { id: 'plans', label: '权益规划', href: '/plans', icon: Gem },
       ],
     },
   ];

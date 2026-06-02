@@ -68,8 +68,7 @@ async def warmup_read_caches() -> dict[str, Any]:
             errors.append(f"stats:{exc}")
 
         try:
-            await warmup_scoring_flow(db)
-            warmed.append("scoring-flow:48:160")
+            warmed.extend(await warmup_scoring_flow(db))
         except Exception as exc:
             logger.warning("Scoring flow cache warmup skipped: %s", exc)
             errors.append(f"scoring-flow:{exc}")
@@ -144,7 +143,11 @@ async def warmup_stats_overview(db) -> None:
     set_cached_json("stats:overview:7", payload)
 
 
-async def warmup_scoring_flow(db) -> None:
-    from app.services.scoring_flow import build_scoring_flow_payload
+async def warmup_scoring_flow(db) -> list[str]:
+    from app.services.scoring_flow import SCORING_FLOW_WARMUP_TARGETS, build_scoring_flow_payload
 
-    await build_scoring_flow_payload(db, hours=48, limit=160)
+    warmed: list[str] = []
+    for hours, limit in SCORING_FLOW_WARMUP_TARGETS:
+        await build_scoring_flow_payload(db, hours=hours, limit=limit)
+        warmed.append(f"scoring-flow:{hours}:{limit}")
+    return warmed

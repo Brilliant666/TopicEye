@@ -9,7 +9,6 @@ from typing import Optional, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.repositories.content_repo import ContentRepo, ScoringContentRow
 from app.repositories.ignored_repo import IgnoredRepo
 from app.services.feedback_signal import get_feedback_scores
@@ -19,6 +18,12 @@ from app.services.scoring_engine import CONFIG, ScoreBreakdown, ScoringInput, sc
 STAGE_KEYS = ["candidates", "quality", "risk", "freshness", "diversity", "selected"]
 STAGE_LABELS = ["候选样本", "质量门槛", "风险降权", "时效衰减", "多样性混排", "精选输出"]
 DEBUG_WINDOW_HOURS = (24, 48, 168, 720)
+DEFAULT_SCORING_FLOW_HOURS = 24
+DEFAULT_SCORING_FLOW_LIMIT = 160
+SCORING_FLOW_WARMUP_TARGETS = (
+    (DEFAULT_SCORING_FLOW_HOURS, DEFAULT_SCORING_FLOW_LIMIT),
+    (48, DEFAULT_SCORING_FLOW_LIMIT),
+)
 _CACHE: dict[tuple[int, int, int], tuple[float, dict[str, Any], bytes]] = {}
 
 
@@ -34,8 +39,6 @@ def get_cached_scoring_flow_json(
         return None
     cached_at, _payload, json_bytes = cached
     age_seconds = time.monotonic() - cached_at
-    if age_seconds > settings.READ_CACHE_TTL_SECONDS:
-        return None
     return json_bytes, age_seconds
 
 
@@ -53,8 +56,7 @@ async def build_scoring_flow_payload(
     """Return scoring funnel stages, candidate samples, and mix pressure data."""
     cache_key = (hours, limit, sample_limit)
     cached = _CACHE.get(cache_key)
-    now_monotonic = time.monotonic()
-    if cached and now_monotonic - cached[0] <= settings.READ_CACHE_TTL_SECONDS:
+    if cached:
         return cached[1]
 
     time_cutoff = datetime.utcnow() - timedelta(hours=hours)
@@ -179,13 +181,13 @@ def cache_payload(cache_key: tuple[int, int, int], payload: dict[str, Any]) -> d
     cold_payload = dict(payload)
     cold_payload["cache"] = {
         "hit": False,
-        "ttl_seconds": settings.READ_CACHE_TTL_SECONDS,
+        "mode": "invalidation",
         "age_ms": 0,
     }
     cached_payload = dict(payload)
     cached_payload["cache"] = {
         "hit": True,
-        "ttl_seconds": settings.READ_CACHE_TTL_SECONDS,
+        "mode": "invalidation",
         "age_ms": 0,
     }
     json_bytes = json.dumps(cached_payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")

@@ -440,11 +440,10 @@ class ContentRepo(BaseRepository[ContentItem]):
         exclude_source_types: Optional[set[str]] = None,
         time_cutoff: Optional[datetime] = None,
     ) -> int:
-        """Count analyzed items eligible for scoring without loading ORM rows."""
+        """Count items with analysis rows eligible for scoring diagnostics."""
         from app.models.analysis import AiAnalysis
 
         stmt = select(func.count(self.model.id)).where(
-            self.model.status == ContentStatus.ANALYZED,
             exists().where(AiAnalysis.content_id == self.model.id),
         )
 
@@ -521,7 +520,6 @@ class ContentRepo(BaseRepository[ContentItem]):
             )
             .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
             .outerjoin(Source, Source.id == self.model.source_id)
-            .where(self.model.status == ContentStatus.ANALYZED)
         )
 
         if exclude_ids:

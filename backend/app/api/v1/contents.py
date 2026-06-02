@@ -236,11 +236,19 @@ async def today_picks(
 
 @router.get("/scoring-flow")
 async def scoring_flow(
-    hours: int = Query(48, ge=1, le=720),
-    limit: int = Query(120, ge=20, le=500),
+    hours: Optional[int] = Query(None, ge=1, le=720),
+    limit: Optional[int] = Query(None, ge=20, le=500),
 ):
     """Return a read-only explanation payload for the content scoring funnel."""
-    from app.services.scoring_flow import build_scoring_flow_payload, get_cached_scoring_flow_json
+    from app.services.scoring_flow import (
+        DEFAULT_SCORING_FLOW_HOURS,
+        DEFAULT_SCORING_FLOW_LIMIT,
+        build_scoring_flow_payload,
+        get_cached_scoring_flow_json,
+    )
+
+    hours = hours or DEFAULT_SCORING_FLOW_HOURS
+    limit = limit or DEFAULT_SCORING_FLOW_LIMIT
 
     cached = get_cached_scoring_flow_json(hours=hours, limit=limit)
     if cached:

@@ -1,3 +1,5 @@
+import time
+
 from app.services.scoring_engine import ScoreBreakdown, ScoringInput
 from app.services.scoring_flow import (
     build_empty_payload,
@@ -196,3 +198,26 @@ def test_scoring_flow_cache_can_be_invalidated():
     assert get_cached_scoring_flow_json(hours=48, limit=160) is not None
     invalidate_scoring_flow_cache()
     assert get_cached_scoring_flow_json(hours=48, limit=160) is None
+
+
+def test_scoring_flow_cache_uses_explicit_invalidation():
+    invalidate_scoring_flow_cache()
+    cache_key = (24, 160, 80)
+
+    cache_payload(cache_key, build_empty_payload(
+        hours=24,
+        analyzed_total=0,
+        window_total=0,
+        ignored_count=0,
+        limit=160,
+        sample_limit=80,
+    ))
+    time.sleep(0.002)
+
+    cached = get_cached_scoring_flow_json(hours=24, limit=160)
+
+    assert cached is not None
+    content, age_seconds = cached
+    assert age_seconds > 0
+    assert b'"mode":"invalidation"' in content
+    invalidate_scoring_flow_cache()

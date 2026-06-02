@@ -11,7 +11,7 @@ from app.models.source import Source, SourceStatus, SourceType
 from app.services import cache_warmup
 from app.services.content_list_cache import home_content_list_cache_params
 from app.services.json_cache import get_cached_json, invalidate_json_cache
-from app.services.scoring_flow import get_cached_scoring_flow_json
+from app.services.scoring_flow import SCORING_FLOW_WARMUP_TARGETS, get_cached_scoring_flow_json
 from app.services.source_cache import default_source_list_cache_params
 from app.services.today_picks_cache import default_today_picks_cache_params
 
@@ -73,14 +73,15 @@ async def test_warmup_read_caches_populates_hot_read_cache_keys(monkeypatch):
 
     result = await cache_warmup.warmup_read_caches()
 
-    assert set(result["warmed"]) == {
+    expected_warmed = {
         "sources:list:1:20",
         "contents:list:1:50:48",
         "contents:today-picks:48",
         "contents:favorites:list:1:20",
         "stats:overview:7",
-        "scoring-flow:48:160",
     }
+    expected_warmed.update(f"scoring-flow:{hours}:{limit}" for hours, limit in SCORING_FLOW_WARMUP_TARGETS)
+    assert set(result["warmed"]) == expected_warmed
     assert result["errors"] == []
     ttl = settings.READ_CACHE_TTL_SECONDS
     assert get_cached_json(default_source_list_cache_params().key, ttl_seconds=ttl) is not None
@@ -88,7 +89,8 @@ async def test_warmup_read_caches_populates_hot_read_cache_keys(monkeypatch):
     assert get_cached_json(default_today_picks_cache_params().key, ttl_seconds=ttl) is not None
     assert get_cached_json("contents:favorites:list:1:20", ttl_seconds=ttl) is not None
     assert get_cached_json("stats:overview:7", ttl_seconds=ttl) is not None
-    assert get_cached_scoring_flow_json(hours=48, limit=160) is not None
+    for hours, limit in SCORING_FLOW_WARMUP_TARGETS:
+        assert get_cached_scoring_flow_json(hours=hours, limit=limit) is not None
 
     invalidate_json_cache()
     await engine.dispose()

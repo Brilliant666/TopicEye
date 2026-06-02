@@ -8,6 +8,8 @@ from app.core.database import async_session
 from app.repositories.content_repo import ContentRepo
 from app.repositories.source_repo import SourceRepository
 from app.schemas.source import SourceListResponse
+from app.services.content_list_cache import HOME_CONTENT_LIST_CACHE_LABEL, home_content_list_cache_params, set_cached_content_list
+from app.services.content_serialization import content_with_latest_analysis
 from app.services.json_cache import set_cached_json
 
 logger = logging.getLogger(__name__)
@@ -26,6 +28,13 @@ async def warmup_read_caches() -> dict[str, Any]:
         except Exception as exc:
             logger.warning("Source list cache warmup skipped: %s", exc)
             errors.append(f"sources:{exc}")
+
+        try:
+            await warmup_content_list(db)
+            warmed.append(HOME_CONTENT_LIST_CACHE_LABEL)
+        except Exception as exc:
+            logger.warning("Content list cache warmup skipped: %s", exc)
+            errors.append(f"contents:{exc}")
 
         try:
             await warmup_content_favorites(db)
@@ -67,16 +76,39 @@ async def warmup_sources_list(db) -> None:
 
 
 async def warmup_content_favorites(db) -> None:
-    from app.api.v1.contents import _with_analysis
-
     items, total = await ContentRepo(db).list_favorites(page=1, page_size=20)
     payload = {
-        "items": [_with_analysis(item) for item in items],
+        "items": [content_with_latest_analysis(item) for item in items],
         "total": total,
         "page": 1,
         "page_size": 20,
     }
     set_cached_json("contents:favorites:list:1:20", payload)
+
+
+async def warmup_content_list(db) -> None:
+    from app.repositories.ignored_repo import IgnoredRepo
+    from datetime import datetime, timedelta
+
+    params = home_content_list_cache_params()
+    ignored_ids = await IgnoredRepo(db).list_ignored_ids()
+    items, total = await ContentRepo(db).list_paginated_with_analyses(
+        page=params.page,
+        page_size=params.page_size,
+        filters=None,
+        sort_by=params.sort_by,
+        sort_order=params.sort_order,
+        exclude_ids=ignored_ids,
+        exclude_source_types={"DouyinHot"},
+        time_cutoff=datetime.utcnow() - timedelta(hours=params.hours or 48),
+    )
+    payload = {
+        "items": [content_with_latest_analysis(item) for item in items],
+        "total": total,
+        "page": params.page,
+        "page_size": params.page_size,
+    }
+    set_cached_content_list(params, payload)
 
 
 async def warmup_stats_overview(db) -> None:

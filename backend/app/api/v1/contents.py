@@ -9,8 +9,8 @@ from sqlalchemy import select, text, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
-from app.config import settings
+from app.core.database import async_session, get_db
+from app.core.config import settings
 from app.core.sqlite_retry import retry_sqlite_locked, is_sqlite_locked
 from app.models.content import ContentItem
 from app.repositories.content_repo import ContentRepo
@@ -18,6 +18,13 @@ from app.repositories.favorite_repo import FavoriteRepo
 from app.repositories.analysis_repo import AnalysisRepository
 from app.schemas.content import ContentResponse, ContentListResponse
 from app.schemas.analysis import AiAnalysisResponse
+from app.services.content_list_cache import (
+    ContentListCacheParams,
+    get_cached_content_list,
+    invalidate_content_list_cache,
+    set_cached_content_list,
+)
+from app.services.content_serialization import content_with_latest_analysis
 from app.services.favorite_cache import invalidate_favorite_cache
 from app.services.json_cache import get_cached_json, invalidate_json_cache, set_cached_json
 
@@ -26,13 +33,6 @@ router = APIRouter(prefix="/contents", tags=["contents"])
 # Large batch size for scoring — enough for diversity penalty to work well
 _SCORING_BATCH_SIZE = 500
 _TREND_SOURCE_TYPES = {"DouyinHot"}
-
-
-def _with_analysis(item) -> dict:
-    d = ContentResponse.model_validate(item).model_dump()
-    if item.analyses:
-        d["analysis"] = AiAnalysisResponse.model_validate(item.analyses[-1]).model_dump()
-    return d
 
 
 def _empty_list_response(page: int, page_size: int) -> dict:
@@ -89,7 +89,7 @@ def _with_scoring_breakdown(item_map: dict, breakdown, scoring_input) -> Optiona
     if not item:
         return None
 
-    data = _with_analysis(item)
+    data = content_with_latest_analysis(item)
     if data.get("analysis"):
         data["analysis"]["adjusted_curation_score"] = breakdown.final_score
         data["analysis"]["score_breakdown"] = breakdown.to_dict()
@@ -107,64 +107,96 @@ async def list_contents(
     sort_by: str = Query("created_at",
                           pattern=r"^(created_at|published_at|crawled_at|curation_score|low_follower_viral)$"),
     sort_order: str = Query("desc", pattern=r"^(asc|desc)$"),
-    db: AsyncSession = Depends(get_db),
 ):
     from app.repositories.ignored_repo import IgnoredRepo
     from datetime import timedelta
 
-    filters = {k: v for k, v in {
-        "source_type": source_type, "platform": platform,
-        "status": status, "category": category,
-        "source_id": source_id,
-        "title": f"%{keyword}%" if keyword else None,
-    }.items() if v is not None}
+    cache_params = ContentListCacheParams(
+        page=page,
+        page_size=page_size,
+        source_type=source_type,
+        platform=platform,
+        status=status,
+        category=category,
+        keyword=keyword,
+        source_id=source_id,
+        include_trend_sources=include_trend_sources,
+        hours=hours,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+    if cache_params.cacheable:
+        cached = get_cached_content_list(cache_params, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
+        if cached:
+            content, age_seconds = cached
+            return Response(
+                content=content,
+                media_type="application/json",
+                headers={"X-Content-List-Cache": f"HIT; age={age_seconds:.3f}s"},
+            )
 
-    time_cutoff = None
-    if hours:
-        time_cutoff = datetime.utcnow() - timedelta(hours=hours)
+    async with async_session() as db:
+        filters = {k: v for k, v in {
+            "source_type": source_type, "platform": platform,
+            "status": status, "category": category,
+            "source_id": source_id,
+            "title": f"%{keyword}%" if keyword else None,
+        }.items() if v is not None}
 
-    ignored_ids = await IgnoredRepo(db).list_ignored_ids()
-    exclude_source_types = None if include_trend_sources else _TREND_SOURCE_TYPES
+        time_cutoff = None
+        if hours:
+            time_cutoff = datetime.utcnow() - timedelta(hours=hours)
 
-    # ── Curation-score ranking path ────────────────────────────────────
-    if sort_by == "curation_score":
-        from app.services.scoring_engine import score_items
+        ignored_ids = await IgnoredRepo(db).list_ignored_ids()
+        exclude_source_types = None if include_trend_sources else _TREND_SOURCE_TYPES
 
-        return await _score_content_page(
-            db,
-            filters=filters,
-            ignored_ids=ignored_ids,
-            time_cutoff=time_cutoff,
-            exclude_source_types=exclude_source_types,
-            page=page,
-            page_size=page_size,
-            score_fn=score_items,
-            sort_order=sort_order,
-        )
+        # ── Curation-score ranking path ────────────────────────────────────
+        if sort_by == "curation_score":
+            from app.services.scoring_engine import score_items
 
-    # ── Low-follower viral discovery path ────────────────────────────────
-    if sort_by == "low_follower_viral":
-        from app.services.scoring_engine import score_low_follower_viral
+            return await _score_content_page(
+                db,
+                filters=filters,
+                ignored_ids=ignored_ids,
+                time_cutoff=time_cutoff,
+                exclude_source_types=exclude_source_types,
+                page=page,
+                page_size=page_size,
+                score_fn=score_items,
+                sort_order=sort_order,
+            )
 
-        return await _score_content_page(
-            db,
-            filters=filters,
-            ignored_ids=ignored_ids,
-            time_cutoff=time_cutoff,
-            exclude_source_types=exclude_source_types,
-            page=page,
-            page_size=page_size,
-            score_fn=score_low_follower_viral,
-        )
+        # ── Low-follower viral discovery path ────────────────────────────────
+        if sort_by == "low_follower_viral":
+            from app.services.scoring_engine import score_low_follower_viral
 
-    # ── Standard SQL sort path ─────────────────────────────────────────
-    repo = ContentRepo(db)
-    items, total = await repo.list_paginated_with_analyses(
-        page=page, page_size=page_size,
-        filters=filters or None, sort_by=sort_by, sort_order=sort_order,
-        exclude_ids=ignored_ids, exclude_source_types=exclude_source_types, time_cutoff=time_cutoff)
-    return {"items": [_with_analysis(i) for i in items],
-            "total": total, "page": page, "page_size": page_size}
+            return await _score_content_page(
+                db,
+                filters=filters,
+                ignored_ids=ignored_ids,
+                time_cutoff=time_cutoff,
+                exclude_source_types=exclude_source_types,
+                page=page,
+                page_size=page_size,
+                score_fn=score_low_follower_viral,
+            )
+
+        # ── Standard SQL sort path ─────────────────────────────────────────
+        repo = ContentRepo(db)
+        items, total = await repo.list_paginated_with_analyses(
+            page=page, page_size=page_size,
+            filters=filters or None, sort_by=sort_by, sort_order=sort_order,
+            exclude_ids=ignored_ids, exclude_source_types=exclude_source_types, time_cutoff=time_cutoff)
+        payload = {"items": [content_with_latest_analysis(i) for i in items],
+                   "total": total, "page": page, "page_size": page_size}
+        if cache_params.cacheable:
+            content = set_cached_content_list(cache_params, payload)
+            return Response(
+                content=content,
+                media_type="application/json",
+                headers={"X-Content-List-Cache": "MISS"},
+            )
+        return payload
 
 
 @router.get("/today-picks")
@@ -216,7 +248,7 @@ async def list_favorites(
         )
 
     items, total = await ContentRepo(db).list_favorites(page=page, page_size=page_size)
-    payload = {"items": [_with_analysis(i) for i in items],
+    payload = {"items": [content_with_latest_analysis(i) for i in items],
                "total": total, "page": page, "page_size": page_size}
     content = set_cached_json(cache_key, payload)
     return Response(
@@ -239,10 +271,12 @@ async def get_enrichment(content_id: int, db: AsyncSession = Depends(get_db)):
         data = await enrich_content(content_id, db)
         analysis.enrichment, analysis.enrichment_status = data, "completed"
         await db.flush()
+        invalidate_content_list_cache()
         return {"content_id": content_id, "status": "completed", "enrichment": data}
     except Exception as e:
         analysis.enrichment_status = "error"
         await db.flush()
+        invalidate_content_list_cache()
         raise HTTPException(500, f"Enrichment failed: {e}")
 
 
@@ -308,6 +342,7 @@ async def toggle_favorite(content_id: int, db: AsyncSession = Depends(get_db)):
         else:
             await favorite_repo.remove_by_content(content_id)
         invalidate_favorite_cache()
+        invalidate_content_list_cache()
         invalidate_json_cache("contents:favorites:")
         await db.flush()
 
@@ -343,6 +378,7 @@ async def ignore_content(
     if not content:
         raise HTTPException(404, "Content not found")
     ignored = await IgnoredRepo(db).ignore(content_id, reason=reason)
+    invalidate_content_list_cache()
     return {"content_id": content_id, "ignored": True, "reason": ignored.reason}
 
 
@@ -351,4 +387,5 @@ async def unignore_content(content_id: int, db: AsyncSession = Depends(get_db)):
     """Remove ignore flag from a content item."""
     from app.repositories.ignored_repo import IgnoredRepo
     removed = await IgnoredRepo(db).unignore(content_id)
+    invalidate_content_list_cache()
     return {"content_id": content_id, "ignored": False, "removed": removed}

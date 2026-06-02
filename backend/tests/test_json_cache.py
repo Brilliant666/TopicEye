@@ -1,6 +1,7 @@
 from datetime import datetime
 import time
 
+from app.services.content_list_cache import ContentListCacheParams, invalidate_content_list_cache
 from app.services.json_cache import get_cached_json, invalidate_json_cache, set_cached_json
 
 
@@ -34,3 +35,25 @@ def test_json_cache_respects_short_ttl():
     set_cached_json("ttl:test", {"value": 1})
     time.sleep(0.002)
     assert get_cached_json("ttl:test", ttl_seconds=0.001) is None
+
+
+def test_content_list_cache_key_and_invalidation():
+    invalidate_json_cache()
+    params = ContentListCacheParams(
+        page=1,
+        page_size=50,
+        hours=48,
+    )
+    key = params.key
+    assert key == (
+        "contents:list:page=1&page_size=50&include_trend_sources=0"
+        "&sort_by=created_at&sort_order=desc&hours=48"
+    )
+
+    set_cached_json(key, {"items": [], "total": 0})
+    set_cached_json("contents:favorites:list:1:20", {"items": []})
+    invalidate_content_list_cache()
+
+    assert get_cached_json(key, ttl_seconds=10) is None
+    assert get_cached_json("contents:favorites:list:1:20", ttl_seconds=10) is not None
+    invalidate_json_cache()

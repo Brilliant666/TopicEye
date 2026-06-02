@@ -23,6 +23,7 @@ from app.services.llm.prompts.analysis import (
     SYSTEM_PROMPT_EN,
     ANALYSIS_PROMPT_EN,
 )
+from app.services.content_list_cache import invalidate_content_list_cache
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,7 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
     content.status = ContentStatus.ANALYZED
     await db.flush()
     await db.refresh(analysis)
+    invalidate_content_list_cache()
 
     logger.info(
         "Analysis id=%d: Q=%.0f C=%.0f V=%.0f R=%.0f Curation=%.0f Tags=%s",

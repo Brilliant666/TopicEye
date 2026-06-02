@@ -9,8 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
-from app.database import engine, Base
-from app.core.database import database_profile
+from app.core.database import Base, async_session, database_profile, engine
 from app.api.v1.router import router as v1_router
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.core.exceptions import AppException
@@ -34,6 +33,28 @@ import app.models.user  # noqa: F401
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 _cache_warmup_task: Optional[asyncio.Task] = None
+
+
+class ProcessTimeHeaderMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        started_at = time.perf_counter()
+
+        async def send_with_process_time(message):
+            if message["type"] == "http.response.start":
+                elapsed_ms = (time.perf_counter() - started_at) * 1000
+                message.setdefault("headers", []).append(
+                    (b"x-process-time-ms", f"{elapsed_ms:.3f}".encode("ascii"))
+                )
+            await send(message)
+
+        await self.app(scope, receive, send_with_process_time)
 
 
 async def ensure_source_sort_order_column(conn) -> None:
@@ -359,7 +380,6 @@ async def lifespan(app: FastAPI):
     # Seed categories from hardcoded defaults (no-op if already seeded)
     if settings.STARTUP_SEED_ENABLED:
         try:
-            from app.database import async_session
             from app.services.classifier import seed_categories
             async with async_session() as seed_db:
                 await seed_categories(seed_db)
@@ -372,7 +392,6 @@ async def lifespan(app: FastAPI):
     # Seed mother topics (4 content pillars for 大痴小乙)
     if settings.STARTUP_SEED_ENABLED:
         try:
-            from app.database import async_session
             from app.services.mother_topic_seed import seed_mother_topics
             async with async_session() as seed_db:
                 added = await seed_mother_topics()
@@ -449,13 +468,7 @@ app.add_middleware(
 )
 
 
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    started_at = time.perf_counter()
-    response = await call_next(request)
-    elapsed_ms = (time.perf_counter() - started_at) * 1000
-    response.headers["X-Process-Time-Ms"] = f"{elapsed_ms:.3f}"
-    return response
+app.add_middleware(ProcessTimeHeaderMiddleware)
 
 # Mount v1 API routes
 app.include_router(v1_router)

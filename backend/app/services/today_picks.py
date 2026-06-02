@@ -7,8 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.content_repo import ContentRepo
-from app.schemas.content import ContentResponse
-from app.schemas.analysis import AiAnalysisResponse
+from app.services.content_serialization import content_with_latest_analysis
 from app.services.scoring_engine import score_items
 from app.services.scoring_inputs import build_scoring_inputs
 
@@ -39,12 +38,10 @@ async def build_today_picks(
         if not item:
             continue
 
-        d = ContentResponse.model_validate(item).model_dump()
-        if item.analyses:
-            a_dict = AiAnalysisResponse.model_validate(item.analyses[-1]).model_dump()
-            a_dict["adjusted_curation_score"] = breakdown.final_score
-            a_dict["score_breakdown"] = breakdown.to_dict()
-            d["analysis"] = a_dict
+        d = content_with_latest_analysis(item)
+        if d.get("analysis"):
+            d["analysis"]["adjusted_curation_score"] = breakdown.final_score
+            d["analysis"]["score_breakdown"] = breakdown.to_dict()
 
         d["topic_id"] = item.topic_id
         d["duplicate_of"] = item.duplicate_of

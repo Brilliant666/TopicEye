@@ -12,7 +12,11 @@ import {
   SummaryGrid,
 } from './components';
 
-const DEFAULT_HOURS = 48;
+const DEFAULT_HOURS = 24;
+
+function formatWindow(hours: number) {
+  return hours >= 168 ? `${hours / 24} 天` : `${hours} 小时`;
+}
 
 function selectedStageKey(sample?: ScoringFlowSample) {
   if (!sample) return undefined;
@@ -55,7 +59,7 @@ export default function AlgorithmPage() {
       ) {
         initialFallbackRef.current = true;
         requestSeqRef.current = requestSeq + 1;
-        setFallbackNotice(`默认 48 小时窗口暂无样本，已自动切到 ${recommendedHours >= 168 ? `${recommendedHours / 24} 天` : `${recommendedHours} 小时`} 调试窗口。`);
+        setFallbackNotice(`默认 ${formatWindow(DEFAULT_HOURS)}窗口暂无样本，已自动切到 ${formatWindow(recommendedHours)} 调试窗口。`);
         setHours(recommendedHours);
         return;
       }
@@ -86,7 +90,7 @@ export default function AlgorithmPage() {
       const result = await analysesApi.analyzePending({ limit: 1, hours });
       const queuedCount = result.queued_ids?.length ?? 0;
       const analyzedCount = result.analyzed_ids?.length ?? 0;
-      const windowText = hours >= 168 ? `${hours / 24} 天` : `${hours} 小时`;
+      const windowText = formatWindow(hours);
       setAnalysisNotice(
         queuedCount > 0
           ? `已提交最近 ${windowText}内 ${queuedCount} 条内容到后台分析，稍后刷新评分流程。`

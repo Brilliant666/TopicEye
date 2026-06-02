@@ -18,6 +18,7 @@ from app.repositories.favorite_repo import FavoriteRepo
 from app.repositories.analysis_repo import AnalysisRepository
 from app.schemas.content import ContentResponse, ContentListResponse
 from app.schemas.analysis import AiAnalysisResponse
+from app.services.favorite_cache import invalidate_favorite_cache
 
 router = APIRouter(prefix="/contents", tags=["contents"])
 
@@ -289,6 +290,7 @@ async def toggle_favorite(content_id: int, db: AsyncSession = Depends(get_db)):
             await favorite_repo.create_from_content(content_id)
         else:
             await favorite_repo.remove_by_content(content_id)
+        invalidate_favorite_cache()
         await db.flush()
 
     restore_busy_timeout = False

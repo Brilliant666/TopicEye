@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, Sequence, Union
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import ContentItem
@@ -64,12 +64,14 @@ class FavoriteRepo:
             existing.updated_at = datetime.utcnow()
             await self.db.flush()
             await self.db.refresh(existing)
+            await self._sync_content_flag(existing, True)
             return existing
 
         item = FavoriteItem(**payload)
         self.db.add(item)
         await self.db.flush()
         await self.db.refresh(item)
+        await self._sync_content_flag(item, True)
         return item
 
     async def create_from_content(self, content_id: int) -> FavoriteItem:
@@ -83,17 +85,23 @@ class FavoriteRepo:
         )
 
     async def delete_by_target(self, target_type: Union[FavoriteTargetType, str], target_key: str) -> bool:
+        existing = await self.get_by_target(target_type, target_key)
         result = await self.db.execute(
             delete(FavoriteItem).where(
                 FavoriteItem.target_type == target_type,
                 FavoriteItem.target_key == target_key,
             )
         )
+        if existing:
+            await self._sync_content_flag(existing, False)
         await self.db.flush()
         return bool(result.rowcount)
 
     async def delete(self, favorite_id: int) -> bool:
+        item = await self.get_by_id(favorite_id)
         result = await self.db.execute(delete(FavoriteItem).where(FavoriteItem.id == favorite_id))
+        if item:
+            await self._sync_content_flag(item, False)
         await self.db.flush()
         return bool(result.rowcount)
 
@@ -176,6 +184,15 @@ class FavoriteRepo:
             for key in keys
         ]
 
+    async def _sync_content_flag(self, item: FavoriteItem, is_favorited: bool) -> None:
+        if item.target_type != FavoriteTargetType.CONTENT or item.target_id is None:
+            return
+        await self.db.execute(
+            update(ContentItem)
+            .where(ContentItem.id == item.target_id)
+            .values(is_favorited=is_favorited, updated_at=datetime.utcnow())
+        )
+
     async def _merge_content_snapshot(self, payload: dict) -> dict:
         content_id = payload.get("target_id")
         if content_id is None:
@@ -196,13 +213,13 @@ class FavoriteRepo:
             payload["source_name"] = content.source_name
         if not payload.get("snapshot"):
             payload["snapshot"] = {
-            "content_id": content.id,
-            "category": content.category,
-            "source_type": content.source_type,
-            "platform": content.platform,
-            "author": content.author,
-            "published_at": content.published_at.isoformat() if content.published_at else None,
-            "crawled_at": content.crawled_at.isoformat() if content.crawled_at else None,
-            "summary": content.summary,
+                "content_id": content.id,
+                "category": content.category,
+                "source_type": content.source_type,
+                "platform": content.platform,
+                "author": content.author,
+                "published_at": content.published_at.isoformat() if content.published_at else None,
+                "crawled_at": content.crawled_at.isoformat() if content.crawled_at else None,
+                "summary": content.summary,
             }
         return payload

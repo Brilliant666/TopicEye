@@ -14,6 +14,9 @@ import type {
   PaginatedResponse,
   SyncResult,
   TopicInfo,
+  FavoriteItem,
+  FavoriteStatus,
+  FavoriteTargetType,
   MonthlyDigest,
   MonthlyDigestListResponse,
   MonthlyDigestMonthsResponse,
@@ -244,6 +247,38 @@ export const contentsApi = {
   /** 取消忽略 */
   unignore(id: number): Promise<{ content_id: number; ignored: boolean; removed: boolean }> {
     return request(`/contents/${id}/ignore`, { method: 'DELETE' });
+  },
+};
+
+// ─── Favorites API ───
+
+export const favoritesApi = {
+  list(params?: {
+    page?: number;
+    page_size?: number;
+    target_type?: FavoriteTargetType | '';
+    status?: FavoriteStatus | '';
+    keyword?: string;
+  }): Promise<PaginatedResponse<FavoriteItem>> {
+    const query = params
+      ? '?' + new URLSearchParams(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined && v !== '')
+            .map(([k, v]) => [k, String(v)])
+        ).toString()
+      : '';
+    return request(`/favorites${query}`);
+  },
+
+  update(id: number, data: { status?: FavoriteStatus; note?: string | null; tags?: unknown }): Promise<FavoriteItem> {
+    return request(`/favorites/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  delete(id: number): Promise<{ deleted: boolean }> {
+    return request(`/favorites/${id}`, { method: 'DELETE' });
   },
 };
 

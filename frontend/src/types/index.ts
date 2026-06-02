@@ -234,6 +234,29 @@ export interface PaginatedResponse<T> {
   page_size: number;
 }
 
+// ─── Favorites (通用收藏) ───
+
+export type FavoriteTargetType = 'content' | 'book' | 'source' | 'trend' | 'author' | 'topic_group';
+export type FavoriteStatus = 'inbox' | 'researching' | 'drafting' | 'archived';
+
+export interface FavoriteItem {
+  id: number;
+  target_type: FavoriteTargetType;
+  target_id?: number | null;
+  target_key: string;
+  title: string;
+  url?: string | null;
+  cover_url?: string | null;
+  source_name?: string | null;
+  collection_id?: number | null;
+  tags?: unknown;
+  note?: string | null;
+  status: FavoriteStatus;
+  snapshot?: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SyncResult {
   fetched: number;
   new: number;

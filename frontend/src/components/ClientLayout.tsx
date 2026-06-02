@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import NotificationBell from '@/components/NotificationBell';
-import { sourcesApi, contentsApi } from '@/lib/api';
+import { sourcesApi, contentsApi, favoritesApi } from '@/lib/api';
 
 // App context - shared across pages
 interface AppContextType {
@@ -53,16 +53,19 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const favoritePendingRef = useRef<Set<number>>(new Set());
   const [contentCount, setContentCount] = useState(0);
   const [sourceCount, setSourceCount] = useState(0);
+  const [favoriteTotal, setFavoriteTotal] = useState(0);
   const [compactNav, setCompactNav] = useState(false);
 
   const refreshCounts = useCallback(async () => {
     try {
-      const [contents, sources] = await Promise.all([
+      const [contents, sources, allFavorites] = await Promise.all([
         contentsApi.list({ page_size: 1 }),
         sourcesApi.list(),
+        favoritesApi.list({ page_size: 1 }),
       ]);
       setContentCount(contents.total || 0);
       setSourceCount(sources.total || sources.items?.length || 0);
+      setFavoriteTotal(allFavorites.total || 0);
 
       // Also refresh favorites from backend
       const favs = await contentsApi.listFavorites({ page_size: 100 });
@@ -92,6 +95,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     if (favoritePendingRef.current.has(id)) {
       return favorites.has(id);
     }
+    const wasFavorited = favorites.has(id);
     favoritePendingRef.current.add(id);
     setFavoritePendingIds((prev) => new Set(prev).add(id));
     try {
@@ -105,6 +109,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         }
         return next;
       });
+      if (result.is_favorited !== wasFavorited) {
+        setFavoriteTotal((prev) => Math.max(0, prev + (result.is_favorited ? 1 : -1)));
+      }
       return result.is_favorited;
     } catch (err) {
       console.error('Toggle favorite failed:', err);
@@ -125,7 +132,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   return (
     <AppContext.Provider value={{ favorites, favoritePendingIds, topicCount: contentCount, toggleFavorite, refreshCounts }}>
       <div className="flex h-dvh overflow-hidden">
-        <Sidebar topicCount={contentCount} favCount={favorites.size} sourceCount={sourceCount} compact={compactNav} />
+        <Sidebar topicCount={contentCount} favCount={favoriteTotal} sourceCount={sourceCount} compact={compactNav} />
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-page">
           <div className="flex h-12 shrink-0 items-center justify-end border-b border-gray-100 bg-white px-6">
             <NotificationBell />

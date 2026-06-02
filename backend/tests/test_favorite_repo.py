@@ -50,6 +50,40 @@ async def test_content_favorite_upsert_builds_snapshot_and_dedupes():
 
 
 @pytest.mark.asyncio
+async def test_deleting_content_favorite_syncs_legacy_content_flag():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=2,
+                title="待取消收藏",
+                url="https://example.com/remove",
+                source_name="测试源",
+                source_type="RSS",
+                category="AI",
+                status=ContentStatus.ANALYZED,
+                is_favorited=True,
+                crawled_at=datetime.utcnow(),
+            )
+        )
+        await db.flush()
+
+        repo = FavoriteRepo(db)
+        favorite = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.CONTENT, target_id=2))
+        await repo.delete(favorite.id)
+        content = await db.get(ContentItem, 2)
+
+        assert content is not None
+        assert content.is_favorited is False
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_external_favorite_requires_title_when_target_not_resolved():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)

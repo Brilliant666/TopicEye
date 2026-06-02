@@ -13,7 +13,7 @@ from app.services.scoring_inputs import build_scoring_inputs
 
 
 async def build_today_picks(
-    db: AsyncSession, *, category: Optional[str] = None, hours: int = 48,
+    db: AsyncSession, *, category: Optional[str] = None, hours: int = 48, limit: Optional[int] = None,
 ) -> dict:
     """Return today-picks payload using the multi-signal scoring engine."""
     # ── Fetch candidates ──
@@ -60,7 +60,7 @@ async def build_today_picks(
         for t in topic_rows
     }
 
-    return _dedupe_and_pack(response_items, topic_map)
+    return _dedupe_and_pack(response_items, topic_map, limit=limit)
 
 
 def _empty_payload() -> dict:
@@ -70,13 +70,19 @@ def _empty_payload() -> dict:
     }
 
 
-def _dedupe_and_pack(items: list[dict], topic_map: dict) -> dict:
+def _dedupe_and_pack(items: list[dict], topic_map: dict, *, limit: Optional[int] = None) -> dict:
     deduped = [i for i in items if not i.get("duplicate_of")]
+    duplicates_hidden = len(items) - len(deduped)
+    total = len(deduped)
+    if limit:
+        deduped = deduped[:limit]
+    topic_ids = {item.get("topic_id") for item in deduped if item.get("topic_id")}
+    visible_topics = [topic for topic in topic_map.values() if topic["id"] in topic_ids]
     return {
         "items": deduped,
-        "total": len(deduped),
-        "duplicates_hidden": len(items) - len(deduped),
-        "topics": list(topic_map.values()),
+        "total": total,
+        "duplicates_hidden": duplicates_hidden,
+        "topics": visible_topics,
         "page": 1,
         "page_size": len(deduped),
     }

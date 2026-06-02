@@ -69,6 +69,7 @@ function TodayPicksPage() {
   const [selectedLevel, setSelectedLevel] = useState(searchParams.get('level') || '');
   const [selectedTimeRange, setSelectedTimeRange] = useState(normalizeTimeRange(searchParams.get('time_range')));
   const [items, setItems] = useState<ContentItem[]>([]);
+  const [total, setTotal] = useState(0);
   const [topics, setTopics] = useState<TopicInfo[]>([]);
   const [dupCount, setDupCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -108,11 +109,13 @@ function TodayPicksPage() {
   const fetchPicks = useCallback(async () => {
     try {
       setLoading(true);
-      const params: Record<string, string> = {};
+      const params: { category?: string; time_range?: string; limit?: number } = {};
       if (selectedCategory) params.category = selectedCategory;
       params.time_range = selectedTimeRange;
+      if (selectedTimeRange === '7d') params.limit = 80;
       const res = await contentsApi.todayPicks(params);
       setItems(res.items || []);
+      setTotal(res.total || 0);
       setTopics(res.topics || []);
       setDupCount(res.duplicates_hidden || 0);
     } catch (err) {
@@ -154,6 +157,8 @@ function TodayPicksPage() {
     selectedLevel,
     selectedTimeRange !== DEFAULT_TIME_RANGE ? selectedTimeRange : '',
   ].filter(Boolean).length;
+  const isDefaultWindow = selectedTimeRange === DEFAULT_TIME_RANGE;
+  const hasNonTimeFilters = Boolean(selectedCategory || selectedLevel);
   const sortedItems = useMemo(() => [...filteredItems].sort((a, b) => scoreOf(b) - scoreOf(a)), [filteredItems]);
   const visibleContentIds = useMemo(() => filteredItems.map((item) => item.id), [filteredItems]);
   const contentFavoriteState = useContentFavoriteStates(visibleContentIds);
@@ -214,7 +219,8 @@ function TodayPicksPage() {
       <div className="mx-auto mt-6 grid max-w-[1180px] grid-cols-[minmax(0,1fr)_260px] items-start gap-4.5 max-lg:grid-cols-1">
         <main className="min-w-0">
           <OverviewStrip
-            total={filteredItems.length}
+            total={selectedLevel ? filteredItems.length : total}
+            loadedCount={filteredItems.length}
             sourceCount={sourceCount}
             topicCount={sortedTopics.length}
             avgScore={avgScore}
@@ -228,9 +234,12 @@ function TodayPicksPage() {
           ) : filteredItems.length === 0 ? (
             <EmptyState
               icon={FileText}
-              title={activeFilterCount > 0 ? '筛选后没有匹配内容' : '当前没有精选内容'}
-              desc={activeFilterCount > 0 ? '可以放宽等级、分类或时间范围。' : '等待内容同步和分析完成后会自动出现。'}
-              action={activeFilterCount > 0 ? { label: '清除筛选', onClick: clearFilters } : undefined}
+              title={activeFilterCount > 0 ? '筛选后没有匹配内容' : '近 48 小时暂无精选内容'}
+              desc={isDefaultWindow && !hasNonTimeFilters ? '当前窗口没有可写样本，可以先查看近 7 天历史样本，或等待信源同步和分析完成。' : '可以放宽等级、分类或时间范围。'}
+              actions={[
+                ...(isDefaultWindow ? [{ label: '查看 7 天历史样本', onClick: () => setTimeRange('7d'), variant: 'primary' as const }] : []),
+                ...(activeFilterCount > 0 ? [{ label: '清除筛选', onClick: clearFilters, variant: 'secondary' as const }] : []),
+              ]}
             />
           ) : groupByTopic ? (
             <TopicBoard
@@ -274,19 +283,21 @@ function TodayPicksPage() {
 
 function OverviewStrip({
   total,
+  loadedCount,
   sourceCount,
   topicCount,
   avgScore,
   dupCount,
 }: {
   total: number;
+  loadedCount: number;
   sourceCount: number;
   topicCount: number;
   avgScore: number;
   dupCount: number;
 }) {
   const stats = [
-    { label: '精选内容', value: total, hint: '去重后', icon: Target, color: 'text-primary' },
+    { label: '精选内容', value: total, hint: loadedCount < total ? `已加载 ${loadedCount}` : '去重后', icon: Target, color: 'text-primary' },
     { label: '平均分', value: avgScore || '-', hint: '算法校准', icon: BarChart3, color: 'text-teal' },
     { label: '话题组', value: topicCount, hint: '聚类结果', icon: Layers3, color: 'text-purple' },
     { label: '来源', value: sourceCount, hint: dupCount ? `隐藏重复 ${dupCount}` : '有效信源', icon: Search, color: 'text-amber' },
@@ -763,22 +774,26 @@ function EmptyState({
   icon: Icon,
   title,
   desc,
-  action,
+  actions,
 }: {
   icon: typeof FileText;
   title: string;
   desc: string;
-  action?: { label: string; onClick: () => void };
+  actions?: Array<{ label: string; onClick: () => void; variant?: 'primary' | 'secondary' }>;
 }) {
   return (
     <Panel className="px-6 py-16 text-center text-gray-400">
       <Icon size={34} className="mx-auto mb-3.5 opacity-45" />
       <div className="text-[15px] font-black text-gray-700">{title}</div>
       <div className="mt-1.5 text-xs">{desc}</div>
-      {action && (
-        <Button type="button" variant="primary" onClick={action.onClick} className="mt-3.5">
-          {action.label}
-        </Button>
+      {actions && actions.length > 0 && (
+        <div className="mt-3.5 flex flex-wrap justify-center gap-2">
+          {actions.map((action) => (
+            <Button key={action.label} type="button" variant={action.variant || 'primary'} onClick={action.onClick}>
+              {action.label}
+            </Button>
+          ))}
+        </div>
       )}
     </Panel>
   );

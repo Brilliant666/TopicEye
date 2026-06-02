@@ -205,6 +205,7 @@ async def list_contents(
 async def today_picks(
     category: Optional[str] = Query(None, description="Filter by category"),
     time_range: Optional[str] = Query(None, description="Time range: 24h, 48h, 7d"),
+    limit: Optional[int] = Query(None, ge=1, le=200, description="Limit returned items while preserving total"),
 ):
     """Top picks — curation_score adjusted by source weight, threshold 60."""
     from app.services.today_picks import build_today_picks
@@ -212,6 +213,7 @@ async def today_picks(
     params = TodayPicksCacheParams(
         category=category,
         hours={"24h": 24, "7d": 168}.get(time_range or "", 48),
+        limit=limit,
     )
     cached = get_cached_today_picks(params, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
     if cached:
@@ -223,7 +225,7 @@ async def today_picks(
         )
 
     async with async_session() as db:
-        payload = await build_today_picks(db, category=category, hours=params.hours)
+        payload = await build_today_picks(db, category=category, hours=params.hours, limit=params.limit)
         content = set_cached_today_picks(params, payload)
         return Response(
             content=content,

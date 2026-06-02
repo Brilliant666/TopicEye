@@ -15,12 +15,15 @@ TODAY_PICKS_DEFAULT_CACHE_LABEL = "contents:today-picks:48"
 class TodayPicksCacheParams:
     hours: int = 48
     category: Optional[str] = None
+    limit: Optional[int] = None
 
     @property
     def key(self) -> str:
         params = {"hours": self.hours}
         if self.category:
             params["category"] = self.category
+        if self.limit:
+            params["limit"] = self.limit
         return TODAY_PICKS_CACHE_PREFIX + urlencode(params)
 
 

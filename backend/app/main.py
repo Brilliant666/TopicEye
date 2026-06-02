@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import logging
+import time
 from sqlalchemy import text
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -288,6 +289,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    started_at = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    response.headers["X-Process-Time-Ms"] = f"{elapsed_ms:.3f}"
+    return response
 
 # Mount v1 API routes
 app.include_router(v1_router)

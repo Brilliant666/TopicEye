@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 
 
 from fastapi import APIRouter, Query
+from fastapi.responses import Response
 from sqlalchemy import (
     func,
     case,
@@ -15,6 +16,7 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session
+from app.services.json_cache import get_cached_json, set_cached_json
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/stats", tags=["stats"])
@@ -72,6 +74,16 @@ async def get_overview(days: int = Query(7, ge=1, le=90)):
     - curated: 精选数 (curation_score >= P70 threshold, ~top 30%)
     - today_new: 今日新增
     """
+    cache_key = f"stats:overview:{days}"
+    cached = get_cached_json(cache_key, ttl_seconds=10.0)
+    if cached:
+        content, age_seconds = cached
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"X-Stats-Cache": f"HIT; age={age_seconds:.3f}s"},
+        )
+
     async with async_session() as db:
         cutoff = datetime.utcnow() - timedelta(days=days)
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -117,13 +129,19 @@ async def get_overview(days: int = Query(7, ge=1, le=90)):
         )
         today_new = today_row.scalar() or 0
 
-        return {
+        payload = {
             "total": r.total or 0,
             "analyzed": r.analyzed or 0,
             "curated": r.curated or 0,
             "curation_threshold": round(thr, 1),
             "today_new": today_new,
         }
+        content = set_cached_json(cache_key, payload)
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"X-Stats-Cache": "MISS"},
+        )
 
 
 # ────────────────────────────────────────────────────────────────

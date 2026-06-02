@@ -17,6 +17,7 @@ from app.services.favorite_cache import (
     invalidate_favorite_cache,
     set_cached_json,
 )
+from app.services.json_cache import invalidate_json_cache
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
 
@@ -70,6 +71,7 @@ async def create_favorite(
     try:
         item = await repo.upsert(data)
         invalidate_favorite_cache()
+        invalidate_json_cache("contents:favorites:")
         return item
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
@@ -120,6 +122,7 @@ async def update_favorite(
     if not item:
         raise HTTPException(status_code=404, detail="Favorite not found")
     invalidate_favorite_cache()
+    invalidate_json_cache("contents:favorites:")
     return item
 
 
@@ -132,4 +135,5 @@ async def delete_favorite(
     if not deleted:
         raise HTTPException(status_code=404, detail="Favorite not found")
     invalidate_favorite_cache()
+    invalidate_json_cache("contents:favorites:")
     return {"deleted": True}

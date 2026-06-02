@@ -19,6 +19,7 @@ from app.repositories.analysis_repo import AnalysisRepository
 from app.schemas.content import ContentResponse, ContentListResponse
 from app.schemas.analysis import AiAnalysisResponse
 from app.services.favorite_cache import invalidate_favorite_cache
+from app.services.json_cache import get_cached_json, invalidate_json_cache, set_cached_json
 
 router = APIRouter(prefix="/contents", tags=["contents"])
 
@@ -204,9 +205,25 @@ async def list_favorites(
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
 ):
+    cache_key = f"contents:favorites:list:{page}:{page_size}"
+    cached = get_cached_json(cache_key, ttl_seconds=10.0)
+    if cached:
+        content, age_seconds = cached
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"X-Content-Favorites-Cache": f"HIT; age={age_seconds:.3f}s"},
+        )
+
     items, total = await ContentRepo(db).list_favorites(page=page, page_size=page_size)
-    return {"items": [_with_analysis(i) for i in items],
-            "total": total, "page": page, "page_size": page_size}
+    payload = {"items": [_with_analysis(i) for i in items],
+               "total": total, "page": page, "page_size": page_size}
+    content = set_cached_json(cache_key, payload)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"X-Content-Favorites-Cache": "MISS"},
+    )
 
 
 @router.get("/{content_id}/enrich")
@@ -291,6 +308,7 @@ async def toggle_favorite(content_id: int, db: AsyncSession = Depends(get_db)):
         else:
             await favorite_repo.remove_by_content(content_id)
         invalidate_favorite_cache()
+        invalidate_json_cache("contents:favorites:")
         await db.flush()
 
     restore_busy_timeout = False

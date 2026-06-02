@@ -5,6 +5,7 @@ import re
 import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,8 +19,13 @@ from app.schemas.source import (
 )
 from app.repositories.source_repo import SourceRepository
 from app.services.content_pipeline import ingest_from_source
+from app.services.json_cache import get_cached_json, invalidate_json_cache, set_cached_json
 
 router = APIRouter(prefix="/sources", tags=["sources"])
+
+
+def _invalidate_source_cache() -> None:
+    invalidate_json_cache("sources:list:")
 
 
 class SourceBatchImportRequest(BaseModel):
@@ -214,7 +220,9 @@ async def create_source(data: SourceCreate, db: AsyncSession = Depends(get_db)):
     if payload.get("sort_order") is None:
         max_order = await db.scalar(select(func.max(Source.sort_order)))
         payload["sort_order"] = (max_order or 0) + 10
-    return await repo.create(**payload)
+    source = await repo.create(**payload)
+    _invalidate_source_cache()
+    return source
 
 
 @router.get("", response_model=SourceListResponse)
@@ -227,6 +235,16 @@ async def list_sources(
     keyword: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
+    cache_key = f"sources:list:{page}:{page_size}:{source_type or ''}:{status or ''}:{enabled}:{keyword or ''}"
+    cached = get_cached_json(cache_key, ttl_seconds=10.0)
+    if cached:
+        content, age_seconds = cached
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"X-Sources-Cache": f"HIT; age={age_seconds:.3f}s"},
+        )
+
     repo = SourceRepository(db)
     filters = {
         "source_type": source_type,
@@ -241,7 +259,13 @@ async def list_sources(
         filters={k: v for k, v in filters.items() if v is not None},
         sort_by="sort_order", sort_order="asc",
     )
-    return SourceListResponse(items=items, total=total, page=page, page_size=page_size)
+    payload = SourceListResponse(items=items, total=total, page=page, page_size=page_size).model_dump()
+    content = set_cached_json(cache_key, payload)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"X-Sources-Cache": "MISS"},
+    )
 
 
 @router.post("/reorder")
@@ -261,6 +285,7 @@ async def reorder_sources(data: SourceReorderRequest, db: AsyncSession = Depends
         sources_by_id[source_id].sort_order = (index + 1) * 10
 
     await db.flush()
+    _invalidate_source_cache()
     return {"message": "信源顺序已保存", "updated": len(unique_ids)}
 
 
@@ -316,6 +341,7 @@ async def import_opml(
         )
         created += 1
 
+    _invalidate_source_cache()
     return {
         "created": created, "skipped": skipped, "total": len(outlines),
         "message": f"成功导入 {created} 个源，跳过 {skipped} 个重复。",
@@ -371,6 +397,7 @@ async def import_source_batch(
         next_order += 10
         created += 1
 
+    _invalidate_source_cache()
     return {
         "created": created,
         "skipped": skipped,
@@ -394,7 +421,9 @@ async def update_source(
 ):
     repo = SourceRepository(db)
     try:
-        return await repo.update(source_id, **data.model_dump(exclude_unset=True))
+        source = await repo.update(source_id, **data.model_dump(exclude_unset=True))
+        _invalidate_source_cache()
+        return source
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -404,6 +433,7 @@ async def delete_source(source_id: int, db: AsyncSession = Depends(get_db)):
     repo = SourceRepository(db)
     try:
         await repo.delete(source_id)
+        _invalidate_source_cache()
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
@@ -418,6 +448,7 @@ async def sync_source(source_id: int, db: AsyncSession = Depends(get_db)):
 
     stats = await ingest_from_source(source, db)
     await db.refresh(source)
+    _invalidate_source_cache()
     if source.status == SourceStatus.ERROR or source.sync_error:
         raise HTTPException(status_code=502, detail=source.sync_error or "信源同步失败")
     return SyncResultResponse(

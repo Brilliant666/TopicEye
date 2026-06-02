@@ -131,6 +131,9 @@ export default function FavoritesPage() {
   const [bulkPending, setBulkPending] = useState(false);
   const [draggingId, setDraggingId] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<{ status: FavoriteStatus; beforeId: number | null } | null>(null);
+  const [dirtyStatuses, setDirtyStatuses] = useState<Set<FavoriteStatus>>(new Set());
+  const [savingOrder, setSavingOrder] = useState(false);
+  const [savedNotice, setSavedNotice] = useState<string | null>(null);
 
   const fetchFavorites = useCallback(async () => {
     try {
@@ -145,6 +148,8 @@ export default function FavoritesPage() {
       setItems(res.items || []);
       setTotal(res.total || 0);
       setSelectedIds(new Set());
+      setDirtyStatuses(new Set());
+      setSavedNotice(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : '收藏夹加载失败');
     } finally {
@@ -222,7 +227,7 @@ export default function FavoritesPage() {
     }
   };
 
-  const moveFavorite = useCallback(async (itemId: number, targetStatus: FavoriteStatus, beforeId: number | null) => {
+  const moveFavorite = useCallback((itemId: number, targetStatus: FavoriteStatus, beforeId: number | null) => {
     const movingItem = items.find((item) => item.id === itemId);
     if (!movingItem) return;
     if (itemId === beforeId) {
@@ -249,19 +254,39 @@ export default function FavoritesPage() {
       if (nextPosition !== undefined) return { ...item, position: nextPosition };
       return item;
     }));
+    setDirtyStatuses((prev) => {
+      const next = new Set(prev);
+      next.add(targetStatus);
+      return next;
+    });
     setDraggingId(null);
     setDropTarget(null);
     setError(null);
-
-    try {
-      const updated = await favoritesApi.reorder(targetStatus, nextColumnItems.map((item) => item.id));
-      const byId = new Map(updated.map((item) => [item.id, item]));
-      setItems((prev) => prev.map((item) => byId.get(item.id) || item));
-    } catch (err) {
-      setItems(previousItems);
-      setError(err instanceof Error ? err.message : '拖拽排序保存失败');
-    }
+    setSavedNotice(null);
   }, [items]);
+
+  const saveOrder = useCallback(async () => {
+    if (dirtyStatuses.size === 0) return;
+    setSavingOrder(true);
+    setError(null);
+    try {
+      const updatedGroups = await Promise.all(Array.from(dirtyStatuses).map((dirtyStatus) => {
+        const orderedIds = items
+          .filter((item) => item.status === dirtyStatus)
+          .sort((a, b) => a.position - b.position || b.updated_at.localeCompare(a.updated_at) || b.id - a.id)
+          .map((item) => item.id);
+        return favoritesApi.reorder(dirtyStatus, orderedIds);
+      }));
+      const byId = new Map(updatedGroups.flat().map((item) => [item.id, item]));
+      setItems((prev) => prev.map((item) => byId.get(item.id) || item));
+      setDirtyStatuses(new Set());
+      setSavedNotice('排序已保存');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '排序保存失败');
+    } finally {
+      setSavingOrder(false);
+    }
+  }, [dirtyStatuses, items]);
 
   const updateSelectedStatus = async (nextStatus: FavoriteStatus) => {
     if (selectedItems.length === 0) return;
@@ -431,6 +456,27 @@ export default function FavoritesPage() {
         </div>
       )}
 
+      {(dirtyStatuses.size > 0 || savedNotice) && (
+        <div className={cx(
+          'mb-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border px-4 py-3 text-[13px]',
+          dirtyStatuses.size > 0 ? 'border-amber-border bg-amber-light text-amber' : 'border-teal-border bg-teal-light text-teal',
+        )}>
+          <div className="font-black">
+            {dirtyStatuses.size > 0 ? `有 ${dirtyStatuses.size} 个状态列的排序未保存` : savedNotice}
+          </div>
+          {dirtyStatuses.size > 0 && (
+            <div className="flex gap-2">
+              <Button type="button" variant="secondary" disabled={savingOrder} onClick={() => void fetchFavorites()}>
+                撤销
+              </Button>
+              <Button type="button" variant="primary" disabled={savingOrder} onClick={() => void saveOrder()}>
+                {savingOrder ? '保存中...' : '保存排序'}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <div className="p-20 text-center text-sm text-gray-400">加载中...</div>
       ) : items.length === 0 ? (
@@ -522,6 +568,11 @@ function FavoriteColumn({
 }) {
   const allSelected = column.items.length > 0 && column.items.every((item) => selectedIds.has(item.id));
   const isColumnDropTarget = dropTarget?.status === column.value && dropTarget.beforeId === null;
+  const draggedIdFrom = (event: React.DragEvent<HTMLElement>) => {
+    const raw = event.dataTransfer.getData('text/plain');
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : draggingId;
+  };
   return (
     <section
       data-favorite-column={column.value}
@@ -533,7 +584,8 @@ function FavoriteColumn({
       onDrop={(event) => {
         event.preventDefault();
         event.stopPropagation();
-        if (draggingId) onMove(draggingId, column.value, dropTarget?.beforeId ?? null);
+        const draggedId = draggedIdFrom(event);
+        if (draggedId) onMove(draggedId, column.value, dropTarget?.beforeId ?? null);
       }}
       className={cx(
         'min-w-0 rounded-lg border bg-white transition',
@@ -581,7 +633,7 @@ function FavoriteColumn({
             onDragStart={onDragStart}
             onDragHover={(beforeId) => onDragHover({ status: column.value, beforeId })}
             onDragEnd={onDragEnd}
-            onDrop={(beforeId) => { if (draggingId) onMove(draggingId, column.value, beforeId); }}
+            onDrop={(draggedId, beforeId) => onMove(draggedId, column.value, beforeId)}
           />
         ))}
       </div>
@@ -616,7 +668,7 @@ function FavoriteCard({
   onDragStart: (id: number) => void;
   onDragHover: (beforeId: number) => void;
   onDragEnd: () => void;
-  onDrop: (beforeId: number) => void;
+  onDrop: (draggedId: number, beforeId: number) => void;
 }) {
   const snapshotText = getSnapshotText(item);
   const metaText = getSnapshotMeta(item);
@@ -641,7 +693,11 @@ function FavoriteCard({
         if (!dragEnabled) return;
         event.preventDefault();
         event.stopPropagation();
-        onDrop(item.id);
+        const raw = event.dataTransfer.getData('text/plain');
+        const draggedId = Number(raw);
+        if (Number.isFinite(draggedId) && draggedId > 0) {
+          onDrop(draggedId, item.id);
+        }
       }}
       onDragEnd={onDragEnd}
       className={cx(

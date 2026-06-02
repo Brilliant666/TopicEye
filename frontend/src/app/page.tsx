@@ -23,7 +23,7 @@ import { contentsApi, feedbackApi } from '@/lib/api';
 import type { FeedbackType } from '@/lib/api';
 import { useContentFavoriteStates } from '@/hooks/useContentFavoriteStates';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
-import { getRecommendLevel } from '@/types';
+import { explainRecommendation, getRecommendationReason } from '@/lib/recommendation';
 import ContentAnalysisPanel from '@/components/ContentAnalysisPanel';
 
 // ── Helpers ──
@@ -189,7 +189,7 @@ export default function HomePage() {
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push({
         item,
-        level: item.analysis ? getRecommendLevel(item.analysis) : '值得观察',
+        level: explainRecommendation(item.analysis).level,
       });
     });
     return Array.from(groups.entries()).map(([dateLabel, entries]) => ({ dateLabel, entries }));
@@ -204,10 +204,11 @@ export default function HomePage() {
       { level: '适合深挖', title: '适合深挖', items: [] },
       { level: '适合蹭热点', title: '热点观察', items: [] },
       { level: '不建议追', title: '低优先级', items: [] },
+      { level: '信号不足', title: '待补信号', items: [] },
     ];
-    const fallback = groups[1];
+    const fallback = groups[5];
     filtered.forEach((item) => {
-      const level = item.analysis ? getRecommendLevel(item.analysis) : '值得观察';
+      const level = explainRecommendation(item.analysis).level;
       (groups.find((g) => g.level === level) || fallback).items.push(item);
     });
     return groups.filter((g) => g.items.length > 0);
@@ -470,6 +471,7 @@ function levelColor(level: RecommendLevel): string {
   if (level === '适合深挖') return '#8B5CF6';
   if (level === '适合蹭热点') return '#D97706';
   if (level === '不建议追') return '#9CA3AF';
+  if (level === '信号不足') return '#D1D5DB';
   return '#00C9A7';
 }
 
@@ -512,7 +514,7 @@ function EditorialItem({
     }
   }, [item.analysis, item.url, onShowAnalysis]);
 
-  const recommendation = item.analysis?.recommendation || item.analysis?.recommended_reason || item.summary;
+  const recommendation = getRecommendationReason(item.analysis, item.summary);
 
   return (
       <Panel
@@ -564,7 +566,7 @@ function EditorialItem({
                 <ScoreBadge label="创作" score={item.analysis.creator_score} tone="primary" />
                 <ScoreBadge label="爆文" score={item.analysis.viral_score} tone="neutral" />
                 <ScoreBadge label="质量" score={item.analysis.quality_score} tone="neutral" />
-                <RecommendBadge level={getRecommendLevel(item.analysis)} />
+                <RecommendBadge level={explainRecommendation(item.analysis).level} />
               </React.Fragment>
             )}
             {item.tags && item.tags.length > 0
@@ -661,6 +663,7 @@ function RecommendBadge({ level }: { level: RecommendLevel }) {
     '适合深挖': 'purple',
     '适合蹭热点': 'amber',
     '不建议追': 'neutral',
+    '信号不足': 'neutral',
   };
   return (
     <Badge tone={toneMap[level] || 'neutral'} className="rounded px-2 py-0.5 text-[10px]">

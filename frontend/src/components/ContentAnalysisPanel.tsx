@@ -8,7 +8,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 import { Badge, cx } from '@/components/ui';
 import type { ContentAnalysis, RecommendLevel, ScoreBreakdown as ScoreBreakdownType } from '@/types';
-import { getRecommendLevel } from '@/types';
+import { explainRecommendation } from '@/lib/recommendation';
 
 interface Props {
   analysis: ContentAnalysis;
@@ -16,7 +16,8 @@ interface Props {
 }
 
 export default function ContentAnalysisPanel({ analysis, onClose }: Props) {
-  const level = getRecommendLevel(analysis);
+  const recommendation = explainRecommendation(analysis);
+  const level = recommendation.level;
 
   const scores = [
     { label: '质量', value: analysis.quality_score, color: '#3498db' },
@@ -61,6 +62,21 @@ export default function ContentAnalysisPanel({ analysis, onClose }: Props) {
           <ScoreBreakdownChart breakdown={analysis.score_breakdown} />
         </Section>
       )}
+
+      <Section title="算法判断">
+        <p className="m-0 text-[13px] leading-7 text-gray-700">
+          {recommendation.reason}
+        </p>
+        {recommendation.signals.length > 0 && (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {recommendation.signals.map((signal) => (
+              <Badge key={signal} tone="neutral" className="rounded-xs px-2 py-0.5">
+                {signal}
+              </Badge>
+            ))}
+          </div>
+        )}
+      </Section>
 
       {/* Summary */}
       {analysis.summary && (
@@ -208,6 +224,7 @@ function RecommendTag({ level }: { level: RecommendLevel }) {
     '适合深挖': 'purple',
     '适合蹭热点': 'amber',
     '不建议追': 'neutral',
+    '信号不足': 'neutral',
   };
   return <Badge tone={toneMap[level] || 'neutral'} className="rounded-xs px-4 py-1.5 text-sm">{level}</Badge>;
 }

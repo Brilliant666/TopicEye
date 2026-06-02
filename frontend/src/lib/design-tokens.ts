@@ -74,6 +74,7 @@ export const LEVEL_CONFIG: Record<string, { bg: string; color: string; border: s
   '适合深挖':   { bg: T.purpleLight,  color: T.purple,  border: T.purpleBorder,  dot: T.purple },
   '适合蹭热点': { bg: T.amberLight,   color: T.amber,   border: T.amberBorder,   dot: T.amber },
   '不建议追':   { bg: T.gray100,      color: T.gray500, border: T.gray300,       dot: T.gray400 },
+  '信号不足':   { bg: T.gray50,       color: T.gray400, border: T.gray200,       dot: T.gray300 },
 };
 
 /** 分类列表 */
@@ -81,7 +82,7 @@ export const CATEGORIES = ['全部', 'AI', '职场', '商业', '教育', '自媒
 export type Category = (typeof CATEGORIES)[number];
 
 /** 推荐等级列表 */
-export const RECOMMEND_LEVELS = ['强烈建议写', '值得观察', '适合深挖', '适合蹭热点', '不建议追'] as const;
+export const RECOMMEND_LEVELS = ['强烈建议写', '值得观察', '适合深挖', '适合蹭热点', '不建议追', '信号不足'] as const;
 export type RecommendLevel = (typeof RECOMMEND_LEVELS)[number];
 
 /** 平台颜色映射 */

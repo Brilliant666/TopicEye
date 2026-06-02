@@ -27,16 +27,18 @@ import AnalysisPanel from '@/components/AnalysisPanel';
 import { Badge, Button, Panel, cx } from '@/components/ui';
 import { useContentFavoriteStates } from '@/hooks/useContentFavoriteStates';
 import { getRecommendLevelLabel, getTagColor, timeAgo } from '@/lib/utils';
+import { getRecommendationReason } from '@/lib/recommendation';
 import type { ContentAnalysis, ContentItem, TopicInfo } from '@/types';
 
 const CATEGORIES = ['全部', 'AI', '职场', '商业', '教育', '自媒体', '科技', '生活', '产品'] as const;
-const RECOMMEND_LEVELS = ['强烈建议写', '值得观察', '适合深挖', '适合蹭热点', '不建议追'] as const;
+const RECOMMEND_LEVELS = ['强烈建议写', '值得观察', '适合深挖', '适合蹭热点', '不建议追', '信号不足'] as const;
 const LEVEL_CONFIG: Record<string, { bg: string; text: string; border: string; dot: string }> = {
   强烈建议写: { bg: 'bg-primary-light', text: 'text-primary', border: 'border-primary-border', dot: 'bg-primary' },
   值得观察: { bg: 'bg-teal-light', text: 'text-teal', border: 'border-teal-border', dot: 'bg-teal' },
   适合深挖: { bg: 'bg-purple-light', text: 'text-purple', border: 'border-purple-border', dot: 'bg-purple' },
   适合蹭热点: { bg: 'bg-amber-light', text: 'text-amber', border: 'border-amber-border', dot: 'bg-amber' },
   不建议追: { bg: 'bg-gray-100', text: 'text-gray-500', border: 'border-gray-300', dot: 'bg-gray-400' },
+  信号不足: { bg: 'bg-gray-50', text: 'text-gray-400', border: 'border-gray-200', dot: 'bg-gray-300' },
 };
 
 const TIME_RANGES = [
@@ -318,7 +320,7 @@ function LeadPick({
   const analysis = getAnalysis(item);
   const score = scoreOf(item);
   const tags = tagsOf(analysis);
-  const recommendation = analysis?.recommendation || analysis?.recommended_reason || item.summary || '';
+  const recommendation = getRecommendationReason(analysis, item.summary);
 
   return (
     <Panel className="relative mb-4 overflow-hidden p-6 shadow-[0_16px_38px_rgba(15,23,42,0.06)] before:absolute before:bottom-0 before:left-0 before:top-0 before:w-1 before:bg-gradient-to-b before:from-primary before:to-teal">

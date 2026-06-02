@@ -9,7 +9,7 @@ import { contentsApi, analysesApi } from '@/lib/api';
 import { Button, Panel, cx } from '@/components/ui';
 import { useContentFavoriteStates } from '@/hooks/useContentFavoriteStates';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
-import { getRecommendLevel } from '@/types';
+import { explainRecommendation } from '@/lib/recommendation';
 import { timeAgo, extractTags, extractCreatorAngles, extractRiskNotes, extractTitleSuggestions, extractKeyPoints } from '@/lib/utils';
 import SectionTitle from '@/components/SectionTitle';
 import ScoreCard from '@/components/ScoreCard';
@@ -156,7 +156,8 @@ export default function TopicDetailPage() {
 
   // ── Derived data ──
   const tags = extractTags(item, analysis);
-  const level: RecommendLevel = analysis ? getRecommendLevel(analysis) : '不建议追';
+  const recommendation = explainRecommendation(analysis);
+  const level: RecommendLevel = recommendation.level;
   const levelCfg = LEVEL_CONFIG[level] || LEVEL_CONFIG['不建议追'];
   const angles = extractCreatorAngles(analysis);
   const riskNotes = extractRiskNotes(analysis);
@@ -251,6 +252,20 @@ export default function TopicDetailPage() {
             <p className="text-sm leading-8 text-gray-700">{analysis.recommended_reason}</p>
           </Panel>
         )}
+
+        <Panel className="mb-5 p-7">
+          <SectionTitle>算法判断</SectionTitle>
+          <p className="text-sm leading-8 text-gray-700">{recommendation.reason}</p>
+          {recommendation.signals.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {recommendation.signals.map((signal) => (
+                <span key={signal} className="rounded-sm bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-500">
+                  {signal}
+                </span>
+              ))}
+            </div>
+          )}
+        </Panel>
 
         {/* Creator Angles */}
         {angles.length > 0 && (

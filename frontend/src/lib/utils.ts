@@ -4,6 +4,7 @@
  */
 
 import type { ContentItem, ContentAnalysis } from '@/types';
+import { explainRecommendation } from '@/lib/recommendation';
 
 // ─── timeAgo ───
 
@@ -118,13 +119,7 @@ export function getTagColor(tag: string): string {
 // ─── Recommend level label (today-picks) ───
 
 export function getRecommendLevelLabel(analysis: ContentAnalysis): string {
-  const { creator_score, hot_score, quality_score, freshness_score, risk_score } = analysis;
-  if (creator_score >= 85 && risk_score <= 40) return '强烈建议写';
-  if (creator_score >= 70 && hot_score >= 70) return '值得观察';
-  if (quality_score >= 85 && freshness_score < 50) return '适合深挖';
-  if (hot_score >= 80 && risk_score > 40) return '适合蹭热点';
-  if (creator_score < 50) return '不建议追';
-  return '值得观察';
+  return explainRecommendation(analysis).level;
 }
 
 // ─── Creation plan formatter ───

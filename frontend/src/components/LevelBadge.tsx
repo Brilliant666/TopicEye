@@ -35,4 +35,5 @@ const LEVEL_CONFIG: Record<string, { bg: string; text: string; border: string; d
   适合深挖: { bg: 'bg-purple-light', text: 'text-purple', border: 'border-purple-border', dot: 'bg-purple' },
   适合蹭热点: { bg: 'bg-amber-light', text: 'text-amber', border: 'border-amber-border', dot: 'bg-amber' },
   不建议追: { bg: 'bg-gray-100', text: 'text-gray-500', border: 'border-gray-300', dot: 'bg-gray-400' },
+  信号不足: { bg: 'bg-gray-50', text: 'text-gray-400', border: 'border-gray-200', dot: 'bg-gray-300' },
 };

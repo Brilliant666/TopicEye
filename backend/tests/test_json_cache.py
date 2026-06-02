@@ -3,6 +3,7 @@ import time
 
 from app.services.content_list_cache import ContentListCacheParams, invalidate_content_list_cache
 from app.services.json_cache import get_cached_json, invalidate_json_cache, set_cached_json
+from app.services.llm.model_list_cache import MODEL_LIST_CACHE_KEY, invalidate_model_list_cache
 
 
 def test_json_cache_hit_expire_and_prefix_invalidate():
@@ -56,4 +57,16 @@ def test_content_list_cache_key_and_invalidation():
 
     assert get_cached_json(key, ttl_seconds=10) is None
     assert get_cached_json("contents:favorites:list:1:20", ttl_seconds=10) is not None
+    invalidate_json_cache()
+
+
+def test_model_list_cache_invalidation_is_scoped():
+    invalidate_json_cache()
+    set_cached_json(MODEL_LIST_CACHE_KEY, {"models": [], "total": 0})
+    set_cached_json("models:usage:summary", {"total": {"calls": 1}})
+
+    invalidate_model_list_cache()
+
+    assert get_cached_json(MODEL_LIST_CACHE_KEY, ttl_seconds=10) is None
+    assert get_cached_json("models:usage:summary", ttl_seconds=10) is not None
     invalidate_json_cache()

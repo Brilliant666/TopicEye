@@ -28,13 +28,21 @@ from types import SimpleNamespace
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc, func, Integer as SAInteger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locked
 from app.models.llm_model import LlmCallLog, LlmModel, ModelEvaluation
+from app.services.llm.model_list_cache import (
+    MODEL_LIST_CACHE_HEADER,
+    get_cached_model_list,
+    invalidate_model_list_cache,
+    set_cached_model_list,
+)
 from app.services.llm.provider import invalidate_model_cache
 from app.services.llm.model_resolver import resolve_litellm_model
 from app.services.llm.model_pricing import is_free_model, normalized_model_pricing
@@ -232,6 +240,7 @@ async def _retry_write_and_invalidate_models(db: AsyncSession, operation):
     result = await _retry_write(db, operation)
     await db.commit()
     await invalidate_model_cache()
+    invalidate_model_list_cache()
     return result
 
 
@@ -299,13 +308,28 @@ def _model_payload(m: LlmModel) -> dict:
 @router.get("")
 async def list_models(db: AsyncSession = Depends(get_db)):
     """List all configured LLM models."""
+    cached = get_cached_model_list(ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
+    if cached:
+        content, age_seconds = cached
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={MODEL_LIST_CACHE_HEADER: f"HIT; age={age_seconds:.3f}s"},
+        )
+
     result = await db.execute(select(LlmModel).order_by(LlmModel.id))
     models = result.scalars().all()
     await _normalize_model_roles(db, models)
-    return {
+    payload = {
         "models": [_model_payload(m) for m in models],
         "total": len(models),
     }
+    content = set_cached_model_list(payload)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={MODEL_LIST_CACHE_HEADER: "MISS"},
+    )
 
 
 @router.post("")

@@ -3,6 +3,24 @@
  * Aligned with backend API models (snake_case)
  */
 
+// ─── Auth (用户) ───
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  display_name?: string | null;
+  plan: 'free' | 'paid' | string;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AuthTokenResponse {
+  access_token: string;
+  token_type: 'bearer' | string;
+  expires_at: string;
+  user: AuthUser;
+}
+
 // ─── Source (信源) ───
 
 export type SourceType = 'RSS' | 'RSSHub' | 'Reddit' | '公众号' | '网站' | 'Zhihu' | 'X' | 'TwitterRSS' | 'YouTube' | '小红书' | 'B站' | 'DouyinHot' | 'API' | '自定义';

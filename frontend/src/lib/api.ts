@@ -23,6 +23,8 @@ import type {
   WeeklyDigest,
   WeeklyDigestListResponse,
   WeeklyDigestWeeksResponse,
+  AuthTokenResponse,
+  AuthUser,
 } from '@/types';
 import type { FavoriteCreatePayload, FavoriteTargetState } from '@/lib/favorites';
 
@@ -30,6 +32,27 @@ export type { ContentItem, CreateSourceRequest, UpdateSourceRequest };
 export type FeedbackType = 'like' | 'dislike' | 'skip' | 'not_relevant' | 'outdated' | 'great_pick';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
+const AUTH_TOKEN_STORAGE_KEY = 'topiceye_auth_token';
+
+export function getAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (token) {
+      localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+    }
+  } catch {}
+}
 
 /** Generic fetch wrapper with error handling */
 async function request<T>(
@@ -37,9 +60,11 @@ async function request<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const url = `${BASE_URL}${endpoint}`;
+  const token = getAuthToken();
   const config: RequestInit = {
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
     ...options,
@@ -72,6 +97,32 @@ async function request<T>(
 
   return JSON.parse(text) as T;
 }
+
+// ─── Auth API ───
+
+export const authApi = {
+  register(data: { email: string; password: string; display_name?: string | null }): Promise<AuthTokenResponse> {
+    return request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  login(data: { email: string; password: string }): Promise<AuthTokenResponse> {
+    return request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  me(): Promise<AuthUser> {
+    return request('/auth/me');
+  },
+
+  logout(): Promise<{ logged_out: boolean }> {
+    return request('/auth/logout', { method: 'POST' });
+  },
+};
 
 // ─── Sources API ───
 

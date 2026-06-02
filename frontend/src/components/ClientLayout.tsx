@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import NotificationBell from '@/components/NotificationBell';
-import { sourcesApi, contentsApi, favoritesApi } from '@/lib/api';
+import { authApi, getAuthToken, setAuthToken, sourcesApi, contentsApi, favoritesApi } from '@/lib/api';
 import {
   favoriteItemToTargetKey,
   getContentFavoriteKey,
@@ -11,27 +11,36 @@ import {
   type FavoriteCreatePayload,
   type FavoriteTargetRef,
 } from '@/lib/favorites';
+import type { AuthTokenResponse, AuthUser } from '@/types';
 
 // App context - shared across pages
 interface AppContextType {
+  currentUser: AuthUser | null;
+  authLoading: boolean;
   favorites: Set<number>;
   favoritePendingIds: Set<number>;
   favoriteTargets: Set<string>;
   favoriteTargetPendingKeys: Set<string>;
   topicCount: number;
   isFavoriteTarget: (target: FavoriteTargetRef) => boolean;
+  applyAuthSession: (session: AuthTokenResponse) => void;
+  logout: () => Promise<void>;
   toggleFavoriteTarget: (target: FavoriteCreatePayload, options?: { throwOnError?: boolean }) => Promise<boolean>;
   toggleFavorite: (id: number, options?: { throwOnError?: boolean }) => Promise<boolean>;
   refreshCounts: () => void;
 }
 
 const AppContext = createContext<AppContextType>({
+  currentUser: null,
+  authLoading: true,
   favorites: new Set(),
   favoritePendingIds: new Set(),
   favoriteTargets: new Set(),
   favoriteTargetPendingKeys: new Set(),
   topicCount: 0,
   isFavoriteTarget: () => false,
+  applyAuthSession: () => {},
+  logout: async () => {},
   toggleFavoriteTarget: async () => false,
   toggleFavorite: async () => false,
   refreshCounts: () => {},
@@ -83,6 +92,8 @@ function saveFavoriteTargetsToStorage(favSet: Set<string>): void {
 }
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
   const [favoritePendingIds, setFavoritePendingIds] = useState<Set<number>>(new Set());
   const favoritePendingRef = useRef<Set<number>>(new Set());
@@ -94,6 +105,24 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const [sourceCount, setSourceCount] = useState(0);
   const [favoriteTotal, setFavoriteTotal] = useState(0);
   const [compactNav, setCompactNav] = useState(false);
+
+  const applyAuthSession = useCallback((session: AuthTokenResponse) => {
+    setAuthToken(session.access_token);
+    setCurrentUser(session.user);
+  }, []);
+
+  const logout = useCallback(async () => {
+    try {
+      if (getAuthToken()) {
+        await authApi.logout();
+      }
+    } catch {
+      // Local logout should still clear stale or invalid sessions.
+    } finally {
+      setAuthToken(null);
+      setCurrentUser(null);
+    }
+  }, []);
 
   const refreshCounts = useCallback(async () => {
     try {
@@ -135,6 +164,29 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     });
     void refreshCounts();
   }, [refreshCounts]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const token = getAuthToken();
+      if (!token) {
+        setAuthLoading(false);
+        return;
+      }
+      try {
+        const user = await authApi.me();
+        if (!cancelled) setCurrentUser(user);
+      } catch {
+        setAuthToken(null);
+        if (!cancelled) setCurrentUser(null);
+      } finally {
+        if (!cancelled) setAuthLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const updateCompact = () => setCompactNav(window.innerWidth < 900);
@@ -285,19 +337,31 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   return (
     <AppContext.Provider
       value={{
+        currentUser,
+        authLoading,
         favorites,
         favoritePendingIds,
         favoriteTargets,
         favoriteTargetPendingKeys,
         topicCount: contentCount,
         isFavoriteTarget,
+        applyAuthSession,
+        logout,
         toggleFavoriteTarget,
         toggleFavorite,
         refreshCounts,
       }}
     >
       <div className="flex h-dvh overflow-hidden">
-        <Sidebar topicCount={contentCount} favCount={favoriteTotal} sourceCount={sourceCount} compact={compactNav} />
+        <Sidebar
+          topicCount={contentCount}
+          favCount={favoriteTotal}
+          sourceCount={sourceCount}
+          compact={compactNav}
+          currentUser={currentUser}
+          authLoading={authLoading}
+          onLogout={logout}
+        />
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-page">
           <div className="flex h-12 shrink-0 items-center justify-end border-b border-gray-100 bg-white px-6">
             <NotificationBell />

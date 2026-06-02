@@ -13,6 +13,8 @@ import {
   GitBranch,
   Flame,
   Lightbulb,
+  LogIn,
+  LogOut,
   Newspaper,
   Radar,
   RadioTower,
@@ -23,12 +25,16 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cx } from '@/components/ui';
+import type { AuthUser } from '@/types';
 
 interface SidebarProps {
   topicCount?: number;
   favCount?: number;
   sourceCount?: number;
   compact?: boolean;
+  currentUser?: AuthUser | null;
+  authLoading?: boolean;
+  onLogout?: () => void;
 }
 
 interface NavItem {
@@ -45,7 +51,15 @@ interface NavSpace {
   items: NavItem[];
 }
 
-export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0, compact = false }: SidebarProps) {
+export default function Sidebar({
+  topicCount = 0,
+  favCount = 0,
+  sourceCount = 0,
+  compact = false,
+  currentUser = null,
+  authLoading = false,
+  onLogout,
+}: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -171,15 +185,45 @@ export default function Sidebar({ topicCount = 0, favCount = 0, sourceCount = 0,
 
       {/* Bottom User Area */}
       <div className={cx('border-t border-gray-100 pb-4 pt-3', compact ? 'px-2.5' : 'px-3')}>
-        <div className={cx('flex items-center gap-2', compact ? 'justify-center p-0' : 'justify-start px-3')}>
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-teal to-[#7DD3C0] text-xs font-semibold text-white">
-            <UserRound size={14} strokeWidth={2} />
+        {currentUser ? (
+          <div className={cx('flex items-center gap-2', compact ? 'justify-center p-0' : 'justify-between px-3')}>
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-teal to-[#7DD3C0] text-xs font-semibold text-white">
+                <UserRound size={14} strokeWidth={2} />
+              </div>
+              {!compact && (
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-medium text-gray-700">{currentUser.display_name || currentUser.email}</div>
+                  <div className="text-[10px] text-gray-400">{currentUser.plan === 'free' ? '免费版' : '付费版'}</div>
+                </div>
+              )}
+            </div>
+            {!compact && (
+              <button
+                type="button"
+                onClick={onLogout}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-sm text-gray-400 transition hover:bg-gray-100 hover:text-red"
+                title="退出登录"
+              >
+                <LogOut size={14} strokeWidth={2} />
+              </button>
+            )}
           </div>
-          {!compact && <div>
-            <div className="text-xs font-medium text-gray-700">创作者</div>
-            <div className="text-[10px] text-gray-400">免费版</div>
-          </div>}
-        </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => router.push('/login')}
+            className={cx(
+              'flex w-full items-center rounded-sm text-sm transition hover:bg-gray-50 hover:text-primary',
+              compact ? 'justify-center px-0 py-2.5' : 'justify-start gap-2 px-3 py-2.5 text-left text-gray-600',
+            )}
+            title={compact ? '登录' : undefined}
+            disabled={authLoading}
+          >
+            <LogIn size={16} strokeWidth={2} />
+            {!compact && <span>{authLoading ? '检查登录' : '登录'}</span>}
+          </button>
+        )}
       </div>
     </div>
   );

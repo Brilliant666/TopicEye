@@ -18,6 +18,7 @@ import {
 import { useAppContext } from '@/components/ClientLayout';
 import { Badge, Button, Metric, Panel, Toolbar, cx } from '@/components/ui';
 import { motherTopicsApi, contentsApi, type MotherTopic, type ContentItem } from '@/lib/api';
+import { useContentFavoriteStates } from '@/hooks/useContentFavoriteStates';
 
 interface TopicScore {
   name: string;
@@ -137,9 +138,15 @@ function TopicNavItem({
   );
 }
 
-function ContentCard({ item, onToggle }: { item: ScoredContent; onToggle: (id: number) => void }) {
-  const { favorites } = useAppContext();
-  const isFavorite = favorites.has(item.content.id);
+function ContentCard({
+  item,
+  isFavorite,
+  onToggle,
+}: {
+  item: ScoredContent;
+  isFavorite: boolean;
+  onToggle: (id: number) => void | Promise<void>;
+}) {
   const score = normalizeScore(item.scoring?.final_score || 0);
   const tone = toneClass[getScoreTone(score)];
   const matches = matchedScores(item);
@@ -304,6 +311,13 @@ export default function MyTopicsPage() {
     ? Math.round(matchedItems.reduce((sum, item) => sum + normalizeScore(item.scoring?.final_score || 0), 0) / matchedItems.length)
     : 0;
   const selectedTopicMeta = topics.find((topic) => topic.name === selectedTopic);
+  const visibleContentIds = useMemo(() => filtered.map((item) => item.content.id), [filtered]);
+  const contentFavoriteState = useContentFavoriteStates(visibleContentIds);
+
+  const handleToggleFavorite = useCallback(async (id: number) => {
+    await toggleFavorite(id);
+    contentFavoriteState.refresh();
+  }, [contentFavoriteState, toggleFavorite]);
 
   return (
     <div className="h-full overflow-y-auto bg-[linear-gradient(180deg,#F8FAFC_0%,#F4F6F8_44%,#EEF2F5_100%)] px-4 pb-8 sm:px-6 lg:px-10">
@@ -444,7 +458,12 @@ export default function MyTopicsPage() {
           ) : (
             <div className="grid gap-3">
               {filtered.map((item) => (
-                <ContentCard key={item.content.id} item={item} onToggle={toggleFavorite} />
+                <ContentCard
+                  key={item.content.id}
+                  item={item}
+                  isFavorite={contentFavoriteState.isFavorited(item.content.id)}
+                  onToggle={handleToggleFavorite}
+                />
               ))}
             </div>
           )}

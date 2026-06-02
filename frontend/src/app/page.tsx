@@ -21,6 +21,7 @@ import CategoryChip from '@/components/CategoryChip';
 import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
 import { contentsApi, feedbackApi } from '@/lib/api';
 import type { FeedbackType } from '@/lib/api';
+import { useContentFavoriteStates } from '@/hooks/useContentFavoriteStates';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
 import { getRecommendLevel } from '@/types';
 import ContentAnalysisPanel from '@/components/ContentAnalysisPanel';
@@ -100,7 +101,7 @@ function formatTimelineDate(dateStr: string): string {
 // ── Page Component ──
 
 export default function HomePage() {
-  const { favorites, toggleFavorite, refreshCounts } = useAppContext();
+  const { toggleFavorite, refreshCounts } = useAppContext();
   const [items, setItems] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -193,6 +194,8 @@ export default function HomePage() {
     });
     return Array.from(groups.entries()).map(([dateLabel, entries]) => ({ dateLabel, entries }));
   }, [filtered]);
+  const visibleContentIds = useMemo(() => filtered.map((item) => item.id), [filtered]);
+  const contentFavoriteState = useContentFavoriteStates(visibleContentIds);
 
   const levelSummary = useMemo(() => {
     const groups: Array<{ level: RecommendLevel; title: string; items: ContentItem[] }> = [
@@ -322,8 +325,11 @@ export default function HomePage() {
           <div className="min-w-0">
             <ContentTimeline
               groups={timelineGroups}
-              favorites={favorites}
-              onToggleFav={toggleFavorite}
+              isFavorited={contentFavoriteState.isFavorited}
+              onToggleFav={async (id) => {
+                await toggleFavorite(id);
+                contentFavoriteState.refresh();
+              }}
               onIgnore={handleIgnore}
               onShowAnalysis={(a) => setSelectedAnalysis(a)}
             />
@@ -356,14 +362,14 @@ export default function HomePage() {
 
 function ContentTimeline({
   groups,
-  favorites,
+  isFavorited,
   onToggleFav,
   onIgnore,
   onShowAnalysis,
 }: {
   groups: Array<{ dateLabel: string; entries: Array<{ item: ContentItem; level: RecommendLevel }> }>;
-  favorites: Set<number>;
-  onToggleFav: (id: number) => void;
+  isFavorited: (id: number) => boolean;
+  onToggleFav: (id: number) => void | Promise<void>;
   onIgnore: (id: number) => void;
   onShowAnalysis: (analysis: ContentAnalysis) => void;
 }) {
@@ -403,7 +409,7 @@ function ContentTimeline({
                 }} />
                 <EditorialItem
                   item={item}
-                  isFav={favorites.has(item.id)}
+                  isFav={isFavorited(item.id)}
                   onToggleFav={onToggleFav}
                   onIgnore={onIgnore}
                   time={formatTime(getContentTime(item))}

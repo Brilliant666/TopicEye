@@ -7,6 +7,7 @@ import { LEVEL_CONFIG } from '@/lib/design-tokens';
 import { useAppContext } from '@/components/ClientLayout';
 import { contentsApi, analysesApi } from '@/lib/api';
 import { Button, Panel, cx } from '@/components/ui';
+import { useContentFavoriteStates } from '@/hooks/useContentFavoriteStates';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
 import { getRecommendLevel } from '@/types';
 import { timeAgo, extractTags, extractCreatorAngles, extractRiskNotes, extractTitleSuggestions, extractKeyPoints } from '@/lib/utils';
@@ -20,7 +21,7 @@ import TopicCreationGenerator from '@/components/TopicCreationGenerator';
 export default function TopicDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const { favorites, favoritePendingIds, toggleFavorite } = useAppContext();
+  const { favoritePendingIds, toggleFavorite } = useAppContext();
 
   const [item, setItem] = useState<ContentItem | null>(null);
   const [analysis, setAnalysis] = useState<ContentAnalysis | null>(null);
@@ -28,6 +29,7 @@ export default function TopicDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   const contentId = Number(params.id);
+  const contentFavoriteState = useContentFavoriteStates(Number.isFinite(contentId) ? [contentId] : []);
 
   // Fetch content + analysis
   useEffect(() => {
@@ -70,7 +72,7 @@ export default function TopicDetailPage() {
   }, [contentId]);
 
   // Handlers
-  const isFav = item ? favorites.has(item.id) : false;
+  const isFav = item ? contentFavoriteState.isFavorited(item.id) : false;
   const favoritePending = item ? favoritePendingIds.has(item.id) : false;
 
   const handleToggleFavorite = async () => {
@@ -78,6 +80,7 @@ export default function TopicDetailPage() {
     try {
       const isFavorited = await toggleFavorite(item.id, { throwOnError: true });
       setItem(prev => prev ? { ...prev, is_favorited: isFavorited } : prev);
+      contentFavoriteState.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : '收藏状态更新失败');
     }

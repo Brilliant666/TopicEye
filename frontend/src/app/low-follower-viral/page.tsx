@@ -22,6 +22,7 @@ import { useAppContext } from '@/components/ClientLayout';
 import CategoryChip from '@/components/CategoryChip';
 import AnalysisPanel from '@/components/AnalysisPanel';
 import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
+import { useContentFavoriteStates } from '@/hooks/useContentFavoriteStates';
 import type { ContentAnalysis, ContentItem } from '@/types';
 
 const TIME_RANGES = [
@@ -36,7 +37,7 @@ const CATEGORY_OPTIONS = ['AI', '职场', '商业', '教育', '自媒体', '科�
 type AnalysisWithMeta = ContentAnalysis & { _content_id?: number };
 
 export default function LowFollowerViralPage() {
-  const { favorites, toggleFavorite } = useAppContext();
+  const { toggleFavorite } = useAppContext();
   const [items, setItems] = useState<ContentItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -70,6 +71,8 @@ export default function LowFollowerViralPage() {
   const startItem = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
   const endItem = Math.min(page * PAGE_SIZE, total);
   const topItem = items[0] || null;
+  const visibleContentIds = React.useMemo(() => items.map((item) => item.id), [items]);
+  const contentFavoriteState = useContentFavoriteStates(visibleContentIds);
   const avgLfv = items.length ? Math.round(items.reduce((sum, item) => sum + lfvScore(item), 0) / items.length) : 0;
   const strongCount = items.filter((item) => lfvScore(item) >= 40).length;
   const lowAuthorityCount = items.filter((item) => sourceWeight(item) <= 35).length;
@@ -126,7 +129,10 @@ export default function LowFollowerViralPage() {
           </section>
 
           {topItem && !loading && (
-            <HeroBreakout item={topItem} isFav={favorites.has(topItem.id)} onFav={toggleFavorite} onOpen={openAnalysis} />
+            <HeroBreakout item={topItem} isFav={contentFavoriteState.isFavorited(topItem.id)} onFav={async (id) => {
+              await toggleFavorite(id);
+              contentFavoriteState.refresh();
+            }} onOpen={openAnalysis} />
           )}
 
           {loading ? (
@@ -143,8 +149,11 @@ export default function LowFollowerViralPage() {
                   key={item.id}
                   item={item}
                   rank={(page - 1) * PAGE_SIZE + index + 1}
-                  isFav={favorites.has(item.id)}
-                  onFav={toggleFavorite}
+                  isFav={contentFavoriteState.isFavorited(item.id)}
+                  onFav={async (id) => {
+                    await toggleFavorite(id);
+                    contentFavoriteState.refresh();
+                  }}
                   onOpen={openAnalysis}
                 />
               ))}

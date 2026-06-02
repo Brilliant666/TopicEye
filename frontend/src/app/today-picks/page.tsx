@@ -25,6 +25,7 @@ import { contentsApi } from '@/lib/api';
 import { useAppContext } from '@/components/ClientLayout';
 import AnalysisPanel from '@/components/AnalysisPanel';
 import { Badge, Button, Panel, cx } from '@/components/ui';
+import { useContentFavoriteStates } from '@/hooks/useContentFavoriteStates';
 import { getRecommendLevelLabel, getTagColor, timeAgo } from '@/lib/utils';
 import type { ContentAnalysis, ContentItem, TopicInfo } from '@/types';
 
@@ -56,7 +57,7 @@ export default function TodayPicksPageWrapper() {
 function TodayPicksPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { favorites, toggleFavorite } = useAppContext();
+  const { toggleFavorite } = useAppContext();
 
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || '');
   const [selectedLevel, setSelectedLevel] = useState(searchParams.get('level') || '');
@@ -145,6 +146,8 @@ function TodayPicksPage() {
   const standaloneItems = topicMap.get(null) || [];
   const activeFilterCount = [selectedCategory, selectedLevel, selectedTimeRange].filter(Boolean).length;
   const sortedItems = useMemo(() => [...filteredItems].sort((a, b) => scoreOf(b) - scoreOf(a)), [filteredItems]);
+  const visibleContentIds = useMemo(() => filteredItems.map((item) => item.id), [filteredItems]);
+  const contentFavoriteState = useContentFavoriteStates(visibleContentIds);
   const leadItem = sortedItems[0] || null;
   const sourceCount = new Set(filteredItems.map((item) => item.source_name).filter(Boolean)).size;
   const avgScore = filteredItems.length
@@ -160,7 +163,10 @@ function TodayPicksPage() {
     }));
   }, [filteredItems]);
 
-  const handleFav = async (id: number) => { await toggleFavorite(id); };
+  const handleFav = async (id: number) => {
+    await toggleFavorite(id);
+    contentFavoriteState.refresh();
+  };
   const toggleTopic = (id: number) => {
     setExpandedTopics((prev) => {
       const next = new Set(prev);
@@ -206,7 +212,7 @@ function TodayPicksPage() {
             dupCount={dupCount}
           />
 
-          {leadItem && <LeadPick item={leadItem} isFav={favorites.has(leadItem.id)} onFav={handleFav} onOpen={setSelectedAnalysis} />}
+          {leadItem && <LeadPick item={leadItem} isFav={contentFavoriteState.isFavorited(leadItem.id)} onFav={handleFav} onOpen={setSelectedAnalysis} />}
 
           {loading ? (
             <EmptyState icon={Sparkles} title="精选加载中" desc="正在读取算法筛选结果..." />
@@ -224,14 +230,14 @@ function TodayPicksPage() {
               standaloneItems={standaloneItems}
               expandedTopics={expandedTopics}
               onToggleTopic={toggleTopic}
-              favorites={favorites}
+              isFavorited={contentFavoriteState.isFavorited}
               onFav={handleFav}
               onOpen={setSelectedAnalysis}
             />
           ) : (
             <div className="flex flex-col gap-2.5 pb-10">
               {sortedItems.map((item, idx) => (
-                <PickCard key={item.id} item={item} rank={idx + 1} isFav={favorites.has(item.id)} onFav={handleFav} onOpen={setSelectedAnalysis} />
+                <PickCard key={item.id} item={item} rank={idx + 1} isFav={contentFavoriteState.isFavorited(item.id)} onFav={handleFav} onOpen={setSelectedAnalysis} />
               ))}
             </div>
           )}
@@ -467,7 +473,7 @@ function TopicBoard({
   standaloneItems,
   expandedTopics,
   onToggleTopic,
-  favorites,
+  isFavorited,
   onFav,
   onOpen,
 }: {
@@ -476,7 +482,7 @@ function TopicBoard({
   standaloneItems: ContentItem[];
   expandedTopics: Set<number>;
   onToggleTopic: (id: number) => void;
-  favorites: Set<number>;
+  isFavorited: (id: number) => boolean;
   onFav: (id: number) => void;
   onOpen: (a: ContentAnalysis & { _content_id?: number }) => void;
 }) {
@@ -505,7 +511,7 @@ function TopicBoard({
             </div>
             <div className="flex flex-col">
               {shownItems.map((item, idx) => (
-                <PickCard key={item.id} item={item} rank={idx + 1} isFav={favorites.has(item.id)} onFav={onFav} onOpen={onOpen} flush />
+                <PickCard key={item.id} item={item} rank={idx + 1} isFav={isFavorited(item.id)} onFav={onFav} onOpen={onOpen} flush />
               ))}
             </div>
             {!isExpanded && hiddenCount > 0 && (
@@ -522,7 +528,7 @@ function TopicBoard({
           {topics.length > 0 && <SectionHeading title="其他精选" count={standaloneItems.length} />}
           <div className="flex flex-col gap-2.5">
             {[...standaloneItems].sort((a, b) => scoreOf(b) - scoreOf(a)).map((item, idx) => (
-              <PickCard key={item.id} item={item} rank={idx + 1} isFav={favorites.has(item.id)} onFav={onFav} onOpen={onOpen} />
+              <PickCard key={item.id} item={item} rank={idx + 1} isFav={isFavorited(item.id)} onFav={onFav} onOpen={onOpen} />
             ))}
           </div>
         </section>

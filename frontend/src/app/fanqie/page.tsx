@@ -15,11 +15,14 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Star,
   TrendingUp,
   X,
 } from 'lucide-react';
 import { Button, Panel, Toolbar, cx } from '@/components/ui';
+import { useAppContext } from '@/components/ClientLayout';
 import {
+  favoritesApi,
   fanqieApi,
   qimaoApi,
   webnovelReportsApi,
@@ -35,6 +38,15 @@ import {
 type Platform = 'fanqie' | 'qimao' | 'zhihu';
 type BookItem = FanqieBook | QimaoBook | ZhihuAlbum;
 type ViewMode = 'rankings' | 'weekly';
+
+interface BookFavoriteMeta {
+  target_key: string;
+  title: string;
+  url: string | null;
+  cover_url: string | null;
+  source_name: string;
+  snapshot: Record<string, unknown>;
+}
 
 const PLATFORM_META: Record<Platform, { label: string; subtitle: string; color: string; bg: string }> = {
   fanqie: { label: '番茄小说', subtitle: '免费网文热榜', color: '#DC2626', bg: '#FEF2F2' },
@@ -120,6 +132,35 @@ function getPositionChange(item: BookItem): number | null {
   if ('rank_pos_diff' in item && typeof item.rank_pos_diff === 'number') return item.rank_pos_diff;
   if ('index_change' in item && typeof item.index_change === 'number') return item.index_change;
   return null;
+}
+
+function getBookStableId(item: BookItem, platform: Platform): string {
+  if (platform === 'zhihu' && 'business_id' in item) return item.business_id;
+  return 'book_id' in item ? item.book_id : item.business_id;
+}
+
+function getBookFavoriteMeta(item: BookItem, platform: Platform, rankTab: string): BookFavoriteMeta {
+  const stableId = getBookStableId(item, platform);
+  const categoryText = 'category1_name' in item
+    ? [item.category1_name, item.category2_name].filter(Boolean).join(' · ')
+    : '';
+  return {
+    target_key: `${platform}:${stableId}`,
+    title: getItemTitle(item),
+    url: getItemUrl(item),
+    cover_url: getItemCover(item),
+    source_name: PLATFORM_META[platform].label,
+    snapshot: {
+      platform,
+      platform_label: PLATFORM_META[platform].label,
+      author: getItemAuthor(item),
+      category: categoryText,
+      position: item.position,
+      rank_type: 'rank_type' in item ? item.rank_type : rankTab,
+      summary: getItemAbstract(item),
+      source_url: getItemUrl(item),
+    },
+  };
 }
 
 function chipStyle(active: boolean, color: string = '#111827'): React.CSSProperties {
@@ -327,7 +368,21 @@ function WebnovelWeeklyPanel({ report, loading, onRefresh }: { report: WebnovelW
   );
 }
 
-function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platform; rankTab: string }) {
+function BookCard({
+  item,
+  platform,
+  rankTab,
+  favorite,
+  favoritePending,
+  onFavorite,
+}: {
+  item: BookItem;
+  platform: Platform;
+  rankTab: string;
+  favorite: boolean;
+  favoritePending: boolean;
+  onFavorite: (item: BookItem) => void;
+}) {
   const [coverFailed, setCoverFailed] = useState(false);
   const pos = item.position;
   const title = getItemTitle(item);
@@ -437,6 +492,18 @@ function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platf
               {author}{categoryText && <span className="text-gray-400"> · {categoryText}</span>}
             </div>
           </div>
+          <button
+            type="button"
+            disabled={favoritePending}
+            onClick={() => onFavorite(item)}
+            title={favorite ? '移出收藏' : '收藏作品'}
+            className={cx(
+              'grid h-7 w-7 shrink-0 place-items-center rounded-xs border transition disabled:cursor-wait disabled:opacity-60',
+              favorite ? 'border-amber-border bg-amber-light text-amber' : 'border-gray-200 bg-white text-gray-400 hover:border-amber-border hover:text-amber',
+            )}
+          >
+            <Star size={15} strokeWidth={2.1} fill={favorite ? 'currentColor' : 'none'} />
+          </button>
           {itemUrl && (
             <a href={itemUrl} target="_blank" rel="noreferrer" title="打开官网原文" className="rounded-xs p-1 text-gray-400 transition hover:bg-gray-100 hover:text-primary">
               <ExternalLink size={16} />
@@ -464,6 +531,7 @@ function BookCard({ item, platform, rankTab }: { item: BookItem; platform: Platf
 }
 
 export default function FanqiePage() {
+  const { refreshCounts } = useAppContext();
   const [viewMode, setViewMode] = useState<ViewMode>('rankings');
   const [platform, setPlatform] = useState<Platform>('fanqie');
   const [query, setQuery] = useState('');
@@ -491,6 +559,9 @@ export default function FanqiePage() {
   const [zhihuSyncing, setZhihuSyncing] = useState(false);
   const [zhihuSort, setZhihuSort] = useState<keyof typeof ZHIHU_SORT_LABELS>('hottest');
   const [zhihuSubcat, setZhihuSubcat] = useState('');
+  const [bookFavoriteKeys, setBookFavoriteKeys] = useState<Set<string>>(new Set());
+  const [bookFavoriteIds, setBookFavoriteIds] = useState<Map<string, number>>(new Map());
+  const [bookFavoritePendingKeys, setBookFavoritePendingKeys] = useState<Set<string>>(new Set());
 
   const fetchWeeklyReport = useCallback(async () => {
     setWeeklyLoading(true);
@@ -596,6 +667,42 @@ export default function FanqiePage() {
       return haystack.includes(q);
     });
   }, [currentBooks, query]);
+  const visibleBookKeysKey = useMemo(
+    () => filteredBooks.map((item) => getBookFavoriteMeta(item, platform, rankTab).target_key).sort().join(','),
+    [filteredBooks, platform, rankTab],
+  );
+
+  useEffect(() => {
+    const visibleBookKeys = visibleBookKeysKey ? visibleBookKeysKey.split(',') : [];
+    if (visibleBookKeys.length === 0) {
+      setBookFavoriteKeys(new Set());
+      setBookFavoriteIds(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await favoritesApi.state({ target_type: 'book', target_keys: visibleBookKeys });
+        if (cancelled) return;
+        const nextKeys = new Set<string>();
+        const nextIds = new Map<string, number>();
+        for (const item of result.items || []) {
+          if (item.is_favorited) {
+            nextKeys.add(item.target_key);
+            if (item.favorite_id) nextIds.set(item.target_key, item.favorite_id);
+          }
+        }
+        setBookFavoriteKeys(nextKeys);
+        setBookFavoriteIds(nextIds);
+      } catch {
+        if (!cancelled) {
+          setBookFavoriteKeys(new Set());
+          setBookFavoriteIds(new Map());
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [visibleBookKeysKey]);
 
   const risingCount = currentBooks.filter((item) => (getPositionChange(item) || 0) > 0).length;
   const topItem = currentBooks[0];
@@ -638,6 +745,59 @@ export default function FanqiePage() {
       setError(err instanceof Error ? err.message : '知乎同步失败');
     } finally {
       setZhihuSyncing(false);
+    }
+  };
+
+  const handleToggleBookFavorite = async (item: BookItem) => {
+    const meta = getBookFavoriteMeta(item, platform, rankTab);
+    if (bookFavoritePendingKeys.has(meta.target_key)) return;
+
+    const wasFavorited = bookFavoriteKeys.has(meta.target_key);
+    setBookFavoritePendingKeys((prev) => new Set(prev).add(meta.target_key));
+    setError(null);
+    try {
+      if (wasFavorited) {
+        let favoriteId = bookFavoriteIds.get(meta.target_key);
+        if (!favoriteId) {
+          const state = await favoritesApi.state({ target_type: 'book', target_keys: [meta.target_key] });
+          favoriteId = state.items.find((stateItem) => stateItem.is_favorited)?.favorite_id || undefined;
+        }
+        if (!favoriteId) throw new Error('收藏记录不存在，请刷新后重试');
+        await favoritesApi.delete(favoriteId);
+        setBookFavoriteKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(meta.target_key);
+          return next;
+        });
+        setBookFavoriteIds((prev) => {
+          const next = new Map(prev);
+          next.delete(meta.target_key);
+          return next;
+        });
+        refreshCounts();
+        return;
+      }
+
+      const favorite = await favoritesApi.create({
+        target_type: 'book',
+        target_key: meta.target_key,
+        title: meta.title,
+        url: meta.url,
+        cover_url: meta.cover_url,
+        source_name: meta.source_name,
+        snapshot: meta.snapshot,
+      });
+      setBookFavoriteKeys((prev) => new Set(prev).add(meta.target_key));
+      setBookFavoriteIds((prev) => new Map(prev).set(meta.target_key, favorite.id));
+      refreshCounts();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '收藏作品失败');
+    } finally {
+      setBookFavoritePendingKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(meta.target_key);
+        return next;
+      });
     }
   };
 
@@ -855,6 +1015,9 @@ export default function FanqiePage() {
                     item={item}
                     platform={platform}
                     rankTab={rankTab}
+                    favorite={bookFavoriteKeys.has(getBookFavoriteMeta(item, platform, rankTab).target_key)}
+                    favoritePending={bookFavoritePendingKeys.has(getBookFavoriteMeta(item, platform, rankTab).target_key)}
+                    onFavorite={handleToggleBookFavorite}
                   />
                 ))}
               </div>

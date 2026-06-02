@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from dataclasses import dataclass
 from typing import Optional, Sequence
 
-from sqlalchemy import select, update, func
+from sqlalchemy import select, update, func, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -22,6 +23,31 @@ from app.models.content import ContentItem, ContentStatus
 from app.repositories.base import BaseRepository
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ScoringContentRow:
+    """Lightweight content + latest analysis row for scoring diagnostics."""
+
+    id: int
+    title: str
+    url: str
+    source_id: Optional[int]
+    source_name: Optional[str]
+    category: Optional[str]
+    published_at: Optional[datetime]
+    crawled_at: datetime
+    source_weight_db: int
+    curation_score: Optional[float]
+    info_density: Optional[float]
+    actionability: Optional[float]
+    source_weight: Optional[float]
+    creator_score: Optional[float]
+    viral_score: Optional[float]
+    freshness_score: Optional[float]
+    quality_score: Optional[float]
+    hot_score: Optional[float]
+    risk_score: Optional[float]
 
 
 class ContentRepo(BaseRepository[ContentItem]):
@@ -342,10 +368,10 @@ class ContentRepo(BaseRepository[ContentItem]):
         from sqlalchemy import func, select
         from app.models.analysis import AiAnalysis
 
-        # Count query — all ANALYZED matching filters
+        # Count query — all analyzed matching filters
         count_stmt = select(func.count(self.model.id)).join(
             AiAnalysis, AiAnalysis.content_id == self.model.id
-        ).where(self.model.status == "ANALYZED")
+        ).where(self.model.status == ContentStatus.ANALYZED)
 
         # Data query — eager-load analyses + source
         data_stmt = (
@@ -355,7 +381,7 @@ class ContentRepo(BaseRepository[ContentItem]):
                 selectinload(self.model.source),
             )
             .join(AiAnalysis, AiAnalysis.content_id == self.model.id)
-            .where(self.model.status == "ANALYZED")
+            .where(self.model.status == ContentStatus.ANALYZED)
         )
 
         for field, value in (filters or {}).items():
@@ -388,6 +414,88 @@ class ContentRepo(BaseRepository[ContentItem]):
         result = await self.db.execute(data_stmt)
         items = result.scalars().unique().all()
         return items, total
+
+    async def count_for_scoring(
+        self,
+        *,
+        exclude_ids: Optional[set] = None,
+        exclude_source_types: Optional[set[str]] = None,
+        time_cutoff: Optional[datetime] = None,
+    ) -> int:
+        """Count analyzed items eligible for scoring without loading ORM rows."""
+        from app.models.analysis import AiAnalysis
+
+        stmt = select(func.count(self.model.id)).where(
+            self.model.status == ContentStatus.ANALYZED,
+            exists().where(AiAnalysis.content_id == self.model.id),
+        )
+
+        if exclude_ids:
+            stmt = stmt.where(self.model.id.notin_(exclude_ids))
+        if exclude_source_types:
+            stmt = stmt.where(self.model.source_type.notin_(exclude_source_types))
+        if time_cutoff:
+            stmt = stmt.where(self.model.crawled_at >= time_cutoff)
+
+        result = await self.db.execute(stmt)
+        return int(result.scalar() or 0)
+
+    async def list_scoring_rows(
+        self,
+        *,
+        exclude_ids: Optional[set] = None,
+        exclude_source_types: Optional[set[str]] = None,
+        time_cutoff: Optional[datetime] = None,
+        limit: int = 500,
+    ) -> list[ScoringContentRow]:
+        """Fetch only columns needed by the scoring debug payload."""
+        from app.models.analysis import AiAnalysis
+        from app.models.source import Source
+
+        latest_analysis_id = (
+            select(func.max(AiAnalysis.id))
+            .where(AiAnalysis.content_id == self.model.id)
+            .correlate(self.model)
+            .scalar_subquery()
+        )
+
+        stmt = (
+            select(
+                self.model.id,
+                self.model.title,
+                self.model.url,
+                self.model.source_id,
+                self.model.source_name,
+                self.model.category,
+                self.model.published_at,
+                self.model.crawled_at,
+                func.coalesce(Source.weight, 3).label("source_weight_db"),
+                AiAnalysis.curation_score,
+                AiAnalysis.info_density,
+                AiAnalysis.actionability,
+                AiAnalysis.source_weight,
+                AiAnalysis.creator_score,
+                AiAnalysis.viral_score,
+                AiAnalysis.freshness_score,
+                AiAnalysis.quality_score,
+                AiAnalysis.hot_score,
+                AiAnalysis.risk_score,
+            )
+            .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
+            .outerjoin(Source, Source.id == self.model.source_id)
+            .where(self.model.status == ContentStatus.ANALYZED)
+        )
+
+        if exclude_ids:
+            stmt = stmt.where(self.model.id.notin_(exclude_ids))
+        if exclude_source_types:
+            stmt = stmt.where(self.model.source_type.notin_(exclude_source_types))
+        if time_cutoff:
+            stmt = stmt.where(self.model.crawled_at >= time_cutoff)
+
+        stmt = stmt.order_by(self.model.crawled_at.desc()).limit(limit)
+        result = await self.db.execute(stmt)
+        return [ScoringContentRow(**row._mapping) for row in result.all()]
 
     # ── Recent items ───────────────────────────────────────────────
 

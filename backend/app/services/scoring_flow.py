@@ -3,18 +3,39 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime, timedelta
+import json
+import time
 from typing import Optional, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.repositories.content_repo import ContentRepo
+from app.repositories.content_repo import ContentRepo, ScoringContentRow
 from app.repositories.ignored_repo import IgnoredRepo
+from app.services.feedback_signal import get_feedback_scores
 from app.services.scoring_engine import CONFIG, ScoreBreakdown, ScoringInput, score_items
-from app.services.scoring_inputs import build_scoring_inputs
 
 
 STAGE_KEYS = ["candidates", "quality", "risk", "freshness", "diversity", "selected"]
 STAGE_LABELS = ["候选样本", "质量门槛", "风险降权", "时效衰减", "多样性混排", "精选输出"]
+_CACHE_TTL_SECONDS = 10.0
+_CACHE: dict[tuple[int, int, int], tuple[float, dict[str, Any], bytes]] = {}
+
+
+def get_cached_scoring_flow_json(
+    *,
+    hours: int,
+    limit: int,
+    sample_limit: int = 80,
+) -> Optional[tuple[bytes, float]]:
+    """Return pre-serialized cached payload for hot scoring-flow requests."""
+    cached = _CACHE.get((hours, limit, sample_limit))
+    if not cached:
+        return None
+    cached_at, _payload, json_bytes = cached
+    age_seconds = time.monotonic() - cached_at
+    if age_seconds > _CACHE_TTL_SECONDS:
+        return None
+    return json_bytes, age_seconds
 
 
 async def build_scoring_flow_payload(
@@ -25,32 +46,51 @@ async def build_scoring_flow_payload(
     sample_limit: int = 80,
 ) -> dict[str, Any]:
     """Return scoring funnel stages, candidate samples, and mix pressure data."""
+    cache_key = (hours, limit, sample_limit)
+    cached = _CACHE.get(cache_key)
+    now_monotonic = time.monotonic()
+    if cached and now_monotonic - cached[0] <= _CACHE_TTL_SECONDS:
+        return cached[1]
+
     time_cutoff = datetime.utcnow() - timedelta(hours=hours)
     ignored_ids = await IgnoredRepo(db).list_ignored_ids()
     content_repo = ContentRepo(db)
-    _, analyzed_total = await content_repo.list_for_scoring(
+    window_total = await content_repo.count_for_scoring(
         exclude_ids=ignored_ids,
-        limit=1,
+        time_cutoff=time_cutoff,
     )
-    items, total = await content_repo.list_for_scoring(
+    if window_total <= 0:
+        analyzed_total = await content_repo.count_for_scoring(exclude_ids=ignored_ids)
+        payload = build_empty_payload(
+            hours=hours,
+            analyzed_total=analyzed_total,
+            window_total=window_total,
+            ignored_count=len(ignored_ids),
+            limit=limit,
+            sample_limit=sample_limit,
+        )
+        return cache_payload(cache_key, payload)
+
+    analyzed_total = window_total
+    items = await content_repo.list_scoring_rows(
         exclude_ids=ignored_ids,
         time_cutoff=time_cutoff,
         limit=limit,
     )
 
-    scoring_inputs, item_map, feedback_scores = await build_scoring_inputs(db, items)
+    scoring_inputs, item_map, feedback_scores = await build_scoring_inputs_from_rows(db, items)
     scored = score_items(scoring_inputs)
 
     category_counts = Counter((item.category or "未分类") for _, item in scored)
     source_counts = Counter((item.source_name or "未知来源") for _, item in scored)
 
-    return {
-        "total": total,
+    payload = {
+        "total": window_total,
         "scored": len(scored),
         "hours": hours,
         "diagnostics": build_diagnostics(
             analyzed_total=analyzed_total,
-            window_total=total,
+            window_total=window_total,
             loaded_count=len(items),
             scoring_input_count=len(scoring_inputs),
             scored_count=len(scored),
@@ -72,6 +112,95 @@ async def build_scoring_flow_payload(
         ],
         "category_mix": [{"label": k, "count": v} for k, v in category_counts.most_common(8)],
         "source_mix": [{"label": k, "count": v} for k, v in source_counts.most_common(8)],
+    }
+    return cache_payload(cache_key, payload)
+
+
+def cache_payload(cache_key: tuple[int, int, int], payload: dict[str, Any]) -> dict[str, Any]:
+    cold_payload = dict(payload)
+    cold_payload["cache"] = {
+        "hit": False,
+        "ttl_seconds": _CACHE_TTL_SECONDS,
+        "age_ms": 0,
+    }
+    cached_payload = dict(payload)
+    cached_payload["cache"] = {
+        "hit": True,
+        "ttl_seconds": _CACHE_TTL_SECONDS,
+        "age_ms": 0,
+    }
+    json_bytes = json.dumps(cached_payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    _CACHE[cache_key] = (time.monotonic(), cached_payload, json_bytes)
+    return cold_payload
+
+
+async def build_scoring_inputs_from_rows(
+    db: AsyncSession,
+    items: list[ScoringContentRow],
+) -> tuple[list[ScoringInput], dict[int, ScoringContentRow], dict[int, float]]:
+    """Build scoring inputs from lightweight rows without ORM relationship loading."""
+    feedback_scores = await get_feedback_scores(db, [item.id for item in items])
+    scoring_inputs: list[ScoringInput] = []
+    item_map: dict[int, ScoringContentRow] = {}
+
+    for item in items:
+        scoring_inputs.append(
+            ScoringInput(
+                content_id=item.id,
+                title=item.title,
+                category=item.category,
+                source_id=item.source_id,
+                source_name=item.source_name,
+                published_at=item.published_at,
+                crawled_at=item.crawled_at,
+                curation_score=item.curation_score or 0,
+                info_density=item.info_density or 50,
+                actionability=item.actionability or 50,
+                source_weight=item.source_weight or 50,
+                creator_score=item.creator_score or 0,
+                viral_score=item.viral_score or 0,
+                freshness_score=item.freshness_score or 0,
+                quality_score=item.quality_score or 0,
+                hot_score=item.hot_score or 0,
+                risk_score=item.risk_score or 0,
+                source_weight_db=item.source_weight_db or 3,
+                feedback_score=feedback_scores.get(item.id, 0),
+            )
+        )
+        item_map[item.id] = item
+
+    return scoring_inputs, item_map, feedback_scores
+
+
+def build_empty_payload(
+    *,
+    hours: int,
+    analyzed_total: int,
+    window_total: int,
+    ignored_count: int,
+    limit: int,
+    sample_limit: int,
+) -> dict[str, Any]:
+    """Build a scoring-flow response without loading ORM rows when no samples exist."""
+    return {
+        "total": window_total,
+        "scored": 0,
+        "hours": hours,
+        "diagnostics": build_diagnostics(
+            analyzed_total=analyzed_total,
+            window_total=window_total,
+            loaded_count=0,
+            scoring_input_count=0,
+            scored_count=0,
+            ignored_count=ignored_count,
+            limit=limit,
+            sample_limit=sample_limit,
+        ),
+        "scoring_config": build_scoring_config_summary(),
+        "stages": build_stage_counts([]),
+        "samples": [],
+        "category_mix": [],
+        "source_mix": [],
     }
 
 

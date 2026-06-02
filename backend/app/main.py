@@ -198,6 +198,35 @@ async def ensure_llm_call_logs_schema(conn) -> None:
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_llm_call_logs_scene_created ON llm_call_logs(scene, created_at)"))
 
 
+async def ensure_performance_indexes(conn) -> None:
+    """SQLite create_all does not add indexes for existing installs."""
+    if not database_profile.is_sqlite:
+        return
+
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_content_items_status_crawled_at "
+        "ON content_items(status, crawled_at DESC)"
+    ))
+
+
+async def ensure_content_status_values(conn) -> None:
+    """Normalize legacy enum member names to persisted enum values."""
+    if not database_profile.is_sqlite:
+        return
+
+    await conn.execute(text("""
+        UPDATE content_items
+        SET status = CASE status
+            WHEN 'PENDING' THEN 'pending'
+            WHEN 'ANALYZING' THEN 'analyzing'
+            WHEN 'ANALYZED' THEN 'analyzed'
+            WHEN 'ERROR' THEN 'error'
+            ELSE status
+        END
+        WHERE status IN ('PENDING', 'ANALYZING', 'ANALYZED', 'ERROR')
+    """))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: create all SQLite tables
@@ -207,6 +236,8 @@ async def lifespan(app: FastAPI):
             await ensure_source_sort_order_column(conn)
             await ensure_daily_report_version_schema(conn)
             await ensure_llm_call_logs_schema(conn)
+            await ensure_performance_indexes(conn)
+            await ensure_content_status_values(conn)
     else:
         logger.info("Startup table creation skipped by config")
 

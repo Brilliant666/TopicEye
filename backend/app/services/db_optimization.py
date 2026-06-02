@@ -47,6 +47,10 @@ def add_indexes(conn: sqlite3.Connection) -> None:
         # content_items: crawled_at 用于所有时间范围查询
         ("content_items", "ix_content_items_crawled_at",
          "CREATE INDEX IF NOT EXISTS ix_content_items_crawled_at ON content_items(crawled_at)"),
+
+        # content_items: status + crawled_at 用于评分流、精选、统计等状态时间窗口查询
+        ("content_items", "ix_content_items_status_crawled_at",
+         "CREATE INDEX IF NOT EXISTS ix_content_items_status_crawled_at ON content_items(status, crawled_at DESC)"),
         
         # content_items: source_id 用于 JOIN + 分组统计
         ("content_items", "ix_content_items_source_id",

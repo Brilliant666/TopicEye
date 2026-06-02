@@ -4,6 +4,7 @@ from typing import Optional, Set
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import select, text, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -182,7 +183,16 @@ async def scoring_flow(
     db: AsyncSession = Depends(get_db),
 ):
     """Return a read-only explanation payload for the content scoring funnel."""
-    from app.services.scoring_flow import build_scoring_flow_payload
+    from app.services.scoring_flow import build_scoring_flow_payload, get_cached_scoring_flow_json
+
+    cached = get_cached_scoring_flow_json(hours=hours, limit=limit)
+    if cached:
+        content, age_seconds = cached
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"X-Scoring-Flow-Cache": f"HIT; age={age_seconds:.3f}s"},
+        )
 
     return await build_scoring_flow_payload(db, hours=hours, limit=limit)
 

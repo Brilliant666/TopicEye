@@ -1,7 +1,22 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Archive, ExternalLink, FileText, Filter, RefreshCw, Search, Star, Trash2 } from 'lucide-react';
+import {
+  AlertCircle,
+  Archive,
+  BookOpen,
+  CheckSquare,
+  ExternalLink,
+  FileText,
+  Filter,
+  Inbox,
+  Layers3,
+  RefreshCw,
+  Search,
+  Square,
+  Star,
+  Trash2,
+} from 'lucide-react';
 import { favoritesApi } from '@/lib/api';
 import { useAppContext } from '@/components/ClientLayout';
 import { Badge, Button, Panel, cx } from '@/components/ui';
@@ -25,6 +40,18 @@ const STATUS_OPTIONS: Array<{ value: FavoriteStatus | ''; label: string }> = [
   { value: 'archived', label: '已归档' },
 ];
 
+const STATUS_FLOW: Array<{
+  value: FavoriteStatus;
+  label: string;
+  hint: string;
+  tone: 'amber' | 'teal' | 'primary' | 'neutral';
+}> = [
+  { value: 'inbox', label: '待处理', hint: '刚收进来的素材', tone: 'amber' },
+  { value: 'researching', label: '研究中', hint: '值得拆解和比对', tone: 'teal' },
+  { value: 'drafting', label: '创作中', hint: '准备输出成稿', tone: 'primary' },
+  { value: 'archived', label: '已归档', hint: '已处理或暂缓', tone: 'neutral' },
+];
+
 const STATUS_LABEL: Record<FavoriteStatus, string> = {
   inbox: '待处理',
   researching: '研究中',
@@ -39,6 +66,15 @@ const TYPE_LABEL: Record<FavoriteTargetType, string> = {
   trend: '趋势',
   author: '作者',
   topic_group: '话题组',
+};
+
+const TYPE_TONE: Record<FavoriteTargetType, 'primary' | 'purple' | 'teal' | 'amber' | 'neutral'> = {
+  content: 'primary',
+  book: 'purple',
+  source: 'teal',
+  trend: 'amber',
+  author: 'neutral',
+  topic_group: 'neutral',
 };
 
 function parseUTC(s: string): Date {
@@ -62,8 +98,21 @@ function getSnapshotText(item: FavoriteItem): string {
   const summary = snapshot.summary;
   if (typeof summary === 'string' && summary.trim()) return summary.replace(/<[^>]+>/g, '').slice(0, 180);
   const category = snapshot.category;
-  const platform = snapshot.platform;
+  const platform = snapshot.platform_label || snapshot.platform;
   return [typeof category === 'string' ? category : null, typeof platform === 'string' ? platform : null].filter(Boolean).join(' · ');
+}
+
+function getSnapshotMeta(item: FavoriteItem): string {
+  const snapshot = item.snapshot || {};
+  const author = snapshot.author;
+  const category = snapshot.category;
+  const position = snapshot.position;
+  return [
+    item.source_name,
+    typeof author === 'string' && author ? author : null,
+    typeof category === 'string' && category ? category : null,
+    typeof position === 'number' ? `#${position}` : null,
+  ].filter(Boolean).join(' · ');
 }
 
 export default function FavoritesPage() {
@@ -77,19 +126,22 @@ export default function FavoritesPage() {
   const [keyword, setKeyword] = useState('');
   const [draftKeyword, setDraftKeyword] = useState('');
   const [pendingId, setPendingId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkPending, setBulkPending] = useState(false);
 
   const fetchFavorites = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       const res = await favoritesApi.list({
-        page_size: 100,
+        page_size: 200,
         target_type: targetType,
         status,
         keyword: keyword.trim() || undefined,
       });
       setItems(res.items || []);
       setTotal(res.total || 0);
+      setSelectedIds(new Set());
     } catch (err) {
       setError(err instanceof Error ? err.message : '收藏夹加载失败');
     } finally {
@@ -102,12 +154,54 @@ export default function FavoritesPage() {
   }, [fetchFavorites]);
 
   const counts = useMemo(() => {
-    const content = items.filter((item) => item.target_type === 'content').length;
+    const byStatus = STATUS_FLOW.reduce((acc, column) => {
+      acc[column.value] = items.filter((item) => item.status === column.value).length;
+      return acc;
+    }, {} as Record<FavoriteStatus, number>);
+    const byType = TYPE_OPTIONS.filter((option) => option.value).map((option) => ({
+      type: option.value as FavoriteTargetType,
+      label: option.label,
+      count: items.filter((item) => item.target_type === option.value).length,
+    })).filter((item) => item.count > 0);
     const active = items.filter((item) => item.status !== 'archived').length;
-    return { content, active };
+    return { byStatus, byType, active };
   }, [items]);
 
+  const boardColumns = useMemo(() => {
+    const columns = status ? STATUS_FLOW.filter((column) => column.value === status) : STATUS_FLOW;
+    return columns.map((column) => ({
+      ...column,
+      items: items.filter((item) => item.status === column.value),
+    }));
+  }, [items, status]);
+
+  const selectedItems = useMemo(
+    () => items.filter((item) => selectedIds.has(item.id)),
+    [items, selectedIds],
+  );
+
   const handleSearch = () => setKeyword(draftKeyword);
+
+  const toggleSelected = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectColumn = (columnItems: FavoriteItem[]) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      const allSelected = columnItems.every((item) => next.has(item.id));
+      for (const item of columnItems) {
+        if (allSelected) next.delete(item.id);
+        else next.add(item.id);
+      }
+      return next;
+    });
+  };
 
   const updateStatus = async (item: FavoriteItem, nextStatus: FavoriteStatus) => {
     setPendingId(item.id);
@@ -122,12 +216,33 @@ export default function FavoritesPage() {
     }
   };
 
+  const updateSelectedStatus = async (nextStatus: FavoriteStatus) => {
+    if (selectedItems.length === 0) return;
+    setBulkPending(true);
+    setError(null);
+    try {
+      const updated = await Promise.all(selectedItems.map((item) => favoritesApi.update(item.id, { status: nextStatus })));
+      const byId = new Map(updated.map((item) => [item.id, item]));
+      setItems((prev) => prev.map((item) => byId.get(item.id) || item));
+      setSelectedIds(new Set());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '批量更新失败');
+    } finally {
+      setBulkPending(false);
+    }
+  };
+
   const removeFavorite = async (item: FavoriteItem) => {
     setPendingId(item.id);
     setError(null);
     try {
       await favoritesApi.delete(item.id);
       setItems((prev) => prev.filter((row) => row.id !== item.id));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
       setTotal((prev) => Math.max(0, prev - 1));
       refreshCounts();
     } catch (err) {
@@ -137,22 +252,44 @@ export default function FavoritesPage() {
     }
   };
 
+  const removeSelected = async () => {
+    if (selectedItems.length === 0) return;
+    setBulkPending(true);
+    setError(null);
+    try {
+      await Promise.all(selectedItems.map((item) => favoritesApi.delete(item.id)));
+      setItems((prev) => prev.filter((item) => !selectedIds.has(item.id)));
+      setTotal((prev) => Math.max(0, prev - selectedItems.length));
+      setSelectedIds(new Set());
+      refreshCounts();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '批量删除失败');
+    } finally {
+      setBulkPending(false);
+    }
+  };
+
   return (
-    <div className="fade-in h-full overflow-y-auto px-6 py-6 lg:px-10 lg:py-8">
-      <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+    <div className="fade-in h-full overflow-y-auto bg-[#F8FAFC] px-6 py-6 lg:px-10 lg:py-8">
+      <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <h1 className="mb-1.5 text-[26px] font-bold text-gray-900">收藏中心</h1>
-          <p className="text-[13px] text-gray-400">
-            共 <b className="font-mono text-primary">{total}</b> 条收藏，{counts.active} 条待推进
+          <div className="mb-2 flex items-center gap-2">
+            <Star size={20} className="text-primary" fill="currentColor" />
+            <h1 className="m-0 text-[26px] font-black text-gray-900">收藏工作台</h1>
+          </div>
+          <p className="text-[13px] leading-6 text-gray-500">
+            共 <b className="font-mono text-primary">{total}</b> 条收藏，当前筛选中 {counts.active} 条待推进
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:flex">
-          <StatPill label="内容" value={counts.content} />
-          <StatPill label="工作中" value={counts.active} />
+          <StatPill label="待处理" value={counts.byStatus.inbox} tone="amber" />
+          <StatPill label="研究中" value={counts.byStatus.researching} tone="teal" />
+          <StatPill label="创作中" value={counts.byStatus.drafting} tone="primary" />
+          <StatPill label="已归档" value={counts.byStatus.archived} tone="neutral" />
         </div>
       </div>
 
-      <Panel className="mb-5 p-3">
+      <Panel className="mb-4 p-3.5 shadow-sm">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <Filter size={15} className="text-gray-400" />
@@ -193,7 +330,46 @@ export default function FavoritesPage() {
             </div>
           </div>
         </div>
+        {counts.byType.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5 border-t border-gray-100 pt-3">
+            {counts.byType.map((item) => (
+              <Badge key={item.type} tone={TYPE_TONE[item.type]} className="rounded px-2 py-0.5">
+                {item.label} {item.count}
+              </Badge>
+            ))}
+          </div>
+        )}
       </Panel>
+
+      {selectedIds.size > 0 && (
+        <div className="sticky top-0 z-20 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-primary-border bg-white px-4 py-3 shadow-lg">
+          <div className="flex items-center gap-2 text-[13px] font-black text-gray-900">
+            <CheckSquare size={15} className="text-primary" />
+            已选择 {selectedIds.size} 条素材
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {STATUS_FLOW.filter((column) => column.value !== 'archived').map((column) => (
+              <Button
+                key={column.value}
+                type="button"
+                variant="secondary"
+                disabled={bulkPending}
+                onClick={() => void updateSelectedStatus(column.value)}
+              >
+                移到{column.label}
+              </Button>
+            ))}
+            <Button type="button" variant="secondary" disabled={bulkPending} onClick={() => void updateSelectedStatus('archived')}>
+              <Archive size={13} />
+              归档
+            </Button>
+            <Button type="button" variant="danger" disabled={bulkPending} onClick={() => void removeSelected()}>
+              <Trash2 size={13} />
+              删除
+            </Button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 flex items-center justify-between gap-3 rounded-sm border border-red/20 bg-red-light px-4 py-3 text-[13px] text-red">
@@ -212,17 +388,20 @@ export default function FavoritesPage() {
         <div className="p-20 text-center text-sm text-gray-400">加载中...</div>
       ) : items.length === 0 ? (
         <div className="p-20 text-center text-sm text-gray-400">
-          <Star size={38} className="mx-auto mb-4 text-gray-300 opacity-70" strokeWidth={1.8} />
+          <Inbox size={38} className="mx-auto mb-4 text-gray-300 opacity-70" strokeWidth={1.8} />
           <div>当前筛选下没有收藏</div>
           <div className="mt-1 text-xs">从内容、榜单、信源或趋势入口加入收藏后会出现在这里</div>
         </div>
       ) : (
-        <div className="grid gap-3 pb-10">
-          {items.map((item) => (
-            <FavoriteRow
-              key={item.id}
-              item={item}
-              pending={pendingId === item.id}
+        <div className="grid gap-3 pb-10 lg:grid-cols-2 2xl:grid-cols-4">
+          {boardColumns.map((column) => (
+            <FavoriteColumn
+              key={column.value}
+              column={column}
+              selectedIds={selectedIds}
+              pendingId={pendingId}
+              onSelectColumn={selectColumn}
+              onSelect={toggleSelected}
               onStatus={updateStatus}
               onRemove={removeFavorite}
             />
@@ -233,87 +412,198 @@ export default function FavoritesPage() {
   );
 }
 
-function StatPill({ label, value }: { label: string; value: number }) {
+function StatPill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: 'primary' | 'teal' | 'amber' | 'neutral';
+}) {
+  const toneClass = {
+    primary: 'text-primary bg-primary-light border-primary-border',
+    teal: 'text-teal bg-teal-light border-teal-border',
+    amber: 'text-amber bg-amber-light border-amber-border',
+    neutral: 'text-gray-500 bg-gray-50 border-gray-200',
+  }[tone];
   return (
-    <div className="rounded-sm border border-gray-200 bg-white px-4 py-2">
-      <div className="text-[11px] font-bold text-gray-400">{label}</div>
-      <div className="font-mono text-lg font-black text-gray-900">{value}</div>
+    <div className={cx('rounded-sm border bg-white px-4 py-2', toneClass)}>
+      <div className="text-[11px] font-black opacity-75">{label}</div>
+      <div className="font-mono text-lg font-black">{value}</div>
     </div>
   );
 }
 
-function FavoriteRow({
+function FavoriteColumn({
+  column,
+  selectedIds,
+  pendingId,
+  onSelectColumn,
+  onSelect,
+  onStatus,
+  onRemove,
+}: {
+  column: typeof STATUS_FLOW[number] & { items: FavoriteItem[] };
+  selectedIds: Set<number>;
+  pendingId: number | null;
+  onSelectColumn: (items: FavoriteItem[]) => void;
+  onSelect: (id: number) => void;
+  onStatus: (item: FavoriteItem, status: FavoriteStatus) => void;
+  onRemove: (item: FavoriteItem) => void;
+}) {
+  const allSelected = column.items.length > 0 && column.items.every((item) => selectedIds.has(item.id));
+  return (
+    <section className="min-w-0 rounded-lg border border-gray-200 bg-white">
+      <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-3.5 py-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Badge tone={column.tone} className="rounded px-2 py-0.5">{column.label}</Badge>
+            <span className="font-mono text-xs font-black text-gray-500">{column.items.length}</span>
+          </div>
+          <div className="mt-1 text-[11px] text-gray-400">{column.hint}</div>
+        </div>
+        <button
+          type="button"
+          disabled={column.items.length === 0}
+          onClick={() => onSelectColumn(column.items)}
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-xs border border-gray-200 bg-white text-gray-400 transition hover:text-primary disabled:opacity-30"
+          title={allSelected ? '取消选择本列' : '选择本列'}
+        >
+          {allSelected ? <CheckSquare size={15} /> : <Square size={15} />}
+        </button>
+      </div>
+      <div className="flex min-h-[220px] flex-col gap-2 p-2.5">
+        {column.items.length === 0 ? (
+          <div className="grid min-h-[120px] place-items-center rounded-sm border border-dashed border-gray-200 bg-gray-50 text-center text-xs text-gray-400">
+            暂无素材
+          </div>
+        ) : column.items.map((item) => (
+          <FavoriteCard
+            key={item.id}
+            item={item}
+            selected={selectedIds.has(item.id)}
+            pending={pendingId === item.id}
+            onSelect={onSelect}
+            onStatus={onStatus}
+            onRemove={onRemove}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FavoriteCard({
   item,
+  selected,
   pending,
+  onSelect,
   onStatus,
   onRemove,
 }: {
   item: FavoriteItem;
+  selected: boolean;
   pending: boolean;
+  onSelect: (id: number) => void;
   onStatus: (item: FavoriteItem, status: FavoriteStatus) => void;
   onRemove: (item: FavoriteItem) => void;
 }) {
   const snapshotText = getSnapshotText(item);
+  const metaText = getSnapshotMeta(item);
   const statusTone = item.status === 'inbox' ? 'amber' : item.status === 'researching' ? 'teal' : item.status === 'drafting' ? 'primary' : 'neutral';
   return (
-    <Panel className="px-5 py-4 transition hover:shadow-md">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+    <article className={cx('rounded-sm border bg-white p-3 transition hover:border-primary-border hover:shadow-sm', selected ? 'border-primary-border ring-1 ring-primary-border' : 'border-gray-200')}>
+      <div className="mb-2 flex items-start gap-2">
+        <button
+          type="button"
+          onClick={() => onSelect(item.id)}
+          className={cx('mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-xs border transition', selected ? 'border-primary bg-primary text-white' : 'border-gray-200 text-gray-300 hover:text-primary')}
+          title={selected ? '取消选择' : '选择素材'}
+        >
+          {selected ? <CheckSquare size={13} /> : <Square size={13} />}
+        </button>
+        {item.cover_url && (
+          <img
+            src={item.cover_url}
+            alt={item.title}
+            className="h-14 w-10 shrink-0 rounded-xs border border-gray-100 bg-gray-100 object-cover"
+          />
+        )}
         <div className="min-w-0 flex-1">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Badge tone={item.target_type === 'content' ? 'primary' : item.target_type === 'book' ? 'purple' : 'neutral'} className="rounded px-2 py-0.5">
+          <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+            <Badge tone={TYPE_TONE[item.target_type]} className="rounded px-2 py-0.5">
               {TYPE_LABEL[item.target_type]}
             </Badge>
             <Badge tone={statusTone} className="rounded px-2 py-0.5">{STATUS_LABEL[item.status]}</Badge>
-            {item.source_name && <span className="text-[11px] font-bold text-gray-400">{item.source_name}</span>}
-            <span className="text-[11px] text-gray-300">·</span>
-            <span className="text-[11px] font-bold text-gray-400">{timeAgo(item.created_at)}</span>
           </div>
-          <h3 className="mb-1 text-[15px] font-semibold leading-6 text-gray-900">{item.title}</h3>
-          {snapshotText && <p className="line-clamp-2 text-[13px] leading-6 text-gray-500">{snapshotText}</p>}
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <select
-            value={item.status}
-            disabled={pending}
-            onChange={(event) => onStatus(item, event.target.value as FavoriteStatus)}
-            className="h-8 rounded-sm border border-gray-200 bg-white px-2 text-xs font-bold text-gray-600 outline-none disabled:cursor-wait disabled:opacity-60"
-          >
-            {STATUS_OPTIONS.filter((option) => option.value).map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-          {item.url && (
-            <a
-              href={item.url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex h-8 items-center gap-1 rounded-sm border border-gray-200 bg-white px-2 text-xs font-bold text-gray-500 hover:text-primary"
-            >
-              <ExternalLink size={13} />
-              原文
-            </a>
-          )}
-          {item.target_type === 'content' && item.target_id && (
-            <a
-              href={`/topics/${item.target_id}`}
-              className="inline-flex h-8 items-center gap-1 rounded-sm border border-gray-200 bg-white px-2 text-xs font-bold text-gray-500 hover:text-primary"
-            >
-              <FileText size={13} />
-              详情
-            </a>
-          )}
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => onRemove(item)}
-            className="inline-flex h-8 items-center gap-1 rounded-sm border border-red-light bg-red-light px-2 text-xs font-bold text-red disabled:cursor-wait disabled:opacity-60"
-            title="删除收藏"
-          >
-            {item.status === 'archived' ? <Archive size={13} /> : <Trash2 size={13} />}
-            删除
-          </button>
+          <h3 className="m-0 line-clamp-2 text-[13px] font-black leading-5 text-gray-900">{item.title}</h3>
         </div>
       </div>
-    </Panel>
+
+      {metaText && <div className="mb-1.5 line-clamp-1 text-[11px] font-bold text-gray-400">{metaText}</div>}
+      {snapshotText && <p className="mb-2.5 line-clamp-3 text-xs leading-5 text-gray-500">{snapshotText}</p>}
+      <div className="mb-2.5 text-[11px] text-gray-300">{timeAgo(item.created_at)}</div>
+
+      <div className="flex flex-wrap gap-1.5">
+        <select
+          value={item.status}
+          disabled={pending}
+          onChange={(event) => onStatus(item, event.target.value as FavoriteStatus)}
+          className="h-8 min-w-24 rounded-sm border border-gray-200 bg-white px-2 text-xs font-bold text-gray-600 outline-none disabled:cursor-wait disabled:opacity-60"
+        >
+          {STATUS_OPTIONS.filter((option) => option.value).map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        {item.target_type === 'content' && item.target_id && (
+          <a
+            href={`/topics/${item.target_id}`}
+            className="inline-flex h-8 items-center gap-1 rounded-sm border border-gray-200 bg-white px-2 text-xs font-bold text-gray-500 hover:text-primary"
+          >
+            <FileText size={13} />
+            详情
+          </a>
+        )}
+        {item.target_type === 'book' && (
+          <a
+            href="/fanqie"
+            className="inline-flex h-8 items-center gap-1 rounded-sm border border-gray-200 bg-white px-2 text-xs font-bold text-gray-500 hover:text-primary"
+          >
+            <BookOpen size={13} />
+            榜单
+          </a>
+        )}
+        {item.target_type === 'source' && (
+          <a
+            href="/sources"
+            className="inline-flex h-8 items-center gap-1 rounded-sm border border-gray-200 bg-white px-2 text-xs font-bold text-gray-500 hover:text-primary"
+          >
+            <Layers3 size={13} />
+            信源
+          </a>
+        )}
+        {item.url && (
+          <a
+            href={item.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-8 items-center gap-1 rounded-sm border border-gray-200 bg-white px-2 text-xs font-bold text-gray-500 hover:text-primary"
+          >
+            <ExternalLink size={13} />
+            原文
+          </a>
+        )}
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => onRemove(item)}
+          className="inline-flex h-8 items-center gap-1 rounded-sm border border-red-light bg-red-light px-2 text-xs font-bold text-red disabled:cursor-wait disabled:opacity-60"
+          title="删除收藏"
+        >
+          {item.status === 'archived' ? <Archive size={13} /> : <Trash2 size={13} />}
+        </button>
+      </div>
+    </article>
   );
 }

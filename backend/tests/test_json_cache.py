@@ -4,6 +4,13 @@ import time
 from app.services.content_list_cache import ContentListCacheParams, invalidate_content_list_cache
 from app.services.json_cache import get_cached_json, invalidate_json_cache, set_cached_json
 from app.services.llm.model_list_cache import MODEL_LIST_CACHE_KEY, invalidate_model_list_cache
+from app.services.trending_cache import (
+    TRENDING_CROSS_PLATFORM_CACHE_PREFIX,
+    TRENDING_LIST_CACHE_PREFIX,
+    TRENDING_PERSISTENT_CACHE_PREFIX,
+    TRENDING_SOURCES_CACHE_KEY,
+    invalidate_trending_cache,
+)
 
 
 def test_json_cache_hit_expire_and_prefix_invalidate():
@@ -69,4 +76,22 @@ def test_model_list_cache_invalidation_is_scoped():
 
     assert get_cached_json(MODEL_LIST_CACHE_KEY, ttl_seconds=10) is None
     assert get_cached_json("models:usage:summary", ttl_seconds=10) is not None
+    invalidate_json_cache()
+
+
+def test_trending_cache_invalidation_is_scoped():
+    invalidate_json_cache()
+    set_cached_json(f"{TRENDING_LIST_CACHE_PREFIX}limit=50", [{"title": "hot"}])
+    set_cached_json(TRENDING_SOURCES_CACHE_KEY, [{"source": "weibo"}])
+    set_cached_json(f"{TRENDING_CROSS_PLATFORM_CACHE_PREFIX}min_resonance=2&limit=50", {"clusters": []})
+    set_cached_json(f"{TRENDING_PERSISTENT_CACHE_PREFIX}min_days=2&min_sources=1&days_back=7", {"topics": []})
+    set_cached_json("contents:list:example", {"items": []})
+
+    invalidate_trending_cache()
+
+    assert get_cached_json(f"{TRENDING_LIST_CACHE_PREFIX}limit=50", ttl_seconds=10) is None
+    assert get_cached_json(TRENDING_SOURCES_CACHE_KEY, ttl_seconds=10) is None
+    assert get_cached_json(f"{TRENDING_CROSS_PLATFORM_CACHE_PREFIX}min_resonance=2&limit=50", ttl_seconds=10) is None
+    assert get_cached_json(f"{TRENDING_PERSISTENT_CACHE_PREFIX}min_days=2&min_sources=1&days_back=7", ttl_seconds=10) is None
+    assert get_cached_json("contents:list:example", ttl_seconds=10) is not None
     invalidate_json_cache()

@@ -18,6 +18,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.trending import TrendingItem
+from app.services.trending_cache import invalidate_trending_cache
 from app.services.trending_scrapers import get_trending_cls, get_all_trending_sources
 from app.services.zhihu_url import normalize_zhihu_url
 
@@ -71,6 +72,7 @@ async def sync_trending_source(source_name: str, db: AsyncSession) -> Dict[str, 
             db.add(item)
 
         await db.flush()
+        invalidate_trending_cache()
         logger.info("trending %s: synced %d items (batch %s)", source_name, len(entries), batch_id)
         return {"fetched": len(entries)}
 

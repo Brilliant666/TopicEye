@@ -7,13 +7,29 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 from pydantic import field_serializer
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
+from app.core.config import settings
+from app.core.database import async_session, get_db
 from app.models.trending import TrendingItem, TrendingCategory, TrendingSource
+from app.services.trending_cache import (
+    CrossPlatformCacheParams,
+    PersistentTopicsCacheParams,
+    TrendingListCacheParams,
+    get_cached_cross_platform,
+    get_cached_persistent_topics,
+    get_cached_trending_list,
+    get_cached_trending_sources,
+    invalidate_trending_cache,
+    set_cached_cross_platform,
+    set_cached_persistent_topics,
+    set_cached_trending_list,
+    set_cached_trending_sources,
+)
 from app.services.trending_pipeline import sync_trending_source, sync_all_trending
 from app.services.zhihu_url import normalize_zhihu_url
 
@@ -54,56 +70,86 @@ async def get_trending(
     category: Optional[str] = Query(None, description="分类筛选: hot/tech/finance/entertainment/community"),
     source: Optional[str] = Query(None, description="信源筛选: weibo/baidu/douyin/..."),
     limit: int = Query(30, ge=1, le=500),
-    db: AsyncSession = Depends(get_db),
 ):
     """获取趋势雷达数据。支持按分类和信源筛选。"""
-    stmt = select(TrendingItem)
+    cache_params = TrendingListCacheParams(category=category, source=source, limit=limit)
+    cached = get_cached_trending_list(cache_params, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
+    if cached:
+        content, age_seconds = cached
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"X-Trending-Cache": f"HIT; age={age_seconds:.3f}s"},
+        )
 
-    if category:
-        try:
-            cat_enum = TrendingCategory(category)
-            stmt = stmt.where(TrendingItem.category == cat_enum)
-        except ValueError:
-            pass
-    if source:
-        try:
-            src_enum = TrendingSource(source)
-            stmt = stmt.where(TrendingItem.source == src_enum)
-        except ValueError:
-            pass
+    async with async_session() as db:
+        stmt = select(TrendingItem)
 
-    stmt = stmt.order_by(TrendingItem.source, TrendingItem.rank).limit(limit * 10)
-    result = await db.execute(stmt)
-    items = result.scalars().all()
-    return items
+        if category:
+            try:
+                cat_enum = TrendingCategory(category)
+                stmt = stmt.where(TrendingItem.category == cat_enum)
+            except ValueError:
+                pass
+        if source:
+            try:
+                src_enum = TrendingSource(source)
+                stmt = stmt.where(TrendingItem.source == src_enum)
+            except ValueError:
+                pass
+
+        stmt = stmt.order_by(TrendingItem.source, TrendingItem.rank).limit(limit * 10)
+        result = await db.execute(stmt)
+        items = result.scalars().all()
+    payload = [TrendingItemOut.model_validate(item).model_dump() for item in items]
+    content = set_cached_trending_list(cache_params, payload)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"X-Trending-Cache": "MISS"},
+    )
 
 
 @router.get("/sources", response_model=list[TrendingSourceInfo])
-async def get_trending_sources(
-    db: AsyncSession = Depends(get_db),
-):
+async def get_trending_sources():
     """获取所有趋势源及其条目数量和最后同步时间。"""
-    stmt = (
-        select(
-            TrendingItem.source,
-            TrendingItem.category,
-            func.count(TrendingItem.id).label("count"),
-            func.max(TrendingItem.fetched_at).label("last_synced"),
+    cached = get_cached_trending_sources(ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
+    if cached:
+        content, age_seconds = cached
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"X-Trending-Sources-Cache": f"HIT; age={age_seconds:.3f}s"},
         )
-        .group_by(TrendingItem.source, TrendingItem.category)
-        .order_by(TrendingItem.category, TrendingItem.source)
-    )
-    result = await db.execute(stmt)
-    rows = result.all()
-    return [
+
+    async with async_session() as db:
+        stmt = (
+            select(
+                TrendingItem.source,
+                TrendingItem.category,
+                func.count(TrendingItem.id).label("count"),
+                func.max(TrendingItem.fetched_at).label("last_synced"),
+            )
+            .group_by(TrendingItem.source, TrendingItem.category)
+            .order_by(TrendingItem.category, TrendingItem.source)
+        )
+        result = await db.execute(stmt)
+        rows = result.all()
+    payload = [
         TrendingSourceInfo(
             source=row[0],
             category=row[1],
             count=row[2],
             last_synced=row[3].isoformat() if row[3] else None,
-        )
+        ).model_dump()
         for row in rows
     ]
+    content = set_cached_trending_sources(payload)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"X-Trending-Sources-Cache": "MISS"},
+    )
 
 
 @router.post("/sync/{source_name}")
@@ -113,6 +159,7 @@ async def trigger_sync(
 ):
     """手动触发单个趋势源同步。"""
     result = await sync_trending_source(source_name, db)
+    invalidate_trending_cache()
     return result
 
 
@@ -122,6 +169,7 @@ async def trigger_sync_all(
 ):
     """手动触发所有趋势源同步。"""
     results = await sync_all_trending(db)
+    invalidate_trending_cache()
     return results
 
 
@@ -129,7 +177,6 @@ async def trigger_sync_all(
 async def get_cross_platform(
     min_resonance: int = Query(1, ge=1, le=10, description="最小共振平台数"),
     limit: int = Query(30, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
 ):
     """跨平台热点交叉发现。
 
@@ -138,10 +185,21 @@ async def get_cross_platform(
     """
     from app.services.trending_cross import cluster_trending_items
 
+    cache_params = CrossPlatformCacheParams(min_resonance=min_resonance, limit=limit)
+    cached = get_cached_cross_platform(cache_params, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
+    if cached:
+        content, age_seconds = cached
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"X-Trending-Cross-Cache": f"HIT; age={age_seconds:.3f}s"},
+        )
+
     # 取全部数据
-    stmt = select(TrendingItem).order_by(TrendingItem.source, TrendingItem.rank)
-    result = await db.execute(stmt)
-    items = result.scalars().all()
+    async with async_session() as db:
+        stmt = select(TrendingItem).order_by(TrendingItem.source, TrendingItem.rank)
+        result = await db.execute(stmt)
+        items = result.scalars().all()
 
     # 转成 dict 列表给聚类函数
     item_dicts = [
@@ -173,10 +231,16 @@ async def get_cross_platform(
         for it in c.get("items", []):
             it.pop("_keywords", None)
 
-    return {
+    payload = {
         "total": len(clusters),
         "clusters": clusters,
     }
+    content = set_cached_cross_platform(cache_params, payload)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"X-Trending-Cross-Cache": "MISS"},
+    )
 
 
 # ── 历史快照 API ────────────────────────────────────────────────────────
@@ -207,6 +271,7 @@ async def manual_save_snapshots(
 
     results = await save_all_snapshots(db)
     await db.commit()
+    invalidate_trending_cache()
     return {"saved": results}
 
 
@@ -215,7 +280,6 @@ async def get_persistent_topics(
     min_days: int = Query(2, ge=1, le=7, description="最小连续在榜天数"),
     min_sources: int = Query(1, ge=1, le=10, description="最小涉及平台数"),
     days_back: int = Query(7, ge=1, le=30, description="分析最近N天"),
-    db: AsyncSession = Depends(get_db),
 ):
     """持续热度分析：找出连续多天在榜的话题。
 
@@ -228,11 +292,32 @@ async def get_persistent_topics(
     """
     from app.services.trending_snapshot import analyze_persistent_topics
 
-    topics = await analyze_persistent_topics(db, min_days, min_sources, days_back)
-    return {
+    cache_params = PersistentTopicsCacheParams(
+        min_days=min_days,
+        min_sources=min_sources,
+        days_back=days_back,
+    )
+    cached = get_cached_persistent_topics(cache_params, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
+    if cached:
+        content, age_seconds = cached
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"X-Trending-Persistent-Cache": f"HIT; age={age_seconds:.3f}s"},
+        )
+
+    async with async_session() as db:
+        topics = await analyze_persistent_topics(db, min_days, min_sources, days_back)
+    payload = {
         "total": len(topics),
         "topics": topics,
     }
+    content = set_cached_persistent_topics(cache_params, payload)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"X-Trending-Persistent-Cache": "MISS"},
+    )
 
 
 # ── 角度推荐 API ────────────────────────────────────────────────────────

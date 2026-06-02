@@ -101,6 +101,24 @@ class ContentRepo(BaseRepository[ContentItem]):
         )
         return result.scalars().all()
 
+    async def list_pending_for_analysis(
+        self,
+        *,
+        limit: int = 20,
+        hours: Optional[int] = None,
+    ) -> Sequence[ContentItem]:
+        """Fetch recent pending items for analysis, newest collected first."""
+        stmt = (
+            select(self.model)
+            .where(self.model.status == ContentStatus.PENDING)
+            .order_by(self.model.crawled_at.desc(), self.model.created_at.desc())
+            .limit(limit)
+        )
+        if hours is not None:
+            stmt = stmt.where(self.model.crawled_at >= datetime.utcnow() - timedelta(hours=hours))
+        result = await self.db.execute(stmt)
+        return result.scalars().all()
+
     async def update_status(self, id: int, status: ContentStatus) -> ContentItem:
         """Transition a single item to a new status."""
         return await self.update(id, status=status)

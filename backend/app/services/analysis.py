@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlite_retry import is_sqlite_locked, retry_sqlite_locked
 from app.models.content import ContentItem, ContentStatus
 from app.models.analysis import AiAnalysis
 from app.services.llm import call_llm_json
@@ -46,6 +48,90 @@ def _detect_lang(title: str, content: str) -> str:
     return "zh"
 
 
+def _valid_analysis_result(result: dict[str, Any]) -> bool:
+    """Return whether the model result contains the minimum analysis contract."""
+    return isinstance(result.get("scores"), dict) and isinstance(result.get("curation"), dict)
+
+
+def _clamp_score(value: Any, default: float = 50) -> float:
+    try:
+        return max(0, min(100, float(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _local_analysis_result(content: ContentItem, *, lang: str) -> dict[str, Any]:
+    """Build a deterministic baseline analysis when the LLM response is empty."""
+    text = f"{content.title}\n{content.summary or ''}\n{content.raw_content or ''}".strip()
+    source = f"{content.source_name or ''} {content.source_type or ''} {content.platform or ''}".lower()
+    title = content.title.strip()
+    text_len = len(text)
+    has_content = text_len >= 80
+    is_trend_source = any(key in source for key in ("hot", "trend", "rsshub", "zhihu", "reddit", "weread"))
+
+    quality_score = 62 if has_content else 48
+    hot_score = 68 if is_trend_source else 55
+    creator_score = 64 if has_content else 50
+    viral_score = 58 if is_trend_source else 50
+    freshness_score = 70
+    risk_score = 28
+    curation_score = round(
+        quality_score * 0.28
+        + creator_score * 0.28
+        + hot_score * 0.18
+        + freshness_score * 0.14
+        + viral_score * 0.12,
+        1,
+    )
+
+    words = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z][A-Za-z0-9_+-]{2,}", text)
+    tags: list[str] = []
+    for word in words:
+        if word not in tags:
+            tags.append(word)
+        if len(tags) >= 5:
+            break
+    if content.category and content.category not in tags:
+        tags.insert(0, content.category)
+
+    summary = content.summary or title
+    if len(summary) > 180:
+        summary = summary[:180].rstrip() + "..."
+
+    if lang == "en":
+        recommendation = f"这条内容来自 {content.source_name or '外部信源'}，适合作为跨市场趋势素材先观察，再结合中文语境提炼选题角度。"
+    else:
+        recommendation = f"这条内容来自 {content.source_name or '外部信源'}，具备基础选题信号，建议先作为素材进入观察池，再补充数据和角度判断。"
+
+    return {
+        "summary": summary,
+        "key_points": [summary],
+        "recommendation": recommendation,
+        "creator_angles": [
+            f"从创作者视角拆解「{title[:32]}」的用户关注点",
+            "结合评论、搜索热度或同类案例补充证据后成稿",
+        ],
+        "title_suggestions": [title],
+        "risk_notes": "",
+        "tags": tags,
+        "scores": {
+            "quality_score": quality_score,
+            "hot_score": hot_score,
+            "freshness_score": freshness_score,
+            "creator_score": creator_score,
+            "viral_score": viral_score,
+            "risk_score": risk_score,
+        },
+        "curation": {
+            "curation_score": curation_score,
+            "info_density": 60 if has_content else 45,
+            "actionability": 58 if has_content else 45,
+            "source_weight": 58 if is_trend_source else 50,
+        },
+        "fallback": "local_empty_llm_response",
+    }
+
+
 # ── Core analysis function ───────────────────────────────────────
 
 async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
@@ -72,16 +158,22 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
     ]
 
     result = await call_llm_json(messages, temperature=0.25, max_tokens=1500, scene="content_analysis")
+    if not _valid_analysis_result(result):
+        logger.warning(
+            "LLM analysis result invalid for content id=%d, using local fallback: %s",
+            content.id,
+            str(result)[:200],
+        )
+        result = _local_analysis_result(content, lang=lang)
 
     # Extract scores
     scores = result.get("scores", {})
     for key in ["quality_score", "hot_score", "freshness_score", "creator_score", "viral_score", "risk_score"]:
-        val = scores.get(key, 50)
-        scores[key] = max(0, min(100, float(val)))
+        scores[key] = _clamp_score(scores.get(key), 50)
 
     # Extract curation
     curation = result.get("curation", {})
-    curation_score = max(0, min(100, float(curation.get("curation_score", 0))))
+    curation_score = _clamp_score(curation.get("curation_score"), 0)
 
     # Cross-market bonus: English content from HN/Reddit has higher signal value
     # for Chinese-speaking creators (early trend detection before mainstream coverage)
@@ -159,17 +251,44 @@ async def analyze_batch(
     items = result.scalars().all()
 
     for item in items:
+        content_id = item.id
         try:
-            item.status = ContentStatus.ANALYZING
-            await db.flush()
+            async def _mark_analyzing() -> None:
+                await db.execute(
+                    update(ContentItem)
+                    .where(ContentItem.id == content_id)
+                    .values(status=ContentStatus.ANALYZING)
+                )
+                await db.flush()
+
+            await retry_sqlite_locked(
+                _mark_analyzing,
+                attempts=3,
+                base_delay=0.1,
+                on_retry=db.rollback,
+            )
 
             analysis = await analyze_content(item, db)
             results.append(analysis)
             await db.commit()
         except Exception as e:
-            logger.error("Failed to analyze content id=%d: %s", item.id, e)
             await db.rollback()
-            item.status = ContentStatus.ERROR
-            await db.commit()
+            if is_sqlite_locked(e):
+                logger.warning("Skipped analysis for content id=%d: database is locked", content_id)
+                continue
+
+            logger.error("Failed to analyze content id=%d: %s", content_id, e)
+            try:
+                content = await db.get(ContentItem, content_id)
+                if content is not None:
+                    content.status = ContentStatus.ERROR
+                    await db.commit()
+            except Exception as status_error:
+                await db.rollback()
+                logger.warning(
+                    "Failed to mark content id=%d as error after analysis failure: %s",
+                    content_id,
+                    status_error,
+                )
 
     return results

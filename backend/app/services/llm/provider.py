@@ -425,14 +425,15 @@ async def call_llm_json(
     Retries once on empty/unparseable response before giving up.
     """
     raw = ""
-    for attempt in range(2):
+    max_attempts = 1 if scene == "content_analysis" else 2
+    for attempt in range(max_attempts):
         raw = await call_llm(messages, temperature=temperature, max_tokens=max_tokens, scene=scene)
 
         # Try to extract JSON from markdown code blocks or raw text
         text = raw.strip()
         if not text:
             logger.warning("LLM returned empty response (attempt %d)", attempt + 1)
-            if attempt == 0:
+            if attempt < max_attempts - 1:
                 continue
             return {"raw_response": raw}
 
@@ -449,12 +450,13 @@ async def call_llm_json(
             result = json.loads(text)
             if not isinstance(result, dict) or not result:
                 logger.warning("LLM JSON is empty or not a dict (attempt %d): %s", attempt + 1, str(result)[:200])
-                if attempt == 0:
+                if attempt < max_attempts - 1:
                     continue
+                return {"raw_response": raw}
             return result
         except json.JSONDecodeError:
             logger.warning("Failed to parse LLM JSON response (attempt %d): %s", attempt + 1, text[:200])
-            if attempt == 0:
+            if attempt < max_attempts - 1:
                 continue
 
     return {"raw_response": raw}

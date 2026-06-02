@@ -70,25 +70,48 @@ async def analyze_batch_endpoint(
 @router.post("/pending")
 async def analyze_all_pending(
     limit: int = Query(20, ge=1, le=100),
+    hours: Optional[int] = Query(None, ge=1, le=720, description="Only analyze pending items collected within this many hours"),
+    sync: bool = Query(False, description="Run analysis synchronously for diagnostics"),
     background_tasks: BackgroundTasks = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigger analysis for all pending content items."""
+    """Trigger analysis for pending content items, optionally scoped to a recent window."""
     content_repo = ContentRepo(db)
-    pending = await content_repo.get_by_status(ContentStatus.PENDING, limit=limit)
+    pending = await content_repo.list_pending_for_analysis(limit=limit, hours=hours)
     ids = [item.id for item in pending]
 
     if not ids:
-        return {"message": "No pending content to analyze", "count": 0}
+        return {
+            "message": "No pending content to analyze",
+            "count": 0,
+            "ids": [],
+            "queued_ids": [],
+            "analyzed_ids": [],
+            "hours": hours,
+            "mode": "sync" if sync else "background",
+        }
 
-    if len(ids) > 5:
+    if not sync:
+        if background_tasks is None:
+            background_tasks = BackgroundTasks()
         background_tasks.add_task(_run_batch_background, ids)
-        return {"message": f"Analysis started for {len(ids)} items in background",
-                "count": len(ids), "ids": ids}
+        return {
+            "message": f"Analysis queued for {len(ids)} items in background",
+            "count": len(ids),
+            "ids": ids,
+            "queued_ids": ids,
+            "analyzed_ids": [],
+            "hours": hours,
+            "mode": "background",
+        }
 
     results = await analyze_batch(ids, db)
     return {"message": f"Analysis complete for {len(results)} items",
             "count": len(results),
+            "ids": ids,
+            "hours": hours,
+            "queued_ids": [],
+            "mode": "sync",
             "analyzed_ids": [a.content_id for a in results]}
 
 

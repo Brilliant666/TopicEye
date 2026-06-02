@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.database import Base, async_session, database_profile, engine
+from app.core.sqlite_retry import is_sqlite_locked, retry_sqlite_locked
 from app.api.v1.router import router as v1_router
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.core.exceptions import AppException
@@ -67,7 +68,17 @@ async def ensure_source_sort_order_column(conn) -> None:
     columns = {row[1] for row in result.fetchall()}
     if "sort_order" not in columns:
         await conn.execute(text("ALTER TABLE sources ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"))
-    await conn.execute(text("UPDATE sources SET sort_order = id * 10 WHERE sort_order = 0 OR sort_order IS NULL"))
+
+    async def backfill_sort_order() -> None:
+        await conn.execute(text("UPDATE sources SET sort_order = id * 10 WHERE sort_order = 0 OR sort_order IS NULL"))
+
+    try:
+        await retry_sqlite_locked(backfill_sort_order, attempts=3, base_delay=0.05)
+    except Exception as exc:
+        if is_sqlite_locked(exc):
+            logger.warning("Source sort_order backfill skipped because SQLite is locked")
+            return
+        raise
 
 
 async def ensure_daily_report_version_schema(conn) -> None:

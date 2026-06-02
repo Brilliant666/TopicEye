@@ -272,12 +272,17 @@ async def ensure_favorite_items_schema(conn) -> None:
             tags JSON,
             note TEXT,
             status VARCHAR(20) NOT NULL DEFAULT 'inbox',
+            position INTEGER NOT NULL DEFAULT 0,
             snapshot JSON,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
             CONSTRAINT uq_favorite_target UNIQUE (target_type, target_key)
         )
     """))
+    result = await conn.execute(text("PRAGMA table_info(favorite_items)"))
+    columns = {row[1] for row in result.fetchall()}
+    if "position" not in columns:
+        await conn.execute(text("ALTER TABLE favorite_items ADD COLUMN position INTEGER NOT NULL DEFAULT 0"))
     await conn.execute(text(
         "CREATE INDEX IF NOT EXISTS ix_favorite_items_type_created "
         "ON favorite_items(target_type, created_at)"
@@ -286,10 +291,14 @@ async def ensure_favorite_items_schema(conn) -> None:
         "CREATE INDEX IF NOT EXISTS ix_favorite_items_status_created "
         "ON favorite_items(status, created_at)"
     ))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_favorite_items_status_position "
+        "ON favorite_items(status, position)"
+    ))
     await conn.execute(text("""
         INSERT OR IGNORE INTO favorite_items (
             target_type, target_id, target_key, title, url, cover_url, source_name,
-            status, snapshot, created_at, updated_at
+            status, position, snapshot, created_at, updated_at
         )
         SELECT
             'content',
@@ -300,6 +309,7 @@ async def ensure_favorite_items_schema(conn) -> None:
             cover_url,
             source_name,
             'inbox',
+            id * 1000,
             json_object(
                 'content_id', id,
                 'category', category,
@@ -314,6 +324,11 @@ async def ensure_favorite_items_schema(conn) -> None:
             COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
         FROM content_items
         WHERE is_favorited = 1
+    """))
+    await conn.execute(text("""
+        UPDATE favorite_items
+        SET position = id * 1000
+        WHERE position = 0 OR position IS NULL
     """))
 
 

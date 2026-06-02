@@ -36,6 +36,11 @@ class FavoriteUpdate(BaseModel):
     status: Optional[FavoriteStatus] = None
 
 
+class FavoriteReorderRequest(BaseModel):
+    status: FavoriteStatus
+    ordered_ids: list[int] = Field(min_length=1, max_length=500)
+
+
 class FavoriteResponse(BaseModel):
     id: int
     target_type: str
@@ -49,6 +54,7 @@ class FavoriteResponse(BaseModel):
     tags: Optional[Any] = None
     note: Optional[str] = None
     status: str
+    position: int
     snapshot: Optional[Any] = None
     created_at: datetime
     updated_at: datetime

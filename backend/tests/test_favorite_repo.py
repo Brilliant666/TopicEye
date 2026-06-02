@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database import Base
 from app.models.content import ContentItem, ContentStatus
-from app.models.favorite import FavoriteTargetType
+from app.models.favorite import FavoriteStatus, FavoriteTargetType
 from app.repositories.favorite_repo import FavoriteRepo
 from app.schemas.favorite import FavoriteCreate
 
@@ -105,5 +105,33 @@ async def test_external_favorite_requires_title_when_target_not_resolved():
         )
         assert item.target_type == FavoriteTargetType.BOOK
         assert item.target_key == "fanqie:1"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_reorder_status_updates_positions_and_status():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        repo = FavoriteRepo(db)
+        first = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.BOOK, target_key="book:1", title="第一本"))
+        second = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.BOOK, target_key="book:2", title="第二本"))
+        third = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.SOURCE, target_key="source:1", title="信源"))
+
+        ordered = await repo.reorder_status(
+            status=FavoriteStatus.RESEARCHING,
+            ordered_ids=[second.id, third.id, first.id],
+        )
+
+        assert [item.id for item in ordered] == [second.id, third.id, first.id]
+        assert [item.position for item in ordered] == [1000, 2000, 3000]
+        assert {item.status for item in ordered} == {FavoriteStatus.RESEARCHING}
+
+        items, _ = await repo.list_paginated(status=FavoriteStatus.RESEARCHING)
+        assert [item.id for item in items] == [second.id, third.id, first.id]
 
     await engine.dispose()

@@ -67,6 +67,7 @@ class FavoriteRepo:
             await self._sync_content_flag(existing, True)
             return existing
 
+        payload["position"] = await self.next_position_for_status(payload.get("status") or FavoriteStatus.INBOX)
         item = FavoriteItem(**payload)
         self.db.add(item)
         await self.db.flush()
@@ -113,6 +114,8 @@ class FavoriteRepo:
         for key, value in payload.items():
             if hasattr(item, key):
                 setattr(item, key, value)
+        if payload.get("status"):
+            item.position = await self.next_position_for_status(payload["status"])
         item.updated_at = datetime.utcnow()
         await self.db.flush()
         await self.db.refresh(item)
@@ -149,11 +152,53 @@ class FavoriteRepo:
         total = int(total_result.scalar() or 0)
 
         result = await self.db.execute(
-            stmt.order_by(FavoriteItem.created_at.desc(), FavoriteItem.id.desc())
+            stmt.order_by(
+                FavoriteItem.status.asc(),
+                FavoriteItem.position.asc(),
+                FavoriteItem.updated_at.desc(),
+                FavoriteItem.id.desc(),
+            )
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
         return result.scalars().all(), total
+
+    async def next_position_for_status(self, status: Union[FavoriteStatus, str]) -> int:
+        result = await self.db.execute(
+            select(func.min(FavoriteItem.position)).where(FavoriteItem.status == status)
+        )
+        current_min = result.scalar()
+        if current_min is None:
+            return 1000
+        return min(int(current_min) - 1000, -1000)
+
+    async def reorder_status(
+        self,
+        *,
+        status: FavoriteStatus,
+        ordered_ids: list[int],
+    ) -> list[FavoriteItem]:
+        if not ordered_ids:
+            return []
+
+        unique_ids = list(dict.fromkeys(ordered_ids))
+        result = await self.db.execute(select(FavoriteItem).where(FavoriteItem.id.in_(unique_ids)))
+        items = list(result.scalars().all())
+        by_id = {item.id: item for item in items}
+
+        missing_ids = [item_id for item_id in unique_ids if item_id not in by_id]
+        if missing_ids:
+            raise LookupError(f"Favorite not found: {missing_ids[0]}")
+
+        now = datetime.utcnow()
+        for index, item_id in enumerate(unique_ids):
+            item = by_id[item_id]
+            item.status = status
+            item.position = (index + 1) * 1000
+            item.updated_at = now
+
+        await self.db.flush()
+        return [by_id[item_id] for item_id in unique_ids]
 
     async def state_for_targets(
         self,

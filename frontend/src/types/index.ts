@@ -288,6 +288,7 @@ export interface FavoriteItem {
   tags?: unknown;
   note?: string | null;
   status: FavoriteStatus;
+  position: number;
   snapshot?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;

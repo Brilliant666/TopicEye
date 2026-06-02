@@ -6,6 +6,7 @@ import {
   Archive,
   BookOpen,
   CheckSquare,
+  GripVertical,
   ExternalLink,
   FileText,
   Filter,
@@ -128,6 +129,8 @@ export default function FavoritesPage() {
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkPending, setBulkPending] = useState(false);
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ status: FavoriteStatus; beforeId: number | null } | null>(null);
 
   const fetchFavorites = useCallback(async () => {
     try {
@@ -171,7 +174,9 @@ export default function FavoritesPage() {
     const columns = status ? STATUS_FLOW.filter((column) => column.value === status) : STATUS_FLOW;
     return columns.map((column) => ({
       ...column,
-      items: items.filter((item) => item.status === column.value),
+      items: items
+        .filter((item) => item.status === column.value)
+        .sort((a, b) => a.position - b.position || b.updated_at.localeCompare(a.updated_at) || b.id - a.id),
     }));
   }, [items, status]);
 
@@ -179,6 +184,7 @@ export default function FavoritesPage() {
     () => items.filter((item) => selectedIds.has(item.id)),
     [items, selectedIds],
   );
+  const dragEnabled = !targetType && !keyword.trim() && total === items.length;
 
   const handleSearch = () => setKeyword(draftKeyword);
 
@@ -215,6 +221,47 @@ export default function FavoritesPage() {
       setPendingId(null);
     }
   };
+
+  const moveFavorite = useCallback(async (itemId: number, targetStatus: FavoriteStatus, beforeId: number | null) => {
+    const movingItem = items.find((item) => item.id === itemId);
+    if (!movingItem) return;
+    if (itemId === beforeId) {
+      setDraggingId(null);
+      setDropTarget(null);
+      return;
+    }
+
+    const previousItems = items;
+    const targetColumnItems = previousItems
+      .filter((item) => item.status === targetStatus && item.id !== itemId)
+      .sort((a, b) => a.position - b.position || b.updated_at.localeCompare(a.updated_at) || b.id - a.id);
+    const insertIndex = beforeId ? Math.max(0, targetColumnItems.findIndex((item) => item.id === beforeId)) : targetColumnItems.length;
+    const nextColumnItems = [
+      ...targetColumnItems.slice(0, insertIndex),
+      { ...movingItem, status: targetStatus },
+      ...targetColumnItems.slice(insertIndex),
+    ];
+    const nextPositions = new Map(nextColumnItems.map((item, index) => [item.id, (index + 1) * 1000]));
+
+    setItems((prev) => prev.map((item) => {
+      const nextPosition = nextPositions.get(item.id);
+      if (item.id === itemId) return { ...item, status: targetStatus, position: nextPosition || item.position };
+      if (nextPosition !== undefined) return { ...item, position: nextPosition };
+      return item;
+    }));
+    setDraggingId(null);
+    setDropTarget(null);
+    setError(null);
+
+    try {
+      const updated = await favoritesApi.reorder(targetStatus, nextColumnItems.map((item) => item.id));
+      const byId = new Map(updated.map((item) => [item.id, item]));
+      setItems((prev) => prev.map((item) => byId.get(item.id) || item));
+    } catch (err) {
+      setItems(previousItems);
+      setError(err instanceof Error ? err.message : '拖拽排序保存失败');
+    }
+  }, [items]);
 
   const updateSelectedStatus = async (nextStatus: FavoriteStatus) => {
     if (selectedItems.length === 0) return;
@@ -404,6 +451,13 @@ export default function FavoritesPage() {
               onSelect={toggleSelected}
               onStatus={updateStatus}
               onRemove={removeFavorite}
+              draggingId={draggingId}
+              dropTarget={dropTarget}
+              dragEnabled={dragEnabled}
+              onDragStart={setDraggingId}
+              onDragHover={setDropTarget}
+              onDragEnd={() => { setDraggingId(null); setDropTarget(null); }}
+              onMove={moveFavorite}
             />
           ))}
         </div>
@@ -439,22 +493,53 @@ function FavoriteColumn({
   column,
   selectedIds,
   pendingId,
+  draggingId,
+  dropTarget,
+  dragEnabled,
   onSelectColumn,
   onSelect,
   onStatus,
   onRemove,
+  onDragStart,
+  onDragHover,
+  onDragEnd,
+  onMove,
 }: {
   column: typeof STATUS_FLOW[number] & { items: FavoriteItem[] };
   selectedIds: Set<number>;
   pendingId: number | null;
+  draggingId: number | null;
+  dropTarget: { status: FavoriteStatus; beforeId: number | null } | null;
+  dragEnabled: boolean;
   onSelectColumn: (items: FavoriteItem[]) => void;
   onSelect: (id: number) => void;
   onStatus: (item: FavoriteItem, status: FavoriteStatus) => void;
   onRemove: (item: FavoriteItem) => void;
+  onDragStart: (id: number) => void;
+  onDragHover: (target: { status: FavoriteStatus; beforeId: number | null } | null) => void;
+  onDragEnd: () => void;
+  onMove: (itemId: number, status: FavoriteStatus, beforeId: number | null) => void;
 }) {
   const allSelected = column.items.length > 0 && column.items.every((item) => selectedIds.has(item.id));
+  const isColumnDropTarget = dropTarget?.status === column.value && dropTarget.beforeId === null;
   return (
-    <section className="min-w-0 rounded-lg border border-gray-200 bg-white">
+    <section
+      data-favorite-column={column.value}
+      onDragOver={(event) => {
+        if (!draggingId) return;
+        event.preventDefault();
+        onDragHover({ status: column.value, beforeId: null });
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (draggingId) onMove(draggingId, column.value, dropTarget?.beforeId ?? null);
+      }}
+      className={cx(
+        'min-w-0 rounded-lg border bg-white transition',
+        isColumnDropTarget ? 'border-primary-border shadow-[0_0_0_2px_rgba(255,107,53,0.10)]' : 'border-gray-200',
+      )}
+    >
       <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-3.5 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -475,8 +560,11 @@ function FavoriteColumn({
       </div>
       <div className="flex min-h-[220px] flex-col gap-2 p-2.5">
         {column.items.length === 0 ? (
-          <div className="grid min-h-[120px] place-items-center rounded-sm border border-dashed border-gray-200 bg-gray-50 text-center text-xs text-gray-400">
-            暂无素材
+          <div className={cx(
+            'grid min-h-[120px] place-items-center rounded-sm border border-dashed text-center text-xs transition',
+            isColumnDropTarget ? 'border-primary-border bg-primary-light text-primary' : 'border-gray-200 bg-gray-50 text-gray-400',
+          )}>
+            {draggingId ? '拖到这里' : '暂无素材'}
           </div>
         ) : column.items.map((item) => (
           <FavoriteCard
@@ -484,9 +572,16 @@ function FavoriteColumn({
             item={item}
             selected={selectedIds.has(item.id)}
             pending={pendingId === item.id}
+            dragging={draggingId === item.id}
+            dropBefore={dropTarget?.status === column.value && dropTarget.beforeId === item.id}
+            dragEnabled={dragEnabled}
             onSelect={onSelect}
             onStatus={onStatus}
             onRemove={onRemove}
+            onDragStart={onDragStart}
+            onDragHover={(beforeId) => onDragHover({ status: column.value, beforeId })}
+            onDragEnd={onDragEnd}
+            onDrop={(beforeId) => { if (draggingId) onMove(draggingId, column.value, beforeId); }}
           />
         ))}
       </div>
@@ -498,23 +593,71 @@ function FavoriteCard({
   item,
   selected,
   pending,
+  dragging,
+  dropBefore,
+  dragEnabled,
   onSelect,
   onStatus,
   onRemove,
+  onDragStart,
+  onDragHover,
+  onDragEnd,
+  onDrop,
 }: {
   item: FavoriteItem;
   selected: boolean;
   pending: boolean;
+  dragging: boolean;
+  dropBefore: boolean;
+  dragEnabled: boolean;
   onSelect: (id: number) => void;
   onStatus: (item: FavoriteItem, status: FavoriteStatus) => void;
   onRemove: (item: FavoriteItem) => void;
+  onDragStart: (id: number) => void;
+  onDragHover: (beforeId: number) => void;
+  onDragEnd: () => void;
+  onDrop: (beforeId: number) => void;
 }) {
   const snapshotText = getSnapshotText(item);
   const metaText = getSnapshotMeta(item);
   const statusTone = item.status === 'inbox' ? 'amber' : item.status === 'researching' ? 'teal' : item.status === 'drafting' ? 'primary' : 'neutral';
   return (
-    <article className={cx('rounded-sm border bg-white p-3 transition hover:border-primary-border hover:shadow-sm', selected ? 'border-primary-border ring-1 ring-primary-border' : 'border-gray-200')}>
+    <article
+      data-favorite-card-id={item.id}
+      draggable={dragEnabled && !pending}
+      onDragStart={(event) => {
+        if (!dragEnabled) return;
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', String(item.id));
+        onDragStart(item.id);
+      }}
+      onDragOver={(event) => {
+        if (!dragEnabled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onDragHover(item.id);
+      }}
+      onDrop={(event) => {
+        if (!dragEnabled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onDrop(item.id);
+      }}
+      onDragEnd={onDragEnd}
+      className={cx(
+        'rounded-sm border bg-white p-3 transition hover:border-primary-border hover:shadow-sm',
+        selected ? 'border-primary-border ring-1 ring-primary-border' : 'border-gray-200',
+        dragging && 'opacity-45',
+        dropBefore && 'border-primary-border shadow-[inset_0_3px_0_#FF6B35]',
+      )}
+    >
       <div className="mb-2 flex items-start gap-2">
+        <div
+          className="mt-0.5 grid h-5 w-5 shrink-0 cursor-grab place-items-center rounded-xs text-gray-300 transition hover:bg-gray-50 hover:text-primary active:cursor-grabbing"
+          title={dragEnabled ? '拖拽排序' : '清除类型和关键词筛选后可拖拽排序'}
+        >
+          <GripVertical size={14} />
+        </div>
         <button
           type="button"
           onClick={() => onSelect(item.id)}

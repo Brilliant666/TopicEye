@@ -357,6 +357,13 @@ export const favoritesApi = {
     });
   },
 
+  reorder(status: FavoriteStatus, orderedIds: number[]): Promise<FavoriteItem[]> {
+    return request('/favorites/reorder', {
+      method: 'POST',
+      body: JSON.stringify({ status, ordered_ids: orderedIds }),
+    });
+  },
+
   delete(id: number): Promise<{ deleted: boolean }> {
     return request(`/favorites/${id}`, { method: 'DELETE' });
   },

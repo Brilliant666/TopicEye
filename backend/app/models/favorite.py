@@ -42,6 +42,7 @@ class FavoriteItem(Base):
     tags: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(value_enum(FavoriteStatus), nullable=False, default=FavoriteStatus.INBOX)
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     snapshot: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -50,4 +51,5 @@ class FavoriteItem(Base):
         UniqueConstraint("target_type", "target_key", name="uq_favorite_target"),
         Index("ix_favorite_items_type_created", "target_type", "created_at"),
         Index("ix_favorite_items_status_created", "status", "created_at"),
+        Index("ix_favorite_items_status_position", "status", "position"),
     )

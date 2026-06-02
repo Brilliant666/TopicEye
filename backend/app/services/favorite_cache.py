@@ -46,6 +46,7 @@ def favorite_to_dict(item: Any) -> dict[str, Any]:
         "tags": item.tags,
         "note": item.note,
         "status": _enum_value(item.status),
+        "position": item.position,
         "snapshot": item.snapshot,
         "created_at": item.created_at,
         "updated_at": item.updated_at,

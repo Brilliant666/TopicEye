@@ -10,7 +10,13 @@ from app.core.database import async_session
 from app.core.dependencies import get_db
 from app.models.favorite import FavoriteStatus, FavoriteTargetType
 from app.repositories.favorite_repo import FavoriteRepo
-from app.schemas.favorite import FavoriteCreate, FavoriteListResponse, FavoriteResponse, FavoriteUpdate
+from app.schemas.favorite import (
+    FavoriteCreate,
+    FavoriteListResponse,
+    FavoriteReorderRequest,
+    FavoriteResponse,
+    FavoriteUpdate,
+)
 from app.services.favorite_cache import (
     favorite_to_dict,
     get_cached_json,
@@ -110,6 +116,20 @@ async def favorite_state(
         media_type="application/json",
         headers={"X-Favorites-Cache": "MISS"},
     )
+
+
+@router.post("/reorder", response_model=list[FavoriteResponse])
+async def reorder_favorites(
+    data: FavoriteReorderRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        items = await FavoriteRepo(db).reorder_status(status=data.status, ordered_ids=data.ordered_ids)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    invalidate_favorite_cache()
+    invalidate_json_cache("contents:favorites:")
+    return items
 
 
 @router.patch("/{favorite_id}", response_model=FavoriteResponse)

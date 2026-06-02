@@ -273,8 +273,8 @@ def build_stage_counts(scored: list[tuple[ScoreBreakdown, ScoringInput]]) -> lis
     total = len(scored)
     quality_pass = [(breakdown, item) for breakdown, item in scored if breakdown.quality_factor > 0.55]
     risk_pass = [(breakdown, item) for breakdown, item in quality_pass if breakdown.risk_factor > 0.55]
-    freshness_pass = [(breakdown, item) for breakdown, item in risk_pass if breakdown.time_decay >= 0.6]
-    diversity_pass = [(breakdown, item) for breakdown, item in freshness_pass if breakdown.diversity_factor >= 0.85]
+    freshness_pass = [(breakdown, item) for breakdown, item in risk_pass if breakdown.time_decay > 0]
+    diversity_pass = [(breakdown, item) for breakdown, item in freshness_pass if breakdown.diversity_factor > 0]
     selected = [(breakdown, item) for breakdown, item in diversity_pass if breakdown.selected]
     counts = [total, len(quality_pass), len(risk_pass), len(freshness_pass), len(diversity_pass), len(selected)]
     return [

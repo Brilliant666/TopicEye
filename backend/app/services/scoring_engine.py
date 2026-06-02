@@ -345,13 +345,12 @@ def score_items(items: list[ScoringInput]) -> list[tuple[ScoreBreakdown, Scoring
     # Phase 5: Determine threshold and mark selected
     if cfg["curation_mode"] == "percentile":
         # Use final_score ranking: top (100 - percentile)% are selected
-        # e.g. curation_percentile=70 -> top 30% selected, bounded by quality floor
+        # e.g. curation_percentile=70 -> top 30% selected, bounded by base quality.
         final_scores = [bd.final_score for bd, _ in results]
-        percentile_threshold = _compute_percentile_threshold(
+        actual_threshold = _compute_percentile_threshold(
             final_scores,
             cfg["curation_percentile"],
         )
-        actual_threshold = max(percentile_threshold, cfg["curation_threshold"])
     else:
         actual_threshold = cfg["curation_threshold"]
 

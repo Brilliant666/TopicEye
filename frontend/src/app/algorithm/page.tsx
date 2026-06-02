@@ -23,7 +23,7 @@ function selectedStageKey(sample?: ScoringFlowSample) {
 }
 
 export default function AlgorithmPage() {
-  const [hours, setHours] = useState(168);
+  const [hours, setHours] = useState(48);
   const [data, setData] = useState<ScoringFlowResponse | null>(null);
   const [selected, setSelected] = useState<ScoringFlowSample | undefined>();
   const [loading, setLoading] = useState(true);
@@ -89,7 +89,7 @@ export default function AlgorithmPage() {
         ) : data ? (
           <>
             <SummaryGrid data={data} />
-            <DiagnosticsPanel data={data} />
+            <DiagnosticsPanel data={data} onHoursChange={setHours} />
             <Funnel data={data} selectedKey={selectedKey} />
 
             <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[280px_minmax(560px,1fr)_380px]">

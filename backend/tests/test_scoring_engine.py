@@ -51,6 +51,28 @@ def test_weak_batch_does_not_select_items_only_because_of_percentile():
     assert all(not breakdown.selected for breakdown, _ in scored)
 
 
+def test_stale_high_quality_batch_can_still_select_percentile_winners():
+    stale_items = [
+        _item(
+            i,
+            published_at=datetime.utcnow() - timedelta(days=5),
+            crawled_at=datetime.utcnow() - timedelta(days=5),
+            curation_score=86 + i,
+            info_density=82,
+            actionability=82,
+            creator_score=82,
+            viral_score=78,
+            quality_score=84,
+            freshness_score=40,
+        )
+        for i in range(1, 8)
+    ]
+
+    scored = score_items(stale_items)
+
+    assert any(breakdown.selected for breakdown, _ in scored)
+
+
 def test_mid_risk_item_is_penalized_without_being_hard_filtered():
     safe = _item(1, risk_score=20)
     risky = _item(2, risk_score=70)

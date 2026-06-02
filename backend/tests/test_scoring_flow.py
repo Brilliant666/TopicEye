@@ -63,6 +63,19 @@ def test_build_stage_counts_uses_consistent_funnel_keys():
     assert stages[-1]["count"] == 1
 
 
+def test_build_stage_counts_treats_freshness_as_downrank_not_filter():
+    scored = [
+        (_breakdown(1, time_decay=0.3), _scoring_input(1)),
+        (_breakdown(2, time_decay=0.9), _scoring_input(2)),
+    ]
+
+    stages = {stage["key"]: stage for stage in build_stage_counts(scored)}
+
+    assert stages["risk"]["count"] == 2
+    assert stages["freshness"]["count"] == 2
+    assert stages["diversity"]["count"] == 2
+
+
 def test_build_sample_payload_keeps_breakdown_and_feedback_fields():
     breakdown = _breakdown(1)
     scoring_input = _scoring_input(1)

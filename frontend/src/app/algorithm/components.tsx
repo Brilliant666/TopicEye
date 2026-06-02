@@ -221,7 +221,13 @@ export function SummaryGrid({ data }: { data: ScoringFlowResponse }) {
   );
 }
 
-export function DiagnosticsPanel({ data }: { data: ScoringFlowResponse }) {
+export function DiagnosticsPanel({
+  data,
+  onHoursChange,
+}: {
+  data: ScoringFlowResponse;
+  onHoursChange?: (hours: number) => void;
+}) {
   const diagnostics = data.diagnostics;
   const config = data.scoring_config;
   const reason = emptyReasonText(diagnostics?.empty_reason);
@@ -241,6 +247,24 @@ export function DiagnosticsPanel({ data }: { data: ScoringFlowResponse }) {
             <div className="text-sm font-black text-gray-900">{reason.title}</div>
             <div className="mt-1 max-w-3xl text-xs leading-6 text-gray-500">{reason.detail}</div>
             <div className="mt-1 text-xs font-bold text-gray-700">{reason.action}</div>
+            {isEmpty && diagnostics?.empty_reason === 'no_content_in_window' && onHoursChange && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => onHoursChange(168)}
+                  className="rounded-xs border border-primary/25 bg-primary-light px-3 py-1.5 text-xs font-black text-primary transition hover:border-primary"
+                >
+                  查看 7 天调试样本
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onHoursChange(720)}
+                  className="rounded-xs border border-gray-200 bg-white px-3 py-1.5 text-xs font-black text-gray-600 transition hover:border-gray-300 hover:text-gray-900"
+                >
+                  查看 30 天历史样本
+                </button>
+              </div>
+            )}
           </div>
         </div>
         <Badge tone={isEmpty ? 'amber' : 'teal'} className="gap-1.5 rounded-xs font-mono">

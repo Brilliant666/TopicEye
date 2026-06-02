@@ -7,7 +7,7 @@ from app.database import Base
 from app.models.content import ContentItem, ContentStatus
 from app.models.favorite import FavoriteStatus, FavoriteTargetType
 from app.repositories.favorite_repo import FavoriteRepo
-from app.schemas.favorite import FavoriteCreate
+from app.schemas.favorite import FavoriteCreate, FavoriteUpdate
 
 
 @pytest.mark.asyncio
@@ -133,5 +133,45 @@ async def test_reorder_status_updates_positions_and_status():
 
         items, _ = await repo.list_paginated(status=FavoriteStatus.RESEARCHING)
         assert [item.id for item in items] == [second.id, third.id, first.id]
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_update_favorite_can_persist_creation_plan_snapshot():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        repo = FavoriteRepo(db)
+        item = await repo.upsert(
+            FavoriteCreate(
+                target_type=FavoriteTargetType.BOOK,
+                target_key="book:creation-plan",
+                title="创作方案测试",
+                snapshot={"source": "fanqie"},
+            )
+        )
+
+        updated = await repo.update(
+            item.id,
+            FavoriteUpdate(
+                snapshot={
+                    "source": "fanqie",
+                    "creation_plans": {
+                        "wechat": {
+                            "titles": ["测试标题"],
+                            "_meta": {"platform": "wechat"},
+                        }
+                    },
+                }
+            ),
+        )
+
+        assert updated is not None
+        assert updated.snapshot["source"] == "fanqie"
+        assert updated.snapshot["creation_plans"]["wechat"]["titles"] == ["测试标题"]
 
     await engine.dispose()

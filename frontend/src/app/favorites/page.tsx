@@ -139,6 +139,27 @@ function parseTagInput(value: string): string[] | null {
   return tags.length > 0 ? Array.from(new Set(tags)) : null;
 }
 
+function getSavedCreationPlans(item: FavoriteItem): Record<string, CreationPlan> {
+  const rawPlans = item.snapshot?.creation_plans;
+  return rawPlans && typeof rawPlans === 'object' && !Array.isArray(rawPlans)
+    ? rawPlans as Record<string, CreationPlan>
+    : {};
+}
+
+function withSavedCreationPlan(item: FavoriteItem, platform: string, plan: CreationPlan): Record<string, unknown> {
+  const snapshot = item.snapshot || {};
+  return {
+    ...snapshot,
+    creation_plans: {
+      ...getSavedCreationPlans(item),
+      [platform]: {
+        ...plan,
+        _saved_at: new Date().toISOString(),
+      },
+    },
+  };
+}
+
 export default function FavoritesPage() {
   const { refreshCounts } = useAppContext();
   const [items, setItems] = useState<FavoriteItem[]>([]);
@@ -411,14 +432,24 @@ export default function FavoritesPage() {
     setError(null);
     try {
       const plan = await creationApi.generatePlan(item.target_id, platform) as CreationPlan;
-      setCreationDraft({ item, platform: plan._meta?.platform || platform, plan });
-      const updated = await favoritesApi.update(item.id, { status: 'drafting' });
+      const planPlatform = plan._meta?.platform || platform;
+      const updated = await favoritesApi.update(item.id, {
+        status: 'drafting',
+        snapshot: withSavedCreationPlan(item, planPlatform, plan),
+      });
+      setCreationDraft({ item: updated, platform: planPlatform, plan });
       setItems((prev) => prev.map((row) => (row.id === item.id ? updated : row)));
     } catch (err) {
       setError(err instanceof Error ? err.message : '创作方案生成失败');
     } finally {
       setCreatingKey(null);
     }
+  };
+
+  const openSavedCreationPlan = (item: FavoriteItem, platform: string) => {
+    const plan = getSavedCreationPlans(item)[platform];
+    if (!plan) return;
+    setCreationDraft({ item, platform: plan._meta?.platform || platform, plan });
   };
 
   return (
@@ -605,6 +636,7 @@ export default function FavoritesPage() {
               onStatus={updateStatus}
               onRemove={removeFavorite}
               onGeneratePlan={generateCreationPlan}
+              onOpenSavedPlan={openSavedCreationPlan}
               creatingKey={creatingKey}
               editingId={editingId}
               editNote={editNote}
@@ -665,6 +697,7 @@ function FavoriteColumn({
   onStatus,
   onRemove,
   onGeneratePlan,
+  onOpenSavedPlan,
   creatingKey,
   editingId,
   editNote,
@@ -691,6 +724,7 @@ function FavoriteColumn({
   onStatus: (item: FavoriteItem, status: FavoriteStatus) => void;
   onRemove: (item: FavoriteItem) => void;
   onGeneratePlan: (item: FavoriteItem, platform: string) => void;
+  onOpenSavedPlan: (item: FavoriteItem, platform: string) => void;
   creatingKey: string | null;
   editingId: number | null;
   editNote: string;
@@ -771,6 +805,7 @@ function FavoriteColumn({
             onStatus={onStatus}
             onRemove={onRemove}
             onGeneratePlan={onGeneratePlan}
+            onOpenSavedPlan={onOpenSavedPlan}
             creatingKey={creatingKey}
             editing={editingId === item.id}
             editNote={editNote}
@@ -803,6 +838,7 @@ function FavoriteCard({
   onStatus,
   onRemove,
   onGeneratePlan,
+  onOpenSavedPlan,
   creatingKey,
   editing,
   editNote,
@@ -828,6 +864,7 @@ function FavoriteCard({
   onStatus: (item: FavoriteItem, status: FavoriteStatus) => void;
   onRemove: (item: FavoriteItem) => void;
   onGeneratePlan: (item: FavoriteItem, platform: string) => void;
+  onOpenSavedPlan: (item: FavoriteItem, platform: string) => void;
   creatingKey: string | null;
   editing: boolean;
   editNote: string;
@@ -846,6 +883,7 @@ function FavoriteCard({
   const snapshotText = getSnapshotText(item);
   const metaText = getSnapshotMeta(item);
   const tags = getFavoriteTags(item);
+  const savedPlans = getSavedCreationPlans(item);
   const statusTone = item.status === 'inbox' ? 'amber' : item.status === 'researching' ? 'teal' : item.status === 'drafting' ? 'primary' : 'neutral';
   return (
     <article
@@ -967,20 +1005,32 @@ function FavoriteCard({
             {CREATION_PLATFORMS.map((platform) => {
               const Icon = platform.icon;
               const active = creatingKey === `${item.id}:${platform.id}`;
+              const saved = Boolean(savedPlans[platform.id]);
               return (
-                <button
-                  key={platform.id}
-                  type="button"
-                  disabled={Boolean(creatingKey)}
-                  onClick={() => onGeneratePlan(item, platform.id)}
-                  className={cx(
-                    'inline-flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] font-black transition disabled:cursor-wait disabled:opacity-60',
-                    active ? 'border-primary bg-primary text-white' : 'border-primary/20 bg-white text-primary hover:border-primary',
+                <div key={platform.id} className="flex gap-1">
+                  <button
+                    type="button"
+                    disabled={Boolean(creatingKey)}
+                    onClick={() => onGeneratePlan(item, platform.id)}
+                    className={cx(
+                      'inline-flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] font-black transition disabled:cursor-wait disabled:opacity-60',
+                      active ? 'border-primary bg-primary text-white' : 'border-primary/20 bg-white text-primary hover:border-primary',
+                    )}
+                  >
+                    <Icon size={12} />
+                    {active ? '生成中' : platform.label}
+                  </button>
+                  {saved && (
+                    <button
+                      type="button"
+                      disabled={Boolean(creatingKey)}
+                      onClick={() => onOpenSavedPlan(item, platform.id)}
+                      className="inline-flex h-7 items-center rounded-xs border border-gray-200 bg-white px-2 text-[11px] font-black text-gray-500 transition hover:border-primary-border hover:text-primary disabled:opacity-60"
+                    >
+                      上次
+                    </button>
                   )}
-                >
-                  <Icon size={12} />
-                  {active ? '生成中' : platform.label}
-                </button>
+                </div>
               );
             })}
           </div>

@@ -351,7 +351,7 @@ export const favoritesApi = {
     return request(`/favorites/state?${qs.toString()}`);
   },
 
-  update(id: number, data: { status?: FavoriteStatus; note?: string | null; tags?: unknown }): Promise<FavoriteItem> {
+  update(id: number, data: { status?: FavoriteStatus; note?: string | null; tags?: unknown; snapshot?: Record<string, unknown> | null }): Promise<FavoriteItem> {
     return request(`/favorites/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),

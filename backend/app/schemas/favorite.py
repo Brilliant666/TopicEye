@@ -34,6 +34,7 @@ class FavoriteUpdate(BaseModel):
     tags: Optional[Any] = None
     note: Optional[str] = None
     status: Optional[FavoriteStatus] = None
+    snapshot: Optional[dict[str, Any]] = None
 
 
 class FavoriteReorderRequest(BaseModel):

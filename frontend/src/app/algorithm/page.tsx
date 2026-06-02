@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { contentsApi, feedbackApi, type FeedbackType, type ScoringFlowResponse, type ScoringFlowSample } from '@/lib/api';
+import { analysesApi, contentsApi, feedbackApi, type FeedbackType, type ScoringFlowResponse, type ScoringFlowSample } from '@/lib/api';
 import {
   AlgorithmHeader,
   DiagnosticsPanel,
@@ -29,9 +29,11 @@ export default function AlgorithmPage() {
   const [data, setData] = useState<ScoringFlowResponse | null>(null);
   const [selected, setSelected] = useState<ScoringFlowSample | undefined>();
   const [loading, setLoading] = useState(true);
+  const [analyzing, setAnalyzing] = useState(false);
   const [feedbacking, setFeedbacking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
+  const [analysisNotice, setAnalysisNotice] = useState<string | null>(null);
   const requestSeqRef = useRef(0);
   const initialFallbackRef = useRef(false);
 
@@ -72,8 +74,33 @@ export default function AlgorithmPage() {
   const handleHoursChange = useCallback((nextHours: number) => {
     initialFallbackRef.current = true;
     setFallbackNotice(null);
+    setAnalysisNotice(null);
     setHours(nextHours);
   }, []);
+
+  const handleAnalyzePending = useCallback(async () => {
+    setAnalyzing(true);
+    setError(null);
+    setAnalysisNotice(null);
+    try {
+      const result = await analysesApi.analyzePending({ limit: 1, hours });
+      const queuedCount = result.queued_ids?.length ?? 0;
+      const analyzedCount = result.analyzed_ids?.length ?? 0;
+      const windowText = hours >= 168 ? `${hours / 24} 天` : `${hours} 小时`;
+      setAnalysisNotice(
+        queuedCount > 0
+          ? `已提交最近 ${windowText}内 ${queuedCount} 条内容到后台分析，稍后刷新评分流程。`
+          : analyzedCount > 0
+            ? `已同步分析最近 ${windowText}内 ${analyzedCount} 条内容，正在刷新评分流程。`
+          : '当前窗口没有可分析的待处理内容。'
+      );
+      await fetchFlow();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '最近内容分析失败');
+    } finally {
+      setAnalyzing(false);
+    }
+  }, [fetchFlow, hours]);
 
   const handleFeedback = useCallback(async (sample: ScoringFlowSample, type: FeedbackType) => {
     setFeedbacking(true);
@@ -119,7 +146,13 @@ export default function AlgorithmPage() {
         ) : data ? (
           <>
             <SummaryGrid data={data} />
-            <DiagnosticsPanel data={data} onHoursChange={handleHoursChange} />
+            <DiagnosticsPanel
+              data={data}
+              onHoursChange={handleHoursChange}
+              onAnalyzePending={handleAnalyzePending}
+              analyzing={analyzing}
+              analysisNotice={analysisNotice}
+            />
             <Funnel data={data} selectedKey={selectedKey} />
 
             <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[280px_minmax(560px,1fr)_380px]">

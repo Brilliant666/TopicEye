@@ -229,9 +229,15 @@ export function SummaryGrid({ data }: { data: ScoringFlowResponse }) {
 export function DiagnosticsPanel({
   data,
   onHoursChange,
+  onAnalyzePending,
+  analyzing = false,
+  analysisNotice,
 }: {
   data: ScoringFlowResponse;
   onHoursChange?: (hours: number) => void;
+  onAnalyzePending?: () => void;
+  analyzing?: boolean;
+  analysisNotice?: string | null;
 }) {
   const diagnostics = data.diagnostics;
   const config = data.scoring_config;
@@ -268,6 +274,26 @@ export function DiagnosticsPanel({
                 >
                   查看 30 天历史样本
                 </button>
+              </div>
+            )}
+            {isEmpty && diagnostics?.empty_reason === 'collected_not_analyzed' && onAnalyzePending && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="primary"
+                  disabled={analyzing}
+                  onClick={onAnalyzePending}
+                  className="min-h-8 px-3 py-1.5 text-xs"
+                >
+                  <RefreshCw size={13} className={analyzing ? 'animate-spin' : ''} />
+                  {analyzing ? '提交中' : '分析最近内容'}
+                </Button>
+                <span className="text-[11px] font-medium text-gray-500">提交后台分析后，稍后刷新即可查看评分样本。</span>
+              </div>
+            )}
+            {analysisNotice && (
+              <div className="mt-3 rounded-sm border border-teal/20 bg-teal-light px-3 py-2 text-xs font-bold text-teal">
+                {analysisNotice}
               </div>
             )}
           </div>

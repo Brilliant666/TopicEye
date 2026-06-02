@@ -527,8 +527,23 @@ export const analysesApi = {
   },
 
   /** 分析所有待处理内容 */
-  analyzePending(limit: number = 20): Promise<{ message: string; count: number }> {
-    return request(`/analyses/pending?limit=${limit}`, { method: 'POST' });
+  analyzePending(params?: { limit?: number; hours?: number; sync?: boolean }): Promise<{
+    message: string;
+    count: number;
+    ids?: number[];
+    queued_ids?: number[];
+    analyzed_ids?: number[];
+    hours?: number | null;
+    mode?: 'background' | 'sync';
+  }> {
+    const query = params
+      ? '?' + new URLSearchParams(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)])
+        ).toString()
+      : '?limit=20';
+    return request(`/analyses/pending${query}`, { method: 'POST' });
   },
 
   /** 获取分析列表 */

@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     CACHE_WARMUP_ENABLED: bool = True
     READ_CACHE_TTL_SECONDS: float = 60.0
     SOURCE_SYNC_TIMEOUT_SECONDS: int = 120
+    CREATION_PLAN_TIMEOUT_SECONDS: int = 45
 
     # ── Legacy DeepSeek config (backward compatible) ──
     DEEPSEEK_API_KEY: Optional[str] = None

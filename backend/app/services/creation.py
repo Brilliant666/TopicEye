@@ -7,12 +7,14 @@ blueprint for a specific platform (小红书/短视频/公众号).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Optional, List
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.content import ContentItem
 from app.models.analysis import AiAnalysis
 from app.services.llm import call_llm_json  # noqa: E402
@@ -159,7 +161,10 @@ async def generate_creation_plan(
 
     # 3. Call LLM
     try:
-        plan = await call_llm_json(messages, scene="creation_plan")
+        plan = await asyncio.wait_for(
+            call_llm_json(messages, scene="creation_plan"),
+            timeout=settings.CREATION_PLAN_TIMEOUT_SECONDS,
+        )
         if isinstance(plan, dict) and "error" not in plan:
             plan["_meta"] = {
                 "content_id": content_id,
@@ -167,6 +172,13 @@ async def generate_creation_plan(
                 "platform_name": platform_config["name"],
             }
         return plan
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Creation plan timed out for content %s after %ss",
+            content_id,
+            settings.CREATION_PLAN_TIMEOUT_SECONDS,
+        )
+        return {"error": f"创作方案生成超时，请稍后重试或切换更快的模型（>{settings.CREATION_PLAN_TIMEOUT_SECONDS}s）"}
     except Exception as e:
         logger.exception("Failed to generate creation plan for content %s", content_id)
         return {"error": str(e)}

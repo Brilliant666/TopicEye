@@ -12,14 +12,19 @@ import {
   Filter,
   Inbox,
   Layers3,
+  PenLine,
   RefreshCw,
   Search,
   Square,
   Star,
   Trash2,
+  Video,
+  X,
 } from 'lucide-react';
-import { favoritesApi } from '@/lib/api';
+import type { LucideIcon } from 'lucide-react';
+import { creationApi, favoritesApi } from '@/lib/api';
 import { useAppContext } from '@/components/ClientLayout';
+import CreationPlanDisplay, { type CreationPlan } from '@/components/CreationPlanDisplay';
 import { Badge, Button, Panel, cx } from '@/components/ui';
 import type { FavoriteItem, FavoriteStatus, FavoriteTargetType } from '@/types';
 
@@ -78,6 +83,12 @@ const TYPE_TONE: Record<FavoriteTargetType, 'primary' | 'purple' | 'teal' | 'amb
   topic_group: 'neutral',
 };
 
+const CREATION_PLATFORMS: Array<{ id: string; label: string; icon: LucideIcon }> = [
+  { id: 'xiaohongshu', label: '小红书', icon: BookOpen },
+  { id: 'wechat', label: '公众号', icon: FileText },
+  { id: 'short_video', label: '短视频', icon: Video },
+];
+
 function parseUTC(s: string): Date {
   const normalized = s.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(s) ? s : s + 'Z';
   return new Date(normalized);
@@ -134,6 +145,12 @@ export default function FavoritesPage() {
   const [dirtyStatuses, setDirtyStatuses] = useState<Set<FavoriteStatus>>(new Set());
   const [savingOrder, setSavingOrder] = useState(false);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const [creationDraft, setCreationDraft] = useState<{
+    item: FavoriteItem;
+    platform: string;
+    plan: CreationPlan;
+  } | null>(null);
+  const [creatingKey, setCreatingKey] = useState<string | null>(null);
 
   const fetchFavorites = useCallback(async () => {
     try {
@@ -341,6 +358,23 @@ export default function FavoritesPage() {
     }
   };
 
+  const generateCreationPlan = async (item: FavoriteItem, platform: string) => {
+    if (item.target_type !== 'content' || !item.target_id) return;
+    const creatingId = `${item.id}:${platform}`;
+    setCreatingKey(creatingId);
+    setError(null);
+    try {
+      const plan = await creationApi.generatePlan(item.target_id, platform) as CreationPlan;
+      setCreationDraft({ item, platform: plan._meta?.platform || platform, plan });
+      const updated = await favoritesApi.update(item.id, { status: 'drafting' });
+      setItems((prev) => prev.map((row) => (row.id === item.id ? updated : row)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '创作方案生成失败');
+    } finally {
+      setCreatingKey(null);
+    }
+  };
+
   return (
     <div className="fade-in h-full overflow-y-auto bg-[#F8FAFC] px-6 py-6 lg:px-10 lg:py-8">
       <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -456,6 +490,33 @@ export default function FavoritesPage() {
         </div>
       )}
 
+      {creationDraft && (
+        <Panel className="mb-4 overflow-hidden p-0 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-gray-100 px-4 py-3">
+            <div className="min-w-0">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <Badge tone="primary" className="rounded px-2 py-0.5">创作方案</Badge>
+                <span className="text-xs font-bold text-gray-400">
+                  {CREATION_PLATFORMS.find((platform) => platform.id === creationDraft.platform)?.label || creationDraft.platform}
+                </span>
+              </div>
+              <div className="line-clamp-1 text-sm font-black text-gray-900">{creationDraft.item.title}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCreationDraft(null)}
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-xs border border-gray-200 bg-white text-gray-400 transition hover:text-gray-800"
+              title="关闭"
+            >
+              <X size={15} />
+            </button>
+          </div>
+          <div className="bg-gray-50 px-4 py-4">
+            <CreationPlanDisplay plan={creationDraft.plan} platform={creationDraft.platform} />
+          </div>
+        </Panel>
+      )}
+
       {(dirtyStatuses.size > 0 || savedNotice) && (
         <div className={cx(
           'mb-4 flex flex-wrap items-center justify-between gap-3 rounded-sm border px-4 py-3 text-[13px]',
@@ -497,6 +558,8 @@ export default function FavoritesPage() {
               onSelect={toggleSelected}
               onStatus={updateStatus}
               onRemove={removeFavorite}
+              onGeneratePlan={generateCreationPlan}
+              creatingKey={creatingKey}
               draggingId={draggingId}
               dropTarget={dropTarget}
               dragEnabled={dragEnabled}
@@ -546,6 +609,8 @@ function FavoriteColumn({
   onSelect,
   onStatus,
   onRemove,
+  onGeneratePlan,
+  creatingKey,
   onDragStart,
   onDragHover,
   onDragEnd,
@@ -561,6 +626,8 @@ function FavoriteColumn({
   onSelect: (id: number) => void;
   onStatus: (item: FavoriteItem, status: FavoriteStatus) => void;
   onRemove: (item: FavoriteItem) => void;
+  onGeneratePlan: (item: FavoriteItem, platform: string) => void;
+  creatingKey: string | null;
   onDragStart: (id: number) => void;
   onDragHover: (target: { status: FavoriteStatus; beforeId: number | null } | null) => void;
   onDragEnd: () => void;
@@ -630,6 +697,8 @@ function FavoriteColumn({
             onSelect={onSelect}
             onStatus={onStatus}
             onRemove={onRemove}
+            onGeneratePlan={onGeneratePlan}
+            creatingKey={creatingKey}
             onDragStart={onDragStart}
             onDragHover={(beforeId) => onDragHover({ status: column.value, beforeId })}
             onDragEnd={onDragEnd}
@@ -651,6 +720,8 @@ function FavoriteCard({
   onSelect,
   onStatus,
   onRemove,
+  onGeneratePlan,
+  creatingKey,
   onDragStart,
   onDragHover,
   onDragEnd,
@@ -665,6 +736,8 @@ function FavoriteCard({
   onSelect: (id: number) => void;
   onStatus: (item: FavoriteItem, status: FavoriteStatus) => void;
   onRemove: (item: FavoriteItem) => void;
+  onGeneratePlan: (item: FavoriteItem, platform: string) => void;
+  creatingKey: string | null;
   onDragStart: (id: number) => void;
   onDragHover: (beforeId: number) => void;
   onDragEnd: () => void;
@@ -743,6 +816,36 @@ function FavoriteCard({
       {metaText && <div className="mb-1.5 line-clamp-1 text-[11px] font-bold text-gray-400">{metaText}</div>}
       {snapshotText && <p className="mb-2.5 line-clamp-3 text-xs leading-5 text-gray-500">{snapshotText}</p>}
       <div className="mb-2.5 text-[11px] text-gray-300">{timeAgo(item.created_at)}</div>
+
+      {item.target_type === 'content' && item.target_id && (
+        <div className="mb-2.5 rounded-sm border border-primary-border bg-primary-light/40 p-2">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-black text-primary">
+            <PenLine size={12} />
+            生成创作方案
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {CREATION_PLATFORMS.map((platform) => {
+              const Icon = platform.icon;
+              const active = creatingKey === `${item.id}:${platform.id}`;
+              return (
+                <button
+                  key={platform.id}
+                  type="button"
+                  disabled={Boolean(creatingKey)}
+                  onClick={() => onGeneratePlan(item, platform.id)}
+                  className={cx(
+                    'inline-flex h-7 items-center gap-1 rounded-xs border px-2 text-[11px] font-black transition disabled:cursor-wait disabled:opacity-60',
+                    active ? 'border-primary bg-primary text-white' : 'border-primary/20 bg-white text-primary hover:border-primary',
+                  )}
+                >
+                  <Icon size={12} />
+                  {active ? '生成中' : platform.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-1.5">
         <select

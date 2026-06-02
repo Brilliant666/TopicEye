@@ -12,6 +12,8 @@ import {
   SummaryGrid,
 } from './components';
 
+const DEFAULT_HOURS = 48;
+
 function selectedStageKey(sample?: ScoringFlowSample) {
   if (!sample) return undefined;
   if (sample.selected) return 'selected';
@@ -23,13 +25,15 @@ function selectedStageKey(sample?: ScoringFlowSample) {
 }
 
 export default function AlgorithmPage() {
-  const [hours, setHours] = useState(48);
+  const [hours, setHours] = useState(DEFAULT_HOURS);
   const [data, setData] = useState<ScoringFlowResponse | null>(null);
   const [selected, setSelected] = useState<ScoringFlowSample | undefined>();
   const [loading, setLoading] = useState(true);
   const [feedbacking, setFeedbacking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const requestSeqRef = useRef(0);
+  const initialFallbackRef = useRef(false);
 
   const fetchFlow = useCallback(async () => {
     const requestSeq = requestSeqRef.current + 1;
@@ -39,6 +43,20 @@ export default function AlgorithmPage() {
     try {
       const result = await contentsApi.scoringFlow({ hours, limit: 160 });
       if (requestSeq !== requestSeqRef.current) return;
+      const recommendedHours = result.diagnostics?.recommended_hours;
+      if (
+        !initialFallbackRef.current &&
+        hours === DEFAULT_HOURS &&
+        result.diagnostics?.empty_reason === 'no_content_in_window' &&
+        recommendedHours &&
+        recommendedHours !== hours
+      ) {
+        initialFallbackRef.current = true;
+        requestSeqRef.current = requestSeq + 1;
+        setFallbackNotice(`默认 48 小时窗口暂无样本，已自动切到 ${recommendedHours >= 168 ? `${recommendedHours / 24} 天` : `${recommendedHours} 小时`} 调试窗口。`);
+        setHours(recommendedHours);
+        return;
+      }
       setData(result);
       setSelected((prev) => result.samples.find((s) => s.id === prev?.id) || result.samples[0]);
     } catch (err) {
@@ -50,6 +68,12 @@ export default function AlgorithmPage() {
   }, [hours]);
 
   useEffect(() => { void fetchFlow(); }, [fetchFlow]);
+
+  const handleHoursChange = useCallback((nextHours: number) => {
+    initialFallbackRef.current = true;
+    setFallbackNotice(null);
+    setHours(nextHours);
+  }, []);
 
   const handleFeedback = useCallback(async (sample: ScoringFlowSample, type: FeedbackType) => {
     setFeedbacking(true);
@@ -72,13 +96,19 @@ export default function AlgorithmPage() {
         <AlgorithmHeader
           hours={hours}
           loading={loading}
-          onHoursChange={setHours}
+          onHoursChange={handleHoursChange}
           onRefresh={() => void fetchFlow()}
         />
 
         {error && (
           <div className="mb-4 rounded-sm border border-red/20 bg-red-light px-4 py-3 text-sm text-red">
             {error}
+          </div>
+        )}
+
+        {fallbackNotice && (
+          <div className="mb-4 rounded-sm border border-amber/20 bg-amber-light px-4 py-3 text-sm font-bold text-amber">
+            {fallbackNotice}
           </div>
         )}
 
@@ -89,7 +119,7 @@ export default function AlgorithmPage() {
         ) : data ? (
           <>
             <SummaryGrid data={data} />
-            <DiagnosticsPanel data={data} onHoursChange={setHours} />
+            <DiagnosticsPanel data={data} onHoursChange={handleHoursChange} />
             <Funnel data={data} selectedKey={selectedKey} />
 
             <div className="mt-4 grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[280px_minmax(560px,1fr)_380px]">

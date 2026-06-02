@@ -103,12 +103,20 @@ def test_build_diagnostics_explains_empty_window():
         ignored_count=3,
         limit=160,
         sample_limit=80,
+        window_counts=[
+            {"hours": 24, "count": 0},
+            {"hours": 48, "count": 0},
+            {"hours": 168, "count": 12},
+            {"hours": 720, "count": 12},
+        ],
     )
 
     assert diagnostics["empty_reason"] == "no_content_in_window"
     assert diagnostics["analyzed_total"] == 12
     assert diagnostics["ignored_count"] == 3
     assert diagnostics["candidate_limit"] == 160
+    assert diagnostics["recommended_hours"] == 168
+    assert diagnostics["window_options"][2] == {"hours": 168, "count": 12}
 
 
 def test_build_empty_payload_keeps_diagnostics_and_empty_collections():
@@ -125,6 +133,7 @@ def test_build_empty_payload_keeps_diagnostics_and_empty_collections():
     assert payload["scored"] == 0
     assert payload["diagnostics"]["empty_reason"] == "no_content_in_window"
     assert payload["diagnostics"]["analyzed_total"] == 12
+    assert payload["diagnostics"]["window_options"] == []
     assert payload["stages"][0]["key"] == "candidates"
     assert payload["samples"] == []
     assert payload["category_mix"] == []

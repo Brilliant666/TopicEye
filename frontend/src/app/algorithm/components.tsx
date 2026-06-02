@@ -287,6 +287,37 @@ export function DiagnosticsPanel({
         ))}
       </div>
 
+      {diagnostics?.window_options?.length ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {diagnostics.window_options.map((option) => {
+            const active = option.hours === data.hours;
+            return (
+              <button
+                key={option.hours}
+                type="button"
+                onClick={() => onHoursChange?.(option.hours)}
+                className={`rounded-sm border px-3 py-2.5 text-left transition ${
+                  active
+                    ? 'border-primary-border bg-primary-light'
+                    : 'border-gray-100 bg-white hover:border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`text-xs font-black ${active ? 'text-primary' : 'text-gray-700'}`}>
+                    {windowLabel(option.hours)}
+                  </span>
+                  {option.hours === diagnostics.recommended_hours && (
+                    <span className="rounded-xs bg-teal-light px-1.5 py-0.5 text-[10px] font-black text-teal">可用</span>
+                  )}
+                </div>
+                <div className="mt-1 font-mono text-lg font-black leading-none text-gray-900">{option.count}</div>
+                <div className="mt-1 text-[10px] text-gray-400">候选样本</div>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+
       {config && (
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-gray-500">
           <span className="rounded-xs bg-gray-100 px-2 py-1 font-mono">mode={config.curation_mode}</span>

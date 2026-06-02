@@ -42,11 +42,15 @@ const LEVEL_CONFIG: Record<string, { bg: string; text: string; border: string; d
 };
 
 const TIME_RANGES = [
-  { value: '', label: '全部' },
   { value: '24h', label: '24h' },
   { value: '48h', label: '48h' },
   { value: '7d', label: '7d' },
 ] as const;
+const DEFAULT_TIME_RANGE = '48h';
+
+function normalizeTimeRange(value: string | null) {
+  return TIME_RANGES.some((range) => range.value === value) ? value! : DEFAULT_TIME_RANGE;
+}
 
 export default function TodayPicksPageWrapper() {
   return (
@@ -63,7 +67,7 @@ function TodayPicksPage() {
 
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || '');
   const [selectedLevel, setSelectedLevel] = useState(searchParams.get('level') || '');
-  const [selectedTimeRange, setSelectedTimeRange] = useState(searchParams.get('time_range') || '');
+  const [selectedTimeRange, setSelectedTimeRange] = useState(normalizeTimeRange(searchParams.get('time_range')));
   const [items, setItems] = useState<ContentItem[]>([]);
   const [topics, setTopics] = useState<TopicInfo[]>([]);
   const [dupCount, setDupCount] = useState(0);
@@ -76,7 +80,7 @@ function TodayPicksPage() {
     const params = new URLSearchParams();
     if (cat) params.set('category', cat);
     if (level) params.set('level', level);
-    if (tr) params.set('time_range', tr);
+    if (tr && tr !== DEFAULT_TIME_RANGE) params.set('time_range', tr);
     const qs = params.toString();
     router.replace(`/today-picks${qs ? '?' + qs : ''}`, { scroll: false });
   }, [router]);
@@ -91,15 +95,14 @@ function TodayPicksPage() {
     updateURL(selectedCategory, next, selectedTimeRange);
   };
   const setTimeRange = (tr: string) => {
-    const next = selectedTimeRange === tr ? '' : tr;
-    setSelectedTimeRange(next);
-    updateURL(selectedCategory, selectedLevel, next);
+    setSelectedTimeRange(tr);
+    updateURL(selectedCategory, selectedLevel, tr);
   };
   const clearFilters = () => {
     setSelectedCategory('');
     setSelectedLevel('');
-    setSelectedTimeRange('');
-    updateURL('', '', '');
+    setSelectedTimeRange(DEFAULT_TIME_RANGE);
+    updateURL('', '', DEFAULT_TIME_RANGE);
   };
 
   const fetchPicks = useCallback(async () => {
@@ -107,7 +110,7 @@ function TodayPicksPage() {
       setLoading(true);
       const params: Record<string, string> = {};
       if (selectedCategory) params.category = selectedCategory;
-      if (selectedTimeRange) params.time_range = selectedTimeRange;
+      params.time_range = selectedTimeRange;
       const res = await contentsApi.todayPicks(params);
       setItems(res.items || []);
       setTopics(res.topics || []);
@@ -146,7 +149,11 @@ function TodayPicksPage() {
   ), [topics, topicMap]);
 
   const standaloneItems = topicMap.get(null) || [];
-  const activeFilterCount = [selectedCategory, selectedLevel, selectedTimeRange].filter(Boolean).length;
+  const activeFilterCount = [
+    selectedCategory,
+    selectedLevel,
+    selectedTimeRange !== DEFAULT_TIME_RANGE ? selectedTimeRange : '',
+  ].filter(Boolean).length;
   const sortedItems = useMemo(() => [...filteredItems].sort((a, b) => scoreOf(b) - scoreOf(a)), [filteredItems]);
   const visibleContentIds = useMemo(() => filteredItems.map((item) => item.id), [filteredItems]);
   const contentFavoriteState = useContentFavoriteStates(visibleContentIds);

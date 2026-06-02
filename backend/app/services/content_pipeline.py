@@ -22,7 +22,7 @@ from app.models.content import ContentItem, ContentStatus
 from app.core.config import settings
 from app.services.dedup import build_hash
 from app.services.classifier import classify, extract_tags, classify_async
-from app.services.content_list_cache import invalidate_content_list_cache
+from app.services.content_read_cache import invalidate_content_read_caches
 from app.services.scrapers import get_scraper_cls
 
 logger = logging.getLogger(__name__)
@@ -187,7 +187,7 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
             db_started_at = time.perf_counter()
             await db.flush()
             await _increment_category_counts(db, category_counts)
-            invalidate_content_list_cache()
+            invalidate_content_read_caches()
             db_elapsed_ms = int((time.perf_counter() - db_started_at) * 1000)
 
         # ── Step 6: Update source ────────────────────────────────────

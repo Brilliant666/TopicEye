@@ -21,12 +21,13 @@ from app.schemas.analysis import AiAnalysisResponse
 from app.services.content_list_cache import (
     ContentListCacheParams,
     get_cached_content_list,
-    invalidate_content_list_cache,
     set_cached_content_list,
 )
+from app.services.content_read_cache import invalidate_content_read_caches
 from app.services.content_serialization import content_with_latest_analysis
 from app.services.favorite_cache import invalidate_favorite_cache
 from app.services.json_cache import get_cached_json, invalidate_json_cache, set_cached_json
+from app.services.today_picks_cache import TodayPicksCacheParams, get_cached_today_picks, set_cached_today_picks
 
 router = APIRouter(prefix="/contents", tags=["contents"])
 
@@ -203,12 +204,31 @@ async def list_contents(
 async def today_picks(
     category: Optional[str] = Query(None, description="Filter by category"),
     time_range: Optional[str] = Query(None, description="Time range: 24h, 48h, 7d"),
-    db: AsyncSession = Depends(get_db),
 ):
     """Top picks — curation_score adjusted by source weight, threshold 60."""
     from app.services.today_picks import build_today_picks
-    return await build_today_picks(db, category=category,
-                                   hours={"24h": 24, "7d": 168}.get(time_range or "", 48))
+
+    params = TodayPicksCacheParams(
+        category=category,
+        hours={"24h": 24, "7d": 168}.get(time_range or "", 48),
+    )
+    cached = get_cached_today_picks(params, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
+    if cached:
+        content, age_seconds = cached
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"X-Today-Picks-Cache": f"HIT; age={age_seconds:.3f}s"},
+        )
+
+    async with async_session() as db:
+        payload = await build_today_picks(db, category=category, hours=params.hours)
+        content = set_cached_today_picks(params, payload)
+        return Response(
+            content=content,
+            media_type="application/json",
+            headers={"X-Today-Picks-Cache": "MISS"},
+        )
 
 
 @router.get("/scoring-flow")
@@ -271,12 +291,12 @@ async def get_enrichment(content_id: int, db: AsyncSession = Depends(get_db)):
         data = await enrich_content(content_id, db)
         analysis.enrichment, analysis.enrichment_status = data, "completed"
         await db.flush()
-        invalidate_content_list_cache()
+        invalidate_content_read_caches()
         return {"content_id": content_id, "status": "completed", "enrichment": data}
     except Exception as e:
         analysis.enrichment_status = "error"
         await db.flush()
-        invalidate_content_list_cache()
+        invalidate_content_read_caches()
         raise HTTPException(500, f"Enrichment failed: {e}")
 
 
@@ -342,7 +362,7 @@ async def toggle_favorite(content_id: int, db: AsyncSession = Depends(get_db)):
         else:
             await favorite_repo.remove_by_content(content_id)
         invalidate_favorite_cache()
-        invalidate_content_list_cache()
+        invalidate_content_read_caches()
         invalidate_json_cache("contents:favorites:")
         await db.flush()
 
@@ -378,7 +398,7 @@ async def ignore_content(
     if not content:
         raise HTTPException(404, "Content not found")
     ignored = await IgnoredRepo(db).ignore(content_id, reason=reason)
-    invalidate_content_list_cache()
+    invalidate_content_read_caches()
     return {"content_id": content_id, "ignored": True, "reason": ignored.reason}
 
 
@@ -387,5 +407,5 @@ async def unignore_content(content_id: int, db: AsyncSession = Depends(get_db)):
     """Remove ignore flag from a content item."""
     from app.repositories.ignored_repo import IgnoredRepo
     removed = await IgnoredRepo(db).unignore(content_id)
-    invalidate_content_list_cache()
+    invalidate_content_read_caches()
     return {"content_id": content_id, "ignored": False, "removed": removed}

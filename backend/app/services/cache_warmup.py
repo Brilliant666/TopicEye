@@ -11,6 +11,11 @@ from app.schemas.source import SourceListResponse
 from app.services.content_list_cache import HOME_CONTENT_LIST_CACHE_LABEL, home_content_list_cache_params, set_cached_content_list
 from app.services.content_serialization import content_with_latest_analysis
 from app.services.json_cache import set_cached_json
+from app.services.today_picks_cache import (
+    TODAY_PICKS_DEFAULT_CACHE_LABEL,
+    default_today_picks_cache_params,
+    set_cached_today_picks,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +40,13 @@ async def warmup_read_caches() -> dict[str, Any]:
         except Exception as exc:
             logger.warning("Content list cache warmup skipped: %s", exc)
             errors.append(f"contents:{exc}")
+
+        try:
+            await warmup_today_picks(db)
+            warmed.append(TODAY_PICKS_DEFAULT_CACHE_LABEL)
+        except Exception as exc:
+            logger.warning("Today picks cache warmup skipped: %s", exc)
+            errors.append(f"today-picks:{exc}")
 
         try:
             await warmup_content_favorites(db)
@@ -109,6 +121,14 @@ async def warmup_content_list(db) -> None:
         "page_size": params.page_size,
     }
     set_cached_content_list(params, payload)
+
+
+async def warmup_today_picks(db) -> None:
+    from app.services.today_picks import build_today_picks
+
+    params = default_today_picks_cache_params()
+    payload = await build_today_picks(db, hours=params.hours)
+    set_cached_today_picks(params, payload)
 
 
 async def warmup_stats_overview(db) -> None:

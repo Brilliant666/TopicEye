@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.content import ContentItem
 from app.models.analysis import AiAnalysis
 from app.models.topic import TopicGroup
+from app.services.content_read_cache import invalidate_content_read_caches
 from app.services.llm import call_llm_json
 
 logger = logging.getLogger(__name__)
@@ -190,6 +191,7 @@ async def enrich_batch(
                 record.enrichment = data
                 record.enrichment_status = "completed"
             await db.commit()
+            invalidate_content_read_caches()
             results.append({"content_id": cid, "status": "completed", "data": data})
         except Exception as e:
             logger.error("Enrich batch item %d failed: %s", cid, e)
@@ -201,5 +203,6 @@ async def enrich_batch(
             if record:
                 record.enrichment_status = "error"
             await db.commit()
+            invalidate_content_read_caches()
             results.append({"content_id": cid, "status": "error", "error": str(e)})
     return results

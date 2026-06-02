@@ -2,8 +2,10 @@ from datetime import datetime
 import time
 
 from app.services.content_list_cache import ContentListCacheParams, invalidate_content_list_cache
+from app.services.content_read_cache import invalidate_content_read_caches
 from app.services.json_cache import get_cached_json, invalidate_json_cache, set_cached_json
 from app.services.llm.model_list_cache import MODEL_LIST_CACHE_KEY, invalidate_model_list_cache
+from app.services.today_picks_cache import TodayPicksCacheParams, invalidate_today_picks_cache
 from app.services.trending_cache import (
     TRENDING_CROSS_PLATFORM_CACHE_PREFIX,
     TRENDING_LIST_CACHE_PREFIX,
@@ -63,6 +65,35 @@ def test_content_list_cache_key_and_invalidation():
     invalidate_content_list_cache()
 
     assert get_cached_json(key, ttl_seconds=10) is None
+    assert get_cached_json("contents:favorites:list:1:20", ttl_seconds=10) is not None
+    invalidate_json_cache()
+
+
+def test_today_picks_cache_key_and_invalidation():
+    invalidate_json_cache()
+    params = TodayPicksCacheParams(hours=48, category="AI")
+    key = params.key
+    assert key == "contents:today-picks:hours=48&category=AI"
+
+    set_cached_json(key, {"items": [], "total": 0})
+    set_cached_json("contents:list:example", {"items": []})
+    invalidate_today_picks_cache()
+
+    assert get_cached_json(key, ttl_seconds=10) is None
+    assert get_cached_json("contents:list:example", ttl_seconds=10) is not None
+    invalidate_json_cache()
+
+
+def test_content_read_cache_invalidation_covers_content_and_today_picks_only():
+    invalidate_json_cache()
+    set_cached_json("contents:list:example", {"items": []})
+    set_cached_json("contents:today-picks:hours=48", {"items": []})
+    set_cached_json("contents:favorites:list:1:20", {"items": []})
+
+    invalidate_content_read_caches()
+
+    assert get_cached_json("contents:list:example", ttl_seconds=10) is None
+    assert get_cached_json("contents:today-picks:hours=48", ttl_seconds=10) is None
     assert get_cached_json("contents:favorites:list:1:20", ttl_seconds=10) is not None
     invalidate_json_cache()
 

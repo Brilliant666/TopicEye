@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.weekly_digest import WeeklyDigest
+from app.services.digest_fallback import build_digest_fallback
 from app.services.llm import call_llm_json
 from app.services.llm.prompts.weekly_digest import WEEKLY_DIGEST_PROMPT
 from app.services.digest_context import (
@@ -166,7 +167,9 @@ async def generate_weekly_digest(
         # Validate LLM returned useful content — empty dict is a failure
         overview = result.get("overview", "")
         if not overview or "raw_response" in result:
-            raise ValueError(f"LLM返回空内容或格式无效: {str(result)[:200]}")
+            logger.warning("Weekly digest LLM returned invalid content, using fallback: %s", str(result)[:200])
+            result = build_digest_fallback(items_data, label=week_label)
+            overview = result.get("overview", "")
 
         digest.overview = overview
         digest.takeaway = result.get("takeaway", "")

@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.monthly_digest import MonthlyDigest
+from app.services.digest_fallback import build_digest_fallback
 from app.services.digest_context import (
     build_category_stats,
     build_category_text,
@@ -126,7 +127,9 @@ async def generate_monthly_digest(
 
         overview = result.get("overview", "")
         if not overview or "raw_response" in result:
-            raise ValueError(f"LLM返回空内容或格式无效: {str(result)[:200]}")
+            logger.warning("Monthly digest LLM returned invalid content, using fallback: %s", str(result)[:200])
+            result = build_digest_fallback(items_data, label=month_label)
+            overview = result.get("overview", "")
 
         digest.overview = overview
         digest.takeaway = result.get("takeaway", "")

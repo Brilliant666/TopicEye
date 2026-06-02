@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.daily_report import DailyReport
 from app.repositories.content_repo import ContentRepo
 from app.services.llm import call_llm_json
+from app.services.digest_fallback import build_digest_fallback
 from app.services.scoring_engine import score_items
 from app.services.scoring_inputs import build_scoring_inputs
 from app.services.zhihu_url import normalize_zhihu_url
@@ -305,7 +306,9 @@ async def generate_daily_report(
         result = await call_llm_json([{"role": "user", "content": prompt}], scene="daily_report")
         overview = result.get("overview", "")
         if not overview or "raw_response" in result:
-            raise ValueError(f"LLM返回空内容或格式无效: {str(result)[:200]}")
+            fallback_items = curated_items or background_items
+            result = build_digest_fallback(fallback_items, label=f"{report_date} {_edition_label(normalized_edition)}")
+            overview = result.get("overview", "")
 
         report.overview = overview
         report.takeaway = result.get("takeaway", "")

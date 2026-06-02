@@ -27,6 +27,7 @@ import app.models.zhihu  # noqa: F401
 import app.models.scheduled_job  # noqa: F401
 import app.models.llm_model  # noqa: F401
 import app.models.favorite  # noqa: F401
+import app.models.user  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -292,6 +293,47 @@ async def ensure_favorite_items_schema(conn) -> None:
     """))
 
 
+async def ensure_user_auth_schema(conn) -> None:
+    """Ensure email-login tables exist on upgraded SQLite installs."""
+    if not database_profile.is_sqlite:
+        return
+
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email VARCHAR(255) NOT NULL UNIQUE,
+            password_hash VARCHAR(512) NOT NULL,
+            display_name VARCHAR(100),
+            plan VARCHAR(20) NOT NULL DEFAULT 'free',
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        )
+    """))
+    await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users(email)"))
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS user_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token_hash VARCHAR(64) NOT NULL UNIQUE,
+            expires_at DATETIME NOT NULL,
+            revoked_at DATETIME,
+            created_at DATETIME NOT NULL,
+            last_seen_at DATETIME,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """))
+    await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_user_sessions_token_hash ON user_sessions(token_hash)"))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_user_sessions_user_expires "
+        "ON user_sessions(user_id, expires_at)"
+    ))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_user_sessions_token_active "
+        "ON user_sessions(token_hash, revoked_at)"
+    ))
+
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -305,6 +347,7 @@ async def lifespan(app: FastAPI):
             await ensure_performance_indexes(conn)
             await ensure_content_status_values(conn)
             await ensure_favorite_items_schema(conn)
+            await ensure_user_auth_schema(conn)
     else:
         logger.info("Startup table creation skipped by config")
 

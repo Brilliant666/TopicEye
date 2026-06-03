@@ -152,6 +152,50 @@ async def test_favorites_api_normalizes_text_identity_fields(favorites_client: h
 
 
 @pytest.mark.asyncio
+async def test_favorites_api_upsert_preserves_existing_status_without_explicit_status(
+    favorites_client: httpx.AsyncClient,
+):
+    created = await favorites_client.post(
+        "/favorites",
+        json={
+            "target_type": "book",
+            "target_key": "book:preserve-status",
+            "title": "收藏状态保持样本",
+            "status": "drafting",
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["status"] == "drafting"
+    original_position = created.json()["position"]
+
+    repeated = await favorites_client.post(
+        "/favorites",
+        json={
+            "target_type": "book",
+            "target_key": "book:preserve-status",
+            "title": "重复收藏不应重置状态",
+        },
+    )
+    assert repeated.status_code == 201
+    assert repeated.json()["status"] == "drafting"
+    assert repeated.json()["position"] == original_position
+    assert repeated.json()["title"] == "重复收藏不应重置状态"
+
+    explicit_move = await favorites_client.post(
+        "/favorites",
+        json={
+            "target_type": "book",
+            "target_key": "book:preserve-status",
+            "title": "显式移动收藏状态",
+            "status": "researching",
+        },
+    )
+    assert explicit_move.status_code == 201
+    assert explicit_move.json()["status"] == "researching"
+    assert explicit_move.json()["position"] == 1000
+
+
+@pytest.mark.asyncio
 async def test_favorites_api_reorder_persists_board_order(favorites_client: httpx.AsyncClient):
     created = []
     for key, title in [

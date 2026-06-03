@@ -42,6 +42,7 @@ class FavoriteRepo:
         return result.scalar_one_or_none()
 
     async def upsert(self, data: FavoriteCreate) -> FavoriteItem:
+        explicit_fields = data.model_fields_set
         target_key = self.make_target_key(
             data.target_type,
             target_id=data.target_id,
@@ -58,6 +59,10 @@ class FavoriteRepo:
 
         existing = await self.get_by_target(data.target_type, target_key)
         if existing:
+            if "status" not in explicit_fields:
+                payload.pop("status", None)
+            elif payload.get("status") and payload["status"] != existing.status:
+                existing.position = await self.next_position_for_status(payload["status"])
             for key, value in payload.items():
                 if value is not None and hasattr(existing, key):
                     setattr(existing, key, value)

@@ -975,6 +975,12 @@ export interface TrendingSource {
   last_synced: string | null;
 }
 
+export interface TrendingAngleRecommendation {
+  common_angles: string[];
+  contrast_angles: { angle: string; reasoning: string }[];
+  angle_note: string;
+}
+
 export const trendingApi = {
   /** 获取趋势数据 */
   list(params?: { category?: string; source?: string; limit?: number }): Promise<TrendingItem[]> {
@@ -996,7 +1002,7 @@ export const trendingApi = {
 
   /** 同步单个信源 */
   sync(source: string): Promise<{ fetched: number }> {
-    return request(`/trending/sync/${source}`, { method: 'POST' });
+    return request(`/trending/sync/${encodeURIComponent(source)}`, { method: 'POST' });
   },
 
   /** 同步所有信源 */
@@ -1032,6 +1038,11 @@ export const trendingApi = {
         ).toString()
       : '';
     return request(`/trending/persistent${query}`);
+  },
+
+  /** 为共振话题生成创作角度推荐 */
+  angles(topic: string): Promise<TrendingAngleRecommendation> {
+    return request(`/trending/angles?topic=${encodeURIComponent(topic)}`);
   },
 };
 

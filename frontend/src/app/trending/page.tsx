@@ -24,6 +24,7 @@ import {
   trendingApi,
   type TrendingItem,
   type TrendingSource,
+  type TrendingAngleRecommendation,
   type CrossPlatformCluster,
   type CrossPlatformSourceItem,
   type PersistentTopic,
@@ -193,14 +194,8 @@ function SourceMiniItem({ item }: { item: CrossPlatformSourceItem }) {
 
 /* ── 角度推荐面板 ── */
 
-interface AngleResult {
-  common_angles: string[];
-  contrast_angles: { angle: string; reasoning: string }[];
-  angle_note: string;
-}
-
 function AnglePanel({ cluster }: { cluster: CrossPlatformCluster }) {
-  const [angles, setAngles] = useState<AngleResult | null>(null);
+  const [angles, setAngles] = useState<TrendingAngleRecommendation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fetched, setFetched] = useState(false);
@@ -210,15 +205,11 @@ function AnglePanel({ cluster }: { cluster: CrossPlatformCluster }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/v1/trending/angles?topic=${encodeURIComponent(cluster.topic)}`
-      );
-      if (!res.ok) throw new Error('请求失败');
-      const data = await res.json();
+      const data = await trendingApi.angles(cluster.topic);
       setAngles(data);
       setFetched(true);
     } catch (e) {
-      setError('角度生成失败');
+      setError(e instanceof Error ? e.message : '角度生成失败');
     } finally {
       setLoading(false);
     }
@@ -714,11 +705,12 @@ function TrendingPage() {
                           const btn = e.currentTarget as HTMLButtonElement;
                           btn.disabled = true;
                           try {
-                            const res = await fetch(`/api/v1/trending/sync/${source}`, { method: 'POST' });
-                            const data = await res.json();
+                            const data = await trendingApi.sync(source);
                             if (data.fetched > 0) {
                               fetchList();
                             }
+                          } catch (err) {
+                            console.error('Sync source failed:', err);
                           } finally {
                             btn.disabled = false;
                           }

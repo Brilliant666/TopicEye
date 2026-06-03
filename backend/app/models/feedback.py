@@ -4,7 +4,7 @@ import enum
 from datetime import datetime
 from sqlalchemy import Integer, Float, Text, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
-from app.database import Base
+from app.core.database import Base
 from app.models.enum_types import value_enum
 
 

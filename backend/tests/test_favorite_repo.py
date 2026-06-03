@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.database import Base
+from app.core.database import Base
 from app.models.content import ContentItem, ContentStatus
 from app.models.favorite import FavoriteStatus, FavoriteTargetType
 from app.repositories.favorite_repo import FavoriteRepo

@@ -2,7 +2,7 @@ import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app.api.v1.feedback import submit_feedback
-from app.database import Base
+from app.core.database import Base
 from app.models.feedback import UserFeedback
 from app.schemas.feedback import FeedbackCreate
 from app.services.feedback_signal import get_feedback_scores

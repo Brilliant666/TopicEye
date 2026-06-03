@@ -47,6 +47,10 @@ class FavoriteBulkStatusRequest(BaseModel):
     ids: list[int] = Field(min_length=1, max_length=500)
 
 
+class FavoriteBulkDeleteRequest(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=500)
+
+
 class FavoriteResponse(BaseModel):
     id: int
     target_type: str

@@ -84,6 +84,58 @@ async def test_deleting_content_favorite_syncs_legacy_content_flag():
 
 
 @pytest.mark.asyncio
+async def test_bulk_deleting_content_favorites_syncs_legacy_content_flags():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        db.add_all(
+            [
+                ContentItem(
+                    id=3,
+                    title="批量取消收藏一",
+                    url="https://example.com/remove-bulk-1",
+                    source_name="测试源",
+                    source_type="RSS",
+                    category="AI",
+                    status=ContentStatus.ANALYZED,
+                    is_favorited=True,
+                    crawled_at=datetime.utcnow(),
+                ),
+                ContentItem(
+                    id=4,
+                    title="批量取消收藏二",
+                    url="https://example.com/remove-bulk-2",
+                    source_name="测试源",
+                    source_type="RSS",
+                    category="AI",
+                    status=ContentStatus.ANALYZED,
+                    is_favorited=True,
+                    crawled_at=datetime.utcnow(),
+                ),
+            ]
+        )
+        await db.flush()
+
+        repo = FavoriteRepo(db)
+        first = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.CONTENT, target_id=3))
+        second = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.CONTENT, target_id=4))
+        deleted = await repo.bulk_delete([first.id, second.id])
+        first_content = await db.get(ContentItem, 3)
+        second_content = await db.get(ContentItem, 4)
+
+        assert deleted == 2
+        assert first_content is not None
+        assert first_content.is_favorited is False
+        assert second_content is not None
+        assert second_content.is_favorited is False
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_external_favorite_requires_title_when_target_not_resolved():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)

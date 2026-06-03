@@ -106,6 +106,35 @@ class FavoriteRepo:
         await self.db.flush()
         return bool(result.rowcount)
 
+    async def bulk_delete(self, ids: list[int]) -> int:
+        if not ids:
+            return 0
+
+        unique_ids = list(dict.fromkeys(ids))
+        result = await self.db.execute(select(FavoriteItem).where(FavoriteItem.id.in_(unique_ids)))
+        items = list(result.scalars().all())
+        by_id = {item.id: item for item in items}
+
+        missing_ids = [item_id for item_id in unique_ids if item_id not in by_id]
+        if missing_ids:
+            raise LookupError(f"Favorite not found: {missing_ids[0]}")
+
+        content_ids = [
+            item.target_id
+            for item in items
+            if item.target_type == FavoriteTargetType.CONTENT and item.target_id is not None
+        ]
+        if content_ids:
+            await self.db.execute(
+                update(ContentItem)
+                .where(ContentItem.id.in_(content_ids))
+                .values(is_favorited=False, updated_at=datetime.utcnow())
+            )
+
+        deleted = await self.db.execute(delete(FavoriteItem).where(FavoriteItem.id.in_(unique_ids)))
+        await self.db.flush()
+        return int(deleted.rowcount or 0)
+
     async def update(self, favorite_id: int, data: FavoriteUpdate) -> Optional[FavoriteItem]:
         item = await self.get_by_id(favorite_id)
         if not item:

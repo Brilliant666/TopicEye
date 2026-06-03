@@ -397,6 +397,13 @@ export const favoritesApi = {
     });
   },
 
+  bulkDelete(ids: number[]): Promise<{ deleted: number }> {
+    return request('/favorites/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids }),
+    });
+  },
+
   delete(id: number): Promise<{ deleted: boolean }> {
     return request(`/favorites/${id}`, { method: 'DELETE' });
   },

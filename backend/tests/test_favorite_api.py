@@ -212,3 +212,41 @@ async def test_favorites_api_bulk_status_normalizes_target_column(favorites_clie
     items = listed.json()["items"]
     assert [item["id"] for item in items] == [item["id"] for item in payload]
     assert [item["position"] for item in items] == [1000, 2000, 3000, 4000]
+
+
+@pytest.mark.asyncio
+async def test_favorites_api_bulk_delete_removes_selected_items(favorites_client: httpx.AsyncClient):
+    created = []
+    for index in range(4):
+        response = await favorites_client.post(
+            "/favorites",
+            json={
+                "target_type": "book",
+                "target_key": f"book:bulk-delete:{index}",
+                "title": f"批量删除样本 {index}",
+            },
+        )
+        assert response.status_code == 201
+        created.append(response.json())
+
+    deleted_ids = [created[2]["id"], created[0]["id"]]
+    deleted = await favorites_client.post(
+        "/favorites/bulk-delete",
+        json={"ids": deleted_ids},
+    )
+
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": 2}
+
+    listed = await favorites_client.get("/favorites?page=1&page_size=20")
+    assert listed.status_code == 200
+    payload = listed.json()
+    assert payload["total"] == 2
+    assert {item["id"] for item in payload["items"]} == {created[1]["id"], created[3]["id"]}
+
+    missing = await favorites_client.post(
+        "/favorites/bulk-delete",
+        json={"ids": [created[1]["id"], 999999]},
+    )
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "Favorite not found: 999999"

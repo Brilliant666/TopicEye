@@ -426,7 +426,7 @@ export default function FavoritesPage() {
     setBulkPending(true);
     setError(null);
     try {
-      await Promise.all(selectedItems.map((item) => favoritesApi.delete(item.id)));
+      await favoritesApi.bulkDelete(selectedItems.map((item) => item.id));
       setItems((prev) => prev.filter((item) => !selectedIds.has(item.id)));
       setTotal((prev) => Math.max(0, prev - selectedItems.length));
       setSelectedIds(new Set());

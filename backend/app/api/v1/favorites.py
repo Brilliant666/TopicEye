@@ -11,6 +11,7 @@ from app.core.dependencies import get_db
 from app.models.favorite import FavoriteStatus, FavoriteTargetType
 from app.repositories.favorite_repo import FavoriteRepo
 from app.schemas.favorite import (
+    FavoriteBulkDeleteRequest,
     FavoriteBulkStatusRequest,
     FavoriteCreate,
     FavoriteListResponse,
@@ -148,6 +149,20 @@ async def bulk_update_favorite_status(
     invalidate_favorite_cache()
     invalidate_json_cache("contents:favorites:")
     return items
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_favorites(
+    data: FavoriteBulkDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        deleted = await FavoriteRepo(db).bulk_delete(data.ids)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    invalidate_favorite_cache()
+    invalidate_json_cache("contents:favorites:")
+    return {"deleted": deleted}
 
 
 @router.patch("/{favorite_id}", response_model=FavoriteResponse)

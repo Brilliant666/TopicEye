@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.v1.auth import get_current_user, login, logout, me, register
-from app.database import Base
+from app.core.database import Base
 from app.models.user import User
 from app.schemas.auth import AuthLoginRequest, AuthRegisterRequest
 from app.services.auth_service import (

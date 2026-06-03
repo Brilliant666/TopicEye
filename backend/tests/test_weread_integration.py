@@ -6,12 +6,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.main  # noqa: F401 - import all models for Base.metadata
 from app.api.v1.integrations import (
+    delete_weread_integration,
     get_weread_integration,
     sync_weread,
     update_weread_integration,
 )
 from app.core.config import settings
-from app.database import Base
+from app.core.database import Base
 from app.schemas.integration import IntegrationUpdateRequest
 from app.services.auth_service import create_user
 from app.services.integration_service import WEREAD_INSTALL_COMMAND
@@ -43,6 +44,70 @@ async def test_weread_status_masks_api_key_and_reports_endpoint(monkeypatch):
         fetched = await get_weread_integration(user, db)
         assert fetched["api_key_hint"] == "wr_s...7890"
         assert "wr_secret_1234567890" not in str(fetched)
+
+    await engine.dispose()
+
+
+def test_weread_api_key_rejects_blank_after_strip():
+    with pytest.raises(ValueError):
+        IntegrationUpdateRequest(api_key="        ")
+
+
+@pytest.mark.asyncio
+async def test_weread_integration_delete_clears_configuration(monkeypatch):
+    monkeypatch.setattr(settings, "WEREAD_SKILL_API_URL", "http://127.0.0.1:9999/weread")
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        user = await create_user(db, email="delete-weread@example.com", password="Password123")
+        configured = await update_weread_integration(
+            IntegrationUpdateRequest(api_key="  wr_secret_delete_123456  ", config={"tag": "inbox"}),
+            user,
+            db,
+        )
+        assert configured["configured"] is True
+        assert configured["api_key_hint"] == "wr_s...3456"
+        assert configured["config"] == {"tag": "inbox"}
+
+        deleted = await delete_weread_integration(user, db)
+        assert deleted["configured"] is False
+        assert deleted["api_key_hint"] is None
+        assert deleted["config"] == {}
+
+        fetched = await get_weread_integration(user, db)
+        assert fetched["configured"] is False
+        assert fetched["api_key_hint"] is None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_weread_integration_is_scoped_to_current_user(monkeypatch):
+    monkeypatch.setattr(settings, "WEREAD_SKILL_API_URL", None)
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        owner = await create_user(db, email="owner-weread@example.com", password="Password123")
+        other = await create_user(db, email="other-weread@example.com", password="Password123")
+        await update_weread_integration(
+            IntegrationUpdateRequest(api_key="wr_secret_owner_123456"),
+            owner,
+            db,
+        )
+
+        owner_status = await get_weread_integration(owner, db)
+        other_status = await get_weread_integration(other, db)
+
+        assert owner_status["configured"] is True
+        assert owner_status["api_key_hint"] == "wr_s...3456"
+        assert other_status["configured"] is False
+        assert other_status["api_key_hint"] is None
 
     await engine.dispose()
 

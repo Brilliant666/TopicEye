@@ -8,9 +8,10 @@ from typing import Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.llm_model import LlmCallLog, LlmModel
-from app.services.llm.model_pricing import normalized_model_pricing
 
 logger = logging.getLogger(__name__)
+LLM_USAGE_LOG_RETRY_ATTEMPTS = 6
+LLM_USAGE_LOG_RETRY_BASE_DELAY = 0.25
 
 
 @dataclass(frozen=True)
@@ -122,6 +123,8 @@ def extract_usage(response: Any) -> TokenUsage:
 
 
 def pricing_from_model(model: Optional[LlmModel]) -> dict[str, Optional[float]]:
+    from app.services.llm.model_pricing import normalized_model_pricing
+
     if model is None:
         return {
             "input": None,
@@ -267,7 +270,12 @@ async def record_llm_call_in_new_session(
             await db.commit()
 
         try:
-            await retry_sqlite_locked(_write, on_retry=db.rollback)
+            await retry_sqlite_locked(
+                _write,
+                attempts=LLM_USAGE_LOG_RETRY_ATTEMPTS,
+                base_delay=LLM_USAGE_LOG_RETRY_BASE_DELAY,
+                on_retry=db.rollback,
+            )
         except Exception as exc:
             await db.rollback()
             logger.warning("LLM usage log skipped: %s", exc)

@@ -1,6 +1,9 @@
 from types import SimpleNamespace
 
-from app.services.llm_usage import calculate_cost, extract_usage, pricing_from_model
+import pytest
+
+from app.services import llm_usage
+from app.services.llm_usage import calculate_cost, extract_usage, pricing_from_model, record_llm_call_in_new_session
 
 
 def test_extract_usage_reads_openai_cache_tokens():
@@ -104,3 +107,59 @@ def test_pricing_from_model_zeroes_deepseek_v4_flash_free():
         "cache_hit": 0.0,
         "cache_create": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_record_llm_call_in_new_session_uses_extended_sqlite_lock_retry(monkeypatch):
+    calls = {}
+
+    class FakeSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def commit(self):
+            calls["committed"] = True
+
+        async def rollback(self):
+            calls["rolled_back"] = calls.get("rolled_back", 0) + 1
+
+        def add(self, _log):
+            calls["added"] = True
+
+        async def flush(self):
+            calls["flushed"] = True
+
+    def fake_async_session():
+        return FakeSession()
+
+    async def fake_retry(operation, *, attempts, base_delay, on_retry):
+        calls["attempts"] = attempts
+        calls["base_delay"] = base_delay
+        calls["on_retry"] = on_retry
+        await operation()
+
+    async def fake_begin_immediate(_db):
+        calls["begin_immediate"] = True
+
+    monkeypatch.setattr("app.core.database.async_session", fake_async_session)
+    monkeypatch.setattr("app.core.sqlite_retry.retry_sqlite_locked", fake_retry)
+    monkeypatch.setattr("app.core.sqlite_retry.begin_immediate_for_sqlite", fake_begin_immediate)
+
+    await record_llm_call_in_new_session(
+        model=None,
+        request_model="openai/glm-4-flash",
+        scene="content_analysis",
+        status="DONE",
+        duration_ms=123,
+    )
+
+    assert calls["attempts"] == llm_usage.LLM_USAGE_LOG_RETRY_ATTEMPTS
+    assert calls["base_delay"] == llm_usage.LLM_USAGE_LOG_RETRY_BASE_DELAY
+    assert calls["on_retry"].__name__ == "rollback"
+    assert calls["begin_immediate"] is True
+    assert calls["added"] is True
+    assert calls["flushed"] is True
+    assert calls["committed"] is True

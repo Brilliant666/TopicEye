@@ -45,6 +45,7 @@ export default function AlgorithmPage() {
   const [analysisNotice, setAnalysisNotice] = useState<string | null>(null);
   const requestSeqRef = useRef(0);
   const initialFallbackRef = useRef(false);
+  const analysisRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchFlow = useCallback(async () => {
     const requestSeq = requestSeqRef.current + 1;
@@ -80,7 +81,27 @@ export default function AlgorithmPage() {
 
   useEffect(() => { void fetchFlow(); }, [fetchFlow]);
 
+  useEffect(() => () => {
+    if (analysisRefreshTimerRef.current) {
+      clearTimeout(analysisRefreshTimerRef.current);
+    }
+  }, []);
+
+  const scheduleAnalysisRefresh = useCallback(() => {
+    if (analysisRefreshTimerRef.current) {
+      clearTimeout(analysisRefreshTimerRef.current);
+    }
+    analysisRefreshTimerRef.current = setTimeout(() => {
+      analysisRefreshTimerRef.current = null;
+      void fetchFlow();
+    }, 5000);
+  }, [fetchFlow]);
+
   const handleHoursChange = useCallback((nextHours: number) => {
+    if (analysisRefreshTimerRef.current) {
+      clearTimeout(analysisRefreshTimerRef.current);
+      analysisRefreshTimerRef.current = null;
+    }
     initialFallbackRef.current = true;
     setFallbackNotice(null);
     setAnalysisNotice(null);
@@ -98,18 +119,19 @@ export default function AlgorithmPage() {
       const windowText = formatWindow(hours);
       setAnalysisNotice(
         queuedCount > 0
-          ? `已提交最近 ${windowText}内 ${queuedCount} 条内容到后台分析，稍后刷新评分流程。`
+          ? `已提交最近 ${windowText}内 ${queuedCount} 条内容到后台分析，页面会自动刷新评分流程。`
           : analyzedCount > 0
             ? `已同步分析最近 ${windowText}内 ${analyzedCount} 条内容，正在刷新评分流程。`
           : '当前窗口没有可分析的待处理内容。'
       );
       await fetchFlow();
+      if (queuedCount > 0) scheduleAnalysisRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : '最近内容分析失败');
     } finally {
       setAnalyzing(false);
     }
-  }, [fetchFlow, hours]);
+  }, [fetchFlow, hours, scheduleAnalysisRefresh]);
 
   const handleFeedback = useCallback(async (sample: ScoringFlowSample, type: FeedbackType) => {
     setFeedbacking(true);

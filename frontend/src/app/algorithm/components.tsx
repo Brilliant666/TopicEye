@@ -290,7 +290,7 @@ export function DiagnosticsPanel({
                   <RefreshCw size={13} className={analyzing ? 'animate-spin' : ''} />
                   {analyzing ? '提交中' : '分析最近内容'}
                 </Button>
-                <span className="text-[11px] font-medium text-gray-500">提交后台分析后，稍后刷新即可查看评分样本。</span>
+                <span className="text-[11px] font-medium text-gray-500">提交后台分析后会自动刷新评分样本。</span>
               </div>
             )}
             {analysisNotice && (

@@ -8,9 +8,11 @@ import os
 import secrets
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.sqlite_retry import is_sqlite_locked
 from app.models.user import User, UserSession
 
 _HASH_ALGORITHM = "pbkdf2_sha256"
@@ -98,7 +100,7 @@ async def create_session(db: AsyncSession, user: User, *, days: int = 30) -> tup
 async def get_user_for_token(db: AsyncSession, token: str) -> Optional[User]:
     now = datetime.utcnow()
     result = await db.execute(
-        select(UserSession, User)
+        select(UserSession.id, User.id)
         .join(User, User.id == UserSession.user_id)
         .where(
             UserSession.token_hash == hash_token(token),
@@ -110,10 +112,19 @@ async def get_user_for_token(db: AsyncSession, token: str) -> Optional[User]:
     row = result.first()
     if not row:
         return None
-    session, user = row
-    session.last_seen_at = now
-    await db.flush()
-    return user
+    session_id, user_id = row
+    try:
+        await db.execute(
+            update(UserSession)
+            .where(UserSession.id == session_id)
+            .values(last_seen_at=now)
+        )
+        await db.flush()
+    except OperationalError as exc:
+        if not is_sqlite_locked(exc):
+            raise
+        await db.rollback()
+    return await db.get(User, user_id)
 
 
 async def revoke_token(db: AsyncSession, token: str) -> bool:

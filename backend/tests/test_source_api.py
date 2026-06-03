@@ -215,6 +215,41 @@ def test_source_create_normalizes_uppercase_http_scheme():
     assert source.url == "https://example.com/feed.xml"
 
 
+def test_source_create_normalizes_case_insensitive_url_parts():
+    source = SourceCreate(name="Upper Host", url=" HTTPS://Example.COM/Feed.XML?Token=ABC ")
+
+    assert source.url == "https://example.com/Feed.XML?Token=ABC"
+
+
+@pytest.mark.asyncio
+async def test_create_source_rejects_duplicate_url_with_case_insensitive_host():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        await create_source(
+            SourceCreate(name="A", url="https://example.com/Feed.XML", source_type=SourceType.RSS),
+            db,
+        )
+
+        error = None
+        try:
+            await create_source(
+                SourceCreate(name="B", url=" HTTPS://Example.COM/Feed.XML ", source_type=SourceType.RSS),
+                db,
+            )
+        except HTTPException as exc:
+            error = exc
+
+        assert error is not None
+        assert error.status_code == 409
+        assert error.detail == "信源 URL 已存在"
+
+    await engine.dispose()
+
+
 def test_source_create_normalizes_optional_text_fields():
     source = SourceCreate(
         name="Feed",

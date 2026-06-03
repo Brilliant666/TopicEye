@@ -2,17 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
+from urllib.parse import urlsplit, urlunsplit
 from pydantic import BaseModel, Field, field_validator
 from app.models.source import SourceType, SourceStatus
 
 
 def normalize_source_url_value(value: str) -> str:
     url = value.strip()
-    lower_url = url.lower()
-    if lower_url.startswith("http://"):
-        return "http://" + url[7:]
-    if lower_url.startswith("https://"):
-        return "https://" + url[8:]
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    if scheme in {"http", "https"} and parts.netloc:
+        netloc = parts.netloc.lower()
+        return urlunsplit((scheme, netloc, parts.path, parts.query, parts.fragment))
     raise ValueError("信源 URL 必须以 http:// 或 https:// 开头")
 
 

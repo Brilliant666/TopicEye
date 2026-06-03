@@ -18,12 +18,15 @@ from app.core.database import Base
 from app.core.dependencies import get_db
 from app.models.source import Source, SourceStatus, SourceType
 from app.schemas.source import SourceCreate, SourceUpdate
+from app.services.source_cache import invalidate_source_list_cache
 
 
 @pytest_asyncio.fixture
-async def sources_http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
+async def sources_http_client(monkeypatch) -> AsyncGenerator[httpx.AsyncClient, None]:
+    invalidate_source_list_cache()
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(sources_api, "async_session", session_factory)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -44,6 +47,7 @@ async def sources_http_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client
 
+    invalidate_source_list_cache()
     await engine.dispose()
 
 
@@ -171,3 +175,47 @@ async def test_sync_source_error_state_persists_over_http(
     assert persisted.status_code == 200
     assert persisted.json()["status"] == "error"
     assert persisted.json()["sync_error"] == "API endpoint unavailable"
+
+
+@pytest.mark.asyncio
+async def test_source_list_cache_header_and_sync_error_invalidation(
+    sources_http_client: httpx.AsyncClient,
+    monkeypatch,
+):
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "Cached API",
+            "url": "https://example.com/cached-api",
+            "source_type": "API",
+        },
+    )
+    assert created.status_code == 201
+    source_id = created.json()["id"]
+
+    first_list = await sources_http_client.get("/sources?page=1&page_size=20")
+    assert first_list.status_code == 200
+    assert first_list.headers["x-sources-cache"] == "MISS"
+
+    cached_list = await sources_http_client.get("/sources?page=1&page_size=20")
+    assert cached_list.status_code == 200
+    assert cached_list.headers["x-sources-cache"] == "HIT"
+    assert cached_list.headers["x-sources-cache-age-ms"].isdigit()
+
+    async def fake_ingest_from_source(source: Source, db: AsyncSession):
+        source.status = SourceStatus.ERROR
+        source.sync_error = "API endpoint unavailable"
+        await db.flush()
+        return {"fetched": 0, "new": 0, "duplicates": 0}
+
+    monkeypatch.setattr(sources_api, "ingest_from_source", fake_ingest_from_source)
+
+    failed = await sources_http_client.post(f"/sources/{source_id}/sync")
+    assert failed.status_code == 502
+
+    after_sync = await sources_http_client.get("/sources?page=1&page_size=20")
+    assert after_sync.status_code == 200
+    assert after_sync.headers["x-sources-cache"] == "MISS"
+    payload = after_sync.json()
+    assert payload["items"][0]["status"] == "error"
+    assert payload["items"][0]["sync_error"] == "API endpoint unavailable"

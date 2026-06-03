@@ -258,7 +258,10 @@ async def list_sources(
         return Response(
             content=content,
             media_type="application/json",
-            headers={"X-Sources-Cache": f"HIT; age={age_seconds:.3f}s"},
+            headers={
+                "X-Sources-Cache": "HIT",
+                "X-Sources-Cache-Age-Ms": str(int(age_seconds * 1000)),
+            },
         )
 
     async with async_session() as db:

@@ -11,7 +11,7 @@ import {
   type FavoriteCreatePayload,
   type FavoriteTargetRef,
 } from '@/lib/favorites';
-import type { AuthTokenResponse, AuthUser } from '@/types';
+import type { AuthTokenResponse, AuthUser, FavoriteItem } from '@/types';
 
 // App context - shared across pages
 interface AppContextType {
@@ -52,6 +52,7 @@ export function useAppContext() {
 
 const FAVORITES_STORAGE_KEY = 'topiceye_favorites';
 const FAVORITE_TARGETS_STORAGE_KEY = 'topiceye_favorite_targets';
+const FAVORITE_INDEX_PAGE_SIZE = 200;
 
 function loadFavoritesFromStorage(): Set<number> {
   if (typeof window === 'undefined') return new Set();
@@ -89,6 +90,27 @@ function saveFavoriteTargetsToStorage(favSet: Set<string>): void {
   try {
     localStorage.setItem(FAVORITE_TARGETS_STORAGE_KEY, JSON.stringify([...favSet]));
   } catch {}
+}
+
+async function fetchAllFavoriteItems(): Promise<{ items: FavoriteItem[]; total: number }> {
+  const firstPage = await favoritesApi.list({ page: 1, page_size: FAVORITE_INDEX_PAGE_SIZE });
+  const total = firstPage.total || 0;
+  const items = [...(firstPage.items || [])];
+  const totalPages = Math.ceil(total / FAVORITE_INDEX_PAGE_SIZE);
+
+  if (totalPages <= 1) {
+    return { items, total };
+  }
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) => (
+      favoritesApi.list({ page: index + 2, page_size: FAVORITE_INDEX_PAGE_SIZE })
+    ))
+  );
+  for (const page of remainingPages) {
+    items.push(...(page.items || []));
+  }
+  return { items, total };
 }
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
@@ -129,7 +151,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       const [contents, sources, allFavorites] = await Promise.all([
         contentsApi.list({ page_size: 1 }),
         sourcesApi.list(),
-        favoritesApi.list({ page_size: 200 }),
+        fetchAllFavoriteItems(),
       ]);
       setContentCount(contents.total || 0);
       setSourceCount(sources.total || sources.items?.length || 0);

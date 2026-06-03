@@ -867,6 +867,38 @@ export const statsApi = {
   },
 };
 
+// ─── Trends API ───
+
+export interface TrendPoint {
+  date: string;
+  topic_id: number;
+  topic_name: string;
+  content_count: number;
+  avg_score: number;
+  max_score: number;
+  pick_count: number;
+  top_items: { title: string; url: string; score: number }[] | null;
+}
+
+export interface TrendKeywordItem {
+  keyword: string;
+  count: number;
+}
+
+export const trendsApi = {
+  /** Topic trend curves for the last N days */
+  topics(days = 7): Promise<{ days: number; trends: TrendPoint[] }> {
+    return request(`/trends/topics?days=${days}`);
+  },
+
+  /** Keyword frequency for trend workspace visualizations */
+  keywords(params?: { days?: number; limit?: number }): Promise<{ days: number; keywords: TrendKeywordItem[] }> {
+    const days = params?.days ?? 7;
+    const limit = params?.limit ?? 50;
+    return request(`/trends/keywords?days=${days}&limit=${limit}`);
+  },
+};
+
 // ─── Feedback API ───
 
 export const feedbackApi = {

@@ -18,22 +18,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { Badge, Button, Metric, Panel, cx } from '@/components/ui';
-
-interface TrendPoint {
-  date: string;
-  topic_id: number;
-  topic_name: string;
-  content_count: number;
-  avg_score: number;
-  max_score: number;
-  pick_count: number;
-  top_items: { title: string; url: string; score: number }[] | null;
-}
-
-interface KeywordItem {
-  keyword: string;
-  count: number;
-}
+import { trendsApi, type TrendPoint, type TrendKeywordItem as KeywordItem } from '@/lib/api';
 
 interface TopicSeries {
   key: string;
@@ -425,19 +410,12 @@ export default function TrendsPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const base = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
-      const [topicResponse, keywordResponse] = await Promise.all([
-        fetch(`${base}/trends/topics?days=${days}`),
-        fetch(`${base}/trends/keywords?days=${days}&limit=60`),
+      const [topicData, keywordData] = await Promise.all([
+        trendsApi.topics(days),
+        trendsApi.keywords({ days, limit: 60 }),
       ]);
-      if (topicResponse.ok) {
-        const data = await topicResponse.json();
-        setTrends(data.trends || []);
-      }
-      if (keywordResponse.ok) {
-        const data = await keywordResponse.json();
-        setKeywords(data.keywords || []);
-      }
+      setTrends(topicData.trends || []);
+      setKeywords(keywordData.keywords || []);
     } catch (err) {
       console.error('Failed to fetch trends:', err);
     } finally {

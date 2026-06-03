@@ -388,9 +388,10 @@ export default function FavoritesPage() {
           .map((item) => item.id);
         return { dirtyStatus, orderedIds };
       }).filter((target) => target.orderedIds.length > 0);
-      const updatedGroups = await Promise.all(reorderTargets.map((target) => (
-        favoritesApi.reorder(target.dirtyStatus, target.orderedIds)
-      )));
+      const updatedGroups: FavoriteItem[][] = [];
+      for (const target of reorderTargets) {
+        updatedGroups.push(await favoritesApi.reorder(target.dirtyStatus, target.orderedIds));
+      }
       const byId = new Map(updatedGroups.flat().map((item) => [item.id, item]));
       setItems((prev) => prev.map((item) => byId.get(item.id) || item));
       setDirtyStatuses(new Set());

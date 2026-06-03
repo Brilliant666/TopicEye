@@ -6,7 +6,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.core.database import get_db
 from app.services.webnovel_report import build_weekly_webnovel_report
 
 router = APIRouter(prefix="/webnovel/reports", tags=["webnovel-reports"])

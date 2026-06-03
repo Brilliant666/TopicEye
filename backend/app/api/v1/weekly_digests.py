@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.core.database import get_db
 from app.models.weekly_digest import WeeklyDigest
 from app.repositories.weekly_digest_repo import WeeklyDigestRepository
 from app.schemas.weekly_digest import (

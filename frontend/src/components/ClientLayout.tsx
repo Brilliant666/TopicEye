@@ -336,6 +336,15 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         }
         return next;
       });
+      setFavoriteTargetIds((prev) => {
+        const next = new Map(prev);
+        if (result.is_favorited && result.favorite_id) {
+          next.set(targetKey, result.favorite_id);
+        } else {
+          next.delete(targetKey);
+        }
+        return next;
+      });
       if (result.is_favorited !== wasFavorited) {
         setFavoriteTotal((prev) => Math.max(0, prev + (result.is_favorited ? 1 : -1)));
       }

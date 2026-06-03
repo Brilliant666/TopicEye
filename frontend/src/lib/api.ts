@@ -350,7 +350,7 @@ export const contentsApi = {
   },
 
   /** 切换收藏状态 */
-  toggleFavorite(id: number): Promise<{ is_favorited: boolean }> {
+  toggleFavorite(id: number): Promise<{ is_favorited: boolean; favorite_id?: number | null }> {
     return request(`/contents/${id}/favorite`, { method: 'POST' });
   },
 

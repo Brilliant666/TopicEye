@@ -365,7 +365,7 @@ async def toggle_favorite(content_id: int, db: AsyncSession = Depends(get_db)):
 
     next_value = not bool(current)
 
-    async def _write() -> None:
+    async def _write() -> Optional[int]:
         await db.execute(
             update(ContentItem)
             .where(ContentItem.id == content_id)
@@ -373,20 +373,23 @@ async def toggle_favorite(content_id: int, db: AsyncSession = Depends(get_db)):
         )
         favorite_repo = FavoriteRepo(db)
         if next_value:
-            await favorite_repo.create_from_content(content_id)
+            favorite = await favorite_repo.create_from_content(content_id)
+            favorite_id = favorite.id
         else:
             await favorite_repo.remove_by_content(content_id)
+            favorite_id = None
         invalidate_favorite_cache()
         invalidate_content_read_caches()
         invalidate_json_cache("contents:favorites:")
         await db.flush()
+        return favorite_id
 
     restore_busy_timeout = False
     try:
         if database_profile.is_sqlite:
             await db.execute(text("PRAGMA busy_timeout=500"))
             restore_busy_timeout = True
-        await retry_sqlite_locked(_write, attempts=3, base_delay=0.1, on_retry=db.rollback)
+        favorite_id = await retry_sqlite_locked(_write, attempts=3, base_delay=0.1, on_retry=db.rollback)
     except OperationalError as exc:
         await db.rollback()
         if is_sqlite_locked(exc):
@@ -398,7 +401,7 @@ async def toggle_favorite(content_id: int, db: AsyncSession = Depends(get_db)):
                 await db.execute(text("PRAGMA busy_timeout=30000"))
             except Exception:
                 await db.rollback()
-    return {"is_favorited": next_value}
+    return {"is_favorited": next_value, "favorite_id": favorite_id}
 
 
 @router.post("/{content_id}/ignore")

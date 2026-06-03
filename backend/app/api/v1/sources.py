@@ -487,6 +487,9 @@ async def sync_source(source_id: int, db: AsyncSession = Depends(get_db)):
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
+    if not source.enabled or source.status == SourceStatus.DISABLED:
+        raise HTTPException(status_code=409, detail="信源已禁用，请启用后再同步")
+
     stats = await ingest_from_source(source, db)
     await db.refresh(source)
     _invalidate_source_cache()

@@ -278,6 +278,38 @@ async def test_sync_source_error_state_persists_over_http(
 
 
 @pytest.mark.asyncio
+async def test_sync_disabled_source_is_rejected_without_ingest(
+    sources_http_client: httpx.AsyncClient,
+    monkeypatch,
+):
+    async def fail_ingest_from_source(source: Source, db: AsyncSession):
+        raise AssertionError("disabled source should not be ingested")
+
+    monkeypatch.setattr(sources_api, "ingest_from_source", fail_ingest_from_source)
+
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "Paused API",
+            "url": "https://example.com/paused-api",
+            "source_type": "API",
+            "enabled": False,
+        },
+    )
+    assert created.status_code == 201
+    source_id = created.json()["id"]
+
+    failed = await sources_http_client.post(f"/sources/{source_id}/sync")
+    assert failed.status_code == 409
+    assert failed.json()["detail"] == "信源已禁用，请启用后再同步"
+
+    persisted = await sources_http_client.get(f"/sources/{source_id}")
+    assert persisted.status_code == 200
+    assert persisted.json()["enabled"] is False
+    assert persisted.json()["status"] == "active"
+
+
+@pytest.mark.asyncio
 async def test_source_list_cache_header_and_sync_error_invalidation(
     sources_http_client: httpx.AsyncClient,
     monkeypatch,

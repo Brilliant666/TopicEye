@@ -82,6 +82,8 @@ export default function SourceRowComponent({
   const [intervalOpen, setIntervalOpen] = useState(false);
   const typeClass = typeColors[source.source_type] || 'bg-gray-100 text-gray-600';
   const isActive = source.status === 'active' && source.enabled;
+  const sourceDisabled = !source.enabled || source.status === 'disabled';
+  const syncDisabled = syncing || sourceDisabled;
 
   return (
     <div
@@ -178,7 +180,14 @@ export default function SourceRowComponent({
             <Star size={13} fill={favorite ? 'currentColor' : 'none'} />
           </button>
         )}
-        <Button type="button" onClick={onSync} disabled={syncing} variant={syncing ? 'secondary' : 'success'} className="min-h-7 px-2.5 py-1 text-[11px]">
+        <Button
+          type="button"
+          onClick={onSync}
+          disabled={syncDisabled}
+          variant={syncing ? 'secondary' : 'success'}
+          className="min-h-7 px-2.5 py-1 text-[11px]"
+          title={sourceDisabled ? '信源已禁用，启用后可同步' : '同步信源'}
+        >
           {syncing ? <Spinner /> : null}
           {syncing ? '同步中' : '同步'}
         </Button>

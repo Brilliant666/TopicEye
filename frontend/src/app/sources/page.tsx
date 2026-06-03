@@ -237,6 +237,8 @@ function SourceMapCard({
   const isFavorite = favoriteTargets.has(favoriteKey);
   const favoritePending = favoriteTargetPendingKeys.has(favoriteKey);
   const meta = sourceTierMeta[tierKey];
+  const sourceDisabled = !source.enabled || source.status === 'disabled';
+  const syncDisabled = syncing || sourceDisabled;
 
   return (
     <div
@@ -285,7 +287,14 @@ function SourceMapCard({
         {source.sync_error ? source.sync_error : `最近同步 ${timeAgo(source.last_sync_at)}`}
       </div>
       <div className="mt-2.5 flex gap-1.5">
-        <Button type="button" variant="success" onClick={() => onSync(source.id)} disabled={syncing} className="min-h-7 flex-1 px-2 py-1 text-[11px]">
+        <Button
+          type="button"
+          variant="success"
+          onClick={() => onSync(source.id)}
+          disabled={syncDisabled}
+          className="min-h-7 flex-1 px-2 py-1 text-[11px]"
+          title={sourceDisabled ? '信源已禁用，启用后可同步' : '同步信源'}
+        >
           {syncing ? '同步中' : '同步'}
         </Button>
         <Button type="button" variant="secondary" onClick={() => onEdit(source)} className="min-h-7 flex-1 px-2 py-1 text-[11px]">

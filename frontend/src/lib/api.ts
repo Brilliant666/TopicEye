@@ -292,10 +292,21 @@ export const sourcesApi = {
   importOPML(file: File): Promise<{ created: number; skipped: number; total: number; message: string }> {
     const formData = new FormData();
     formData.append('file', file);
+    const token = getAuthToken();
     return fetch(`${BASE_URL}/sources/import-opml`, {
       method: 'POST',
       body: formData,
-    }).then(r => r.json());
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    }).then(async (response) => {
+      const text = await response.text();
+      const payload = text ? JSON.parse(text) : undefined;
+      if (!response.ok) {
+        const detail = formatApiErrorDetail(payload?.detail);
+        const message = typeof payload?.message === 'string' ? payload.message : undefined;
+        throw new Error(detail || message || `API Error: ${response.status}`);
+      }
+      return payload;
+    });
   },
 
   /** 预览批量信源配置 */

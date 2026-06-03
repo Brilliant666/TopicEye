@@ -47,7 +47,8 @@ def _cached_response(cache_key: str) -> Optional[Response]:
         media_type="application/json",
         headers={
             **ANALYTICS_HEADERS,
-            "X-Stats-Cache": f"HIT; age={age_seconds:.3f}s",
+            "X-Stats-Cache": "HIT",
+            "X-Stats-Cache-Age-Ms": str(round(age_seconds * 1000, 3)),
         },
     )
 

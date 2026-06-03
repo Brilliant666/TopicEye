@@ -105,6 +105,24 @@ async def test_create_source_rejects_duplicate_url():
 
 
 @pytest.mark.asyncio
+async def test_create_disabled_source_sets_disabled_status(sources_http_client: httpx.AsyncClient):
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "Paused Feed",
+            "url": "https://example.com/paused-feed.xml",
+            "source_type": "RSS",
+            "enabled": False,
+        },
+    )
+
+    assert created.status_code == 201
+    payload = created.json()
+    assert payload["enabled"] is False
+    assert payload["status"] == "disabled"
+
+
+@pytest.mark.asyncio
 async def test_update_source_rejects_duplicate_url():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -136,6 +154,54 @@ async def test_update_source_rejects_duplicate_url():
         assert error.detail == "信源 URL 已存在"
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_update_source_restores_active_status_when_enabled(sources_http_client: httpx.AsyncClient):
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "Paused API",
+            "url": "https://example.com/paused-enable-api",
+            "source_type": "API",
+            "enabled": False,
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["status"] == "disabled"
+
+    updated = await sources_http_client.put(
+        f"/sources/{created.json()['id']}",
+        json={"enabled": True},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["enabled"] is True
+    assert updated.json()["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_update_source_disables_enabled_flag_when_status_disabled(sources_http_client: httpx.AsyncClient):
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "Active API",
+            "url": "https://example.com/disable-by-status-api",
+            "source_type": "API",
+        },
+    )
+    assert created.status_code == 201
+    assert created.json()["enabled"] is True
+    assert created.json()["status"] == "active"
+
+    updated = await sources_http_client.put(
+        f"/sources/{created.json()['id']}",
+        json={"status": "disabled"},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["enabled"] is False
+    assert updated.json()["status"] == "disabled"
 
 
 def test_source_create_rejects_invalid_url_after_strip():
@@ -306,7 +372,7 @@ async def test_sync_disabled_source_is_rejected_without_ingest(
     persisted = await sources_http_client.get(f"/sources/{source_id}")
     assert persisted.status_code == 200
     assert persisted.json()["enabled"] is False
-    assert persisted.json()["status"] == "active"
+    assert persisted.json()["status"] == "disabled"
 
 
 @pytest.mark.asyncio

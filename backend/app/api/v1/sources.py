@@ -36,6 +36,24 @@ def _invalidate_source_cache() -> None:
     invalidate_source_list_cache()
 
 
+def _normalize_source_status(payload: dict, current: Optional[Source] = None) -> dict:
+    if payload.get("enabled") is False:
+        payload["status"] = SourceStatus.DISABLED
+        return payload
+
+    if payload.get("status") == SourceStatus.DISABLED:
+        payload["enabled"] = False
+        return payload
+
+    if payload.get("status") in {SourceStatus.ACTIVE, SourceStatus.ERROR}:
+        payload.setdefault("enabled", True)
+
+    if payload.get("enabled") is True and current is not None and current.status == SourceStatus.DISABLED:
+        payload.setdefault("status", SourceStatus.ACTIVE)
+
+    return payload
+
+
 class SourceBatchImportRequest(BaseModel):
     content: str = Field(..., min_length=1)
     category: str = "批量导入"
@@ -238,6 +256,7 @@ async def _preview_source_batch_items(db: AsyncSession, content: str, category: 
 async def create_source(data: SourceCreate, db: AsyncSession = Depends(get_db)):
     repo = SourceRepository(db)
     payload = data.model_dump()
+    _normalize_source_status(payload)
     existing = await repo.get_one(Source.url == payload["url"])
     if existing:
         raise HTTPException(status_code=409, detail="信源 URL 已存在")
@@ -457,7 +476,8 @@ async def update_source(
     repo = SourceRepository(db)
     try:
         payload = data.model_dump(exclude_unset=True)
-        await repo.get_by_id_or_raise(source_id, resource_name="Source")
+        current = await repo.get_by_id_or_raise(source_id, resource_name="Source")
+        _normalize_source_status(payload, current)
         if "url" in payload:
             existing = await repo.get_one(Source.url == payload["url"])
             if existing and existing.id != source_id:

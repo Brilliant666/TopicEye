@@ -19,6 +19,12 @@ from app.models.source import Source, SourceStatus
 from app.schemas.integration import IntegrationUpdateRequest
 from app.services.auth_service import create_user
 from app.services.integration_service import WEREAD_INSTALL_COMMAND
+from app.services.source_cache import (
+    default_source_list_cache_params,
+    get_cached_source_list,
+    invalidate_source_list_cache,
+    set_cached_source_list,
+)
 import app.services.weread_materials as weread_materials
 from app.services.weread_materials import normalize_weread_entries
 
@@ -173,6 +179,7 @@ async def test_weread_sync_imports_materials_and_deduplicates(monkeypatch):
 
     monkeypatch.setattr(settings, "WEREAD_SKILL_API_URL", "http://127.0.0.1:9999/weread")
     monkeypatch.setattr(weread_materials, "fetch_weread_materials", fake_fetch)
+    invalidate_source_list_cache()
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as conn:
@@ -186,11 +193,16 @@ async def test_weread_sync_imports_materials_and_deduplicates(monkeypatch):
             db,
         )
 
+        source_cache_params = default_source_list_cache_params()
+        set_cached_source_list(source_cache_params, {"items": [{"name": "旧信源缓存"}], "total": 1})
+        assert get_cached_source_list(source_cache_params, ttl_seconds=settings.READ_CACHE_TTL_SECONDS) is not None
+
         first = await sync_weread(limit=2, current_user=user, db=db)
         assert first.fetched == 2
         assert first.new == 2
         assert first.duplicates == 0
         assert first.source_name == "微信读书素材"
+        assert get_cached_source_list(source_cache_params, ttl_seconds=settings.READ_CACHE_TTL_SECONDS) is None
 
         source = await db.scalar(select(Source).where(Source.name == "微信读书素材"))
         assert source is not None
@@ -217,6 +229,7 @@ async def test_weread_sync_imports_materials_and_deduplicates(monkeypatch):
         assert status["last_sync_status"] == "success"
         assert status["last_sync_error"] is None
 
+    invalidate_source_list_cache()
     await engine.dispose()
 
 

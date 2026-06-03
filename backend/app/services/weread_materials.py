@@ -14,6 +14,7 @@ from app.models.user_integration import UserIntegration
 from app.services.content_read_cache import invalidate_content_read_caches
 from app.services.dedup import build_hash
 from app.services.integration_service import WEREAD_PROVIDER
+from app.services.source_cache import invalidate_source_list_cache
 
 WEREAD_SOURCE_URL = "https://weread.qq.com/r/weread-skills"
 WEREAD_SOURCE_NAME = "微信读书素材"
@@ -148,6 +149,7 @@ async def sync_weread_materials(
         integration.last_sync_status = "success"
         integration.last_sync_error = None
         await db.flush()
+        invalidate_source_list_cache()
         if new:
             invalidate_content_read_caches()
         return {
@@ -165,4 +167,5 @@ async def sync_weread_materials(
         integration.last_sync_status = "error"
         integration.last_sync_error = message[:500]
         await db.flush()
+        invalidate_source_list_cache()
         raise

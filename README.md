@@ -34,7 +34,7 @@ TopicEye/
 
 ## 启动步骤
 
-### 1. 启动后端 (端口 8000)
+### 1. 启动后端 (本地开发建议端口 8100)
 
 ```bash
 cd TopicEye/backend
@@ -43,16 +43,16 @@ cd TopicEye/backend
 source venv/bin/activate
 
 # 启动服务
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 127.0.0.1 --port 8100 --reload
 ```
 
 启动成功后会看到：
 ```
-INFO:     Uvicorn running on http://0.0.0.0:8000
+INFO:     Uvicorn running on http://127.0.0.1:8100
 INFO:     Application startup complete — scheduler running
 ```
 
-验证：浏览器打开 http://localhost:8000/docs 可看到 API 文档
+验证：浏览器打开 http://127.0.0.1:8100/docs 可看到 API 文档
 
 ### 2. 启动前端 (端口 3000)
 
@@ -64,7 +64,7 @@ cd TopicEye/frontend
 # 安装依赖 (首次或 package.json 变更后)
 npm install
 
-# 启动开发服务器
+# 启动开发服务器。默认会代理到 http://127.0.0.1:8100
 npm run dev
 ```
 
@@ -82,14 +82,28 @@ npm run dev
 
 ### 代理问题
 
-如果你的系统开着 HTTP 代理 (ClashX/Surge 等，端口 7890)：
+如果你的系统开着 HTTP 代理 (ClashX/Surge 等，端口 7890)，或者 `8000` 端口被 Docker/OrbStack 等本机服务占用：
 
-1. 浏览器可能无法直接访问 localhost:8000 的 API
+1. 本地开发优先使用后端 `127.0.0.1:8100`
 2. 确保「绕过代理」列表包含 `localhost` 和 `127.0.0.1`
 3. ClashX: 设置 → Bypass Domain → 添加 `localhost`
 4. Surge: 设置 → 跳过代理 → 添加 `localhost, 127.0.0.1`
 
-或者临时关闭代理后启动。
+也可以显式指定前端代理目标：
+
+```bash
+cd TopicEye/frontend
+BACKEND_API_URL=http://127.0.0.1:8100 npm run dev
+```
+
+Docker Compose 内部仍使用 `backend:8000`，不受本地开发端口影响。
+
+### DuckDB 分析层
+
+- `backend/requirements.txt` 已包含 `duckdb`
+- 后端启动时会初始化 DuckDB，并以 READ_ONLY 方式 ATTACH 当前 SQLite/PostgreSQL 数据库
+- 健康检查：`curl http://127.0.0.1:8100/health`
+- 如果 `database.duckdb.available=false`，说明当前 Python 环境没有安装 DuckDB 包或缺少所需扩展，分析接口会暂时退回 SQLAlchemy
 
 ### 数据库
 
@@ -100,10 +114,10 @@ npm run dev
 
 ```bash
 # 抓取所有启用的信源
-curl -X POST http://localhost:8000/api/v1/sources/sync-all
+curl -X POST http://127.0.0.1:8100/api/v1/sources/sync-all
 
 # 抓取单个信源 (把 1 替换为信源 ID)
-curl -X POST http://localhost:8000/api/v1/sources/1/sync
+curl -X POST http://127.0.0.1:8100/api/v1/sources/1/sync
 ```
 
 ## 功能模块

@@ -551,4 +551,18 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 @app.get("/health", tags=["health"])
 async def health_check():
-    return {"status": "ok", "service": "topiceye-backend"}
+    try:
+        from app.services.duckdb_service import get_analytics
+
+        duckdb_status = get_analytics().status()
+    except Exception as exc:
+        duckdb_status = {"status": "error", "available": False, "error": str(exc)}
+
+    return {
+        "status": "ok",
+        "service": "topiceye-backend",
+        "database": {
+            "backend": database_profile.backend,
+            "duckdb": duckdb_status,
+        },
+    }

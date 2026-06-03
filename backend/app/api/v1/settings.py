@@ -103,12 +103,14 @@ async def duckdb_status():
     try:
         from app.services.duckdb_service import get_analytics
         analytics = get_analytics()
-        available = analytics.available
+        status = analytics.status()
+        available = status["available"]
         return {
+            **status,
             "status": "ok" if available else "unavailable",
-            "architecture": "in-memory DuckDB + SQLite ATTACH (READ_ONLY)",
+            "architecture": "in-memory DuckDB + OLTP ATTACH (READ_ONLY)",
             "note": "No sync needed — DuckDB reads SQLite directly." if available
-                    else "DuckDB or sqlite extension not installed. App falls back to SQLAlchemy.",
+                    else "DuckDB package or required extension is unavailable. App falls back to SQLAlchemy.",
         }
     except Exception as e:
         return {"status": "error", "error": str(e)}

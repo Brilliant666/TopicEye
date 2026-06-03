@@ -24,7 +24,7 @@ import threading
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from app.config import settings
+from app.core.config import settings
 from app.core.db_backend import create_database_profile, duckdb_attach_sql, duckdb_extension_name
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,7 @@ class DuckDBAnalytics:
         )
         self._attach_alias = "sqlite_db"
         self._available: Optional[bool] = None  # tri-state: None=unchecked
+        self._last_error: Optional[str] = None
 
     def _get_conn(self):
         """Get or create a thread-local DuckDB connection with OLTP attached."""
@@ -94,7 +95,9 @@ class DuckDBAnalytics:
             conn = self._get_conn()
             conn.execute("SELECT 1 FROM sqlite_db.content_items LIMIT 1")
             self._available = True
+            self._last_error = None
         except Exception as e:
+            self._last_error = str(e)
             logger.warning("DuckDB analytics not available: %s", e)
             self._available = False
         return self._available
@@ -102,6 +105,20 @@ class DuckDBAnalytics:
     def reset_availability(self) -> None:
         """Reset availability check (e.g. after a failure)."""
         self._available = None
+        self._last_error = None
+
+    def status(self) -> Dict[str, Any]:
+        """Return operational status for health and settings endpoints."""
+        available = self.available
+        return {
+            "status": "ok" if available else "unavailable",
+            "available": available,
+            "backend": self._profile.backend,
+            "extension": duckdb_extension_name(self._profile),
+            "attach_alias": self._attach_alias,
+            "mode": "duckdb_attach_read_only",
+            "error": self._last_error,
+        }
 
     # ── Analytical queries ──────────────────────────────────────────────
 

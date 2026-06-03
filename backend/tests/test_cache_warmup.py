@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import pytest
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import settings
@@ -11,21 +12,16 @@ from app.models.source import Source, SourceStatus, SourceType
 from app.services import cache_warmup
 from app.services.content_list_cache import home_content_list_cache_params
 from app.services.json_cache import get_cached_json, invalidate_json_cache
-from app.services.scoring_flow import SCORING_FLOW_WARMUP_TARGETS, get_cached_scoring_flow_json
+from app.services.scoring_flow import (
+    SCORING_FLOW_WARMUP_TARGETS,
+    get_cached_scoring_flow_json,
+    invalidate_scoring_flow_cache,
+)
 from app.services.source_cache import default_source_list_cache_params
 from app.services.today_picks_cache import default_today_picks_cache_params
 
 
-@pytest.mark.asyncio
-async def test_warmup_read_caches_populates_hot_read_cache_keys(monkeypatch):
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    session_factory = async_sessionmaker(engine, expire_on_commit=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    invalidate_json_cache()
-    monkeypatch.setattr(cache_warmup, "async_session", session_factory)
-
+async def seed_cache_warmup_fixture(session_factory) -> None:
     async with session_factory() as db:
         db.add(
             Source(
@@ -71,6 +67,29 @@ async def test_warmup_read_caches_populates_hot_read_cache_keys(monkeypatch):
         )
         await db.commit()
 
+
+@pytest_asyncio.fixture
+async def cache_warmup_session(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    invalidate_json_cache()
+    invalidate_scoring_flow_cache()
+    monkeypatch.setattr(cache_warmup, "async_session", session_factory)
+    await seed_cache_warmup_fixture(session_factory)
+
+    yield session_factory
+
+    invalidate_json_cache()
+    invalidate_scoring_flow_cache()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_warmup_read_caches_populates_hot_read_cache_keys(cache_warmup_session):
+
     result = await cache_warmup.warmup_read_caches()
 
     expected_warmed = {
@@ -92,5 +111,25 @@ async def test_warmup_read_caches_populates_hot_read_cache_keys(monkeypatch):
     for hours, limit in SCORING_FLOW_WARMUP_TARGETS:
         assert get_cached_scoring_flow_json(hours=hours, limit=limit) is not None
 
-    invalidate_json_cache()
-    await engine.dispose()
+
+@pytest.mark.asyncio
+async def test_warmup_startup_critical_caches_populates_scoring_flow(cache_warmup_session):
+    result = await cache_warmup.warmup_startup_critical_caches()
+
+    expected_warmed = {f"scoring-flow:{hours}:{limit}" for hours, limit in SCORING_FLOW_WARMUP_TARGETS}
+    assert set(result["warmed"]) == expected_warmed
+    assert result["errors"] == []
+    for hours, limit in SCORING_FLOW_WARMUP_TARGETS:
+        assert get_cached_scoring_flow_json(hours=hours, limit=limit) is not None
+
+
+@pytest.mark.asyncio
+async def test_warmup_read_caches_can_skip_scoring_flow(cache_warmup_session):
+    result = await cache_warmup.warmup_read_caches(include_scoring_flow=False)
+
+    assert "sources:list:1:20" in result["warmed"]
+    assert "contents:list:1:50:48" in result["warmed"]
+    assert all(not label.startswith("scoring-flow:") for label in result["warmed"])
+    assert result["errors"] == []
+    for hours, limit in SCORING_FLOW_WARMUP_TARGETS:
+        assert get_cached_scoring_flow_json(hours=hours, limit=limit) is None

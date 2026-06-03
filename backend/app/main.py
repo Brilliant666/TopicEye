@@ -479,10 +479,16 @@ async def lifespan(app: FastAPI):
         logger.info("Application startup complete — scheduler disabled by config")
 
     if settings.CACHE_WARMUP_ENABLED:
-        from app.services.cache_warmup import warmup_read_caches
+        from app.services.cache_warmup import warmup_read_caches, warmup_startup_critical_caches
 
-        _cache_warmup_task = asyncio.create_task(warmup_read_caches())
-        logger.info("Read cache warmup scheduled")
+        critical_warmup_result = await warmup_startup_critical_caches()
+        if critical_warmup_result["errors"]:
+            logger.warning("Startup critical read cache warmup completed with errors: %s", critical_warmup_result["errors"])
+        else:
+            logger.info("Startup critical read caches warmed")
+
+        _cache_warmup_task = asyncio.create_task(warmup_read_caches(include_scoring_flow=False))
+        logger.info("Background read cache warmup scheduled")
 
     yield
 

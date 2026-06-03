@@ -28,6 +28,12 @@ from app.services.content_read_cache import invalidate_content_read_caches
 from app.services.content_serialization import content_with_latest_analysis
 from app.services.favorite_cache import invalidate_favorite_cache
 from app.services.json_cache import get_cached_json, invalidate_json_cache, set_cached_json
+from app.services.scoring_flow import (
+    DEFAULT_SCORING_FLOW_HOURS,
+    DEFAULT_SCORING_FLOW_LIMIT,
+    build_scoring_flow_payload,
+    get_cached_scoring_flow_json,
+)
 from app.services.today_picks_cache import TodayPicksCacheParams, get_cached_today_picks, set_cached_today_picks
 
 router = APIRouter(prefix="/contents", tags=["contents"])
@@ -240,13 +246,6 @@ async def scoring_flow(
     limit: Optional[int] = Query(None, ge=20, le=500),
 ):
     """Return a read-only explanation payload for the content scoring funnel."""
-    from app.services.scoring_flow import (
-        DEFAULT_SCORING_FLOW_HOURS,
-        DEFAULT_SCORING_FLOW_LIMIT,
-        build_scoring_flow_payload,
-        get_cached_scoring_flow_json,
-    )
-
     hours = hours or DEFAULT_SCORING_FLOW_HOURS
     limit = limit or DEFAULT_SCORING_FLOW_LIMIT
 

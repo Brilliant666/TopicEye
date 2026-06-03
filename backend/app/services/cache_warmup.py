@@ -25,7 +25,25 @@ from app.services.today_picks_cache import (
 logger = logging.getLogger(__name__)
 
 
-async def warmup_read_caches() -> dict[str, Any]:
+async def warmup_startup_critical_caches() -> dict[str, Any]:
+    """Warm read caches needed by first-screen creator workflows."""
+    started_at = time.perf_counter()
+    warmed: list[str] = []
+    errors: list[str] = []
+
+    async with async_session() as db:
+        try:
+            warmed.extend(await warmup_scoring_flow(db))
+        except Exception as exc:
+            logger.warning("Startup scoring flow cache warmup skipped: %s", exc)
+            errors.append(f"scoring-flow:{exc}")
+
+    elapsed_ms = (time.perf_counter() - started_at) * 1000
+    logger.info("Startup critical cache warmup completed in %.1fms: %s", elapsed_ms, ", ".join(warmed) or "none")
+    return {"warmed": warmed, "errors": errors, "elapsed_ms": elapsed_ms}
+
+
+async def warmup_read_caches(*, include_scoring_flow: bool = True) -> dict[str, Any]:
     """Warm hot read caches without blocking application startup."""
     started_at = time.perf_counter()
     warmed: list[str] = []
@@ -67,11 +85,12 @@ async def warmup_read_caches() -> dict[str, Any]:
             logger.warning("Stats overview cache warmup skipped: %s", exc)
             errors.append(f"stats:{exc}")
 
-        try:
-            warmed.extend(await warmup_scoring_flow(db))
-        except Exception as exc:
-            logger.warning("Scoring flow cache warmup skipped: %s", exc)
-            errors.append(f"scoring-flow:{exc}")
+        if include_scoring_flow:
+            try:
+                warmed.extend(await warmup_scoring_flow(db))
+            except Exception as exc:
+                logger.warning("Scoring flow cache warmup skipped: %s", exc)
+                errors.append(f"scoring-flow:{exc}")
 
     elapsed_ms = (time.perf_counter() - started_at) * 1000
     logger.info("Read cache warmup completed in %.1fms: %s", elapsed_ms, ", ".join(warmed) or "none")

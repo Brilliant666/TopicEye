@@ -10,7 +10,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import async_session, get_db
+from app.core.database import async_session, database_profile, get_db
 from app.core.config import settings
 from app.core.sqlite_retry import retry_sqlite_locked, is_sqlite_locked
 from app.models.content import ContentItem
@@ -383,7 +383,7 @@ async def toggle_favorite(content_id: int, db: AsyncSession = Depends(get_db)):
 
     restore_busy_timeout = False
     try:
-        if settings.DATABASE_URL.startswith("sqlite"):
+        if database_profile.is_sqlite:
             await db.execute(text("PRAGMA busy_timeout=500"))
             restore_busy_timeout = True
         await retry_sqlite_locked(_write, attempts=3, base_delay=0.1, on_retry=db.rollback)

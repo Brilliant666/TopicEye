@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
+from app.core.database import database_profile
 
 T = TypeVar("T")
 
@@ -44,6 +44,6 @@ async def retry_sqlite_locked(
 
 async def begin_immediate_for_sqlite(db: AsyncSession) -> None:
     """Acquire SQLite's write lock up front to avoid deferred lock upgrades."""
-    if not settings.DATABASE_URL.startswith("sqlite"):
+    if not database_profile.is_sqlite:
         return
     await db.execute(text("BEGIN IMMEDIATE"))

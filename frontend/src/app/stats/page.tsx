@@ -405,18 +405,12 @@ export default function StatsPage() {
     try {
       setLoading(true);
       setError(null);
-      const [ov, src, cat, tr, np] = await Promise.all([
-        statsApi.getOverview(days),
-        statsApi.getSourceDistribution(days),
-        statsApi.getCategoryDistribution(days),
-        statsApi.getDailyTrend(days),
-        statsApi.getNovelPlatforms(),
-      ]);
-      setOverview(ov);
-      setSources(src.sources || []);
-      setCategories(cat.categories || []);
-      setTrend(tr.trend || []);
-      setNovelPlatforms(np.platforms || []);
+      const dashboard = await statsApi.getDashboard(days);
+      setOverview(dashboard.overview);
+      setSources(dashboard.sources || []);
+      setCategories(dashboard.categories || []);
+      setTrend(dashboard.trend || []);
+      setNovelPlatforms(dashboard.platforms || []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : '加载失败');
     } finally {

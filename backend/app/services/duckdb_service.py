@@ -480,7 +480,13 @@ class DuckDBAnalytics:
         }
 
     def query_dashboard_stats(self, days: int = 7) -> Dict[str, Any]:
-        """Dashboard statistics: KPI cards + source breakdown + daily volume trend."""
+        """Full stats workspace payload, with legacy dashboard fields preserved."""
+        overview = self.query_stats_overview(days=days)
+        source_distribution = self.query_stats_source_distribution(days=days)
+        category_distribution = self.query_stats_category_distribution(days=days)
+        daily_trend = self.query_stats_daily_trend(days=days)
+        novel_platforms = self.query_stats_novel_platforms()
+
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
@@ -529,6 +535,11 @@ class DuckDBAnalytics:
         """).fetchall()
 
         return {
+            "overview": overview,
+            "sources": source_distribution["sources"],
+            "categories": category_distribution["categories"],
+            "trend": daily_trend["trend"],
+            "platforms": novel_platforms["platforms"],
             "kpi": {
                 "total_crawled": kpi_row[0] or 0,
                 "total_curated": kpi_row[1] or 0,

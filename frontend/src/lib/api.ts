@@ -813,6 +813,17 @@ export interface StatsNovelPlatform {
   last_sync: string | null;
 }
 
+export interface StatsDashboard {
+  overview: StatsOverview;
+  sources: StatsSourceItem[];
+  categories: StatsCategoryItem[];
+  trend: StatsTrendItem[];
+  platforms: StatsNovelPlatform[];
+  kpi: { total_crawled: number; total_curated: number; avg_curation: number; active_sources: number };
+  source_breakdown: Array<{ source_name: string; source_type: string; content_count: number; curated_count: number; avg_score: number }>;
+  daily_trend: Array<{ date: string; content_count: number; curated_count: number; avg_curation: number }>;
+}
+
 export const statsApi = {
   /** 内容总览 */
   getOverview(days = 7): Promise<StatsOverview> {
@@ -839,12 +850,8 @@ export const statsApi = {
     return request('/stats/novel-platforms');
   },
 
-  /** Legacy dashboard (backward compat) */
-  getDashboard(days = 7): Promise<{
-    kpi: { total_crawled: number; total_curated: number; avg_curation: number; active_sources: number };
-    source_breakdown: Array<{ source_name: string; source_type: string; content_count: number; curated_count: number; avg_score: number }>;
-    daily_trend: Array<{ date: string; content_count: number; curated_count: number; avg_curation: number }>;
-  }> {
+  /** Aggregated stats workspace payload, with legacy dashboard fields included */
+  getDashboard(days = 7): Promise<StatsDashboard> {
     return request(`/stats/dashboard?days=${days}`);
   },
 };

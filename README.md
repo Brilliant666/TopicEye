@@ -43,7 +43,7 @@ cd TopicEye/backend
 source venv/bin/activate
 
 # 启动服务
-uvicorn app.main:app --host 127.0.0.1 --port 8100 --reload
+./venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8100 --reload
 ```
 
 启动成功后会看到：

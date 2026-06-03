@@ -334,16 +334,29 @@ export default function FavoritesPage() {
     }
 
     const previousItems = items;
+    const sourceStatus = movingItem.status;
+    const sourceColumnItems = previousItems
+      .filter((item) => item.status === sourceStatus && item.id !== itemId)
+      .sort((a, b) => a.position - b.position || b.updated_at.localeCompare(a.updated_at) || b.id - a.id);
     const targetColumnItems = previousItems
       .filter((item) => item.status === targetStatus && item.id !== itemId)
       .sort((a, b) => a.position - b.position || b.updated_at.localeCompare(a.updated_at) || b.id - a.id);
-    const insertIndex = beforeId ? Math.max(0, targetColumnItems.findIndex((item) => item.id === beforeId)) : targetColumnItems.length;
+    const targetIndex = beforeId ? targetColumnItems.findIndex((item) => item.id === beforeId) : -1;
+    const insertIndex = targetIndex >= 0 ? targetIndex : targetColumnItems.length;
     const nextColumnItems = [
       ...targetColumnItems.slice(0, insertIndex),
       { ...movingItem, status: targetStatus },
       ...targetColumnItems.slice(insertIndex),
     ];
-    const nextPositions = new Map(nextColumnItems.map((item, index) => [item.id, (index + 1) * 1000]));
+    const nextPositions = new Map<number, number>();
+    for (const [index, item] of nextColumnItems.entries()) {
+      nextPositions.set(item.id, (index + 1) * 1000);
+    }
+    if (sourceStatus !== targetStatus) {
+      for (const [index, item] of sourceColumnItems.entries()) {
+        nextPositions.set(item.id, (index + 1) * 1000);
+      }
+    }
 
     setItems((prev) => prev.map((item) => {
       const nextPosition = nextPositions.get(item.id);
@@ -354,6 +367,7 @@ export default function FavoritesPage() {
     setDirtyStatuses((prev) => {
       const next = new Set(prev);
       next.add(targetStatus);
+      if (sourceStatus !== targetStatus && sourceColumnItems.length > 0) next.add(sourceStatus);
       return next;
     });
     setDraggingId(null);
@@ -367,13 +381,16 @@ export default function FavoritesPage() {
     setSavingOrder(true);
     setError(null);
     try {
-      const updatedGroups = await Promise.all(Array.from(dirtyStatuses).map((dirtyStatus) => {
+      const reorderTargets = Array.from(dirtyStatuses).map((dirtyStatus) => {
         const orderedIds = items
           .filter((item) => item.status === dirtyStatus)
           .sort((a, b) => a.position - b.position || b.updated_at.localeCompare(a.updated_at) || b.id - a.id)
           .map((item) => item.id);
-        return favoritesApi.reorder(dirtyStatus, orderedIds);
-      }));
+        return { dirtyStatus, orderedIds };
+      }).filter((target) => target.orderedIds.length > 0);
+      const updatedGroups = await Promise.all(reorderTargets.map((target) => (
+        favoritesApi.reorder(target.dirtyStatus, target.orderedIds)
+      )));
       const byId = new Map(updatedGroups.flat().map((item) => [item.id, item]));
       setItems((prev) => prev.map((item) => byId.get(item.id) || item));
       setDirtyStatuses(new Set());

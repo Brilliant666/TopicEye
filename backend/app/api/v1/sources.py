@@ -224,6 +224,9 @@ async def _preview_source_batch_items(db: AsyncSession, content: str, category: 
 async def create_source(data: SourceCreate, db: AsyncSession = Depends(get_db)):
     repo = SourceRepository(db)
     payload = data.model_dump()
+    existing = await repo.get_one(Source.url == payload["url"])
+    if existing:
+        raise HTTPException(status_code=409, detail="信源 URL 已存在")
     if payload.get("sort_order") is None:
         max_order = await db.scalar(select(func.max(Source.sort_order)))
         payload["sort_order"] = (max_order or 0) + 10
@@ -435,7 +438,13 @@ async def update_source(
 ):
     repo = SourceRepository(db)
     try:
-        source = await repo.update(source_id, **data.model_dump(exclude_unset=True))
+        payload = data.model_dump(exclude_unset=True)
+        await repo.get_by_id_or_raise(source_id, resource_name="Source")
+        if "url" in payload:
+            existing = await repo.get_one(Source.url == payload["url"])
+            if existing and existing.id != source_id:
+                raise HTTPException(status_code=409, detail="信源 URL 已存在")
+        source = await repo.update(source_id, **payload)
         _invalidate_source_cache()
         return source
     except NotFoundError as e:

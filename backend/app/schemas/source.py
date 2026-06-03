@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from app.models.source import SourceType, SourceStatus
 
 
@@ -18,6 +18,22 @@ class SourceCreate(BaseModel):
     fetch_interval_minutes: int = Field(default=60, ge=5, le=1440)
     enabled: bool = True
 
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("信源名称不能为空")
+        return name
+
+    @field_validator("url")
+    @classmethod
+    def normalize_url(cls, value: str) -> str:
+        url = value.strip()
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("信源 URL 必须以 http:// 或 https:// 开头")
+        return url
+
 
 class SourceUpdate(BaseModel):
     name: Optional[str] = None
@@ -32,6 +48,26 @@ class SourceUpdate(BaseModel):
     status: Optional[SourceStatus] = None
     sync_error: Optional[str] = None
     enabled: Optional[bool] = None
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        name = value.strip()
+        if not name:
+            raise ValueError("信源名称不能为空")
+        return name
+
+    @field_validator("url")
+    @classmethod
+    def normalize_url(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        url = value.strip()
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("信源 URL 必须以 http:// 或 https:// 开头")
+        return url
 
 
 class SourceResponse(BaseModel):

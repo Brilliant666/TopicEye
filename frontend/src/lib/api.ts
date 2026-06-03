@@ -38,6 +38,41 @@ export type FeedbackType = 'like' | 'dislike' | 'skip' | 'not_relevant' | 'outda
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
 const AUTH_TOKEN_STORAGE_KEY = 'topiceye_auth_token';
 
+function formatDetailItem(item: unknown): string | undefined {
+  if (!item) return undefined;
+  if (typeof item === 'string') return item;
+  if (typeof item !== 'object') return String(item);
+
+  const record = item as Record<string, unknown>;
+  const message = record.msg || record.message || record.detail;
+  const loc = Array.isArray(record.loc) ? record.loc.join('.') : undefined;
+
+  if (typeof message === 'string' && loc) {
+    return `${loc}: ${message}`;
+  }
+  if (typeof message === 'string') {
+    return message;
+  }
+
+  try {
+    return JSON.stringify(record);
+  } catch {
+    return undefined;
+  }
+}
+
+export function formatApiErrorDetail(detail: unknown): string | undefined {
+  if (!detail) return undefined;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map(formatDetailItem)
+      .filter((item): item is string => Boolean(item));
+    return parts.length ? parts.join('；') : undefined;
+  }
+  return formatDetailItem(detail);
+}
+
 export function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -86,8 +121,9 @@ async function request<T>(
         error = { message: errorText };
       }
     }
-    const detail = typeof error.detail === 'string' ? error.detail : undefined;
-    throw new Error(detail || error.message || `API Error: ${response.status}`);
+    const detail = formatApiErrorDetail(error.detail);
+    const message = typeof error.message === 'string' ? error.message : undefined;
+    throw new Error(detail || message || `API Error: ${response.status}`);
   }
 
   if (response.status === 204) {

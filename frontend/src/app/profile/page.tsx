@@ -92,7 +92,7 @@ export default function ProfilePage() {
   const installCommand = status?.install_command || DEFAULT_INSTALL_COMMAND;
   const docsUrl = status?.docs_url || 'https://weread.qq.com/r/weread-skills';
   const canSave = apiKey.trim().length >= 8 && !saving;
-  const canSync = Boolean(status?.configured && status.sync_endpoint_configured) && !syncing;
+  const canSync = Boolean(status?.configured) && !syncing;
 
   const readiness = useMemo(() => {
     if (!status?.configured) {
@@ -340,7 +340,7 @@ export default function ProfilePage() {
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Button type="button" variant="success" onClick={handleSync} disabled={!canSync}>
                 {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                {status?.configured && !status.sync_endpoint_configured ? '等待同步服务' : '同步 50 条素材'}
+                {status?.configured && !status.sync_endpoint_configured ? '检查同步服务' : '同步 50 条素材'}
               </Button>
               {docsUrl && (
                 <a
@@ -398,7 +398,7 @@ export default function ProfilePage() {
           </div>
           <div className="mt-4 rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-xs leading-6 text-gray-500">
             后端同步入口通过环境变量 <span className="font-mono font-bold text-gray-700">WEREAD_SKILL_API_URL</span> 配置；
-            未配置时可以保存 Key，但同步按钮会返回明确错误。
+            未配置时可以保存 Key，点击同步会记录明确错误。
           </div>
         </Panel>
       </div>

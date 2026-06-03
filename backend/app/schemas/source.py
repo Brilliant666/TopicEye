@@ -6,6 +6,16 @@ from pydantic import BaseModel, Field, field_validator
 from app.models.source import SourceType, SourceStatus
 
 
+def normalize_source_url_value(value: str) -> str:
+    url = value.strip()
+    lower_url = url.lower()
+    if lower_url.startswith("http://"):
+        return "http://" + url[7:]
+    if lower_url.startswith("https://"):
+        return "https://" + url[8:]
+    raise ValueError("信源 URL 必须以 http:// 或 https:// 开头")
+
+
 class SourceCreate(BaseModel):
     name: str = Field(..., max_length=255)
     source_type: SourceType = SourceType.RSS
@@ -29,10 +39,7 @@ class SourceCreate(BaseModel):
     @field_validator("url")
     @classmethod
     def normalize_url(cls, value: str) -> str:
-        url = value.strip()
-        if not url.startswith(("http://", "https://")):
-            raise ValueError("信源 URL 必须以 http:// 或 https:// 开头")
-        return url
+        return normalize_source_url_value(value)
 
 
 class SourceUpdate(BaseModel):
@@ -64,10 +71,7 @@ class SourceUpdate(BaseModel):
     def normalize_url(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
-        url = value.strip()
-        if not url.startswith(("http://", "https://")):
-            raise ValueError("信源 URL 必须以 http:// 或 https:// 开头")
-        return url
+        return normalize_source_url_value(value)
 
 
 class SourceResponse(BaseModel):

@@ -18,6 +18,7 @@ from app.models.source import Source, SourceType, SourceStatus
 from app.schemas.source import (
     SourceCreate, SourceUpdate, SourceResponse, SourceListResponse,
     SourceReorderRequest, SyncResultResponse,
+    normalize_source_url_value,
 )
 from app.repositories.source_repo import SourceRepository
 from app.services.content_pipeline import ingest_from_source
@@ -100,7 +101,11 @@ def _as_source_item(raw: Any, default_category: str) -> Optional[dict]:
         or raw.get("xmlUrl")
         or raw.get("href")
     )
-    if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+    if not isinstance(url, str):
+        return None
+    try:
+        normalized_url = normalize_source_url_value(url)
+    except ValueError:
         return None
     name = (
         raw.get("name")
@@ -108,20 +113,20 @@ def _as_source_item(raw: Any, default_category: str) -> Optional[dict]:
         or raw.get("label")
         or raw.get("site")
         or raw.get("source")
-        or url
+        or normalized_url
     )
     category = raw.get("category") or raw.get("group") or raw.get("type") or default_category
     source_type = raw.get("source_type") or raw.get("sourceType")
     try:
-        parsed_type = SourceType(source_type) if source_type else _guess_source_type(url)
+        parsed_type = SourceType(source_type) if source_type else _guess_source_type(normalized_url)
     except ValueError:
-        parsed_type = _guess_source_type(url)
+        parsed_type = _guess_source_type(normalized_url)
     return {
-        "name": str(name).strip()[:255] or url,
-        "url": url.strip(),
+        "name": str(name).strip()[:255] or normalized_url,
+        "url": normalized_url,
         "source_type": parsed_type,
         "category": str(category).strip()[:100] or default_category,
-        "platform": raw.get("platform") or _guess_platform(url),
+        "platform": raw.get("platform") or _guess_platform(normalized_url),
     }
 
 
@@ -147,8 +152,9 @@ def _parse_source_batch(content: str, default_category: str) -> list[dict]:
         try:
             root = ET.fromstring(text.encode())
             for outline in root.findall(".//outline[@xmlUrl]"):
-                url = outline.get("xmlUrl", "").strip()
-                if not url:
+                try:
+                    url = normalize_source_url_value(outline.get("xmlUrl", ""))
+                except ValueError:
                     continue
                 sources.append({
                     "name": (outline.get("title") or outline.get("text") or url).strip()[:255],
@@ -166,24 +172,26 @@ def _parse_source_batch(content: str, default_category: str) -> list[dict]:
     except json.JSONDecodeError:
         pass
 
-    markdown_link_re = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+    markdown_link_re = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)", re.IGNORECASE)
     for name, url in markdown_link_re.findall(text):
+        url = normalize_source_url_value(url)
         sources.append({
             "name": name.strip()[:255],
-            "url": url.strip(),
+            "url": url,
             "source_type": _guess_source_type(url),
             "category": default_category,
             "platform": _guess_platform(url),
         })
 
-    line_url_re = re.compile(r"(?P<url>https?://[^\s)\]\"']+)")
+    line_url_re = re.compile(r"(?P<url>https?://[^\s)\]\"']+)", re.IGNORECASE)
     for line in text.splitlines():
         clean_line = line.strip(" -\t")
         match = line_url_re.search(clean_line)
         if not match:
             continue
-        url = match.group("url").rstrip(".,;")
-        name = clean_line.replace(url, "").strip(" :-—|") or url
+        raw_url = match.group("url").rstrip(".,;")
+        url = normalize_source_url_value(raw_url)
+        name = clean_line.replace(raw_url, "").strip(" :-—|") or url
         sources.append({
             "name": name[:255],
             "url": url,
@@ -330,8 +338,9 @@ async def import_opml(
     created = skipped = 0
 
     for outline in outlines:
-        feed_url = outline.get("xmlUrl", "").strip()
-        if not feed_url:
+        try:
+            feed_url = normalize_source_url_value(outline.get("xmlUrl", ""))
+        except ValueError:
             continue
         existing = await repo.get_one(Source.url == feed_url)
         if existing:

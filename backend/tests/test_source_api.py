@@ -143,6 +143,57 @@ def test_source_create_rejects_invalid_url_after_strip():
         SourceCreate(name="Bad", url="  ftp://example.com/feed.xml  ")
 
 
+def test_source_create_normalizes_uppercase_http_scheme():
+    source = SourceCreate(name="Upper", url=" HTTPS://example.com/feed.xml ")
+
+    assert source.url == "https://example.com/feed.xml"
+
+
+def test_parse_source_batch_normalizes_urls_and_skips_invalid_protocols():
+    content = """
+    [
+      {"title": "JSON Feed", "url": " HTTPS://example.com/feed.xml "},
+      {"title": "Bad Feed", "url": " ftp://example.com/feed.xml "}
+    ]
+    """
+
+    items = sources_api._parse_source_batch(content, "导入")
+
+    assert len(items) == 1
+    assert items[0]["name"] == "JSON Feed"
+    assert items[0]["url"] == "https://example.com/feed.xml"
+
+
+@pytest.mark.asyncio
+async def test_import_opml_normalizes_urls_and_skips_invalid_protocols(
+    sources_http_client: httpx.AsyncClient,
+):
+    opml = """<?xml version="1.0" encoding="UTF-8"?>
+    <opml version="2.0">
+      <body>
+        <outline text="Valid Feed" xmlUrl=" HTTPS://example.com/valid.xml "/>
+        <outline text="Invalid Feed" xmlUrl="ftp://example.com/invalid.xml"/>
+      </body>
+    </opml>
+    """
+
+    imported = await sources_http_client.post(
+        "/sources/import-opml",
+        files={"file": ("feeds.opml", opml, "text/xml")},
+    )
+    assert imported.status_code == 200
+    assert imported.json()["created"] == 1
+    assert imported.json()["skipped"] == 0
+    assert imported.json()["total"] == 2
+
+    listed = await sources_http_client.get("/sources?page=1&page_size=20")
+    assert listed.status_code == 200
+    payload = listed.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["name"] == "Valid Feed"
+    assert payload["items"][0]["url"] == "https://example.com/valid.xml"
+
+
 @pytest.mark.asyncio
 async def test_sync_source_error_state_persists_over_http(
     sources_http_client: httpx.AsyncClient,

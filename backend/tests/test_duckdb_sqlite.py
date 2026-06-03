@@ -20,16 +20,16 @@ if not os.path.exists(db_path):
     exit(1)
 
 try:
-    conn.execute(f"ATTACH '{db_path}' AS sqlite_db (TYPE SQLITE, READ_ONLY)")
+    conn.execute(f"ATTACH '{db_path}' AS oltp_db (TYPE SQLITE, READ_ONLY)")
     print(f"Attached {db_path} OK")
 except Exception as e:
     print(f"Attach failed: {e}")
     exit(1)
 
-# 3. List tables
+# 3. List attached OLTP tables
 try:
     tables = conn.execute(
-        "SELECT table_name FROM sqlite_db.sqlite_master() WHERE type='table'"
+        "SELECT table_name FROM information_schema.tables WHERE table_catalog='oltp_db'"
     ).fetchall()
     print(f"Tables: {[t[0] for t in tables]}")
 except Exception as e:
@@ -37,7 +37,7 @@ except Exception as e:
 
 # 4. Quick count
 try:
-    cnt = conn.execute("SELECT COUNT(*) FROM sqlite_db.content_items").fetchone()
+    cnt = conn.execute("SELECT COUNT(*) FROM oltp_db.content_items").fetchone()
     print(f"content_items count: {cnt[0]}")
 except Exception as e:
     print(f"Count query failed: {e}")
@@ -46,9 +46,9 @@ except Exception as e:
 try:
     row = conn.execute("""
         SELECT COUNT(*)
-        FROM sqlite_db.content_items c
-        LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
-        LEFT JOIN sqlite_db.sources s ON s.id = c.source_id
+        FROM oltp_db.content_items c
+        LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+        LEFT JOIN oltp_db.sources s ON s.id = c.source_id
         WHERE a.curation_score IS NOT NULL
     """).fetchone()
     print(f"Joined content with analysis: {row[0]} items")

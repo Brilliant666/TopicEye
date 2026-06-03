@@ -52,7 +52,7 @@ class DuckDBAnalytics:
             sqlite_domain_split_enabled=settings.DATABASE_SQLITE_DOMAIN_SPLIT_ENABLED,
             sqlite_domain_dir=settings.DATABASE_SQLITE_DOMAIN_DIR,
         )
-        self._attach_alias = "sqlite_db"
+        self._attach_alias = "oltp_db"
         self._available: Optional[bool] = None  # tri-state: None=unchecked
         self._last_error: Optional[str] = None
 
@@ -99,7 +99,7 @@ class DuckDBAnalytics:
             return self._available
         try:
             conn = self._get_conn()
-            conn.execute("SELECT 1 FROM sqlite_db.content_items LIMIT 1")
+            conn.execute("SELECT 1 FROM oltp_db.content_items LIMIT 1")
             self._available = True
             self._last_error = None
         except Exception as e:
@@ -164,9 +164,9 @@ class DuckDBAnalytics:
                     ELSE (COALESCE(a.creator_score, 0) + COALESCE(a.viral_score, 0)) / 2.0
                          + (COALESCE(s.weight, 3) - 3) * {weight_bonus}
                 END AS adjusted_curation_score
-            FROM sqlite_db.content_items c
-            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
-            LEFT JOIN sqlite_db.sources s ON s.id = c.source_id
+            FROM oltp_db.content_items c
+            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN oltp_db.sources s ON s.id = c.source_id
             WHERE c.crawled_at >= '{cutoff}'
               AND a.risk_score <= {risk_threshold}
               AND a.curation_score IS NOT NULL
@@ -217,7 +217,7 @@ class DuckDBAnalytics:
         conn = self._get_conn()
         results = conn.execute("""
             SELECT id, name, summary, keywords, best_score, content_count
-            FROM sqlite_db.topic_groups
+            FROM oltp_db.topic_groups
             ORDER BY best_score DESC
         """).fetchall()
 
@@ -241,7 +241,7 @@ class DuckDBAnalytics:
         results = conn.execute(f"""
             SELECT snapshot_date, topic_id, topic_name, content_count,
                    avg_score, max_score, pick_count, top_items
-            FROM sqlite_db.topic_trends
+            FROM oltp_db.topic_trends
             WHERE topic_id IS NOT NULL
               AND snapshot_date >= '{cutoff}'
             ORDER BY snapshot_date, topic_id
@@ -268,7 +268,7 @@ class DuckDBAnalytics:
 
         results = conn.execute(f"""
             SELECT keyword, SUM(content_count) AS total
-            FROM sqlite_db.topic_trends
+            FROM oltp_db.topic_trends
             WHERE keyword IS NOT NULL
               AND snapshot_date >= '{cutoff}'
             GROUP BY keyword
@@ -287,8 +287,8 @@ class DuckDBAnalytics:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
         rows = conn.execute(f"""
             SELECT a.curation_score
-            FROM sqlite_db.ai_analyses a
-            JOIN sqlite_db.content_items c ON c.id = a.content_id
+            FROM oltp_db.ai_analyses a
+            JOIN oltp_db.content_items c ON c.id = a.content_id
             WHERE c.crawled_at >= '{cutoff}'
               AND c.duplicate_of IS NULL
               AND a.curation_score > 0
@@ -311,14 +311,14 @@ class DuckDBAnalytics:
                 COUNT(c.id) AS total,
                 COUNT(CASE WHEN a.curation_score IS NOT NULL THEN c.id END) AS analyzed,
                 COUNT(CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated
-            FROM sqlite_db.content_items c
-            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            FROM oltp_db.content_items c
+            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
               AND c.duplicate_of IS NULL
         """).fetchone()
         today_row = conn.execute(f"""
             SELECT COUNT(c.id)
-            FROM sqlite_db.content_items c
+            FROM oltp_db.content_items c
             WHERE c.crawled_at >= '{today_start}'
               AND c.duplicate_of IS NULL
         """).fetchone()
@@ -342,9 +342,9 @@ class DuckDBAnalytics:
                 LOWER(COALESCE(CAST(s.source_type AS VARCHAR), 'unknown')) AS source_type,
                 COUNT(c.id) AS content_count,
                 COUNT(CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated_count
-            FROM sqlite_db.content_items c
-            LEFT JOIN sqlite_db.sources s ON s.id = c.source_id
-            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            FROM oltp_db.content_items c
+            LEFT JOIN oltp_db.sources s ON s.id = c.source_id
+            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
               AND c.duplicate_of IS NULL
             GROUP BY s.id, s.name, s.source_type
@@ -374,8 +374,8 @@ class DuckDBAnalytics:
                 COALESCE(c.category, '未分类') AS category,
                 COUNT(c.id) AS content_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_score
-            FROM sqlite_db.content_items c
-            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            FROM oltp_db.content_items c
+            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
               AND c.duplicate_of IS NULL
             GROUP BY c.category
@@ -403,8 +403,8 @@ class DuckDBAnalytics:
                 COUNT(c.id) AS content_count,
                 COUNT(CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated_count,
                 COUNT(CASE WHEN a.id IS NOT NULL THEN c.id END) AS analyzed_count
-            FROM sqlite_db.content_items c
-            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            FROM oltp_db.content_items c
+            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
               AND c.duplicate_of IS NULL
             GROUP BY CAST(c.crawled_at AS DATE)
@@ -427,15 +427,15 @@ class DuckDBAnalytics:
         conn = self._get_conn()
         fanqie = conn.execute("""
             SELECT COUNT(id), MAX(crawled_at)
-            FROM sqlite_db.fanqie_books
+            FROM oltp_db.fanqie_books
         """).fetchone()
         qimao = conn.execute("""
             SELECT COUNT(id), MAX(crawled_at)
-            FROM sqlite_db.qimao_books
+            FROM oltp_db.qimao_books
         """).fetchone()
         zhihu = conn.execute("""
             SELECT COUNT(id), MAX(updated_at)
-            FROM sqlite_db.zhihu_albums
+            FROM oltp_db.zhihu_albums
         """).fetchone()
 
         def fmt(value):
@@ -464,8 +464,8 @@ class DuckDBAnalytics:
                 MAX(a.curation_score) AS max_curation,
                 COUNT(DISTINCT c.topic_id) AS topic_count,
                 COUNT(CASE WHEN c.duplicate_of IS NOT NULL THEN 1 END) AS dup_count
-            FROM sqlite_db.content_items c
-            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            FROM oltp_db.content_items c
+            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
               AND a.risk_score <= 70
         """).fetchone()
@@ -491,8 +491,8 @@ class DuckDBAnalytics:
                 COUNT(DISTINCT CASE WHEN a.curation_score >= 70 THEN c.id END) AS total_curated,
                 ROUND(AVG(a.curation_score), 1) AS avg_curation,
                 COUNT(DISTINCT c.source_id) AS active_sources
-            FROM sqlite_db.content_items c
-            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            FROM oltp_db.content_items c
+            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
         """).fetchone()
 
@@ -504,9 +504,9 @@ class DuckDBAnalytics:
                 COUNT(DISTINCT c.id) AS content_count,
                 COUNT(DISTINCT CASE WHEN a.curation_score >= 70 THEN c.id END) AS curated_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_score
-            FROM sqlite_db.content_items c
-            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
-            LEFT JOIN sqlite_db.sources s ON s.id = c.source_id
+            FROM oltp_db.content_items c
+            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN oltp_db.sources s ON s.id = c.source_id
             WHERE c.crawled_at >= '{cutoff}'
             GROUP BY s.id, s.name, s.source_type
             HAVING COUNT(DISTINCT c.id) > 0
@@ -521,8 +521,8 @@ class DuckDBAnalytics:
                 COUNT(DISTINCT c.id) AS content_count,
                 COUNT(DISTINCT CASE WHEN a.curation_score >= 70 THEN c.id END) AS curated_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_curation
-            FROM sqlite_db.content_items c
-            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            FROM oltp_db.content_items c
+            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
             GROUP BY CAST(c.crawled_at AS DATE)
             ORDER BY crawl_date ASC
@@ -565,8 +565,8 @@ class DuckDBAnalytics:
             SELECT c.id, c.title, c.url, c.category, c.source_name, a.summary,
                    a.creator_score, a.viral_score, a.quality_score, a.risk_score,
                    a.recommended_reason
-            FROM sqlite_db.content_items c
-            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            FROM oltp_db.content_items c
+            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
               AND a.curation_score IS NOT NULL
             ORDER BY (COALESCE(a.creator_score, 0) + COALESCE(a.viral_score, 0)) DESC
@@ -603,8 +603,8 @@ class DuckDBAnalytics:
                    a.summary, a.creator_score, a.viral_score, a.quality_score,
                    a.risk_score, a.curation_score, a.tags, a.recommendation,
                    a.recommended_reason
-            FROM sqlite_db.content_items c
-            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            FROM oltp_db.content_items c
+            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
             WHERE CAST(c.crawled_at AS DATE) >= DATE '{start_date}'
               AND CAST(c.crawled_at AS DATE) <= DATE '{end_date}'
               AND a.curation_score IS NOT NULL

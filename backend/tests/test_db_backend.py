@@ -21,7 +21,7 @@ def test_sqlite_profile_and_duckdb_attach_sql(tmp_path):
     assert profile.sync_url.startswith("sqlite:///")
     assert profile.sqlite_path == str(db_path)
     assert duckdb_extension_name(profile) == "sqlite"
-    assert duckdb_attach_sql(profile) == f"ATTACH '{db_path}' AS sqlite_db (TYPE SQLITE, READ_ONLY)"
+    assert duckdb_attach_sql(profile) == f"ATTACH '{db_path}' AS oltp_db (TYPE SQLITE, READ_ONLY)"
 
     diagnostics = database_diagnostics(profile)
     assert diagnostics["oltp"] == {

@@ -99,7 +99,7 @@ async def test_duckdb_status_reports_database_diagnostics(
                 "available": True,
                 "backend": "sqlite",
                 "extension": "sqlite",
-                "attach_alias": "sqlite_db",
+                "attach_alias": "oltp_db",
                 "mode": "duckdb_attach_read_only",
                 "error": None,
             }

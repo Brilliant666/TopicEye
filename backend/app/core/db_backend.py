@@ -202,7 +202,7 @@ def redact_database_secrets(message: Optional[str], profile: DatabaseProfile) ->
     return redacted
 
 
-def duckdb_attach_sql(profile: DatabaseProfile, *, alias: str = "sqlite_db") -> str:
+def duckdb_attach_sql(profile: DatabaseProfile, *, alias: str = "oltp_db") -> str:
     """Return the DuckDB ATTACH statement for the configured OLTP backend."""
     if profile.is_sqlite:
         if not profile.sqlite_path or profile.sqlite_path == ":memory:":

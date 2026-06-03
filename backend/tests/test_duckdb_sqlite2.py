@@ -7,18 +7,11 @@ conn = duckdb.connect(":memory:")
 conn.execute("INSTALL sqlite; LOAD sqlite;")
 
 db_path = os.path.abspath("./topiceye.db")
-conn.execute(f"ATTACH '{db_path}' AS sqlite_db (TYPE SQLITE, READ_ONLY)")
+conn.execute(f"ATTACH '{db_path}' AS oltp_db (TYPE SQLITE, READ_ONLY)")
 
-# List tables via sqlite_query
+# List tables via information_schema
 try:
-    tables = conn.execute("SELECT name FROM sqlite_db.sqlite_query('SELECT name FROM sqlite_master WHERE type=\"table\"')").fetchall()
-    print(f"Tables via sqlite_query: {[t[0] for t in tables]}")
-except Exception as e:
-    print(f"sqlite_query failed: {e}")
-
-# Try show tables
-try:
-    tables = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_catalog='sqlite_db'").fetchall()
+    tables = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_catalog='oltp_db'").fetchall()
     print(f"Tables via information_schema: {[t[0] for t in tables]}")
 except Exception as e:
     print(f"information_schema failed: {e}")
@@ -26,7 +19,7 @@ except Exception as e:
 # Check individual tables
 for t in ['content_items', 'ai_analyses', 'sources', 'topic_groups', 'topic_trends']:
     try:
-        cnt = conn.execute(f"SELECT COUNT(*) FROM sqlite_db.{t}").fetchone()
+        cnt = conn.execute(f"SELECT COUNT(*) FROM oltp_db.{t}").fetchone()
         print(f"  {t}: {cnt[0]} rows")
     except Exception as e:
         print(f"  {t}: ERROR - {e}")
@@ -43,9 +36,9 @@ try:
                 WHEN a.curation_score > 0 THEN a.curation_score + (COALESCE(s.weight, 3) - 3) * 8
                 ELSE (COALESCE(a.creator_score, 0) + COALESCE(a.viral_score, 0)) / 2.0 + (COALESCE(s.weight, 3) - 3) * 8
             END AS adjusted_curation_score
-        FROM sqlite_db.content_items c
-        LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
-        LEFT JOIN sqlite_db.sources s ON s.id = c.source_id
+        FROM oltp_db.content_items c
+        LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+        LEFT JOIN oltp_db.sources s ON s.id = c.source_id
         WHERE a.curation_score IS NOT NULL
           AND a.risk_score <= 70
           AND c.duplicate_of IS NULL

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import async_session
+from app.core.database import async_session
 from app.services.creation import generate_creation_plan, PLATFORM_PROMPTS
 
 router = APIRouter(prefix="/creation", tags=["creation"])

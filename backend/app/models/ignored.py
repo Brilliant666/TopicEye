@@ -3,7 +3,7 @@ from typing import Optional
 from datetime import datetime
 from sqlalchemy import Integer, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from app.database import Base
+from app.core.database import Base
 
 class IgnoredItem(Base):
     __tablename__ = "ignored_items"

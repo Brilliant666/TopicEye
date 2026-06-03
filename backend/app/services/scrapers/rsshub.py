@@ -40,7 +40,7 @@ async def _load_instances_from_db(db=None) -> list[dict]:
 
     close_after = False
     if db is None:
-        from app.database import async_session
+        from app.core.database import async_session
         db = async_session()
         close_after = True
 

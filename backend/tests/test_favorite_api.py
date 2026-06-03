@@ -112,6 +112,46 @@ async def test_favorites_api_create_state_list_and_cache_invalidation(favorites_
 
 
 @pytest.mark.asyncio
+async def test_favorites_api_normalizes_text_identity_fields(favorites_client: httpx.AsyncClient):
+    blank_key = await favorites_client.post(
+        "/favorites",
+        json={
+            "target_type": "book",
+            "target_key": "     ",
+            "title": "空白目标键样本",
+        },
+    )
+    assert blank_key.status_code == 422
+    assert "target_id or target_key is required" in str(blank_key.json()["detail"])
+
+    created = await favorites_client.post(
+        "/favorites",
+        json={
+            "target_type": "book",
+            "target_key": "  fanqie:normalized  ",
+            "title": "  归一化收藏样本  ",
+            "url": "  https://example.com/book/normalized  ",
+            "source_name": "  番茄小说  ",
+            "note": "  先看开篇  ",
+        },
+    )
+    assert created.status_code == 201
+    payload = created.json()
+    assert payload["target_key"] == "fanqie:normalized"
+    assert payload["title"] == "归一化收藏样本"
+    assert payload["url"] == "https://example.com/book/normalized"
+    assert payload["source_name"] == "番茄小说"
+    assert payload["note"] == "先看开篇"
+
+    cleared_note = await favorites_client.patch(
+        f"/favorites/{payload['id']}",
+        json={"note": "    "},
+    )
+    assert cleared_note.status_code == 200
+    assert cleared_note.json()["note"] is None
+
+
+@pytest.mark.asyncio
 async def test_favorites_api_reorder_persists_board_order(favorites_client: httpx.AsyncClient):
     created = []
     for key, title in [

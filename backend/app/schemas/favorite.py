@@ -3,9 +3,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.favorite import FavoriteStatus, FavoriteTargetType
+
+
+def normalize_optional_text(value):
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    return cleaned or None
 
 
 class FavoriteCreate(BaseModel):
@@ -28,6 +35,11 @@ class FavoriteCreate(BaseModel):
             raise ValueError("target_id or target_key is required")
         return self
 
+    @field_validator("target_key", "title", "url", "cover_url", "source_name", "note", mode="before")
+    @classmethod
+    def normalize_text_fields(cls, value):
+        return normalize_optional_text(value)
+
 
 class FavoriteUpdate(BaseModel):
     collection_id: Optional[int] = None
@@ -35,6 +47,11 @@ class FavoriteUpdate(BaseModel):
     note: Optional[str] = None
     status: Optional[FavoriteStatus] = None
     snapshot: Optional[dict[str, Any]] = None
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def normalize_text_fields(cls, value):
+        return normalize_optional_text(value)
 
 
 class FavoriteReorderRequest(BaseModel):

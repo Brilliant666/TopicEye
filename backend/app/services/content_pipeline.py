@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy import select, text
@@ -99,11 +101,7 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
         scraper = scraper_cls(source_url=source.url, source_config=source_config)
 
         # ── Step 2: Fetch ────────────────────────────────────────────
-        import os
-        proxy_url = os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
-        client_kwargs = {"timeout": 30, "follow_redirects": True}
-        if proxy_url:
-            client_kwargs["proxy"] = proxy_url
+        client_kwargs = _build_http_client_kwargs(source.url)
         fetch_started_at = time.perf_counter()
         async with httpx.AsyncClient(**client_kwargs) as client:
             entries = await scraper.fetch(client)
@@ -203,7 +201,7 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
 
     except Exception as exc:
         logger.exception("Error ingesting source %s (%d)", source.name, source.id)
-        _update_source_error(source, str(exc))
+        _update_source_error(source, str(exc) or exc.__class__.__name__)
         await db.flush()
 
     return {"fetched": fetched_count, "new": new_count, "duplicates": duplicate_count}
@@ -221,8 +219,21 @@ def _update_source_error(source: Source, message: str) -> None:
     """Record a failed sync attempt without causing immediate retry loops."""
     source.last_sync_at = datetime.utcnow()
     source.status = SourceStatus.ERROR
-    source.sync_error = message[:500]
+    source.sync_error = (message.strip() or "信源同步失败")[:500]
     source.updated_at = datetime.utcnow()
+
+
+def _build_http_client_kwargs(source_url: str) -> dict[str, Any]:
+    client_kwargs: dict[str, Any] = {"timeout": 30, "follow_redirects": True, "trust_env": False}
+    proxy_url = os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
+    if proxy_url and not _is_loopback_url(source_url):
+        client_kwargs["proxy"] = proxy_url
+    return client_kwargs
+
+
+def _is_loopback_url(source_url: str) -> bool:
+    host = (urlparse(source_url).hostname or "").lower()
+    return host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or host.startswith("127.")
 
 
 async def _increment_category_counts(db: AsyncSession, counts: dict[str, int]) -> None:

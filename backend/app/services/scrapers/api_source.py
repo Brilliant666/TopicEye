@@ -20,7 +20,7 @@ source_config examples:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 
@@ -74,7 +74,7 @@ def _parse_datetime(value: Any) -> datetime:
     return datetime.utcnow()
 
 
-def _to_list(payload: Any, items_path: str | None) -> list[dict]:
+def _to_list(payload: Any, items_path: Optional[str]) -> list[dict]:
     value = _get_path(payload, items_path) if items_path else payload
     if isinstance(value, list):
         return [item for item in value if isinstance(item, dict)]

@@ -30,6 +30,17 @@ from app.services.json_cache import invalidate_json_cache
 router = APIRouter(prefix="/favorites", tags=["favorites"])
 
 
+def _favorite_cache_hit_response(content: bytes, age_seconds: float) -> Response:
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={
+            "X-Favorites-Cache": "HIT",
+            "X-Favorites-Cache-Age-Ms": str(round(age_seconds * 1000, 3)),
+        },
+    )
+
+
 @router.get("", response_model=FavoriteListResponse)
 async def list_favorites(
     page: int = Query(1, ge=1),
@@ -42,11 +53,7 @@ async def list_favorites(
     cached = get_cached_json(cache_key)
     if cached:
         content, age_seconds = cached
-        return Response(
-            content=content,
-            media_type="application/json",
-            headers={"X-Favorites-Cache": f"HIT; age={age_seconds:.3f}s"},
-        )
+        return _favorite_cache_hit_response(content, age_seconds)
 
     async with async_session() as db:
         items, total = await FavoriteRepo(db).list_paginated(
@@ -97,11 +104,7 @@ async def favorite_state(
     cached = get_cached_json(cache_key)
     if cached:
         content, age_seconds = cached
-        return Response(
-            content=content,
-            media_type="application/json",
-            headers={"X-Favorites-Cache": f"HIT; age={age_seconds:.3f}s"},
-        )
+        return _favorite_cache_hit_response(content, age_seconds)
 
     try:
         ids = [int(item) for item in target_ids.split(",") if item.strip()] if target_ids else None

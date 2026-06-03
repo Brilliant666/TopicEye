@@ -64,19 +64,27 @@ async def test_favorites_api_create_state_list_and_cache_invalidation(favorites_
     state = await favorites_client.get("/favorites/state?target_type=book&target_keys=fanqie:1001,missing")
     assert state.status_code == 200
     assert state.headers["x-favorites-cache"] == "MISS"
+    assert "x-favorites-cache-age-ms" not in state.headers
     assert state.json()["items"] == [
         {"target_key": "fanqie:1001", "is_favorited": True, "favorite_id": favorite_id},
         {"target_key": "missing", "is_favorited": False, "favorite_id": None},
     ]
 
+    cached_state = await favorites_client.get("/favorites/state?target_type=book&target_keys=fanqie:1001,missing")
+    assert cached_state.status_code == 200
+    assert cached_state.headers["x-favorites-cache"] == "HIT"
+    assert float(cached_state.headers["x-favorites-cache-age-ms"]) >= 0
+
     first_list = await favorites_client.get("/favorites?page=1&page_size=20")
     assert first_list.status_code == 200
     assert first_list.headers["x-favorites-cache"] == "MISS"
+    assert "x-favorites-cache-age-ms" not in first_list.headers
     assert first_list.json()["total"] == 1
 
     second_list = await favorites_client.get("/favorites?page=1&page_size=20")
     assert second_list.status_code == 200
-    assert second_list.headers["x-favorites-cache"].startswith("HIT;")
+    assert second_list.headers["x-favorites-cache"] == "HIT"
+    assert float(second_list.headers["x-favorites-cache-age-ms"]) >= 0
 
     updated = await favorites_client.patch(
         f"/favorites/{favorite_id}",

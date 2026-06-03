@@ -107,8 +107,12 @@ Docker Compose 内部仍使用 `backend:8000`，不受本地开发端口影响�
 
 ### 数据库
 
-- 后端首次启动会自动创建 `topiceye.db` 并初始化表结构
-- 如需重置：停止后端，删除 `backend/topiceye.db`，重启后端
+- 默认 OLTP 数据库为 SQLite：`sqlite+aiosqlite:///./topiceye.db`
+- 可通过 `DATABASE_URL` 切换 PostgreSQL，例如：
+  `postgresql+asyncpg://topiceye:password@127.0.0.1:5432/topiceye`
+- DuckDB 固定作为分析层，启动后以 READ_ONLY 方式 ATTACH 当前 OLTP 数据库，不作为写入数据库
+- 健康检查会返回 `database.oltp` 与 `database.analytics`，用于确认当前 OLTP 后端和 DuckDB 分析层状态
+- 如需重置本地 SQLite：停止后端，删除 `backend/topiceye.db`，重启后端
 
 ### 手动触发数据抓取
 

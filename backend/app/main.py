@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.database import Base, async_session, database_profile, engine
+from app.core.db_backend import database_diagnostics
 from app.core.sqlite_retry import is_sqlite_locked, retry_sqlite_locked
 from app.api.v1.router import router as v1_router
 from app.scheduler import start_scheduler, shutdown_scheduler
@@ -557,6 +558,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 @app.get("/health", tags=["health"])
 async def health_check():
+    diagnostics = database_diagnostics(database_profile)
     try:
         from app.services.duckdb_service import get_analytics
 
@@ -569,6 +571,7 @@ async def health_check():
         "service": "topiceye-backend",
         "database": {
             "backend": database_profile.backend,
+            **diagnostics,
             "duckdb": duckdb_status,
         },
     }

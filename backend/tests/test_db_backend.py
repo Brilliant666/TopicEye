@@ -1,6 +1,7 @@
 from app.core.db_backend import (
     create_database_profile,
     database_backend,
+    database_diagnostics,
     duckdb_attach_sql,
     duckdb_extension_name,
     sqlite_domain_urls,
@@ -21,6 +22,22 @@ def test_sqlite_profile_and_duckdb_attach_sql(tmp_path):
     assert duckdb_extension_name(profile) == "sqlite"
     assert duckdb_attach_sql(profile) == f"ATTACH '{db_path}' AS sqlite_db (TYPE SQLITE, READ_ONLY)"
 
+    diagnostics = database_diagnostics(profile)
+    assert diagnostics["oltp"] == {
+        "backend": "sqlite",
+        "async_driver": "aiosqlite",
+        "sync_driver": "sqlite",
+        "sqlite_path": str(db_path),
+        "sqlite_domain_split_enabled": False,
+        "sqlite_domain_count": 0,
+    }
+    assert diagnostics["analytics"] == {
+        "backend": "duckdb",
+        "attach_source": "sqlite",
+        "attach_mode": "read_only",
+        "extension": "sqlite",
+    }
+
 
 def test_postgresql_profile_and_duckdb_attach_sql():
     url = "postgresql+asyncpg://topiceye:secret@localhost:5432/topiceye"
@@ -37,6 +54,19 @@ def test_postgresql_profile_and_duckdb_attach_sql():
     assert "dbname=topiceye" in attach_sql
     assert "user=topiceye" in attach_sql
     assert "password=secret" in attach_sql
+
+    diagnostics = database_diagnostics(profile)
+    assert diagnostics["oltp"]["backend"] == "postgresql"
+    assert diagnostics["oltp"]["async_driver"] == "asyncpg"
+    assert diagnostics["oltp"]["sync_driver"] == "postgresql"
+    assert diagnostics["oltp"]["sqlite_path"] is None
+    assert diagnostics["analytics"] == {
+        "backend": "duckdb",
+        "attach_source": "postgresql",
+        "attach_mode": "read_only",
+        "extension": "postgres",
+    }
+    assert "secret" not in str(diagnostics)
 
 
 def test_sqlite_domain_urls_are_explicit_opt_in(tmp_path):

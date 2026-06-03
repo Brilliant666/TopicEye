@@ -13,6 +13,7 @@ from app.api.v1 import settings as settings_api
 from app.core.database import Base
 from app.models.app_setting import DEFAULT_RSSHUB_INSTANCES
 from app.services import notification_service
+from app.services import duckdb_service
 
 
 @pytest_asyncio.fixture
@@ -84,6 +85,37 @@ async def test_rsshub_settings_read_validate_and_update(settings_notifications_c
             "note": "测试实例",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_duckdb_status_reports_database_diagnostics(
+    settings_notifications_client: httpx.AsyncClient,
+    monkeypatch,
+):
+    class FakeAnalytics:
+        def status(self):
+            return {
+                "status": "ok",
+                "available": True,
+                "backend": "sqlite",
+                "extension": "sqlite",
+                "attach_alias": "sqlite_db",
+                "mode": "duckdb_attach_read_only",
+                "error": None,
+            }
+
+    monkeypatch.setattr(duckdb_service, "get_analytics", lambda: FakeAnalytics())
+
+    response = await settings_notifications_client.get("/settings/duckdb/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["available"] is True
+    assert payload["database"]["oltp"]["backend"] == "sqlite"
+    assert payload["database"]["analytics"]["backend"] == "duckdb"
+    assert payload["database"]["analytics"]["attach_mode"] == "read_only"
+    assert payload["note"] == "No sync needed; DuckDB reads the configured OLTP backend directly."
 
 
 @pytest.mark.asyncio

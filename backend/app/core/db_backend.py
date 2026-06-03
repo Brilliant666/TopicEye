@@ -151,6 +151,30 @@ def sqlalchemy_connect_args(profile: DatabaseProfile) -> dict:
     return {}
 
 
+def database_diagnostics(profile: DatabaseProfile) -> dict:
+    """Return a safe database diagnostics payload for health endpoints."""
+    analytics = {
+        "backend": "duckdb",
+        "attach_source": profile.backend,
+        "attach_mode": "read_only",
+        "extension": None,
+    }
+    if profile.is_sqlite or profile.is_postgresql:
+        analytics["extension"] = duckdb_extension_name(profile)
+
+    return {
+        "oltp": {
+            "backend": profile.backend,
+            "async_driver": profile.async_driver,
+            "sync_driver": make_url(profile.sync_url).drivername,
+            "sqlite_path": profile.sqlite_path if profile.is_sqlite else None,
+            "sqlite_domain_split_enabled": bool(profile.sqlite_domain_urls),
+            "sqlite_domain_count": len(profile.sqlite_domain_urls),
+        },
+        "analytics": analytics,
+    }
+
+
 def duckdb_attach_sql(profile: DatabaseProfile, *, alias: str = "sqlite_db") -> str:
     """Return the DuckDB ATTACH statement for the configured OLTP backend."""
     if profile.is_sqlite:

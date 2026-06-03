@@ -11,7 +11,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
+from app.core.database import database_profile, get_db
+from app.core.db_backend import database_diagnostics
 from app.models.app_setting import AppSetting
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -97,19 +98,21 @@ async def update_rsshub_instances(
 async def duckdb_status():
     """Get DuckDB analytical layer status.
 
-    The current architecture uses DuckDB in-memory with SQLite ATTACH (READ_ONLY).
-    No sync step is needed — DuckDB queries always see fresh SQLite data.
+    DuckDB runs in memory and attaches the configured OLTP database read-only.
+    No sync step is needed; analytics reads current OLTP data directly.
     """
     try:
         from app.services.duckdb_service import get_analytics
         analytics = get_analytics()
         status = analytics.status()
         available = status["available"]
+        diagnostics = database_diagnostics(database_profile)
         return {
             **status,
             "status": "ok" if available else "unavailable",
+            "database": diagnostics,
             "architecture": "in-memory DuckDB + OLTP ATTACH (READ_ONLY)",
-            "note": "No sync needed — DuckDB reads SQLite directly." if available
+            "note": "No sync needed; DuckDB reads the configured OLTP backend directly." if available
                     else "DuckDB package or required extension is unavailable. App falls back to SQLAlchemy.",
         }
     except Exception as e:

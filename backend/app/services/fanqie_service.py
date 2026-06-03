@@ -14,7 +14,7 @@ import httpx
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import async_session
+from app.core.database import async_session
 from app.models.fanqie import FanqieCategory, FanqieBook, FanqieRankSnapshot
 from app.services.fanqie_text_decoder import clean_books
 

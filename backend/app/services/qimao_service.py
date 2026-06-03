@@ -12,7 +12,7 @@ from typing import Optional, Literal
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import async_session
+from app.core.database import async_session
 from app.models.qimao import QimaoBook
 from app.services.qimao_scraper import fetch_list_data, fetch_all_ranks
 

@@ -9,7 +9,7 @@ from typing import Optional, Literal
 from sqlalchemy import String, Integer, DateTime, Text, Index, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.core.database import Base
 
 
 class QimaoBook(Base):

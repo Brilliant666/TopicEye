@@ -8,7 +8,7 @@ from fastapi import APIRouter, Query, Depends, BackgroundTasks
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.core.database import get_db
 from app.models.qimao import QimaoBook
 
 router = APIRouter(prefix="/qimao", tags=["qimao"])

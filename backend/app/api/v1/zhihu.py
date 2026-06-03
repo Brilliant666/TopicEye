@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Query, BackgroundTasks
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_db
+from app.core.database import get_db
 from app.models.zhihu import ZhihuAlbum, ZhihuCategory
 
 router = APIRouter(prefix='/zhihu', tags=['知乎'])

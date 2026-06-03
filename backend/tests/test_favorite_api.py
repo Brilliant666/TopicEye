@@ -134,3 +134,41 @@ async def test_favorites_api_reorder_persists_board_order(favorites_client: http
     payload = listed.json()
     assert [item["id"] for item in payload["items"]] == ordered_ids
     assert [item["position"] for item in payload["items"]] == [1000, 2000, 3000]
+
+
+@pytest.mark.asyncio
+async def test_favorites_api_reorder_normalizes_unsubmitted_status_items(favorites_client: httpx.AsyncClient):
+    created = []
+    for index in range(4):
+        response = await favorites_client.post(
+            "/favorites",
+            json={
+                "target_type": "book",
+                "target_key": f"book:partial:{index}",
+                "title": f"部分排序样本 {index}",
+            },
+        )
+        assert response.status_code == 201
+        created.append(response.json())
+
+    ordered_ids = [created[2]["id"], created[0]["id"]]
+    reordered = await favorites_client.post(
+        "/favorites/reorder",
+        json={"status": "inbox", "ordered_ids": ordered_ids},
+    )
+
+    assert reordered.status_code == 200
+    payload = reordered.json()
+    assert [item["id"] for item in payload] == [
+        created[2]["id"],
+        created[0]["id"],
+        created[3]["id"],
+        created[1]["id"],
+    ]
+    assert [item["position"] for item in payload] == [1000, 2000, 3000, 4000]
+
+    listed = await favorites_client.get("/favorites?page=1&page_size=20&status=inbox")
+    assert listed.status_code == 200
+    items = listed.json()["items"]
+    assert [item["id"] for item in items] == [item["id"] for item in payload]
+    assert [item["position"] for item in items] == [1000, 2000, 3000, 4000]

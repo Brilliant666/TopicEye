@@ -196,15 +196,29 @@ class FavoriteRepo:
         if missing_ids:
             raise LookupError(f"Favorite not found: {missing_ids[0]}")
 
+        tail_result = await self.db.execute(
+            select(FavoriteItem)
+            .where(
+                FavoriteItem.status == status,
+                FavoriteItem.id.notin_(unique_ids),
+            )
+            .order_by(
+                FavoriteItem.position.asc(),
+                FavoriteItem.updated_at.desc(),
+                FavoriteItem.id.desc(),
+            )
+        )
+        tail_items = list(tail_result.scalars().all())
+        ordered_items = [by_id[item_id] for item_id in unique_ids] + tail_items
+
         now = datetime.utcnow()
-        for index, item_id in enumerate(unique_ids):
-            item = by_id[item_id]
+        for index, item in enumerate(ordered_items):
             item.status = status
             item.position = (index + 1) * 1000
             item.updated_at = now
 
         await self.db.flush()
-        return [by_id[item_id] for item_id in unique_ids]
+        return ordered_items
 
     async def state_for_targets(
         self,

@@ -92,6 +92,7 @@ export default function ProfilePage() {
   const installCommand = status?.install_command || DEFAULT_INSTALL_COMMAND;
   const docsUrl = status?.docs_url || 'https://weread.qq.com/r/weread-skills';
   const canSave = apiKey.trim().length >= 8 && !saving;
+  const canSync = Boolean(status?.configured && status.sync_endpoint_configured) && !syncing;
 
   const readiness = useMemo(() => {
     if (!status?.configured) {
@@ -160,7 +161,7 @@ export default function ProfilePage() {
   };
 
   const handleSync = async () => {
-    if (syncing) return;
+    if (!canSync) return;
     setSyncing(true);
     setError(null);
     setNotice(null);
@@ -337,9 +338,9 @@ export default function ProfilePage() {
             </form>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <Button type="button" variant="success" onClick={handleSync} disabled={syncing || !status?.configured}>
+              <Button type="button" variant="success" onClick={handleSync} disabled={!canSync}>
                 {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                同步 50 条素材
+                {status?.configured && !status.sync_endpoint_configured ? '等待同步服务' : '同步 50 条素材'}
               </Button>
               {docsUrl && (
                 <a

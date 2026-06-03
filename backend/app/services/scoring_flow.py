@@ -382,6 +382,14 @@ def build_sample_payload(
         "url": item.url,
         "source_name": item.source_name,
         "category": item.category or "未分类",
+        "summary": first_text(getattr(item, "ai_summary", None), getattr(item, "summary", None)),
+        "recommendation": first_text(
+            getattr(item, "recommendation", None),
+            getattr(item, "recommended_reason", None),
+        ),
+        "tags": string_list(getattr(item, "analysis_tags", None)) or string_list(getattr(item, "tags", None)),
+        "creator_angles": string_list(getattr(item, "creator_angles", None)),
+        "is_favorited": bool(getattr(item, "is_favorited", False)),
         "selected": breakdown.selected,
         "final_score": breakdown.final_score,
         "threshold_used": breakdown.threshold_used,
@@ -394,3 +402,35 @@ def build_sample_payload(
         "feedback_score": feedback_scores.get(item.id, 0),
         "dimension_scores": breakdown.dimension_scores,
     }
+
+
+def first_text(*values: Optional[str]) -> Optional[str]:
+    for value in values:
+        if value and value.strip():
+            return value.strip()
+    return None
+
+
+def string_list(value: Any) -> list[str]:
+    items: list[str] = []
+
+    def visit(raw: Any) -> None:
+        if raw is None:
+            return
+        if isinstance(raw, str):
+            items.extend(part.strip() for part in raw.split(",") if part.strip())
+            return
+        if isinstance(raw, dict):
+            for child in raw.values():
+                visit(child)
+            return
+        if isinstance(raw, (list, tuple, set)):
+            for child in raw:
+                visit(child)
+            return
+        text = str(raw).strip()
+        if text:
+            items.append(text)
+
+    visit(value)
+    return list(dict.fromkeys(items))

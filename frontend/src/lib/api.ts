@@ -408,6 +408,11 @@ export interface ScoringFlowSample {
   url: string;
   source_name: string | null;
   category: string;
+  summary?: string | null;
+  recommendation?: string | null;
+  tags?: string[];
+  creator_angles?: string[];
+  is_favorited?: boolean;
   selected: boolean;
   final_score: number;
   threshold_used: number;

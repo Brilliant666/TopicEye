@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from sqlalchemy import select, update, func, exists
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,9 +35,17 @@ class ScoringContentRow:
     source_id: Optional[int]
     source_name: Optional[str]
     category: Optional[str]
+    summary: Optional[str]
+    tags: Optional[Any]
+    is_favorited: bool
     published_at: Optional[datetime]
     crawled_at: datetime
     source_weight_db: int
+    ai_summary: Optional[str]
+    recommendation: Optional[str]
+    recommended_reason: Optional[str]
+    analysis_tags: Optional[Any]
+    creator_angles: Optional[Any]
     curation_score: Optional[float]
     info_density: Optional[float]
     actionability: Optional[float]
@@ -504,9 +512,17 @@ class ContentRepo(BaseRepository[ContentItem]):
                 self.model.source_id,
                 self.model.source_name,
                 self.model.category,
+                self.model.summary,
+                self.model.tags,
+                self.model.is_favorited,
                 self.model.published_at,
                 self.model.crawled_at,
                 func.coalesce(Source.weight, 3).label("source_weight_db"),
+                AiAnalysis.summary.label("ai_summary"),
+                AiAnalysis.recommendation,
+                AiAnalysis.recommended_reason,
+                AiAnalysis.tags.label("analysis_tags"),
+                AiAnalysis.creator_angles,
                 AiAnalysis.curation_score,
                 AiAnalysis.info_density,
                 AiAnalysis.actionability,

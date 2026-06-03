@@ -2,14 +2,16 @@
 
 import {
   AlertTriangle,
+  Bookmark,
+  BookmarkCheck,
   CheckCircle2,
   ExternalLink,
   Filter,
   GitBranch,
   Minus,
+  PenLine,
   Plus,
   RefreshCw,
-  ShieldAlert,
   SlidersHorizontal,
   TimerReset,
 } from 'lucide-react';
@@ -71,7 +73,7 @@ function emptyReasonText(reason?: string) {
   const map: Record<string, { title: string; detail: string; action: string }> = {
     no_analyzed_content: {
       title: '还没有可评分内容',
-      detail: '评分流程只读取已完成分析的内容。当前数据库里没有 ANALYZED 状态的内容。',
+      detail: '评分流程只读取已经写入 AI 分析结果的内容。当前数据库里还没有可用于评分的分析记录。',
       action: '先同步信源并运行内容分析，再回到这里查看评分路径。',
     },
     collected_not_analyzed: {
@@ -552,11 +554,19 @@ export function SampleList({
 export function PathPanel({
   sample,
   onFeedback,
+  onFavorite,
+  onCreate,
   feedbacking,
+  favoritePending = false,
+  createPending = false,
 }: {
   sample?: ScoringFlowSample;
   onFeedback: (sample: ScoringFlowSample, type: FeedbackType) => void;
+  onFavorite: (sample: ScoringFlowSample) => void;
+  onCreate: (sample: ScoringFlowSample) => void;
   feedbacking: boolean;
+  favoritePending?: boolean;
+  createPending?: boolean;
 }) {
   const dims = sample?.dimension_scores || {};
   const dimRows = [
@@ -594,6 +604,68 @@ export function PathPanel({
                 <ExternalLink size={16} />
               </a>
             )}
+          </div>
+
+          <div className="mb-4 rounded-sm border border-primary-border bg-primary-light p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-xs font-black text-gray-800">创作上下文</div>
+              {sample.tags?.length ? (
+                <div className="flex max-w-[180px] flex-wrap justify-end gap-1">
+                  {sample.tags.slice(0, 3).map((tag) => (
+                    <Badge key={tag} tone="primary" className="rounded-xs bg-white px-1.5 py-0.5 text-[10px]">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <div className="space-y-2 text-xs leading-6 text-gray-700">
+              {sample.recommendation && (
+                <p className="m-0">
+                  <span className="font-black text-primary">推荐理由：</span>
+                  {sample.recommendation}
+                </p>
+              )}
+              {sample.summary && (
+                <p className="m-0">
+                  <span className="font-black text-gray-900">摘要：</span>
+                  {sample.summary}
+                </p>
+              )}
+              {sample.creator_angles?.length ? (
+                <div>
+                  <div className="mb-1 font-black text-gray-900">可写角度</div>
+                  <div className="space-y-1">
+                    {sample.creator_angles.slice(0, 2).map((angle) => (
+                      <div key={angle} className="rounded-xs bg-white/80 px-2 py-1 text-[11px] font-bold text-gray-600">
+                        {angle}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {!sample.recommendation && !sample.summary && !sample.creator_angles?.length && (
+                <div className="text-gray-500">暂无摘要，建议先打开原文或补跑内容分析。</div>
+              )}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Button
+                variant={sample.is_favorited ? 'success' : 'secondary'}
+                disabled={favoritePending}
+                onClick={() => onFavorite(sample)}
+              >
+                {sample.is_favorited ? <BookmarkCheck size={13} /> : <Bookmark size={13} />}
+                {sample.is_favorited ? '已收藏' : '收藏'}
+              </Button>
+              <Button
+                variant="primary"
+                disabled={createPending}
+                onClick={() => onCreate(sample)}
+              >
+                <PenLine size={13} />
+                进入创作台
+              </Button>
+            </div>
           </div>
 
           <div className="mb-4 grid grid-cols-3 gap-2.5">

@@ -160,16 +160,29 @@ function withSavedCreationPlan(item: FavoriteItem, platform: string, plan: Creat
   };
 }
 
+function getInitialFavoriteFilters() {
+  if (typeof window === 'undefined') {
+    return { targetType: '' as FavoriteTargetType | '', status: '' as FavoriteStatus | '', keyword: '' };
+  }
+  const params = new URLSearchParams(window.location.search);
+  return {
+    targetType: (params.get('target_type') || '') as FavoriteTargetType | '',
+    status: (params.get('status') || '') as FavoriteStatus | '',
+    keyword: params.get('keyword') || '',
+  };
+}
+
 export default function FavoritesPage() {
   const { refreshCounts } = useAppContext();
+  const initialFilters = useMemo(() => getInitialFavoriteFilters(), []);
   const [items, setItems] = useState<FavoriteItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [targetType, setTargetType] = useState<FavoriteTargetType | ''>('');
-  const [status, setStatus] = useState<FavoriteStatus | ''>('');
-  const [keyword, setKeyword] = useState('');
-  const [draftKeyword, setDraftKeyword] = useState('');
+  const [targetType, setTargetType] = useState<FavoriteTargetType | ''>(initialFilters.targetType);
+  const [status, setStatus] = useState<FavoriteStatus | ''>(initialFilters.status);
+  const [keyword, setKeyword] = useState(initialFilters.keyword);
+  const [draftKeyword, setDraftKeyword] = useState(initialFilters.keyword);
   const [pendingId, setPendingId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkPending, setBulkPending] = useState(false);

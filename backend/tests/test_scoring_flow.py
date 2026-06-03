@@ -43,6 +43,22 @@ class _Content:
     category = "AI"
 
 
+class _RichContent:
+    id = 1
+    title = "可创作内容"
+    url = "https://example.com/rich"
+    source_name = "AIHOT"
+    category = "AI"
+    summary = "原始摘要"
+    tags = ["备用标签"]
+    is_favorited = True
+    ai_summary = "AI 摘要"
+    recommendation = "中文推荐理由"
+    recommended_reason = "备用推荐理由"
+    analysis_tags = {"primary": ["AI", "Grok"], "secondary": "远程办公"}
+    creator_angles = {"angles": ["拆解岗位要求", "延展远程办公趋势"]}
+
+
 def test_build_stage_counts_uses_consistent_funnel_keys():
     scored = [
         (_breakdown(1), _scoring_input(1)),
@@ -93,6 +109,29 @@ def test_build_sample_payload_keeps_breakdown_and_feedback_fields():
     assert sample["source_name"] == "知乎"
     assert sample["feedback_score"] == 20.0
     assert sample["dimension_scores"] == {"info_density": 20}
+    assert sample["summary"] is None
+    assert sample["recommendation"] is None
+    assert sample["tags"] == []
+    assert sample["creator_angles"] == []
+    assert sample["is_favorited"] is False
+
+
+def test_build_sample_payload_includes_creator_context_fields():
+    breakdown = _breakdown(1)
+    scoring_input = _scoring_input(1)
+
+    sample = build_sample_payload(
+        breakdown,
+        scoring_input,
+        {1: _RichContent()},
+        {1: 20.0},
+    )
+
+    assert sample["summary"] == "AI 摘要"
+    assert sample["recommendation"] == "中文推荐理由"
+    assert sample["tags"] == ["AI", "Grok", "远程办公"]
+    assert sample["creator_angles"] == ["拆解岗位要求", "延展远程办公趋势"]
+    assert sample["is_favorited"] is True
 
 
 def test_build_diagnostics_explains_empty_window():

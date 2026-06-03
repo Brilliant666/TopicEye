@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAppContext } from '@/components/ClientLayout';
 import { analysesApi, contentsApi, feedbackApi, type FeedbackType, type ScoringFlowResponse, type ScoringFlowSample } from '@/lib/api';
 import {
   AlgorithmHeader,
@@ -29,12 +31,15 @@ function selectedStageKey(sample?: ScoringFlowSample) {
 }
 
 export default function AlgorithmPage() {
+  const router = useRouter();
+  const { favorites, favoritePendingIds, toggleFavorite } = useAppContext();
   const [hours, setHours] = useState(DEFAULT_HOURS);
   const [data, setData] = useState<ScoringFlowResponse | null>(null);
   const [selected, setSelected] = useState<ScoringFlowSample | undefined>();
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [feedbacking, setFeedbacking] = useState(false);
+  const [createPendingId, setCreatePendingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fallbackNotice, setFallbackNotice] = useState<string | null>(null);
   const [analysisNotice, setAnalysisNotice] = useState<string | null>(null);
@@ -119,7 +124,51 @@ export default function AlgorithmPage() {
     }
   }, [fetchFlow]);
 
+  const setSampleFavorite = useCallback((id: number, isFavorited: boolean) => {
+    setData((prev) => prev ? {
+      ...prev,
+      samples: prev.samples.map((sample) => (
+        sample.id === id ? { ...sample, is_favorited: isFavorited } : sample
+      )),
+    } : prev);
+    setSelected((prev) => prev?.id === id ? { ...prev, is_favorited: isFavorited } : prev);
+  }, []);
+
+  const handleFavorite = useCallback(async (sample: ScoringFlowSample) => {
+    setError(null);
+    try {
+      const isFavorited = await toggleFavorite(sample.id, { throwOnError: true });
+      setSampleFavorite(sample.id, isFavorited);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '收藏操作失败');
+    }
+  }, [setSampleFavorite, toggleFavorite]);
+
+  const handleCreate = useCallback(async (sample: ScoringFlowSample) => {
+    setError(null);
+    setCreatePendingId(sample.id);
+    try {
+      if (!favorites.has(sample.id) && !sample.is_favorited) {
+        const isFavorited = await toggleFavorite(sample.id, { throwOnError: true });
+        setSampleFavorite(sample.id, isFavorited);
+      }
+      const params = new URLSearchParams({
+        target_type: 'content',
+        keyword: sample.title,
+      });
+      router.push(`/favorites?${params.toString()}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '进入创作台失败');
+    } finally {
+      setCreatePendingId(null);
+    }
+  }, [favorites, router, setSampleFavorite, toggleFavorite]);
+
   const selectedKey = useMemo(() => selectedStageKey(selected), [selected]);
+  const selectedForPanel = useMemo(
+    () => selected ? { ...selected, is_favorited: selected.is_favorited || favorites.has(selected.id) } : undefined,
+    [favorites, selected],
+  );
 
   return (
     <div className="fade-in h-full overflow-y-auto bg-page px-6 py-6 lg:px-10 lg:py-8">
@@ -170,7 +219,15 @@ export default function AlgorithmPage() {
                 <SampleList samples={data.samples} selectedId={selected?.id} onSelect={setSelected} />
               </div>
               <div className="order-2 min-w-0 lg:sticky lg:top-4 lg:col-start-2 lg:row-span-2 lg:row-start-1 2xl:order-none 2xl:col-start-3 2xl:row-start-1">
-                <PathPanel sample={selected} onFeedback={handleFeedback} feedbacking={feedbacking} />
+                <PathPanel
+                  sample={selectedForPanel}
+                  onFeedback={handleFeedback}
+                  onFavorite={handleFavorite}
+                  onCreate={handleCreate}
+                  feedbacking={feedbacking}
+                  favoritePending={selected ? favoritePendingIds.has(selected.id) : false}
+                  createPending={selected ? createPendingId === selected.id : false}
+                />
               </div>
             </div>
           </>

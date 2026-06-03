@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const path = require('path');
 
-const backendApiUrl = process.env.BACKEND_API_URL || 'http://127.0.0.1:8100';
+const backendApiUrl = process.env.BACKEND_API_URL || 'http://127.0.0.1:8102';
 
 const nextConfig = {
   reactStrictMode: true,

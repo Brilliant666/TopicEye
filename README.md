@@ -27,14 +27,14 @@ TopicEye/
 
 ## 环境要求
 
-- Python 3.12+
+- Python 3.9+ (本地后端使用 `backend/venv`)
 - Node.js 24+ (fnm 管理)
 - curl (系统自带)
 - SQLite3 (系统自带)
 
 ## 启动步骤
 
-### 1. 启动后端 (本地开发建议端口 8100)
+### 1. 启动后端 (本地开发端口 8102)
 
 ```bash
 cd TopicEye/backend
@@ -43,16 +43,16 @@ cd TopicEye/backend
 source venv/bin/activate
 
 # 启动服务
-./venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8100 --reload
+./venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8102
 ```
 
 启动成功后会看到：
 ```
-INFO:     Uvicorn running on http://127.0.0.1:8100
+INFO:     Uvicorn running on http://127.0.0.1:8102
 INFO:     Application startup complete — scheduler running
 ```
 
-验证：浏览器打开 http://127.0.0.1:8100/docs 可看到 API 文档
+验证：浏览器打开 http://127.0.0.1:8102/docs 可看到 API 文档
 
 ### 2. 启动前端 (端口 3000)
 
@@ -64,7 +64,7 @@ cd TopicEye/frontend
 # 安装依赖 (首次或 package.json 变更后)
 npm install
 
-# 启动开发服务器。默认会代理到 http://127.0.0.1:8100
+# 启动开发服务器。默认会代理到 http://127.0.0.1:8102
 npm run dev
 ```
 
@@ -84,7 +84,7 @@ npm run dev
 
 如果你的系统开着 HTTP 代理 (ClashX/Surge 等，端口 7890)，或者 `8000` 端口被 Docker/OrbStack 等本机服务占用：
 
-1. 本地开发优先使用后端 `127.0.0.1:8100`
+1. 本地开发优先使用后端 `127.0.0.1:8102`
 2. 确保「绕过代理」列表包含 `localhost` 和 `127.0.0.1`
 3. ClashX: 设置 → Bypass Domain → 添加 `localhost`
 4. Surge: 设置 → 跳过代理 → 添加 `localhost, 127.0.0.1`
@@ -93,7 +93,7 @@ npm run dev
 
 ```bash
 cd TopicEye/frontend
-BACKEND_API_URL=http://127.0.0.1:8100 npm run dev
+BACKEND_API_URL=http://127.0.0.1:8102 npm run dev
 ```
 
 Docker Compose 内部仍使用 `backend:8000`，不受本地开发端口影响。
@@ -102,7 +102,7 @@ Docker Compose 内部仍使用 `backend:8000`，不受本地开发端口影响�
 
 - `backend/requirements.txt` 已包含 `duckdb`
 - 后端启动时会初始化 DuckDB，并以 READ_ONLY 方式 ATTACH 当前 SQLite/PostgreSQL 数据库
-- 健康检查：`curl http://127.0.0.1:8100/health`
+- 健康检查：`curl http://127.0.0.1:8102/health`
 - 如果 `database.duckdb.available=false`，说明当前 Python 环境没有安装 DuckDB 包或缺少所需扩展，分析接口会暂时退回 SQLAlchemy
 
 ### 数据库
@@ -118,10 +118,10 @@ Docker Compose 内部仍使用 `backend:8000`，不受本地开发端口影响�
 
 ```bash
 # 抓取所有启用的信源
-curl -X POST http://127.0.0.1:8100/api/v1/sources/sync-all
+curl -X POST http://127.0.0.1:8102/api/v1/sources/sync-all
 
 # 抓取单个信源 (把 1 替换为信源 ID)
-curl -X POST http://127.0.0.1:8100/api/v1/sources/1/sync
+curl -X POST http://127.0.0.1:8102/api/v1/sources/1/sync
 ```
 
 ## 功能模块

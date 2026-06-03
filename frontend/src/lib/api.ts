@@ -28,6 +28,7 @@ import type {
   IntegrationStatus,
   PlanCatalogResponse,
   WeReadSyncResult,
+  NotificationListResponse,
 } from '@/types';
 import type { FavoriteCreatePayload, FavoriteTargetState } from '@/lib/favorites';
 
@@ -132,6 +133,37 @@ export const authApi = {
 export const plansApi = {
   list(): Promise<PlanCatalogResponse> {
     return request('/plans');
+  },
+};
+
+// ─── Notifications API ───
+
+export const notificationsApi = {
+  unreadCount(): Promise<{ count: number }> {
+    return request('/notifications/unread-count');
+  },
+
+  list(params?: { unread?: boolean; limit?: number; offset?: number }): Promise<NotificationListResponse> {
+    const query = params
+      ? '?' + new URLSearchParams(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)])
+        ).toString()
+      : '';
+    return request(`/notifications${query}`);
+  },
+
+  markRead(id: number): Promise<{ success: boolean }> {
+    return request(`/notifications/${id}/read`, { method: 'POST' });
+  },
+
+  markAllRead(): Promise<{ marked: number }> {
+    return request('/notifications/read-all', { method: 'POST' });
+  },
+
+  delete(id: number): Promise<{ success: boolean }> {
+    return request(`/notifications/${id}`, { method: 'DELETE' });
   },
 };
 

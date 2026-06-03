@@ -4,16 +4,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Bell, Check, Info, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { cx } from '@/components/ui';
-
-interface Notification {
-  id: number;
-  type: string;      // success / error / warning / info
-  category: string;  // fanqie_sync / daily_report / weekly_digest / system
-  title: string;
-  message: string;
-  is_read: boolean;
-  created_at: string | null;
-}
+import { notificationsApi } from '@/lib/api';
+import type { NotificationItem } from '@/types';
 
 const TYPE_STYLES: Record<string, { color: string; bg: string; icon: LucideIcon }> = {
   success: { color: '#059669', bg: '#ECFDF5', icon: Check },
@@ -24,22 +16,20 @@ const TYPE_STYLES: Record<string, { color: string; bg: string; icon: LucideIcon 
 
 export default function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const fetchUnreadCount = useCallback(async () => {
     try {
-      const res = await fetch('/api/v1/notifications/unread-count');
-      const data = await res.json();
+      const data = await notificationsApi.unreadCount();
       setUnreadCount(data.count ?? 0);
     } catch {}
   }, []);
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const res = await fetch('/api/v1/notifications?limit=20');
-      const data = await res.json();
+      const data = await notificationsApi.list({ limit: 20 });
       setNotifications(data.notifications ?? []);
     } catch {}
   }, []);
@@ -69,7 +59,7 @@ export default function NotificationBell() {
 
   const markRead = async (id: number) => {
     try {
-      await fetch(`/api/v1/notifications/${id}/read`, { method: 'POST' });
+      await notificationsApi.markRead(id);
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch {}
@@ -77,7 +67,7 @@ export default function NotificationBell() {
 
   const markAllRead = async () => {
     try {
-      await fetch('/api/v1/notifications/read-all', { method: 'POST' });
+      await notificationsApi.markAllRead();
       setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
       setUnreadCount(0);
     } catch {}

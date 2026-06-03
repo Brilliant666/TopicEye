@@ -70,6 +70,23 @@ export interface PlanCatalogResponse {
   current_tier?: PlanTier | null;
 }
 
+// ─── Notifications (站内通知) ───
+
+export interface NotificationItem {
+  id: number;
+  type: 'success' | 'error' | 'warning' | 'info' | string;
+  category: string;
+  title: string;
+  message: string;
+  is_read: boolean;
+  created_at: string | null;
+}
+
+export interface NotificationListResponse {
+  count: number;
+  notifications: NotificationItem[];
+}
+
 // ─── Source (信源) ───
 
 export type SourceType = 'RSS' | 'RSSHub' | 'Reddit' | '公众号' | '网站' | 'Zhihu' | 'X' | 'TwitterRSS' | 'YouTube' | '小红书' | 'B站' | 'DouyinHot' | 'API' | '自定义';

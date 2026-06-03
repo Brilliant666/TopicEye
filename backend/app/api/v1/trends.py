@@ -45,8 +45,7 @@ async def topic_trends(
     try:
         from app.services.duckdb_service import query_trend_topics
         trends = query_trend_topics(days=days)
-        if trends:
-            return {"days": days, "trends": trends}
+        return {"days": days, "trends": trends}
     except Exception:
         pass  # Fall through to SQLite
 
@@ -66,8 +65,7 @@ async def keyword_cloud(
     try:
         from app.services.duckdb_service import query_keyword_cloud
         keywords = query_keyword_cloud(days=days, limit=limit)
-        if keywords:
-            return {"days": days, "keywords": keywords}
+        return {"days": days, "keywords": keywords}
     except Exception:
         pass  # Fall through to SQLite
 

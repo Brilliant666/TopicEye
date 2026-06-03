@@ -1,24 +1,32 @@
 from __future__ import annotations
 
+from typing import AsyncGenerator
+
+import httpx
 import pytest
+import pytest_asyncio
+from fastapi import FastAPI
 from fastapi import HTTPException
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 import app.main  # noqa: F401 - import all models for Base.metadata
+from app.api.v1.auth import router as auth_router
 from app.api.v1.integrations import (
     delete_weread_integration,
     get_weread_integration,
+    router as integrations_router,
     sync_weread,
     update_weread_integration,
 )
 from app.core.config import settings
 from app.core.database import Base
+from app.core.dependencies import get_db
 from app.models.content import ContentItem
 from app.models.source import Source, SourceStatus
 from app.schemas.integration import IntegrationUpdateRequest
 from app.services.auth_service import create_user
-from app.services.integration_service import WEREAD_INSTALL_COMMAND
+from app.services.integration_service import WEREAD_INSTALL_COMMAND, get_user_integration
 from app.services.source_cache import (
     default_source_list_cache_params,
     get_cached_source_list,
@@ -27,6 +35,34 @@ from app.services.source_cache import (
 )
 import app.services.weread_materials as weread_materials
 from app.services.weread_materials import normalize_weread_entries
+
+
+@pytest_asyncio.fixture
+async def weread_http_client(monkeypatch) -> AsyncGenerator[httpx.AsyncClient, None]:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    app = FastAPI()
+    app.include_router(auth_router)
+    app.include_router(integrations_router)
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        yield client
+
+    await engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -82,14 +118,26 @@ async def test_weread_integration_delete_clears_configuration(monkeypatch):
         assert configured["api_key_hint"] == "wr_s...3456"
         assert configured["config"] == {"tag": "inbox"}
 
+        integration = await get_user_integration(db, user_id=user.id, provider="weread")
+        assert integration is not None
+        integration.last_sync_at = user.created_at
+        integration.last_sync_status = "error"
+        integration.last_sync_error = "旧同步错误"
+        await db.flush()
+
         deleted = await delete_weread_integration(user, db)
         assert deleted["configured"] is False
         assert deleted["api_key_hint"] is None
         assert deleted["config"] == {}
+        assert deleted["last_sync_at"] is None
+        assert deleted["last_sync_status"] is None
+        assert deleted["last_sync_error"] is None
 
         fetched = await get_weread_integration(user, db)
         assert fetched["configured"] is False
         assert fetched["api_key_hint"] is None
+        assert fetched["last_sync_status"] is None
+        assert fetched["last_sync_error"] is None
 
     await engine.dispose()
 
@@ -152,7 +200,72 @@ async def test_weread_sync_without_endpoint_returns_actionable_error(monkeypatch
         assert status["last_sync_status"] == "error"
         assert "endpoint 未配置" in status["last_sync_error"]
 
+        refreshed = await update_weread_integration(
+            IntegrationUpdateRequest(api_key="wr_secret_replaced_123456"),
+            user,
+            db,
+        )
+        assert refreshed["configured"] is True
+        assert refreshed["last_sync_at"] is None
+        assert refreshed["last_sync_status"] is None
+        assert refreshed["last_sync_error"] is None
+
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_weread_sync_error_state_persists_and_key_changes_reset_over_http(
+    weread_http_client: httpx.AsyncClient,
+    monkeypatch,
+):
+    monkeypatch.setattr(settings, "WEREAD_SKILL_API_URL", None)
+
+    registered = await weread_http_client.post(
+        "/auth/register",
+        json={
+            "email": "weread-http@example.com",
+            "password": "Password123",
+            "display_name": "WeRead HTTP",
+        },
+    )
+    assert registered.status_code == 201
+    token = registered.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    configured = await weread_http_client.put(
+        "/integrations/weread",
+        headers=headers,
+        json={"api_key": "wr_secret_http_123456", "config": {}},
+    )
+    assert configured.status_code == 200
+    assert configured.json()["configured"] is True
+
+    failed = await weread_http_client.post("/integrations/weread/sync?limit=1", headers=headers)
+    assert failed.status_code == 502
+    assert "endpoint 未配置" in failed.json()["detail"]
+
+    errored = await weread_http_client.get("/integrations/weread", headers=headers)
+    assert errored.status_code == 200
+    assert errored.json()["last_sync_status"] == "error"
+    assert "endpoint 未配置" in errored.json()["last_sync_error"]
+
+    replaced = await weread_http_client.put(
+        "/integrations/weread",
+        headers=headers,
+        json={"api_key": "wr_secret_http_replaced_123456", "config": {}},
+    )
+    assert replaced.status_code == 200
+    assert replaced.json()["configured"] is True
+    assert replaced.json()["last_sync_at"] is None
+    assert replaced.json()["last_sync_status"] is None
+    assert replaced.json()["last_sync_error"] is None
+
+    cleared = await weread_http_client.delete("/integrations/weread", headers=headers)
+    assert cleared.status_code == 200
+    assert cleared.json()["configured"] is False
+    assert cleared.json()["api_key_hint"] is None
+    assert cleared.json()["last_sync_status"] is None
+    assert cleared.json()["last_sync_error"] is None
 
 
 @pytest.mark.asyncio

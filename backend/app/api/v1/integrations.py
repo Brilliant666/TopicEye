@@ -66,8 +66,10 @@ async def sync_weread(
     try:
         result = await sync_weread_materials(db, integration, limit=limit)
     except RuntimeError as exc:
+        await db.commit()
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:
+        await db.commit()
         raise HTTPException(status_code=502, detail=f"微信读书素材同步失败：{exc}")
 
     return WeReadSyncResponse(

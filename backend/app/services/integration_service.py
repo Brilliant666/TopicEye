@@ -23,6 +23,12 @@ def api_key_hint(api_key: Optional[str]) -> Optional[str]:
     return f"{stripped[:4]}...{stripped[-4:]}"
 
 
+def _reset_sync_state(integration: UserIntegration) -> None:
+    integration.last_sync_at = None
+    integration.last_sync_status = None
+    integration.last_sync_error = None
+
+
 async def get_user_integration(
     db: AsyncSession,
     *,
@@ -51,6 +57,7 @@ async def upsert_user_integration(
     if integration:
         integration.api_key = api_key.strip()
         integration.config = config or {}
+        _reset_sync_state(integration)
         integration.updated_at = now
         await db.flush()
         await db.refresh(integration)
@@ -81,6 +88,7 @@ async def clear_user_integration(
         return False
     integration.api_key = None
     integration.config = {}
+    _reset_sync_state(integration)
     integration.updated_at = datetime.utcnow()
     await db.flush()
     return True

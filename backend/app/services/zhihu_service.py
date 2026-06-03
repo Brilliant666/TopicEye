@@ -14,9 +14,10 @@ from datetime import datetime, timezone
 from typing import Optional
 import httpx
 from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from app.database import async_session
+from app.core.database import async_session, database_profile
 from app.models.zhihu import ZhihuAlbum, ZhihuCategory
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,60 @@ STORY_SUBCATS = [
 ]
 
 STORY_SUBCAT_IDS = {name: cat_id for _, cat_id, name in STORY_SUBCATS}
+
+
+def _backend_insert(model):
+    if database_profile.is_sqlite:
+        return sqlite_insert(model)
+    if database_profile.is_postgresql:
+        return postgresql_insert(model)
+    raise RuntimeError(f'Unsupported database backend for Zhihu upsert: {database_profile.backend}')
+
+
+def _upsert_zhihu_category_statement(rec: dict):
+    stmt = _backend_insert(ZhihuCategory).values(rec)
+    return stmt.on_conflict_do_update(
+        index_elements=['zhihu_id'],
+        set_=dict(
+            name=stmt.excluded.name,
+            name_en=stmt.excluded.name_en,
+            level=stmt.excluded.level,
+            parent_id=stmt.excluded.parent_id,
+            sort=stmt.excluded.sort,
+            artwork=stmt.excluded.artwork,
+        )
+    )
+
+
+def _upsert_zhihu_album_statement(rec: dict):
+    stmt = _backend_insert(ZhihuAlbum).values(rec)
+    return stmt.on_conflict_do_update(
+        index_elements=['business_id', 'sort_type'],
+        set_=dict(
+            title=stmt.excluded.title,
+            author=stmt.excluded.author,
+            author_desc=stmt.excluded.author_desc,
+            abstract=stmt.excluded.abstract,
+            thumb_url=stmt.excluded.thumb_url,
+            price=stmt.excluded.price,
+            original_price=stmt.excluded.original_price,
+            is_exclusive=stmt.excluded.is_exclusive,
+            is_svip=stmt.excluded.is_svip,
+            is_purchased=stmt.excluded.is_purchased,
+            online_time=stmt.excluded.online_time,
+            online_time_text=stmt.excluded.online_time_text,
+            tag=stmt.excluded.tag,
+            subscription_name=stmt.excluded.subscription_name,
+            media_type=stmt.excluded.media_type,
+            subcategory=stmt.excluded.subcategory,
+            business_line=stmt.excluded.business_line,
+            chapter_text=stmt.excluded.chapter_text,
+            category1_name=stmt.excluded.category1_name,
+            category2_name=stmt.excluded.category2_name,
+            position=stmt.excluded.position,
+            updated_at=stmt.excluded.updated_at,
+        )
+    )
 
 
 def storage_sort_type(sort_type: str, category_id: str) -> str:
@@ -234,17 +289,7 @@ async def sync_categories(html: str) -> int:
 
     async with async_session() as db:
         for rec in records:
-            stmt = sqlite_insert(ZhihuCategory).values(rec)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=['zhihu_id'],
-                set_=dict(
-                    name=stmt.excluded.name,
-                    name_en=stmt.excluded.name_en,
-                    sort=stmt.excluded.sort,
-                    artwork=stmt.excluded.artwork,
-                )
-            )
-            await db.execute(stmt)
+            await db.execute(_upsert_zhihu_category_statement(rec))
         await db.commit()
 
     logger.info(f'Zhihu categories saved: {len(records)}')
@@ -270,28 +315,7 @@ async def _fetch_and_save_albums(
             rec['position'] = pos
             rec['updated_at'] = datetime.now(timezone.utc)
 
-            stmt = sqlite_insert(ZhihuAlbum).values(rec)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=['business_id', 'sort_type'],
-                set_=dict(
-                    title=stmt.excluded.title,
-                    author=stmt.excluded.author,
-                    abstract=stmt.excluded.abstract,
-                    thumb_url=stmt.excluded.thumb_url,
-                    price=stmt.excluded.price,
-                    original_price=stmt.excluded.original_price,
-                    is_exclusive=stmt.excluded.is_exclusive,
-                    is_svip=stmt.excluded.is_svip,
-                    online_time_text=stmt.excluded.online_time_text,
-                    tag=stmt.excluded.tag,
-                    chapter_text=stmt.excluded.chapter_text,
-                    category1_name=stmt.excluded.category1_name,
-                    category2_name=stmt.excluded.category2_name,
-                    position=stmt.excluded.position,
-                    updated_at=stmt.excluded.updated_at,
-                )
-            )
-            await db.execute(stmt)
+            await db.execute(_upsert_zhihu_album_statement(rec))
         await db.commit()
 
     logger.info(f'Zhihu albums: {sort_type} {category1}/{category2} -> {len(items)} items')
@@ -355,12 +379,7 @@ async def sync_zhihu_ranks() -> dict:
 
     async with async_session() as db:
         for rec in records:
-            stmt = sqlite_insert(ZhihuCategory).values(rec)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=['zhihu_id'],
-                set_=dict(name=stmt.excluded.name, sort=stmt.excluded.sort, artwork=stmt.excluded.artwork)
-            )
-            await db.execute(stmt)
+            await db.execute(_upsert_zhihu_category_statement(rec))
         await db.commit()
 
     cat_count = len(records)

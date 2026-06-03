@@ -78,7 +78,7 @@ function CommandRow({ label, command }: { label: string; command: string }) {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { currentUser, authLoading } = useAppContext();
+  const { currentUser, authLoading, refreshCounts } = useAppContext();
   const [status, setStatus] = useState<IntegrationStatus | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [loadingStatus, setLoadingStatus] = useState(true);
@@ -169,6 +169,7 @@ export default function ProfilePage() {
       const result = await integrationsApi.syncWeRead(50);
       setSyncResult(result);
       setNotice(result.message);
+      refreshCounts();
       await loadStatus();
     } catch (err) {
       const message = err instanceof Error ? err.message : '同步失败';

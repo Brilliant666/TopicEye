@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.main  # noqa: F401 - import all models for Base.metadata
@@ -13,9 +14,12 @@ from app.api.v1.integrations import (
 )
 from app.core.config import settings
 from app.core.database import Base
+from app.models.content import ContentItem
+from app.models.source import Source, SourceStatus
 from app.schemas.integration import IntegrationUpdateRequest
 from app.services.auth_service import create_user
 from app.services.integration_service import WEREAD_INSTALL_COMMAND
+import app.services.weread_materials as weread_materials
 from app.services.weread_materials import normalize_weread_entries
 
 
@@ -141,6 +145,77 @@ async def test_weread_sync_without_endpoint_returns_actionable_error(monkeypatch
         status = await get_weread_integration(user, db)
         assert status["last_sync_status"] == "error"
         assert "endpoint 未配置" in status["last_sync_error"]
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_weread_sync_imports_materials_and_deduplicates(monkeypatch):
+    async def fake_fetch(api_key: str, *, limit: int = 50):
+        assert api_key == "wr_secret_sync_123456"
+        assert limit == 2
+        return [
+            {
+                "title": "微信读书选题一",
+                "url": "https://weread.qq.com/note/1",
+                "author": "作者一",
+                "summary": "第一条阅读笔记。",
+                "raw_content": "第一条阅读笔记。",
+            },
+            {
+                "title": "微信读书选题二",
+                "url": "https://weread.qq.com/note/2",
+                "author": "作者二",
+                "summary": "第二条阅读笔记。",
+                "raw_content": "第二条阅读笔记。",
+            },
+        ]
+
+    monkeypatch.setattr(settings, "WEREAD_SKILL_API_URL", "http://127.0.0.1:9999/weread")
+    monkeypatch.setattr(weread_materials, "fetch_weread_materials", fake_fetch)
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        user = await create_user(db, email="sync-success-weread@example.com", password="Password123")
+        await update_weread_integration(
+            IntegrationUpdateRequest(api_key=" wr_secret_sync_123456 "),
+            user,
+            db,
+        )
+
+        first = await sync_weread(limit=2, current_user=user, db=db)
+        assert first.fetched == 2
+        assert first.new == 2
+        assert first.duplicates == 0
+        assert first.source_name == "微信读书素材"
+
+        source = await db.scalar(select(Source).where(Source.name == "微信读书素材"))
+        assert source is not None
+        assert source.status == SourceStatus.ACTIVE
+        assert source.sync_error is None
+
+        rows = (
+            await db.execute(
+                select(ContentItem)
+                .where(ContentItem.source_id == source.id)
+                .order_by(ContentItem.title.asc())
+            )
+        ).scalars().all()
+        assert [item.title for item in rows] == ["微信读书选题一", "微信读书选题二"]
+        assert {item.platform for item in rows} == {"微信读书"}
+        assert {item.category for item in rows} == {"阅读素材"}
+
+        second = await sync_weread(limit=2, current_user=user, db=db)
+        assert second.fetched == 2
+        assert second.new == 0
+        assert second.duplicates == 2
+
+        status = await get_weread_integration(user, db)
+        assert status["last_sync_status"] == "success"
+        assert status["last_sync_error"] is None
 
     await engine.dispose()
 

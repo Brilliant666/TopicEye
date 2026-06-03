@@ -12,6 +12,7 @@ from app.services.scoring_flow import (
     invalidate_scoring_flow_cache,
 )
 from app.services.source_cache import SourceListCacheParams, invalidate_source_list_cache
+from app.services.stats_cache import STATS_CACHE_PREFIX, invalidate_stats_cache
 from app.services.today_picks_cache import TodayPicksCacheParams, invalidate_today_picks_cache
 from app.services.trending_cache import (
     TRENDING_CROSS_PLATFORM_CACHE_PREFIX,
@@ -112,6 +113,8 @@ def test_content_read_cache_invalidation_covers_content_derived_views():
     set_cached_json("contents:list:example", {"items": []})
     set_cached_json("contents:today-picks:hours=48", {"items": []})
     set_cached_json("contents:favorites:list:1:20", {"items": []})
+    set_cached_json("stats:overview:7", {"total": 1})
+    set_cached_json("stats:dashboard:7", {"kpi": {}})
     cache_payload((48, 160, 80), build_empty_payload(
         hours=48,
         analyzed_total=0,
@@ -125,10 +128,26 @@ def test_content_read_cache_invalidation_covers_content_derived_views():
 
     assert get_cached_json("contents:list:example", ttl_seconds=10) is None
     assert get_cached_json("contents:today-picks:hours=48", ttl_seconds=10) is None
+    assert get_cached_json("stats:overview:7", ttl_seconds=10) is None
+    assert get_cached_json("stats:dashboard:7", ttl_seconds=10) is None
     assert get_cached_scoring_flow_json(hours=48, limit=160) is None
     assert get_cached_json("contents:favorites:list:1:20", ttl_seconds=10) is not None
     invalidate_json_cache()
     invalidate_scoring_flow_cache()
+
+
+def test_stats_cache_invalidation_is_scoped():
+    invalidate_json_cache()
+    set_cached_json(f"{STATS_CACHE_PREFIX}overview:7", {"total": 1})
+    set_cached_json(f"{STATS_CACHE_PREFIX}dashboard:7", {"kpi": {}})
+    set_cached_json("contents:list:example", {"items": []})
+
+    invalidate_stats_cache()
+
+    assert get_cached_json("stats:overview:7", ttl_seconds=10) is None
+    assert get_cached_json("stats:dashboard:7", ttl_seconds=10) is None
+    assert get_cached_json("contents:list:example", ttl_seconds=10) is not None
+    invalidate_json_cache()
 
 
 def test_model_list_cache_invalidation_is_scoped():

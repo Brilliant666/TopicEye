@@ -16,6 +16,13 @@ def normalize_source_url_value(value: str) -> str:
     raise ValueError("信源 URL 必须以 http:// 或 https:// 开头")
 
 
+def normalize_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    text = value.strip()
+    return text or None
+
+
 class SourceCreate(BaseModel):
     name: str = Field(..., max_length=255)
     source_type: SourceType = SourceType.RSS
@@ -40,6 +47,11 @@ class SourceCreate(BaseModel):
     @classmethod
     def normalize_url(cls, value: str) -> str:
         return normalize_source_url_value(value)
+
+    @field_validator("keyword", "platform", "category")
+    @classmethod
+    def normalize_optional_text_fields(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_optional_text(value)
 
 
 class SourceUpdate(BaseModel):
@@ -72,6 +84,11 @@ class SourceUpdate(BaseModel):
         if value is None:
             return None
         return normalize_source_url_value(value)
+
+    @field_validator("keyword", "platform", "category", "sync_error")
+    @classmethod
+    def normalize_optional_text_fields(cls, value: Optional[str]) -> Optional[str]:
+        return normalize_optional_text(value)
 
 
 class SourceResponse(BaseModel):

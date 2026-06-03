@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,6 +41,12 @@ class SourceBatchImportRequest(BaseModel):
     category: str = "批量导入"
     enabled: bool = True
     weight: int = Field(default=3, ge=1, le=5)
+
+    @field_validator("category")
+    @classmethod
+    def normalize_category(cls, value: str) -> str:
+        category = value.strip()
+        return category or "批量导入"
 
 
 class SourceBatchImportItem(BaseModel):

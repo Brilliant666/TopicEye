@@ -149,6 +149,37 @@ def test_source_create_normalizes_uppercase_http_scheme():
     assert source.url == "https://example.com/feed.xml"
 
 
+def test_source_create_normalizes_optional_text_fields():
+    source = SourceCreate(
+        name="Feed",
+        url="https://example.com/feed.xml",
+        source_type=SourceType.RSS,
+        keyword="   ",
+        platform="  RSSHub  ",
+        category="  AI  ",
+    )
+
+    assert source.keyword is None
+    assert source.platform == "RSSHub"
+    assert source.category == "AI"
+
+
+def test_source_update_normalizes_optional_text_fields():
+    update = SourceUpdate(
+        name="  Feed  ",
+        keyword="  topic  ",
+        platform="   ",
+        category="  News  ",
+        sync_error="   ",
+    )
+
+    assert update.name == "Feed"
+    assert update.keyword == "topic"
+    assert update.platform is None
+    assert update.category == "News"
+    assert update.sync_error is None
+
+
 def test_parse_source_batch_normalizes_urls_and_skips_invalid_protocols():
     content = """
     [
@@ -162,6 +193,24 @@ def test_parse_source_batch_normalizes_urls_and_skips_invalid_protocols():
     assert len(items) == 1
     assert items[0]["name"] == "JSON Feed"
     assert items[0]["url"] == "https://example.com/feed.xml"
+
+
+@pytest.mark.asyncio
+async def test_preview_batch_uses_default_category_for_blank_input(
+    sources_http_client: httpx.AsyncClient,
+):
+    preview = await sources_http_client.post(
+        "/sources/preview-batch",
+        json={
+            "content": '[{"title": "Feed", "url": "https://example.com/feed.xml"}]',
+            "category": "   ",
+        },
+    )
+
+    assert preview.status_code == 200
+    payload = preview.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["category"] == "批量导入"
 
 
 @pytest.mark.asyncio

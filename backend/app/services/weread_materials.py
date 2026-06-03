@@ -18,34 +18,58 @@ from app.services.source_cache import invalidate_source_list_cache
 
 WEREAD_SOURCE_URL = "https://weread.qq.com/r/weread-skills"
 WEREAD_SOURCE_NAME = "微信读书素材"
+WEREAD_LIST_KEYS = ("items", "data", "books", "notes", "reviews", "highlights")
+WEREAD_CONTAINER_KEYS = ("data", "result", "payload")
 
 
 def _entry_url(entry: dict[str, Any]) -> str:
-    return str(
+    value = str(
         entry.get("url")
         or entry.get("book_url")
         or entry.get("bookUrl")
         or entry.get("review_url")
         or entry.get("reviewUrl")
         or WEREAD_SOURCE_URL
-    )
+    ).strip()
+    return value or WEREAD_SOURCE_URL
+
+
+def _collect_weread_items(payload: Any, *, depth: int = 0) -> list[Any]:
+    if depth > 4:
+        return []
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
+
+    raw_items: list[Any] = []
+    visited: set[int] = set()
+
+    def collect(value: Any) -> None:
+        value_id = id(value)
+        if value_id in visited:
+            return
+        visited.add(value_id)
+        raw_items.extend(_collect_weread_items(value, depth=depth + 1))
+
+    for key in WEREAD_LIST_KEYS:
+        value = payload.get(key)
+        if isinstance(value, list):
+            raw_items.extend(value)
+        elif isinstance(value, dict):
+            collect(value)
+
+    for key in WEREAD_CONTAINER_KEYS:
+        value = payload.get(key)
+        if isinstance(value, dict):
+            collect(value)
+
+    return raw_items
 
 
 def normalize_weread_entries(payload: Any) -> list[dict[str, Any]]:
-    raw_items: list[Any]
-    if isinstance(payload, list):
-        raw_items = payload
-    elif isinstance(payload, dict):
-        raw_items = []
-        for key in ("items", "data", "books", "notes", "reviews", "highlights"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                raw_items.extend(value)
-    else:
-        raw_items = []
-
     entries: list[dict[str, Any]] = []
-    for raw in raw_items:
+    for raw in _collect_weread_items(payload):
         if not isinstance(raw, dict):
             continue
         title = str(raw.get("title") or raw.get("book_title") or raw.get("bookTitle") or raw.get("name") or "").strip()

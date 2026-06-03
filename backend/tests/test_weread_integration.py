@@ -382,3 +382,41 @@ def test_normalize_weread_entries_accepts_books_notes_and_highlights():
     assert entries[1]["title"] == "纳瓦尔宝典"
     assert entries[1]["raw_content"] == "判断力来自长期复利。"
     assert entries[2]["url"] == "https://weread.qq.com/r/weread-skills"
+
+
+def test_normalize_weread_entries_accepts_nested_payload_and_strips_blank_url():
+    payload = {
+        "data": {
+            "items": [
+                {
+                    "bookTitle": "长期主义",
+                    "bookAuthor": "测试作者",
+                    "markText": "真正的积累需要稳定输入。",
+                    "reviewUrl": "        ",
+                }
+            ]
+        },
+        "result": {
+            "books": [
+                {
+                    "title": "原则",
+                    "summary": "把决策原则写下来。",
+                    "bookUrl": " https://weread.qq.com/book/principles ",
+                }
+            ]
+        },
+    }
+
+    entries = normalize_weread_entries(payload)
+
+    assert len(entries) == 2
+    assert entries[0]["title"] == "长期主义"
+    assert entries[0]["author"] == "测试作者"
+    assert entries[0]["url"] == "https://weread.qq.com/r/weread-skills"
+    assert entries[1]["title"] == "原则"
+    assert entries[1]["url"] == "https://weread.qq.com/book/principles"
+
+
+def test_normalize_weread_entries_rejects_unknown_payload_shape():
+    assert normalize_weread_entries({"data": {"items": "not-a-list"}}) == []
+    assert normalize_weread_entries("not-a-payload") == []

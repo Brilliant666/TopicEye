@@ -2,8 +2,11 @@ from types import SimpleNamespace
 
 from app.api.v1.llm_models import (
     LLM_COMPLETION_TIMEOUT_SECONDS,
+    ModelCreateRequest,
+    ModelUpdateRequest,
     _auto_score_response,
     _completion_kwargs,
+    _missing_explicit_api_key,
     _resolve_litellm_model,
     _sample_payload,
 )
@@ -60,6 +63,35 @@ def test_completion_kwargs_passes_openai_compatible_timeout_and_endpoint():
     assert kwargs["api_key"] == "test-key"
     assert kwargs["api_base"] == "https://opencode.ai/zen/v1"
     assert kwargs["timeout"] == LLM_COMPLETION_TIMEOUT_SECONDS
+
+
+def test_model_config_normalizes_blank_api_key_and_endpoint():
+    created = ModelCreateRequest(
+        name="OpenCode",
+        provider="custom",
+        model_id="opencode/deepseek-v4-flash-free",
+        api_key="   ",
+        api_base="  https://opencode.ai/zen/v1  ",
+    )
+    updated = ModelUpdateRequest(api_key="  real-key  ", api_base="     ")
+
+    assert created.api_key is None
+    assert created.api_base == "https://opencode.ai/zen/v1"
+    assert updated.api_key == "real-key"
+    assert updated.api_base is None
+
+
+def test_missing_explicit_api_key_treats_blank_values_as_missing():
+    request = ModelCreateRequest(
+        name="OpenCode",
+        provider="custom",
+        model_id="opencode/deepseek-v4-flash-free",
+        api_key="   ",
+        api_base="  https://opencode.ai/zen/v1  ",
+    )
+    model = SimpleNamespace(api_key=request.api_key, api_base=request.api_base)
+
+    assert _missing_explicit_api_key(model) is True
 
 
 def test_sample_payload_parses_title_and_content_from_json():

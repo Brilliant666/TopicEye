@@ -29,7 +29,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, desc, func, Integer as SAInteger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,6 +76,13 @@ def _resolve_litellm_model(model: LlmModel) -> str:
 def _missing_explicit_api_key(model: LlmModel) -> bool:
     """OpenAI-compatible custom endpoints need an explicit key in this app."""
     return bool(model.api_base) and not bool(model.api_key)
+
+
+def _normalize_optional_config_value(value):
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    return cleaned or None
 
 
 def _completion_kwargs(
@@ -193,6 +200,11 @@ class ModelCreateRequest(BaseModel):
     cost_per_1m_output: Optional[float] = None
     extra_params: Optional[dict] = None
 
+    @field_validator("api_key", "api_base", mode="before")
+    @classmethod
+    def normalize_optional_secret(cls, value):
+        return _normalize_optional_config_value(value)
+
 
 class ModelUpdateRequest(BaseModel):
     name: Optional[str] = None
@@ -213,6 +225,11 @@ class ModelUpdateRequest(BaseModel):
     cost_per_1m_input_cache_hit: Optional[float] = None
     cost_per_1m_output: Optional[float] = None
     extra_params: Optional[dict] = None
+
+    @field_validator("api_key", "api_base", mode="before")
+    @classmethod
+    def normalize_optional_secret(cls, value):
+        return _normalize_optional_config_value(value)
 
 
 class EvalRunRequest(BaseModel):

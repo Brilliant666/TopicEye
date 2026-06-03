@@ -8,7 +8,7 @@ from datetime import datetime
 
 from sqlalchemy import select, update, delete, func
 
-from app.database import async_session
+from app.core.database import async_session
 from app.models.notification import Notification
 
 logger = logging.getLogger(__name__)

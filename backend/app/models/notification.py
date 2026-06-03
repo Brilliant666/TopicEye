@@ -9,7 +9,7 @@ from datetime import datetime
 from sqlalchemy import String, Integer, Boolean, DateTime, Text, func, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.core.database import Base
 
 
 class Notification(Base):

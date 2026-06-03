@@ -11,7 +11,7 @@ from typing import Optional
 from sqlalchemy import String, Text, DateTime, select
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.core.database import Base
 
 
 class AppSetting(Base):
@@ -40,7 +40,7 @@ DEFAULT_RSSHUB_INSTANCES = [
 
 def get_rsshub_instances() -> list[dict]:
     """Return ordered list of enabled RSSHub instances from DB."""
-    from app.database import async_session
+    from app.core.database import async_session
     from sqlalchemy import select
 
     async def _get():
@@ -65,7 +65,7 @@ async def get_rsshub_instances_async(db=None) -> list[dict]:
     """Async version — returns ordered list of enabled RSSHub instances."""
     close_after = False
     if db is None:
-        from app.database import async_session
+        from app.core.database import async_session
         db = async_session()
         close_after = True
 

@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+from typing import AsyncGenerator
+
+import httpx
+import pytest
+import pytest_asyncio
+from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from app.api.v1 import notifications as notifications_api
+from app.api.v1 import settings as settings_api
+from app.core.database import Base
+from app.models.app_setting import DEFAULT_RSSHUB_INSTANCES
+from app.services import notification_service
+
+
+@pytest_asyncio.fixture
+async def settings_notifications_client(monkeypatch) -> AsyncGenerator[httpx.AsyncClient, None]:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    monkeypatch.setattr(notification_service, "async_session", session_factory)
+
+    app = FastAPI()
+    app.include_router(settings_api.router)
+    app.include_router(notifications_api.router)
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[settings_api.get_db] = override_get_db
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        yield client
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_rsshub_settings_read_validate_and_update(settings_notifications_client: httpx.AsyncClient):
+    defaults = await settings_notifications_client.get("/settings/rsshub/instances")
+    assert defaults.status_code == 200
+    assert defaults.json()["instances"] == []
+    assert defaults.json()["default_instances"] == [item["url"] for item in DEFAULT_RSSHUB_INSTANCES]
+
+    invalid = await settings_notifications_client.put(
+        "/settings/rsshub/instances",
+        json={"instances": [{"url": "ftp://rsshub.example", "enabled": True, "priority": 1}]},
+    )
+    assert invalid.status_code == 400
+
+    updated = await settings_notifications_client.put(
+        "/settings/rsshub/instances",
+        json={
+            "instances": [
+                {
+                    "url": "https://rsshub.example.com",
+                    "enabled": True,
+                    "priority": 3,
+                    "note": "测试实例",
+                }
+            ]
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["updated"] is True
+
+    current = await settings_notifications_client.get("/settings/rsshub/instances")
+    assert current.status_code == 200
+    assert current.json()["instances"] == [
+        {
+            "url": "https://rsshub.example.com",
+            "enabled": True,
+            "priority": 3,
+            "note": "测试实例",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_notification_api_lifecycle(settings_notifications_client: httpx.AsyncClient):
+    created = await notification_service.push_notification(
+        type="info",
+        category="system",
+        title="测试通知",
+        message="通知内容",
+    )
+
+    unread = await settings_notifications_client.get("/notifications/unread-count")
+    assert unread.status_code == 200
+    assert unread.json() == {"count": 1}
+
+    listed = await settings_notifications_client.get("/notifications?unread=true")
+    assert listed.status_code == 200
+    assert listed.json()["count"] == 1
+    assert listed.json()["notifications"][0]["id"] == created.id
+    assert listed.json()["notifications"][0]["is_read"] is False
+
+    marked = await settings_notifications_client.post(f"/notifications/{created.id}/read")
+    assert marked.status_code == 200
+    assert marked.json() == {"success": True}
+
+    unread_after_mark = await settings_notifications_client.get("/notifications/unread-count")
+    assert unread_after_mark.status_code == 200
+    assert unread_after_mark.json() == {"count": 0}
+
+    deleted = await settings_notifications_client.delete(f"/notifications/{created.id}")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"success": True}

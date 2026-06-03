@@ -175,6 +175,33 @@ def database_diagnostics(profile: DatabaseProfile) -> dict:
     }
 
 
+def redact_database_secrets(message: Optional[str], profile: DatabaseProfile) -> Optional[str]:
+    """Remove configured database credentials from diagnostic error text."""
+    if message is None:
+        return None
+
+    redacted = str(message)
+    parsed = make_url(profile.url)
+
+    if parsed.password:
+        password_variants = {
+            parsed.password,
+            _libpq_value(parsed.password),
+            _duckdb_sql_literal(_libpq_value(parsed.password)),
+        }
+        for password in sorted(password_variants, key=len, reverse=True):
+            redacted = redacted.replace(password, "***")
+
+    try:
+        unsafe_url = parsed.render_as_string(hide_password=False)
+        safe_url = parsed.render_as_string(hide_password=True)
+        redacted = redacted.replace(unsafe_url, safe_url)
+    except Exception:
+        pass
+
+    return redacted
+
+
 def duckdb_attach_sql(profile: DatabaseProfile, *, alias: str = "sqlite_db") -> str:
     """Return the DuckDB ATTACH statement for the configured OLTP backend."""
     if profile.is_sqlite:

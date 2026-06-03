@@ -25,7 +25,12 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from app.core.config import settings
-from app.core.db_backend import create_database_profile, duckdb_attach_sql, duckdb_extension_name
+from app.core.db_backend import (
+    create_database_profile,
+    duckdb_attach_sql,
+    duckdb_extension_name,
+    redact_database_secrets,
+)
 
 logger = logging.getLogger(__name__)
 STATS_CURATION_FALLBACK_THRESHOLD = 83.0
@@ -98,8 +103,8 @@ class DuckDBAnalytics:
             self._available = True
             self._last_error = None
         except Exception as e:
-            self._last_error = str(e)
-            logger.warning("DuckDB analytics not available: %s", e)
+            self._last_error = redact_database_secrets(str(e), self._profile)
+            logger.warning("DuckDB analytics not available: %s", self._last_error)
             self._available = False
         return self._available
 

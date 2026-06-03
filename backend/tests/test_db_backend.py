@@ -4,6 +4,7 @@ from app.core.db_backend import (
     database_diagnostics,
     duckdb_attach_sql,
     duckdb_extension_name,
+    redact_database_secrets,
     sqlite_domain_urls,
     sync_database_url,
 )
@@ -67,6 +68,23 @@ def test_postgresql_profile_and_duckdb_attach_sql():
         "extension": "postgres",
     }
     assert "secret" not in str(diagnostics)
+
+
+def test_database_secret_redaction_covers_urls_conninfo_and_attach_sql():
+    url = "postgresql+asyncpg://topiceye:s3 cr'et@localhost:5432/topiceye"
+    profile = create_database_profile(url)
+    attach_sql = duckdb_attach_sql(profile)
+    raw_error = (
+        f"failed for {url}; conninfo password='s3 cr\\'et'; "
+        f"attach={attach_sql}"
+    )
+
+    redacted = redact_database_secrets(raw_error, profile)
+
+    assert redacted is not None
+    assert "s3 cr'et" not in redacted
+    assert "password=***" in redacted
+    assert "postgresql+asyncpg://topiceye:***@localhost:5432/topiceye" in redacted
 
 
 def test_sqlite_domain_urls_are_explicit_opt_in(tmp_path):

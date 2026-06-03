@@ -42,6 +42,11 @@ class FavoriteReorderRequest(BaseModel):
     ordered_ids: list[int] = Field(min_length=1, max_length=500)
 
 
+class FavoriteBulkStatusRequest(BaseModel):
+    status: FavoriteStatus
+    ids: list[int] = Field(min_length=1, max_length=500)
+
+
 class FavoriteResponse(BaseModel):
     id: int
     target_type: str

@@ -390,6 +390,13 @@ export const favoritesApi = {
     });
   },
 
+  bulkStatus(status: FavoriteStatus, ids: number[]): Promise<FavoriteItem[]> {
+    return request('/favorites/bulk-status', {
+      method: 'POST',
+      body: JSON.stringify({ status, ids }),
+    });
+  },
+
   delete(id: number): Promise<{ deleted: boolean }> {
     return request(`/favorites/${id}`, { method: 'DELETE' });
   },

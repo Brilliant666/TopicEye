@@ -172,3 +172,43 @@ async def test_favorites_api_reorder_normalizes_unsubmitted_status_items(favorit
     items = listed.json()["items"]
     assert [item["id"] for item in items] == [item["id"] for item in payload]
     assert [item["position"] for item in items] == [1000, 2000, 3000, 4000]
+
+
+@pytest.mark.asyncio
+async def test_favorites_api_bulk_status_normalizes_target_column(favorites_client: httpx.AsyncClient):
+    created = []
+    for index in range(5):
+        response = await favorites_client.post(
+            "/favorites",
+            json={
+                "target_type": "book",
+                "target_key": f"book:bulk-status:{index}",
+                "title": f"批量移动样本 {index}",
+            },
+        )
+        assert response.status_code == 201
+        created.append(response.json())
+
+    existing_tail = await favorites_client.patch(
+        f"/favorites/{created[4]['id']}",
+        json={"status": "researching"},
+    )
+    assert existing_tail.status_code == 200
+
+    moved_ids = [created[2]["id"], created[0]["id"], created[1]["id"]]
+    updated = await favorites_client.post(
+        "/favorites/bulk-status",
+        json={"status": "researching", "ids": moved_ids},
+    )
+
+    assert updated.status_code == 200
+    payload = updated.json()
+    assert [item["id"] for item in payload] == moved_ids + [created[4]["id"]]
+    assert [item["status"] for item in payload] == ["researching"] * 4
+    assert [item["position"] for item in payload] == [1000, 2000, 3000, 4000]
+
+    listed = await favorites_client.get("/favorites?page=1&page_size=20&status=researching")
+    assert listed.status_code == 200
+    items = listed.json()["items"]
+    assert [item["id"] for item in items] == [item["id"] for item in payload]
+    assert [item["position"] for item in items] == [1000, 2000, 3000, 4000]

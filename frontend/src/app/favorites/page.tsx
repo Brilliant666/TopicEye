@@ -390,7 +390,7 @@ export default function FavoritesPage() {
     setBulkPending(true);
     setError(null);
     try {
-      const updated = await Promise.all(selectedItems.map((item) => favoritesApi.update(item.id, { status: nextStatus })));
+      const updated = await favoritesApi.bulkStatus(nextStatus, selectedItems.map((item) => item.id));
       const byId = new Map(updated.map((item) => [item.id, item]));
       setItems((prev) => prev.map((item) => byId.get(item.id) || item));
       setSelectedIds(new Set());

@@ -11,6 +11,7 @@ from app.core.dependencies import get_db
 from app.models.favorite import FavoriteStatus, FavoriteTargetType
 from app.repositories.favorite_repo import FavoriteRepo
 from app.schemas.favorite import (
+    FavoriteBulkStatusRequest,
     FavoriteCreate,
     FavoriteListResponse,
     FavoriteReorderRequest,
@@ -128,6 +129,20 @@ async def reorder_favorites(
 ):
     try:
         items = await FavoriteRepo(db).reorder_status(status=data.status, ordered_ids=data.ordered_ids)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    invalidate_favorite_cache()
+    invalidate_json_cache("contents:favorites:")
+    return items
+
+
+@router.post("/bulk-status", response_model=list[FavoriteResponse])
+async def bulk_update_favorite_status(
+    data: FavoriteBulkStatusRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        items = await FavoriteRepo(db).bulk_update_status(status=data.status, ids=data.ids)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     invalidate_favorite_cache()

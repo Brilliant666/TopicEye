@@ -184,10 +184,26 @@ class FavoriteRepo:
         status: FavoriteStatus,
         ordered_ids: list[int],
     ) -> list[FavoriteItem]:
-        if not ordered_ids:
+        return await self._normalize_status_order(status=status, leading_ids=ordered_ids)
+
+    async def bulk_update_status(
+        self,
+        *,
+        status: FavoriteStatus,
+        ids: list[int],
+    ) -> list[FavoriteItem]:
+        return await self._normalize_status_order(status=status, leading_ids=ids)
+
+    async def _normalize_status_order(
+        self,
+        *,
+        status: FavoriteStatus,
+        leading_ids: list[int],
+    ) -> list[FavoriteItem]:
+        if not leading_ids:
             return []
 
-        unique_ids = list(dict.fromkeys(ordered_ids))
+        unique_ids = list(dict.fromkeys(leading_ids))
         result = await self.db.execute(select(FavoriteItem).where(FavoriteItem.id.in_(unique_ids)))
         items = list(result.scalars().all())
         by_id = {item.id: item for item in items}

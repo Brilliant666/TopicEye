@@ -58,14 +58,35 @@ class FavoriteReorderRequest(BaseModel):
     status: FavoriteStatus
     ordered_ids: list[int] = Field(min_length=1, max_length=500)
 
+    @field_validator("ordered_ids")
+    @classmethod
+    def validate_unique_ids(cls, value):
+        if len(value) != len(set(value)):
+            raise ValueError("ordered_ids must not contain duplicates")
+        return value
+
 
 class FavoriteBulkStatusRequest(BaseModel):
     status: FavoriteStatus
     ids: list[int] = Field(min_length=1, max_length=500)
 
+    @field_validator("ids")
+    @classmethod
+    def validate_unique_ids(cls, value):
+        if len(value) != len(set(value)):
+            raise ValueError("ids must not contain duplicates")
+        return value
+
 
 class FavoriteBulkDeleteRequest(BaseModel):
     ids: list[int] = Field(min_length=1, max_length=500)
+
+    @field_validator("ids")
+    @classmethod
+    def validate_unique_ids(cls, value):
+        if len(value) != len(set(value)):
+            raise ValueError("ids must not contain duplicates")
+        return value
 
 
 class FavoriteResponse(BaseModel):

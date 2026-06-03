@@ -322,6 +322,28 @@ async def test_favorites_api_reorder_persists_cross_status_drag_columns(favorite
 
 
 @pytest.mark.asyncio
+async def test_favorites_api_reorder_rejects_duplicate_ids(favorites_client: httpx.AsyncClient):
+    created = await favorites_client.post(
+        "/favorites",
+        json={
+            "target_type": "book",
+            "target_key": "book:duplicate-reorder",
+            "title": "重复排序样本",
+        },
+    )
+    assert created.status_code == 201
+    favorite_id = created.json()["id"]
+
+    reordered = await favorites_client.post(
+        "/favorites/reorder",
+        json={"status": "inbox", "ordered_ids": [favorite_id, favorite_id]},
+    )
+
+    assert reordered.status_code == 422
+    assert "ordered_ids must not contain duplicates" in str(reordered.json()["detail"])
+
+
+@pytest.mark.asyncio
 async def test_favorites_api_bulk_status_normalizes_target_column(favorites_client: httpx.AsyncClient):
     created = []
     for index in range(5):
@@ -362,6 +384,28 @@ async def test_favorites_api_bulk_status_normalizes_target_column(favorites_clie
 
 
 @pytest.mark.asyncio
+async def test_favorites_api_bulk_status_rejects_duplicate_ids(favorites_client: httpx.AsyncClient):
+    created = await favorites_client.post(
+        "/favorites",
+        json={
+            "target_type": "book",
+            "target_key": "book:duplicate-bulk-status",
+            "title": "重复批量状态样本",
+        },
+    )
+    assert created.status_code == 201
+    favorite_id = created.json()["id"]
+
+    updated = await favorites_client.post(
+        "/favorites/bulk-status",
+        json={"status": "researching", "ids": [favorite_id, favorite_id]},
+    )
+
+    assert updated.status_code == 422
+    assert "ids must not contain duplicates" in str(updated.json()["detail"])
+
+
+@pytest.mark.asyncio
 async def test_favorites_api_bulk_delete_removes_selected_items(favorites_client: httpx.AsyncClient):
     created = []
     for index in range(4):
@@ -397,3 +441,25 @@ async def test_favorites_api_bulk_delete_removes_selected_items(favorites_client
     )
     assert missing.status_code == 404
     assert missing.json()["detail"] == "Favorite not found: 999999"
+
+
+@pytest.mark.asyncio
+async def test_favorites_api_bulk_delete_rejects_duplicate_ids(favorites_client: httpx.AsyncClient):
+    created = await favorites_client.post(
+        "/favorites",
+        json={
+            "target_type": "book",
+            "target_key": "book:duplicate-bulk-delete",
+            "title": "重复批量删除样本",
+        },
+    )
+    assert created.status_code == 201
+    favorite_id = created.json()["id"]
+
+    deleted = await favorites_client.post(
+        "/favorites/bulk-delete",
+        json={"ids": [favorite_id, favorite_id]},
+    )
+
+    assert deleted.status_code == 422
+    assert "ids must not contain duplicates" in str(deleted.json()["detail"])

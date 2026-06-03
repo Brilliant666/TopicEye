@@ -62,8 +62,12 @@ async def build_scoring_flow_payload(
     time_cutoff = datetime.utcnow() - timedelta(hours=hours)
     ignored_ids = await IgnoredRepo(db).list_ignored_ids()
     content_repo = ContentRepo(db)
-    window_counts = await build_window_counts(content_repo, ignored_ids)
-    collected_window_counts = await build_collected_window_counts(content_repo, ignored_ids)
+    window_counts = await build_window_counts(content_repo, ignored_ids, requested_hours=hours)
+    collected_window_counts = await build_collected_window_counts(
+        content_repo,
+        ignored_ids,
+        requested_hours=hours,
+    )
     collected_window_total = next(
         (item["count"] for item in collected_window_counts if item["hours"] == hours),
         None,
@@ -148,11 +152,12 @@ async def build_scoring_flow_payload(
 async def build_window_counts(
     content_repo: ContentRepo,
     ignored_ids: list[int],
+    requested_hours: Optional[int] = None,
 ) -> list[dict[str, int]]:
     """Count analyzed candidates for the debug window selector."""
     now = datetime.utcnow()
     counts: list[dict[str, int]] = []
-    for hours in DEBUG_WINDOW_HOURS:
+    for hours in debug_window_hours(requested_hours):
         count = await content_repo.count_for_scoring(
             exclude_ids=ignored_ids,
             time_cutoff=now - timedelta(hours=hours),
@@ -164,17 +169,25 @@ async def build_window_counts(
 async def build_collected_window_counts(
     content_repo: ContentRepo,
     ignored_ids: list[int],
+    requested_hours: Optional[int] = None,
 ) -> list[dict[str, int]]:
     """Count collected items for explaining pre-analysis gaps."""
     now = datetime.utcnow()
     counts: list[dict[str, int]] = []
-    for hours in DEBUG_WINDOW_HOURS:
+    for hours in debug_window_hours(requested_hours):
         count = await content_repo.count_collected_for_scoring_window(
             exclude_ids=ignored_ids,
             time_cutoff=now - timedelta(hours=hours),
         )
         counts.append({"hours": hours, "count": count})
     return counts
+
+
+def debug_window_hours(requested_hours: Optional[int] = None) -> tuple[int, ...]:
+    """Return stable debug windows while preserving a custom requested window."""
+    if requested_hours is None:
+        return DEBUG_WINDOW_HOURS
+    return tuple(sorted({*DEBUG_WINDOW_HOURS, requested_hours}))
 
 
 def cache_payload(cache_key: tuple[int, int, int], payload: dict[str, Any]) -> dict[str, Any]:

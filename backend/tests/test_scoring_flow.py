@@ -8,6 +8,7 @@ from app.services.scoring_flow import (
     build_scoring_config_summary,
     build_stage_counts,
     cache_payload,
+    debug_window_hours,
     get_cached_scoring_flow_json,
     invalidate_scoring_flow_cache,
 )
@@ -158,6 +159,15 @@ def test_build_diagnostics_explains_empty_window():
     assert diagnostics["candidate_limit"] == 160
     assert diagnostics["recommended_hours"] == 168
     assert diagnostics["window_options"][2] == {"hours": 168, "count": 12}
+
+
+def test_debug_window_hours_keeps_default_windows_without_custom_request():
+    assert debug_window_hours() == (24, 48, 168, 720)
+
+
+def test_debug_window_hours_includes_custom_request_once_and_sorted():
+    assert debug_window_hours(96) == (24, 48, 96, 168, 720)
+    assert debug_window_hours(48) == (24, 48, 168, 720)
 
 
 def test_build_diagnostics_explains_collected_pending_analysis():

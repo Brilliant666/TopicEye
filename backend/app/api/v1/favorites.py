@@ -101,7 +101,10 @@ async def favorite_state(
             headers={"X-Favorites-Cache": f"HIT; age={age_seconds:.3f}s"},
         )
 
-    ids = [int(item) for item in target_ids.split(",") if item.strip()] if target_ids else None
+    try:
+        ids = [int(item) for item in target_ids.split(",") if item.strip()] if target_ids else None
+    except ValueError:
+        raise HTTPException(status_code=422, detail="target_ids must be comma-separated integers")
     keys = [item.strip() for item in target_keys.split(",") if item.strip()] if target_keys else None
     async with async_session() as db:
         state_items = await FavoriteRepo(db).state_for_targets(

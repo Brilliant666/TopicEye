@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, Sequence, Union
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import ContentItem
@@ -145,8 +145,14 @@ class FavoriteRepo:
             count_stmt = count_stmt.where(FavoriteItem.status == status)
         if keyword:
             pattern = f"%{keyword}%"
-            stmt = stmt.where(FavoriteItem.title.ilike(pattern))
-            count_stmt = count_stmt.where(FavoriteItem.title.ilike(pattern))
+            keyword_filter = or_(
+                FavoriteItem.title.ilike(pattern),
+                FavoriteItem.note.ilike(pattern),
+                FavoriteItem.source_name.ilike(pattern),
+                FavoriteItem.target_key.ilike(pattern),
+            )
+            stmt = stmt.where(keyword_filter)
+            count_stmt = count_stmt.where(keyword_filter)
 
         total_result = await self.db.execute(count_stmt)
         total = int(total_result.scalar() or 0)

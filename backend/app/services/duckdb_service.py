@@ -28,6 +28,7 @@ from app.core.config import settings
 from app.core.db_backend import create_database_profile, duckdb_attach_sql, duckdb_extension_name
 
 logger = logging.getLogger(__name__)
+STATS_CURATION_FALLBACK_THRESHOLD = 83.0
 
 # ── DuckDB Analytics singleton ─────────────────────────────────────────
 
@@ -275,6 +276,176 @@ class DuckDBAnalytics:
             for row in results
         ]
 
+    def query_stats_curation_threshold(self, days: int = 7) -> float:
+        """P70 curation threshold for the stats surfaces."""
+        conn = self._get_conn()
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        rows = conn.execute(f"""
+            SELECT a.curation_score
+            FROM sqlite_db.ai_analyses a
+            JOIN sqlite_db.content_items c ON c.id = a.content_id
+            WHERE c.crawled_at >= '{cutoff}'
+              AND c.duplicate_of IS NULL
+              AND a.curation_score > 0
+            ORDER BY a.curation_score ASC
+        """).fetchall()
+        if not rows:
+            return STATS_CURATION_FALLBACK_THRESHOLD
+        index = max(0, int(0.70 * len(rows) - 1))
+        return float(rows[index][0])
+
+    def query_stats_overview(self, days: int = 7) -> Dict[str, Any]:
+        """Content overview KPI cards, computed in DuckDB."""
+        conn = self._get_conn()
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        threshold = self.query_stats_curation_threshold(days=days)
+
+        row = conn.execute(f"""
+            SELECT
+                COUNT(c.id) AS total,
+                COUNT(CASE WHEN a.curation_score IS NOT NULL THEN c.id END) AS analyzed,
+                COUNT(CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated
+            FROM sqlite_db.content_items c
+            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            WHERE c.crawled_at >= '{cutoff}'
+              AND c.duplicate_of IS NULL
+        """).fetchone()
+        today_row = conn.execute(f"""
+            SELECT COUNT(c.id)
+            FROM sqlite_db.content_items c
+            WHERE c.crawled_at >= '{today_start}'
+              AND c.duplicate_of IS NULL
+        """).fetchone()
+
+        return {
+            "total": row[0] or 0,
+            "analyzed": row[1] or 0,
+            "curated": row[2] or 0,
+            "curation_threshold": round(threshold, 1),
+            "today_new": today_row[0] or 0,
+        }
+
+    def query_stats_source_distribution(self, days: int = 7) -> Dict[str, Any]:
+        """Source distribution, computed in DuckDB."""
+        conn = self._get_conn()
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        threshold = self.query_stats_curation_threshold(days=days)
+        rows = conn.execute(f"""
+            SELECT
+                COALESCE(s.name, '未知') AS source_name,
+                LOWER(COALESCE(CAST(s.source_type AS VARCHAR), 'unknown')) AS source_type,
+                COUNT(c.id) AS content_count,
+                COUNT(CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated_count
+            FROM sqlite_db.content_items c
+            LEFT JOIN sqlite_db.sources s ON s.id = c.source_id
+            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            WHERE c.crawled_at >= '{cutoff}'
+              AND c.duplicate_of IS NULL
+            GROUP BY s.id, s.name, s.source_type
+            HAVING COUNT(c.id) > 0
+            ORDER BY content_count DESC
+            LIMIT 20
+        """).fetchall()
+        sources = []
+        for row in rows:
+            content_count = row[2] or 0
+            curated_count = row[3] or 0
+            sources.append({
+                "source_name": row[0],
+                "source_type": row[1],
+                "content_count": content_count,
+                "curated_count": curated_count,
+                "curation_rate": round(curated_count / content_count * 100, 1) if content_count else 0,
+            })
+        return {"sources": sources}
+
+    def query_stats_category_distribution(self, days: int = 7) -> Dict[str, Any]:
+        """Category distribution, computed in DuckDB."""
+        conn = self._get_conn()
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        rows = conn.execute(f"""
+            SELECT
+                COALESCE(c.category, '未分类') AS category,
+                COUNT(c.id) AS content_count,
+                ROUND(AVG(a.curation_score), 1) AS avg_score
+            FROM sqlite_db.content_items c
+            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            WHERE c.crawled_at >= '{cutoff}'
+              AND c.duplicate_of IS NULL
+            GROUP BY c.category
+            ORDER BY content_count DESC
+        """).fetchall()
+        return {
+            "categories": [
+                {
+                    "category": row[0],
+                    "content_count": row[1] or 0,
+                    "avg_score": float(row[2]) if row[2] is not None else 0,
+                }
+                for row in rows
+            ]
+        }
+
+    def query_stats_daily_trend(self, days: int = 7) -> Dict[str, Any]:
+        """Daily volume trend, computed in DuckDB."""
+        conn = self._get_conn()
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        threshold = self.query_stats_curation_threshold(days=days)
+        rows = conn.execute(f"""
+            SELECT
+                CAST(c.crawled_at AS DATE) AS crawl_date,
+                COUNT(c.id) AS content_count,
+                COUNT(CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated_count,
+                COUNT(CASE WHEN a.id IS NOT NULL THEN c.id END) AS analyzed_count
+            FROM sqlite_db.content_items c
+            LEFT JOIN sqlite_db.ai_analyses a ON a.content_id = c.id
+            WHERE c.crawled_at >= '{cutoff}'
+              AND c.duplicate_of IS NULL
+            GROUP BY CAST(c.crawled_at AS DATE)
+            ORDER BY crawl_date ASC
+        """).fetchall()
+        return {
+            "trend": [
+                {
+                    "date": row[0].isoformat() if hasattr(row[0], "isoformat") else str(row[0]),
+                    "content_count": row[1] or 0,
+                    "curated_count": row[2] or 0,
+                    "analyzed_count": row[3] or 0,
+                }
+                for row in rows
+            ]
+        }
+
+    def query_stats_novel_platforms(self) -> Dict[str, Any]:
+        """Novel radar platform counts, computed in DuckDB."""
+        conn = self._get_conn()
+        fanqie = conn.execute("""
+            SELECT COUNT(id), MAX(crawled_at)
+            FROM sqlite_db.fanqie_books
+        """).fetchone()
+        qimao = conn.execute("""
+            SELECT COUNT(id), MAX(crawled_at)
+            FROM sqlite_db.qimao_books
+        """).fetchone()
+        zhihu = conn.execute("""
+            SELECT COUNT(id), MAX(updated_at)
+            FROM sqlite_db.zhihu_albums
+        """).fetchone()
+
+        def fmt(value):
+            if value is None:
+                return None
+            return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+        return {
+            "platforms": [
+                {"name": "番茄小说", "table": "fanqie", "count": fanqie[0] or 0, "last_sync": fmt(fanqie[1])},
+                {"name": "七猫小说", "table": "qimao", "count": qimao[0] or 0, "last_sync": fmt(qimao[1])},
+                {"name": "知乎盐选", "table": "zhihu", "count": zhihu[0] or 0, "last_sync": fmt(zhihu[1])},
+            ]
+        }
+
     def query_daily_stats(self) -> Dict[str, Any]:
         """Statistics for daily report generation."""
         conn = self._get_conn()
@@ -495,6 +666,21 @@ def query_trend_topics(days: int = 7) -> List[Dict[str, Any]]:
 
 def query_keyword_cloud(days: int = 7, limit: int = 50) -> List[Dict[str, Any]]:
     return get_analytics().query_keyword_cloud(days=days, limit=limit)
+
+def query_stats_overview(days: int = 7) -> Dict[str, Any]:
+    return get_analytics().query_stats_overview(days=days)
+
+def query_stats_source_distribution(days: int = 7) -> Dict[str, Any]:
+    return get_analytics().query_stats_source_distribution(days=days)
+
+def query_stats_category_distribution(days: int = 7) -> Dict[str, Any]:
+    return get_analytics().query_stats_category_distribution(days=days)
+
+def query_stats_daily_trend(days: int = 7) -> Dict[str, Any]:
+    return get_analytics().query_stats_daily_trend(days=days)
+
+def query_stats_novel_platforms() -> Dict[str, Any]:
+    return get_analytics().query_stats_novel_platforms()
 
 def query_daily_stats() -> Dict[str, Any]:
     return get_analytics().query_daily_stats()

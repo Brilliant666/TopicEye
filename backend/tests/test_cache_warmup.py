@@ -20,6 +20,15 @@ from app.services.scoring_flow import (
 from app.services.source_cache import default_source_list_cache_params
 from app.services.today_picks_cache import default_today_picks_cache_params
 
+STATS_WORKSPACE_CACHE_KEYS = {
+    "stats:overview:7",
+    "stats:source-distribution:7",
+    "stats:category-distribution:7",
+    "stats:daily-trend:7",
+    "stats:novel-platforms",
+    "stats:dashboard:7",
+}
+
 
 async def seed_cache_warmup_fixture(session_factory) -> None:
     async with session_factory() as db:
@@ -97,8 +106,8 @@ async def test_warmup_read_caches_populates_hot_read_cache_keys(cache_warmup_ses
         "contents:list:1:50:48",
         "contents:today-picks:48",
         "contents:favorites:list:1:20",
-        "stats:overview:7",
     }
+    expected_warmed.update(STATS_WORKSPACE_CACHE_KEYS)
     expected_warmed.update(f"scoring-flow:{hours}:{limit}" for hours, limit in SCORING_FLOW_WARMUP_TARGETS)
     assert set(result["warmed"]) == expected_warmed
     assert result["errors"] == []
@@ -107,7 +116,8 @@ async def test_warmup_read_caches_populates_hot_read_cache_keys(cache_warmup_ses
     assert get_cached_json(home_content_list_cache_params().key, ttl_seconds=ttl) is not None
     assert get_cached_json(default_today_picks_cache_params().key, ttl_seconds=ttl) is not None
     assert get_cached_json("contents:favorites:list:1:20", ttl_seconds=ttl) is not None
-    assert get_cached_json("stats:overview:7", ttl_seconds=ttl) is not None
+    for key in STATS_WORKSPACE_CACHE_KEYS:
+        assert get_cached_json(key, ttl_seconds=ttl) is not None
     for hours, limit in SCORING_FLOW_WARMUP_TARGETS:
         assert get_cached_scoring_flow_json(hours=hours, limit=limit) is not None
 

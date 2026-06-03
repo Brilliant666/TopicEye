@@ -79,10 +79,9 @@ async def warmup_read_caches(*, include_scoring_flow: bool = True) -> dict[str, 
             errors.append(f"favorites:{exc}")
 
         try:
-            await warmup_stats_overview(db)
-            warmed.append("stats:overview:7")
+            warmed.extend(await warmup_stats_workspace())
         except Exception as exc:
-            logger.warning("Stats overview cache warmup skipped: %s", exc)
+            logger.warning("Stats workspace cache warmup skipped: %s", exc)
             errors.append(f"stats:{exc}")
 
         if include_scoring_flow:
@@ -155,11 +154,13 @@ async def warmup_today_picks(db) -> None:
     set_cached_today_picks(params, payload)
 
 
-async def warmup_stats_overview(db) -> None:
-    from app.api.v1.stats import build_overview_payload
+async def warmup_stats_workspace() -> list[str]:
+    from app.api.v1.stats import build_default_stats_cache_payloads
 
-    payload = await build_overview_payload(db, days=7)
-    set_cached_json("stats:overview:7", payload)
+    payloads = build_default_stats_cache_payloads()
+    for key, payload in payloads.items():
+        set_cached_json(key, payload)
+    return list(payloads)
 
 
 async def warmup_scoring_flow(db) -> list[str]:

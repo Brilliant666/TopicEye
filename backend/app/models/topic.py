@@ -7,7 +7,7 @@ from sqlalchemy import (
     Column, Integer, String, DateTime, ForeignKey, Text, JSON, Float,
 )
 from sqlalchemy.orm import relationship
-from app.database import Base
+from app.core.database import Base
 
 
 class TopicGroup(Base):

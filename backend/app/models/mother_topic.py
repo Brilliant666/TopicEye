@@ -15,7 +15,7 @@ from typing import Optional
 from sqlalchemy import JSON, Float, String, Boolean, DateTime, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.core.database import Base
 
 
 class ContentType(str, enum.Enum):

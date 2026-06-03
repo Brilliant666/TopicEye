@@ -17,7 +17,7 @@ from datetime import date
 from fastapi import APIRouter, Query
 from typing import Optional
 
-from app.database import async_session
+from app.core.database import async_session
 from app.services.trends import snapshot_daily_trends, get_topic_trends, get_keyword_cloud
 
 logger = logging.getLogger(__name__)

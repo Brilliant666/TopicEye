@@ -2,7 +2,7 @@ import asyncio
 import sys
 
 async def main():
-    from app.database import async_session
+    from app.core.database import async_session
     from app.services.trends import snapshot_daily_trends
     
     try:

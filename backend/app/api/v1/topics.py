@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional, Any
 
-from app.database import get_db
+from app.core.database import get_db
 from app.models.topic import TopicGroup
 from app.models.content import ContentItem
 from app.services.topic_clustering import cluster_and_dedup

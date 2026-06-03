@@ -12,7 +12,7 @@ from typing import Optional
 from sqlalchemy import Boolean, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database import Base
+from app.core.database import Base
 
 
 class Category(Base):

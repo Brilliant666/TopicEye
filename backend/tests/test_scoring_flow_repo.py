@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.database import Base
+from app.core.database import Base
 from app.models.analysis import AiAnalysis
 from app.models.content import ContentItem, ContentStatus
 from app.models.source import Source, SourceStatus, SourceType

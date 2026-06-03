@@ -14,6 +14,7 @@ from typing import Dict, Literal, Optional
 from sqlalchemy.engine import URL, make_url
 
 DatabaseBackend = Literal["sqlite", "postgresql", "unknown"]
+SUPPORTED_DATABASE_BACKENDS = {"sqlite", "postgresql"}
 
 
 SQLITE_DOMAIN_TABLES: Dict[str, tuple[str, ...]] = {
@@ -129,6 +130,12 @@ def create_database_profile(
     sqlite_domain_dir: str = "./data/domains",
 ) -> DatabaseProfile:
     backend = database_backend(url)
+    if backend not in SUPPORTED_DATABASE_BACKENDS:
+        driver = make_url(url).drivername
+        raise ValueError(
+            "Unsupported database backend for DATABASE_URL: "
+            f"{driver}. Use sqlite+aiosqlite:// or postgresql+asyncpg://."
+        )
     parsed = make_url(url)
     domain_urls = (
         sqlite_domain_urls(url, sqlite_domain_dir)

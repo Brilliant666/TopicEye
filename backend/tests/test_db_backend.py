@@ -100,3 +100,18 @@ def test_sqlite_domain_urls_are_explicit_opt_in(tmp_path):
     assert default_profile.sqlite_domain_urls == {}
     assert set(split_profile.sqlite_domain_urls) >= {"content", "topics", "trending", "webnovel", "ops"}
     assert sqlite_domain_urls(url, str(tmp_path))["content"].endswith("topiceye_content.db")
+
+
+def test_database_profile_rejects_unsupported_backend():
+    url = "mysql+aiomysql://topiceye:secret@localhost:3306/topiceye"
+
+    assert database_backend(url) == "unknown"
+
+    try:
+        create_database_profile(url)
+    except ValueError as exc:
+        assert "Unsupported database backend for DATABASE_URL" in str(exc)
+        assert "sqlite+aiosqlite://" in str(exc)
+        assert "postgresql+asyncpg://" in str(exc)
+    else:
+        raise AssertionError("unsupported database backend should be rejected")

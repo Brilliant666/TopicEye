@@ -132,7 +132,7 @@ async def duckdb_status():
             "database": diagnostics,
             "architecture": "in-memory DuckDB + OLTP ATTACH (READ_ONLY)",
             "note": "No sync needed; DuckDB reads the configured OLTP backend directly." if available
-                    else "DuckDB package or required extension is unavailable. App falls back to SQLAlchemy.",
+                    else "DuckDB package or required extension is unavailable. Analytical read APIs will return 503 until DuckDB is available.",
         }
     except Exception as e:
         return {

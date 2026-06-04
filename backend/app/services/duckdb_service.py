@@ -8,8 +8,9 @@ Architecture:
     fresh.
 
     SQLAlchemy: OLTP source of truth (SQLite or PostgreSQL writes).
-    DuckDB: OLAP layer (reads only, for analytical/aggregation queries).
-    Fallback: if DuckDB extension loading fails, callers fall back to SQLAlchemy.
+    DuckDB: fixed OLAP layer (reads only, for analytical/aggregation queries).
+    If DuckDB extension loading or ATTACH fails, analytical read APIs report the
+    layer as unavailable instead of falling back to OLTP queries.
 
 Usage:
     from app.services.duckdb_service import DuckDBAnalytics

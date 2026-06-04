@@ -103,7 +103,7 @@ Docker Compose 内部仍使用 `backend:8000`，不受本地开发端口影响�
 - `backend/requirements.txt` 已包含 `duckdb`
 - 后端启动时会初始化 DuckDB，并以 READ_ONLY 方式 ATTACH 当前 SQLite/PostgreSQL 数据库
 - 健康检查：`curl http://127.0.0.1:8102/health`
-- 如果 `database.duckdb.available=false`，说明当前 Python 环境没有安装 DuckDB 包或缺少所需扩展，分析接口会暂时退回 SQLAlchemy
+- 如果 `database.duckdb.available=false`，说明当前 Python 环境没有安装 DuckDB 包、缺少所需扩展或无法 ATTACH 当前 OLTP 数据库；分析读接口会返回 503，直到 DuckDB 分析层恢复
 
 ### 数据库
 

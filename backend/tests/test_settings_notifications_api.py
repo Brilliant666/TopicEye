@@ -140,6 +140,36 @@ async def test_duckdb_status_reports_database_diagnostics(
 
 
 @pytest.mark.asyncio
+async def test_duckdb_status_reports_unavailable_without_sqlalchemy_fallback_note(
+    settings_notifications_client: httpx.AsyncClient,
+    monkeypatch,
+):
+    class FakeAnalytics:
+        def status(self):
+            return {
+                "status": "unavailable",
+                "available": False,
+                "backend": "sqlite",
+                "extension": "sqlite",
+                "attach_alias": "oltp_db",
+                "mode": "duckdb_attach_read_only",
+                "error": "sqlite extension unavailable",
+            }
+
+    monkeypatch.setattr(duckdb_service, "get_analytics", lambda: FakeAnalytics())
+
+    response = await settings_notifications_client.get("/settings/duckdb/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "unavailable"
+    assert payload["available"] is False
+    assert "return 503" in payload["note"]
+    assert "fallback" not in payload["note"].lower()
+    assert "SQLAlchemy" not in payload["note"]
+
+
+@pytest.mark.asyncio
 async def test_duckdb_status_redacts_database_secret_on_unhandled_error(
     settings_notifications_client: httpx.AsyncClient,
     monkeypatch,

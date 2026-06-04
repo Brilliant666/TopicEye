@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -29,6 +30,8 @@ from app.services.favorite_cache import (
 from app.services.json_cache import invalidate_json_cache
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
+MAX_FAVORITE_STATE_TARGETS = 200
+MAX_FAVORITE_STATE_TARGET_KEY_LENGTH = 255
 
 
 def _invalidate_favorite_mutation_caches(*, content_changed: bool = False) -> None:
@@ -47,6 +50,57 @@ def _favorite_cache_hit_response(content: bytes, age_seconds: float) -> Response
             "X-Favorites-Cache-Age-Ms": str(round(age_seconds * 1000, 3)),
         },
     )
+
+
+def _parse_state_target_ids(raw_target_ids: Optional[str]) -> list[int]:
+    if not raw_target_ids:
+        return []
+    ids: list[int] = []
+    for item in raw_target_ids.split(","):
+        value = item.strip()
+        if not value:
+            continue
+        try:
+            ids.append(int(value))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="target_ids must be comma-separated integers")
+    return ids
+
+
+def _parse_state_target_keys(raw_target_keys: Optional[str]) -> list[str]:
+    if not raw_target_keys:
+        return []
+    return [item.strip() for item in raw_target_keys.split(",") if item.strip()]
+
+
+def _normalize_state_target_keys(
+    target_type: FavoriteTargetType,
+    *,
+    target_ids: Optional[str],
+    target_keys: Optional[str],
+) -> list[str]:
+    keys = _parse_state_target_keys(target_keys)
+    keys.extend(
+        FavoriteRepo.make_target_key(target_type, target_id=target_id)
+        for target_id in _parse_state_target_ids(target_ids)
+    )
+    normalized = sorted(set(keys))
+    if any(len(key) > MAX_FAVORITE_STATE_TARGET_KEY_LENGTH for key in normalized):
+        raise HTTPException(
+            status_code=422,
+            detail=f"favorites state target key length must be <= {MAX_FAVORITE_STATE_TARGET_KEY_LENGTH}",
+        )
+    if len(normalized) > MAX_FAVORITE_STATE_TARGETS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"favorites state target count must be <= {MAX_FAVORITE_STATE_TARGETS}",
+        )
+    return normalized
+
+
+def _favorite_state_cache_key(target_type: FavoriteTargetType, target_keys: list[str]) -> str:
+    digest = hashlib.sha256("\n".join(target_keys).encode("utf-8")).hexdigest()
+    return f"state:{target_type.value}:{digest}"
 
 
 @router.get("", response_model=FavoriteListResponse)
@@ -107,21 +161,20 @@ async def favorite_state(
     target_ids: Optional[str] = Query(None, description="Comma-separated target IDs"),
     target_keys: Optional[str] = Query(None, description="Comma-separated target keys"),
 ):
-    cache_key = f"state:{target_type}:{target_ids or ''}:{target_keys or ''}"
+    keys = _normalize_state_target_keys(
+        target_type,
+        target_ids=target_ids,
+        target_keys=target_keys,
+    )
+    cache_key = _favorite_state_cache_key(target_type, keys)
     cached = get_cached_json(cache_key)
     if cached:
         content, age_seconds = cached
         return _favorite_cache_hit_response(content, age_seconds)
 
-    try:
-        ids = [int(item) for item in target_ids.split(",") if item.strip()] if target_ids else None
-    except ValueError:
-        raise HTTPException(status_code=422, detail="target_ids must be comma-separated integers")
-    keys = [item.strip() for item in target_keys.split(",") if item.strip()] if target_keys else None
     async with async_session() as db:
         state_items = await FavoriteRepo(db).state_for_targets(
             target_type,
-            target_ids=ids,
             target_keys=keys,
         )
     payload = {"items": state_items}

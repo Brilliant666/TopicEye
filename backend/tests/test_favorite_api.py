@@ -93,10 +93,11 @@ async def test_favorites_api_create_state_list_and_cache_invalidation(favorites_
         {"target_key": "missing", "is_favorited": False, "favorite_id": None},
     ]
 
-    cached_state = await favorites_client.get("/favorites/state?target_type=book&target_keys=fanqie:1001,missing")
+    cached_state = await favorites_client.get("/favorites/state?target_type=book&target_keys=missing,fanqie:1001,fanqie:1001")
     assert cached_state.status_code == 200
     assert cached_state.headers["x-favorites-cache"] == "HIT"
     assert float(cached_state.headers["x-favorites-cache-age-ms"]) >= 0
+    assert cached_state.json() == state.json()
 
     first_list = await favorites_client.get("/favorites?page=1&page_size=20")
     assert first_list.status_code == 200
@@ -132,6 +133,20 @@ async def test_favorites_api_create_state_list_and_cache_invalidation(favorites_
     invalid_state = await favorites_client.get("/favorites/state?target_type=book&target_ids=1,not-a-number")
     assert invalid_state.status_code == 422
     assert invalid_state.json()["detail"] == "target_ids must be comma-separated integers"
+
+    too_many_keys = ",".join(f"book:{index}" for index in range(favorites_api.MAX_FAVORITE_STATE_TARGETS + 1))
+    too_many_state = await favorites_client.get(
+        f"/favorites/state?target_type=book&target_keys={too_many_keys}"
+    )
+    assert too_many_state.status_code == 422
+    assert too_many_state.json()["detail"] == "favorites state target count must be <= 200"
+
+    too_long_key = "x" * (favorites_api.MAX_FAVORITE_STATE_TARGET_KEY_LENGTH + 1)
+    too_long_state = await favorites_client.get(
+        f"/favorites/state?target_type=book&target_keys={too_long_key}"
+    )
+    assert too_long_state.status_code == 422
+    assert too_long_state.json()["detail"] == "favorites state target key length must be <= 255"
 
 
 def _prime_scoring_flow_cache() -> None:

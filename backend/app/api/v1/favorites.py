@@ -13,6 +13,7 @@ from app.models.favorite import FavoriteStatus, FavoriteTargetType
 from app.models.user import User
 from app.repositories.favorite_repo import FavoriteRepo
 from app.schemas.favorite import (
+    FavoriteBoardReorderRequest,
     FavoriteBulkDeleteRequest,
     FavoriteBulkStatusRequest,
     FavoriteCreate,
@@ -198,6 +199,22 @@ async def reorder_favorites(
 ):
     try:
         items = await FavoriteRepo(db, current_user.id).reorder_status(status=data.status, ordered_ids=data.ordered_ids)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    _invalidate_favorite_mutation_caches()
+    return items
+
+
+@router.post("/reorder-board", response_model=list[FavoriteResponse])
+async def reorder_favorite_board(
+    data: FavoriteBoardReorderRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        items = await FavoriteRepo(db, current_user.id).reorder_board(
+            [(column.status, column.ordered_ids) for column in data.columns]
+        )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     _invalidate_favorite_mutation_caches()

@@ -438,6 +438,95 @@ async def test_favorites_api_reorder_persists_cross_status_drag_columns(favorite
 
 
 @pytest.mark.asyncio
+async def test_favorites_api_reorder_board_persists_cross_status_drag_atomically(favorites_client: httpx.AsyncClient):
+    created = []
+    for index in range(4):
+        response = await favorites_client.post(
+            "/favorites",
+            json={
+                "target_type": "book",
+                "target_key": f"book:board-drag:{index}",
+                "title": f"看板拖拽样本 {index}",
+            },
+        )
+        assert response.status_code == 201
+        created.append(response.json())
+
+    draft_tail = await favorites_client.patch(
+        f"/favorites/{created[3]['id']}",
+        json={"status": "drafting"},
+    )
+    assert draft_tail.status_code == 200
+
+    moved_id = created[1]["id"]
+    reordered = await favorites_client.post(
+        "/favorites/reorder-board",
+        json={
+            "columns": [
+                {"status": "drafting", "ordered_ids": [moved_id, created[3]["id"]]},
+                {"status": "inbox", "ordered_ids": [created[0]["id"], created[2]["id"]]},
+            ],
+        },
+    )
+
+    assert reordered.status_code == 200
+    payload = reordered.json()
+    assert [item["id"] for item in payload] == [
+        moved_id,
+        created[3]["id"],
+        created[0]["id"],
+        created[2]["id"],
+    ]
+
+    listed_inbox = await favorites_client.get("/favorites?page=1&page_size=20&status=inbox")
+    listed_drafting = await favorites_client.get("/favorites?page=1&page_size=20&status=drafting")
+    assert listed_inbox.status_code == 200
+    assert listed_drafting.status_code == 200
+    assert [item["id"] for item in listed_inbox.json()["items"]] == [created[0]["id"], created[2]["id"]]
+    assert [item["position"] for item in listed_inbox.json()["items"]] == [1000, 2000]
+    assert [item["id"] for item in listed_drafting.json()["items"]] == [moved_id, created[3]["id"]]
+    assert [item["position"] for item in listed_drafting.json()["items"]] == [1000, 2000]
+
+
+@pytest.mark.asyncio
+async def test_favorites_api_reorder_board_rejects_missing_id_without_partial_write(
+    favorites_client: httpx.AsyncClient,
+):
+    created = []
+    for index in range(2):
+        response = await favorites_client.post(
+            "/favorites",
+            json={
+                "target_type": "book",
+                "target_key": f"book:board-missing:{index}",
+                "title": f"缺失 ID 回滚样本 {index}",
+            },
+        )
+        assert response.status_code == 201
+        created.append(response.json())
+
+    failed = await favorites_client.post(
+        "/favorites/reorder-board",
+        json={
+            "columns": [
+                {"status": "drafting", "ordered_ids": [created[0]["id"], 999999]},
+                {"status": "inbox", "ordered_ids": [created[1]["id"]]},
+            ],
+        },
+    )
+
+    assert failed.status_code == 404
+    assert failed.json()["detail"] == "Favorite not found: 999999"
+
+    listed_inbox = await favorites_client.get("/favorites?page=1&page_size=20&status=inbox")
+    listed_drafting = await favorites_client.get("/favorites?page=1&page_size=20&status=drafting")
+    assert listed_inbox.status_code == 200
+    assert listed_drafting.status_code == 200
+    assert [item["id"] for item in listed_inbox.json()["items"]] == [created[1]["id"], created[0]["id"]]
+    assert listed_drafting.json()["items"] == []
+
+
+@pytest.mark.asyncio
 async def test_favorites_api_reorder_rejects_duplicate_ids(favorites_client: httpx.AsyncClient):
     created = await favorites_client.post(
         "/favorites",

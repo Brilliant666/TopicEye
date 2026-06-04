@@ -66,6 +66,33 @@ class FavoriteReorderRequest(BaseModel):
         return value
 
 
+class FavoriteReorderColumn(BaseModel):
+    status: FavoriteStatus
+    ordered_ids: list[int] = Field(default_factory=list, max_length=500)
+
+    @field_validator("ordered_ids")
+    @classmethod
+    def validate_unique_ids(cls, value):
+        if len(value) != len(set(value)):
+            raise ValueError("ordered_ids must not contain duplicates")
+        return value
+
+
+class FavoriteBoardReorderRequest(BaseModel):
+    columns: list[FavoriteReorderColumn] = Field(min_length=1, max_length=4)
+
+    @model_validator(mode="after")
+    def validate_unique_columns(self) -> "FavoriteBoardReorderRequest":
+        statuses = [column.status for column in self.columns]
+        if len(statuses) != len(set(statuses)):
+            raise ValueError("columns must not contain duplicate statuses")
+
+        ids = [item_id for column in self.columns for item_id in column.ordered_ids]
+        if len(ids) != len(set(ids)):
+            raise ValueError("ordered_ids must not repeat across columns")
+        return self
+
+
 class FavoriteBulkStatusRequest(BaseModel):
     status: FavoriteStatus
     ids: list[int] = Field(min_length=1, max_length=500)

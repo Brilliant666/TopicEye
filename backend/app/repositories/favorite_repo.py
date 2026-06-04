@@ -245,6 +245,41 @@ class FavoriteRepo:
     ) -> list[FavoriteItem]:
         return await self._normalize_status_order(status=status, leading_ids=ids)
 
+    async def reorder_board(
+        self,
+        columns: Sequence[tuple[FavoriteStatus, list[int]]],
+    ) -> list[FavoriteItem]:
+        ordered_ids = [item_id for _, column_ids in columns for item_id in column_ids]
+        if not ordered_ids:
+            return []
+
+        unique_ids = list(dict.fromkeys(ordered_ids))
+        result = await self.db.execute(
+            select(FavoriteItem).where(
+                FavoriteItem.user_id == self.user_id,
+                FavoriteItem.id.in_(unique_ids),
+            )
+        )
+        items = list(result.scalars().all())
+        by_id = {item.id: item for item in items}
+
+        missing_ids = [item_id for item_id in unique_ids if item_id not in by_id]
+        if missing_ids:
+            raise LookupError(f"Favorite not found: {missing_ids[0]}")
+
+        now = datetime.utcnow()
+        updated: list[FavoriteItem] = []
+        for status, column_ids in columns:
+            for index, item_id in enumerate(column_ids):
+                item = by_id[item_id]
+                item.status = status
+                item.position = (index + 1) * 1000
+                item.updated_at = now
+                updated.append(item)
+
+        await self.db.flush()
+        return updated
+
     async def _normalize_status_order(
         self,
         *,

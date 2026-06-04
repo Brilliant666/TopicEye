@@ -500,6 +500,28 @@ export const favoritesApi = {
     });
   },
 
+  reorderBoard(columns: Array<{ status: FavoriteStatus; orderedIds: number[] }>): Promise<FavoriteItem[]> {
+    const seen = new Set<number>();
+    for (const column of columns) {
+      assertUniqueIds(column.orderedIds, '收藏排序包含重复项，请刷新后重试');
+      for (const id of column.orderedIds) {
+        if (seen.has(id)) {
+          throw new Error('收藏排序包含跨列重复项，请刷新后重试');
+        }
+        seen.add(id);
+      }
+    }
+    return request('/favorites/reorder-board', {
+      method: 'POST',
+      body: JSON.stringify({
+        columns: columns.map((column) => ({
+          status: column.status,
+          ordered_ids: column.orderedIds,
+        })),
+      }),
+    });
+  },
+
   bulkStatus(status: FavoriteStatus, ids: number[]): Promise<FavoriteItem[]> {
     assertUniqueIds(ids, '批量移动包含重复收藏，请刷新后重试');
     return request('/favorites/bulk-status', {

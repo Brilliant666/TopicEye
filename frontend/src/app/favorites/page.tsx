@@ -444,13 +444,12 @@ export default function FavoritesPage() {
           .filter((item) => item.status === dirtyStatus)
           .sort((a, b) => a.position - b.position || b.updated_at.localeCompare(a.updated_at) || b.id - a.id)
           .map((item) => item.id);
-        return { dirtyStatus, orderedIds };
-      }).filter((target) => target.orderedIds.length > 0);
-      const updatedGroups: FavoriteItem[][] = [];
-      for (const target of reorderTargets) {
-        updatedGroups.push(await favoritesApi.reorder(target.dirtyStatus, target.orderedIds));
-      }
-      const byId = new Map(updatedGroups.flat().map((item) => [item.id, item]));
+        return { status: dirtyStatus, orderedIds };
+      });
+      const updatedItems = reorderTargets.length > 0
+        ? await favoritesApi.reorderBoard(reorderTargets)
+        : [];
+      const byId = new Map(updatedItems.map((item) => [item.id, item]));
       setItems((prev) => prev.map((item) => byId.get(item.id) || item));
       setDirtyStatuses(new Set());
       setSavedNotice('排序已保存');

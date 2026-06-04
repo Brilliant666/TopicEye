@@ -524,6 +524,7 @@ class DuckDBAnalytics:
         category_distribution = self.query_stats_category_distribution(days=days)
         daily_trend = self.query_stats_daily_trend(days=days)
         novel_platforms = self.query_stats_novel_platforms()
+        threshold = float(overview.get("curation_threshold", STATS_CURATION_FALLBACK_THRESHOLD))
 
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
@@ -533,7 +534,7 @@ class DuckDBAnalytics:
             WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 COUNT(DISTINCT c.id) AS total_crawled,
-                COUNT(DISTINCT CASE WHEN a.curation_score >= 70 THEN c.id END) AS total_curated,
+                COUNT(DISTINCT CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS total_curated,
                 ROUND(AVG(a.curation_score), 1) AS avg_curation,
                 COUNT(DISTINCT c.source_id) AS active_sources
             FROM oltp_db.content_items c
@@ -548,7 +549,7 @@ class DuckDBAnalytics:
                 s.name,
                 s.source_type,
                 COUNT(DISTINCT c.id) AS content_count,
-                COUNT(DISTINCT CASE WHEN a.curation_score >= 70 THEN c.id END) AS curated_count,
+                COUNT(DISTINCT CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_score
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
@@ -566,7 +567,7 @@ class DuckDBAnalytics:
             SELECT
                 CAST(c.crawled_at AS DATE) AS crawl_date,
                 COUNT(DISTINCT c.id) AS content_count,
-                COUNT(DISTINCT CASE WHEN a.curation_score >= 70 THEN c.id END) AS curated_count,
+                COUNT(DISTINCT CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_curation
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id

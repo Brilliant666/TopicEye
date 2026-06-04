@@ -110,6 +110,69 @@ def test_stats_queries_use_latest_analysis_only(monkeypatch):
     conn.close()
 
 
+def test_dashboard_stats_uses_dynamic_curation_threshold(monkeypatch):
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE SCHEMA oltp_db")
+    conn.execute("""
+        CREATE TABLE oltp_db.content_items (
+            id INTEGER,
+            source_id INTEGER,
+            source_name VARCHAR,
+            category VARCHAR,
+            crawled_at TIMESTAMP,
+            duplicate_of INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.sources (
+            id INTEGER,
+            name VARCHAR,
+            source_type VARCHAR
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.ai_analyses (
+            id INTEGER,
+            content_id INTEGER,
+            curation_score DOUBLE,
+            created_at TIMESTAMP
+        )
+    """)
+    for table_name, timestamp_column in (
+        ("fanqie_books", "crawled_at"),
+        ("qimao_books", "crawled_at"),
+        ("zhihu_albums", "updated_at"),
+    ):
+        conn.execute(f"""
+            CREATE TABLE oltp_db.{table_name} (
+                id INTEGER,
+                {timestamp_column} TIMESTAMP
+            )
+        """)
+
+    now = datetime.utcnow()
+    conn.execute("INSERT INTO oltp_db.sources VALUES (1, '测试信源', 'RSS')")
+    conn.execute("INSERT INTO oltp_db.content_items VALUES (1, 1, '测试信源', 'AI', ?, NULL)", [now])
+    conn.execute("INSERT INTO oltp_db.content_items VALUES (2, 1, '测试信源', 'AI', ?, NULL)", [now])
+    conn.execute("INSERT INTO oltp_db.ai_analyses VALUES (1, 1, 60.0, ?)", [now])
+    conn.execute("INSERT INTO oltp_db.ai_analyses VALUES (2, 2, 90.0, ?)", [now])
+
+    analytics = duckdb_service.DuckDBAnalytics()
+    monkeypatch.setattr(analytics, "_get_conn", lambda: conn)
+
+    dashboard = analytics.query_dashboard_stats(days=7)
+
+    assert dashboard["overview"]["curation_threshold"] == 60.0
+    assert dashboard["overview"]["curated"] == 2
+    assert dashboard["kpi"]["total_curated"] == 2
+    assert dashboard["sources"][0]["curated_count"] == 2
+    assert dashboard["source_breakdown"][0]["curated_count"] == 2
+    assert dashboard["trend"][0]["curated_count"] == 2
+    assert dashboard["daily_trend"][0]["curated_count"] == 2
+
+    conn.close()
+
+
 def test_today_picks_query_uses_latest_analysis_only(monkeypatch):
     conn = duckdb.connect(":memory:")
     conn.execute("CREATE SCHEMA oltp_db")

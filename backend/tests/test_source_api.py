@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import app.main  # noqa: F401 - import all models for Base.metadata
 import app.api.v1.sources as sources_api
 import app.services.content_pipeline as content_pipeline
+from app.api.v1.auth import get_current_admin_user
 from app.api.v1.sources import create_source, router as sources_router, update_source
 from app.core.database import Base
 from app.core.dependencies import get_db
@@ -36,6 +37,7 @@ async def sources_http_client(monkeypatch) -> AsyncGenerator[httpx.AsyncClient, 
 
     app = FastAPI()
     app.include_router(sources_router)
+    app.dependency_overrides[get_current_admin_user] = lambda: object()
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         async with session_factory() as session:

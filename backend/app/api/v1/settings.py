@@ -12,11 +12,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_admin_user
 from app.core.database import database_profile, get_db
 from app.core.db_backend import database_diagnostics, redact_database_secrets
 from app.models.app_setting import AppSetting
 
-router = APIRouter(prefix="/settings", tags=["settings"])
+router = APIRouter(prefix="/settings", tags=["settings"], dependencies=[Depends(get_current_admin_user)])
 
 
 class RSSHubInstanceItem(BaseModel):

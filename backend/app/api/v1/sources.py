@@ -11,6 +11,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.api.v1.auth import get_current_admin_user
 from app.core.database import async_session
 from app.core.dependencies import get_db
 from app.core.exceptions import NotFoundError
@@ -29,7 +30,7 @@ from app.services.source_cache import (
 )
 from app.services.source_read_cache import invalidate_source_read_caches
 
-router = APIRouter(prefix="/sources", tags=["sources"])
+router = APIRouter(prefix="/sources", tags=["sources"], dependencies=[Depends(get_current_admin_user)])
 
 
 def _invalidate_source_cache() -> None:

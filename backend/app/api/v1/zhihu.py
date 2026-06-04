@@ -9,10 +9,11 @@ from fastapi import APIRouter, Depends, Query, BackgroundTasks
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_admin_user
 from app.core.database import get_db
 from app.models.zhihu import ZhihuAlbum, ZhihuCategory
 
-router = APIRouter(prefix='/zhihu', tags=['知乎'])
+router = APIRouter(prefix='/zhihu', tags=['知乎'], dependencies=[Depends(get_current_admin_user)])
 
 STORY_CATEGORY_ID = '1512'
 STORY_ALL_LABEL = '故事全部'

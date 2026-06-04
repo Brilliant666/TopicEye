@@ -12,11 +12,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_admin_user
 from app.core.database import get_db
 from app.models.fanqie import FanqieCategory, FanqieBook
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/fanqie", tags=["番茄小说"])
+router = APIRouter(prefix="/fanqie", tags=["番茄小说"], dependencies=[Depends(get_current_admin_user)])
 
 
 def _book_url(book_id: str) -> str:

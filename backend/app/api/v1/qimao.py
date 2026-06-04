@@ -8,10 +8,11 @@ from fastapi import APIRouter, Query, Depends, BackgroundTasks
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_admin_user
 from app.core.database import get_db
 from app.models.qimao import QimaoBook
 
-router = APIRouter(prefix="/qimao", tags=["qimao"])
+router = APIRouter(prefix="/qimao", tags=["qimao"], dependencies=[Depends(get_current_admin_user)])
 
 
 def _book_url(book_id: str) -> str:

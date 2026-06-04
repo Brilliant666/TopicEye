@@ -3,11 +3,12 @@ Scheduled Jobs & Execution Logs API endpoints.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from app.api.v1.auth import get_current_admin_user
 from app.services.job_tracker import get_all_job_configs, get_recent_logs
 
-router = APIRouter(prefix="/scheduler", tags=["scheduler"])
+router = APIRouter(prefix="/scheduler", tags=["scheduler"], dependencies=[Depends(get_current_admin_user)])
 
 
 @router.get("/jobs")

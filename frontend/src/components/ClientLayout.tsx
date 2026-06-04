@@ -12,7 +12,7 @@ import {
   type FavoriteCreatePayload,
   type FavoriteTargetRef,
 } from '@/lib/favorites';
-import { canAccessPath, requiredAccessForPath } from '@/lib/navigation';
+import { canAccessPath, isAdmin, requiredAccessForPath } from '@/lib/navigation';
 import type { AuthTokenResponse, AuthUser, FavoriteItem } from '@/types';
 
 // App context - shared across pages
@@ -154,11 +154,11 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     try {
       const [contents, sources, allFavorites] = await Promise.all([
         contentsApi.list({ page_size: 1 }),
-        sourcesApi.list(),
+        isAdmin(currentUser) ? sourcesApi.list() : Promise.resolve(null),
         fetchAllFavoriteItems(),
       ]);
       setContentCount(contents.total || 0);
-      setSourceCount(sources.total || sources.items?.length || 0);
+      setSourceCount(sources ? sources.total || sources.items?.length || 0 : 0);
       setFavoriteTotal(allFavorites.total || 0);
 
       const targetKeys = new Set<string>();
@@ -176,7 +176,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       setFavoriteTargetIds(targetIds);
       setFavorites(contentIds);
     } catch {}
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     const storedFavorites = loadFavoritesFromStorage();

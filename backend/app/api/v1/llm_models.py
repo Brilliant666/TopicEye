@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, desc, func, Integer as SAInteger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_admin_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locked
@@ -48,7 +49,7 @@ from app.services.llm.model_resolver import resolve_litellm_model
 from app.services.llm.model_pricing import is_free_model, normalized_model_pricing
 from app.services.llm_usage import extract_usage, record_llm_call_in_new_session
 
-router = APIRouter(prefix="/models", tags=["models"])
+router = APIRouter(prefix="/models", tags=["models"], dependencies=[Depends(get_current_admin_user)])
 
 LLM_COMPLETION_TIMEOUT_SECONDS = 25
 

@@ -91,8 +91,21 @@ export const NAV_SPACES: NavSpace[] = [
   },
 ];
 
-const USER_ONLY_PATHS = ['/daily', '/weekly', '/monthly', '/stats', '/my-topics', '/favorites', '/algorithm', '/profile'];
-const ADMIN_ONLY_PATHS = ['/sources', '/fanqie', '/model-eval'];
+const EXTRA_USER_ONLY_PATHS = ['/profile'];
+const EXTRA_ADMIN_ONLY_PATHS = ['/contents', '/mother-topics/config'];
+
+function uniquePaths(paths: string[]): string[] {
+  return Array.from(new Set(paths));
+}
+
+function navPathsForAccess(access: NavAccess): string[] {
+  return NAV_SPACES.flatMap((space) => space.items)
+    .filter((item) => item.access === access)
+    .map((item) => item.href);
+}
+
+export const USER_ONLY_PATHS = uniquePaths([...navPathsForAccess('user'), ...EXTRA_USER_ONLY_PATHS]);
+export const ADMIN_ONLY_PATHS = uniquePaths([...navPathsForAccess('admin'), ...EXTRA_ADMIN_ONLY_PATHS]);
 
 export function isAdmin(user: AuthUser | null): boolean {
   return user?.role === 'admin';

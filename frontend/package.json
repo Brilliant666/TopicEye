@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test:navigation": "node scripts/check-navigation-access.js",
     "skills:install-weread": "npx skills add Tencent/WeChatReading -g"
   },
   "dependencies": {

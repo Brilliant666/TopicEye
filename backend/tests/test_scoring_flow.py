@@ -1,5 +1,10 @@
 import time
 
+import httpx
+import pytest
+from fastapi import FastAPI
+
+from app.api.v1 import contents as contents_api
 from app.services.scoring_engine import ScoreBreakdown, ScoringInput
 from app.services.scoring_flow import (
     build_empty_payload,
@@ -12,6 +17,18 @@ from app.services.scoring_flow import (
     get_cached_scoring_flow_json,
     invalidate_scoring_flow_cache,
 )
+
+
+class _DummySession:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+def _dummy_session_factory():
+    return _DummySession()
 
 
 def _breakdown(content_id: int, **overrides) -> ScoreBreakdown:
@@ -269,4 +286,57 @@ def test_scoring_flow_cache_uses_explicit_invalidation():
     content, age_seconds = cached
     assert age_seconds > 0
     assert b'"mode":"invalidation"' in content
+    invalidate_scoring_flow_cache()
+
+
+@pytest.mark.asyncio
+async def test_scoring_flow_api_cache_headers_and_503(monkeypatch):
+    invalidate_scoring_flow_cache()
+    monkeypatch.setattr(contents_api, "async_session", _dummy_session_factory)
+
+    app = FastAPI()
+    app.include_router(contents_api.router)
+    transport = httpx.ASGITransport(app=app)
+    calls = {"count": 0}
+
+    async def fake_build_scoring_flow_payload(db, *, hours, limit):
+        calls["count"] += 1
+        return cache_payload(
+            (hours, limit, 80),
+            build_empty_payload(
+                hours=hours,
+                analyzed_total=0,
+                window_total=0,
+                ignored_count=0,
+                limit=limit,
+                sample_limit=80,
+            ),
+        )
+
+    monkeypatch.setattr(contents_api, "build_scoring_flow_payload", fake_build_scoring_flow_payload)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        first = await client.get("/contents/scoring-flow?hours=24&limit=160")
+        second = await client.get("/contents/scoring-flow?hours=24&limit=160")
+
+    assert first.status_code == 200
+    assert first.headers["x-scoring-flow-cache"] == "MISS"
+    assert first.json()["cache"]["hit"] is False
+    assert second.status_code == 200
+    assert second.headers["x-scoring-flow-cache"].startswith("HIT")
+    assert second.json()["cache"]["hit"] is True
+    assert calls["count"] == 1
+
+    invalidate_scoring_flow_cache()
+
+    async def fail_build_scoring_flow_payload(db, *, hours, limit):
+        raise RuntimeError("scoring flow failed")
+
+    monkeypatch.setattr(contents_api, "build_scoring_flow_payload", fail_build_scoring_flow_payload)
+
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        failed = await client.get("/contents/scoring-flow?hours=24&limit=160")
+
+    assert failed.status_code == 503
+    assert failed.json()["detail"] == "Scoring flow unavailable"
     invalidate_scoring_flow_cache()

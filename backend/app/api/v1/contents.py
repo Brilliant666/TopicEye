@@ -267,13 +267,16 @@ async def scoring_flow(
             headers={"X-Scoring-Flow-Cache": f"HIT; age={age_seconds:.3f}s"},
         )
 
-    async with async_session() as db:
-        payload = await build_scoring_flow_payload(db, hours=hours, limit=limit)
-        return Response(
-            content=json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str),
-            media_type="application/json",
-            headers={"X-Scoring-Flow-Cache": "MISS"},
-        )
+    try:
+        async with async_session() as db:
+            payload = await build_scoring_flow_payload(db, hours=hours, limit=limit)
+            return Response(
+                content=json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str),
+                media_type="application/json",
+                headers={"X-Scoring-Flow-Cache": "MISS"},
+            )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Scoring flow unavailable") from exc
 
 
 @router.get("/favorites/list", response_model=ContentListResponse)

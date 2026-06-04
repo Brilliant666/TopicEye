@@ -375,6 +375,44 @@ async def test_weread_sync_failure_persists_redacted_error(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_weread_sync_unknown_error_is_redacted_at_api_boundary(monkeypatch):
+    async def failed_sync(db, integration, *, limit: int = 50):
+        raise ValueError(
+            "raw failure Authorization: Bearer wr_secret_boundary_123456 "
+            "token=wr_secret_boundary_123456"
+        )
+
+    monkeypatch.setattr(settings, "WEREAD_SKILL_API_URL", "http://127.0.0.1:9999/weread")
+    monkeypatch.setattr("app.api.v1.integrations.sync_weread_materials", failed_sync)
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        user = await create_user(db, email="sync-boundary-weread@example.com", password="Password123")
+        await update_weread_integration(
+            IntegrationUpdateRequest(api_key="wr_secret_boundary_123456"),
+            user,
+            db,
+        )
+
+        error = None
+        try:
+            await sync_weread(limit=1, current_user=user, db=db)
+        except HTTPException as exc:
+            error = exc
+
+        assert error is not None
+        assert error.status_code == 502
+        assert "wr_secret_boundary_123456" not in str(error.detail)
+        assert "Bearer ***" in str(error.detail)
+        assert "微信读书素材同步失败" in str(error.detail)
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_weread_sync_imports_materials_and_deduplicates(monkeypatch):
     async def fake_fetch(api_key: str, *, limit: int = 50):
         assert api_key == "wr_secret_sync_123456"

@@ -14,7 +14,7 @@ from app.services.integration_service import (
     integration_status,
     upsert_user_integration,
 )
-from app.services.weread_materials import sync_weread_materials
+from app.services.weread_materials import redact_weread_sync_error, sync_weread_materials
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -67,10 +67,12 @@ async def sync_weread(
         result = await sync_weread_materials(db, integration, limit=limit)
     except RuntimeError as exc:
         await db.commit()
-        raise HTTPException(status_code=502, detail=str(exc))
+        detail = redact_weread_sync_error(str(exc), integration.api_key)
+        raise HTTPException(status_code=502, detail=detail)
     except Exception as exc:
         await db.commit()
-        raise HTTPException(status_code=502, detail=f"微信读书素材同步失败：{exc}")
+        detail = redact_weread_sync_error(str(exc), integration.api_key)
+        raise HTTPException(status_code=502, detail=f"微信读书素材同步失败：{detail}")
 
     return WeReadSyncResponse(
         fetched=int(result["fetched"]),

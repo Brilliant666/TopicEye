@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = "admin@topiceye.local"
     ADMIN_PASSWORD: str = "TopicEyeAdmin123!"
     ADMIN_DISPLAY_NAME: str = "TopicEye 管理员"
+    APP_SECRET_KEY: str = "topiceye-local-dev-secret-change-me"
+    INTEGRATION_SECRET_KEY: Optional[str] = None
     SCHEDULER_ENABLED: bool = True
     CACHE_WARMUP_ENABLED: bool = True
     READ_CACHE_TTL_SECONDS: float = 60.0

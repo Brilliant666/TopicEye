@@ -148,16 +148,22 @@ async def sync_weread_materials(
     db: AsyncSession,
     integration: UserIntegration,
     *,
+    api_key: Optional[str] = None,
     limit: int = 50,
 ) -> Dict[str, Union[int, str]]:
-    if integration.provider != WEREAD_PROVIDER or not integration.api_key:
+    if integration.provider != WEREAD_PROVIDER:
+        raise ValueError("微信读书 API Key 未配置")
+    from app.services.integration_service import integration_api_key
+
+    resolved_api_key = (api_key or integration_api_key(integration) or "").strip()
+    if not resolved_api_key:
         raise ValueError("微信读书 API Key 未配置")
 
     source = await ensure_weread_source(db)
     fetched = new = duplicates = 0
     now = datetime.utcnow()
     try:
-        entries = await fetch_weread_materials(integration.api_key, limit=limit)
+        entries = await fetch_weread_materials(resolved_api_key, limit=limit)
         fetched = len(entries)
         for entry in entries:
             content_hash = build_hash(str(entry.get("title") or "") + str(entry.get("url") or ""))
@@ -201,7 +207,7 @@ async def sync_weread_materials(
             "source_name": source.name,
         }
     except Exception as exc:
-        message = redact_weread_sync_error(str(exc), integration.api_key)
+        message = redact_weread_sync_error(str(exc), resolved_api_key)
         source.last_sync_at = now
         source.status = SourceStatus.ERROR
         source.sync_error = message[:500]

@@ -24,9 +24,11 @@ from app.core.database import Base
 from app.core.dependencies import get_db
 from app.models.content import ContentItem
 from app.models.source import Source, SourceStatus
+from app.models.user_integration import UserIntegration
 from app.schemas.integration import IntegrationUpdateRequest
 from app.services.auth_service import create_user
-from app.services.integration_service import WEREAD_INSTALL_COMMAND, get_user_integration
+from app.services.integration_service import WEREAD_PROVIDER, WEREAD_INSTALL_COMMAND, get_user_integration
+from app.services.secret_store import decrypt_secret, is_encrypted_secret
 from app.services.source_cache import (
     default_source_list_cache_params,
     get_cached_source_list,
@@ -86,10 +88,42 @@ async def test_weread_status_masks_api_key_and_reports_endpoint(monkeypatch):
         assert "wr_secret_1234567890" not in str(status)
         assert status["sync_endpoint_configured"] is False
         assert status["install_command"] == WEREAD_INSTALL_COMMAND
+        stored = await get_user_integration(db, user_id=user.id, provider=WEREAD_PROVIDER)
+        assert stored is not None
+        assert is_encrypted_secret(stored.api_key)
+        assert "wr_secret_1234567890" not in stored.api_key
+        assert decrypt_secret(stored.api_key) == "wr_secret_1234567890"
 
         fetched = await get_weread_integration(user, db)
         assert fetched["api_key_hint"] == "wr_s...7890"
         assert "wr_secret_1234567890" not in str(fetched)
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_weread_integration_reads_legacy_plaintext_key(monkeypatch):
+    monkeypatch.setattr(settings, "WEREAD_SKILL_API_URL", None)
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        user = await create_user(db, email="legacy-weread@example.com", password="Password123")
+        db.add(UserIntegration(
+            user_id=user.id,
+            provider=WEREAD_PROVIDER,
+            api_key="wr_secret_legacy_123456",
+            config={},
+        ))
+        await db.flush()
+
+        status = await get_weread_integration(user, db)
+
+        assert status["configured"] is True
+        assert status["api_key_hint"] == "wr_s...3456"
+        assert "wr_secret_legacy_123456" not in str(status)
 
     await engine.dispose()
 
@@ -376,7 +410,8 @@ async def test_weread_sync_failure_persists_redacted_error(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_weread_sync_unknown_error_is_redacted_at_api_boundary(monkeypatch):
-    async def failed_sync(db, integration, *, limit: int = 50):
+    async def failed_sync(db, integration, *, api_key: str, limit: int = 50):
+        assert api_key == "wr_secret_boundary_123456"
         raise ValueError(
             "raw failure Authorization: Bearer wr_secret_boundary_123456 "
             "token=wr_secret_boundary_123456"
@@ -449,6 +484,10 @@ async def test_weread_sync_imports_materials_and_deduplicates(monkeypatch):
             user,
             db,
         )
+        integration = await get_user_integration(db, user_id=user.id, provider=WEREAD_PROVIDER)
+        assert integration is not None
+        assert is_encrypted_secret(integration.api_key)
+        assert "wr_secret_sync_123456" not in integration.api_key
 
         source_cache_params = default_source_list_cache_params()
         set_cached_source_list(source_cache_params, {"items": [{"name": "旧信源缓存"}], "total": 1})

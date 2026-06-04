@@ -11,6 +11,7 @@ from app.services.integration_service import (
     WEREAD_PROVIDER,
     clear_user_integration,
     get_user_integration,
+    integration_api_key,
     integration_status,
     upsert_user_integration,
 )
@@ -60,18 +61,19 @@ async def sync_weread(
     db: AsyncSession = Depends(get_db),
 ):
     integration = await get_user_integration(db, user_id=current_user.id, provider=WEREAD_PROVIDER)
-    if not integration or not integration.api_key:
+    api_key = integration_api_key(integration)
+    if not integration or not api_key:
         raise HTTPException(status_code=422, detail="请先在个人中心配置微信读书 API Key")
 
     try:
-        result = await sync_weread_materials(db, integration, limit=limit)
+        result = await sync_weread_materials(db, integration, api_key=api_key, limit=limit)
     except RuntimeError as exc:
         await db.commit()
-        detail = redact_weread_sync_error(str(exc), integration.api_key)
+        detail = redact_weread_sync_error(str(exc), api_key)
         raise HTTPException(status_code=502, detail=detail)
     except Exception as exc:
         await db.commit()
-        detail = redact_weread_sync_error(str(exc), integration.api_key)
+        detail = redact_weread_sync_error(str(exc), api_key)
         raise HTTPException(status_code=502, detail=f"微信读书素材同步失败：{detail}")
 
     return WeReadSyncResponse(

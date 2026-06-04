@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.user_integration import UserIntegration
+from app.services.secret_store import decrypt_secret, encrypt_secret
 
 WEREAD_PROVIDER = "weread"
 WEREAD_INSTALL_COMMAND = "npx skills add Tencent/WeChatReading -g"
@@ -27,6 +28,12 @@ def _reset_sync_state(integration: UserIntegration) -> None:
     integration.last_sync_at = None
     integration.last_sync_status = None
     integration.last_sync_error = None
+
+
+def integration_api_key(integration: Optional[UserIntegration]) -> Optional[str]:
+    if not integration or not integration.api_key:
+        return None
+    return decrypt_secret(integration.api_key)
 
 
 async def get_user_integration(
@@ -54,8 +61,9 @@ async def upsert_user_integration(
 ) -> UserIntegration:
     integration = await get_user_integration(db, user_id=user_id, provider=provider)
     now = datetime.utcnow()
+    encrypted_api_key = encrypt_secret(api_key)
     if integration:
-        integration.api_key = api_key.strip()
+        integration.api_key = encrypted_api_key
         integration.config = config or {}
         _reset_sync_state(integration)
         integration.updated_at = now
@@ -66,7 +74,7 @@ async def upsert_user_integration(
     integration = UserIntegration(
         user_id=user_id,
         provider=provider,
-        api_key=api_key.strip(),
+        api_key=encrypted_api_key,
         config=config or {},
         created_at=now,
         updated_at=now,
@@ -96,10 +104,11 @@ async def clear_user_integration(
 
 def integration_status(integration: Optional[UserIntegration], provider: str) -> dict[str, Any]:
     is_weread = provider == WEREAD_PROVIDER
+    api_key = integration_api_key(integration)
     return {
         "provider": provider,
-        "configured": bool(integration and integration.api_key),
-        "api_key_hint": api_key_hint(integration.api_key if integration else None),
+        "configured": bool(api_key),
+        "api_key_hint": api_key_hint(api_key),
         "config": integration.config if integration and isinstance(integration.config, dict) else {},
         "sync_endpoint_configured": bool(str(settings.WEREAD_SKILL_API_URL or "").strip()) if is_weread else False,
         "install_command": WEREAD_INSTALL_COMMAND if is_weread else None,

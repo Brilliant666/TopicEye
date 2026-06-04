@@ -202,6 +202,43 @@ export function AlgorithmHeader({
   );
 }
 
+export function FlowErrorPanel({
+  message,
+  loading,
+  onRetry,
+}: {
+  message: string;
+  loading: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <Panel className="p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-red-light text-red">
+            <AlertTriangle size={18} />
+          </div>
+          <div className="min-w-0">
+            <div className="text-base font-black text-gray-900">评分流程暂时不可用</div>
+            <div className="mt-1 text-sm leading-6 text-gray-500">{message}</div>
+            <div className="mt-2 text-xs font-bold text-gray-700">服务恢复后可直接重试，页面会重新读取当前窗口的评分样本。</div>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="primary"
+          disabled={loading}
+          onClick={onRetry}
+          className="shrink-0"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          重新加载
+        </Button>
+      </div>
+    </Panel>
+  );
+}
+
 export function SummaryGrid({ data }: { data: ScoringFlowResponse }) {
   const cards: Array<{ label: string; value: number | string; icon: LucideIcon; colorClass: string; iconClass: string }> = [
     { label: '采集内容', value: data.diagnostics?.collected_window_total ?? data.total, icon: SlidersHorizontal, colorClass: 'text-gray-800', iconClass: 'text-gray-800' },

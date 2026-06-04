@@ -7,6 +7,7 @@ import { analysesApi, contentsApi, feedbackApi, type FeedbackType, type ScoringF
 import {
   AlgorithmHeader,
   DiagnosticsPanel,
+  FlowErrorPanel,
   Funnel,
   MixList,
   PathPanel,
@@ -267,9 +268,9 @@ export default function AlgorithmPage() {
           onRefresh={() => void fetchFlow()}
         />
 
-        {error && (
+        {error && data && (
           <div className="mb-4 rounded-sm border border-red/20 bg-red-light px-4 py-3 text-sm text-red">
-            {error}
+            刷新失败，当前继续显示上次结果：{error}
           </div>
         )}
 
@@ -283,6 +284,12 @@ export default function AlgorithmPage() {
           <div className="rounded-lg border border-gray-200 bg-white px-6 py-12 text-center text-sm text-gray-400">
             加载算法流程...
           </div>
+        ) : error && !data ? (
+          <FlowErrorPanel
+            message={error}
+            loading={loading}
+            onRetry={() => void fetchFlow()}
+          />
         ) : data ? (
           <>
             <SummaryGrid data={data} />

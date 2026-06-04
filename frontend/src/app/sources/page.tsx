@@ -917,7 +917,7 @@ export default function SourcesPage() {
       <Toolbar className="mb-4">
         <input
           type="text"
-          placeholder="搜索信源名称..."
+          placeholder="搜索名称 / URL / 平台 / 分类..."
           value={searchKeyword}
           onChange={(e) => setSearchKeyword(e.target.value)}
           className="h-9 w-56 rounded-sm border border-gray-200 bg-white px-3.5 text-[13px] outline-none transition focus:border-primary-border focus:ring-2 focus:ring-primary-light"

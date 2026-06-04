@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -298,20 +298,36 @@ async def list_sources(
         )
 
     async with async_session() as db:
-        repo = SourceRepository(db)
-        filters = {
-            "source_type": source_type,
-            "status": status,
-            "enabled": enabled,
-        }
-        if keyword:
-            filters["name"] = f"%{keyword}%"
+        stmt = select(Source)
+        count_stmt = select(func.count()).select_from(Source)
+        filters = []
+        if source_type is not None:
+            filters.append(Source.source_type == source_type)
+        if status is not None:
+            filters.append(Source.status == status)
+        if enabled is not None:
+            filters.append(Source.enabled == enabled)
+        cleaned_keyword = keyword.strip() if keyword else ""
+        if cleaned_keyword:
+            pattern = f"%{cleaned_keyword}%"
+            filters.append(or_(
+                Source.name.ilike(pattern),
+                Source.url.ilike(pattern),
+                Source.platform.ilike(pattern),
+                Source.category.ilike(pattern),
+                Source.keyword.ilike(pattern),
+            ))
+        for item_filter in filters:
+            stmt = stmt.where(item_filter)
+            count_stmt = count_stmt.where(item_filter)
 
-        items, total = await repo.list_paginated(
-            page=page, page_size=page_size,
-            filters={k: v for k, v in filters.items() if v is not None},
-            sort_by="sort_order", sort_order="asc",
+        total = int(await db.scalar(count_stmt) or 0)
+        result = await db.execute(
+            stmt.order_by(Source.sort_order.asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         )
+        items = list(result.scalars().all())
     payload = SourceListResponse(items=items, total=total, page=page, page_size=page_size).model_dump()
     content = set_cached_source_list(cache_params, payload)
     return Response(

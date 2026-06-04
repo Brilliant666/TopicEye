@@ -123,6 +123,68 @@ async def test_create_disabled_source_sets_disabled_status(sources_http_client: 
 
 
 @pytest.mark.asyncio
+async def test_list_sources_keyword_searches_identity_fields(sources_http_client: httpx.AsyncClient):
+    cases = [
+        {
+            "name": "Name Match Feed",
+            "url": "https://example.com/name-match.xml",
+            "source_type": "RSS",
+            "platform": "Newswire",
+            "category": "默认",
+            "keyword": "alpha",
+        },
+        {
+            "name": "URL Match Feed",
+            "url": "https://search-target.example.com/feed.xml",
+            "source_type": "RSS",
+            "platform": "RSS",
+            "category": "默认",
+            "keyword": "beta",
+        },
+        {
+            "name": "Platform Match Feed",
+            "url": "https://example.com/platform-match.xml",
+            "source_type": "RSS",
+            "platform": "Reddit",
+            "category": "默认",
+            "keyword": "gamma",
+        },
+        {
+            "name": "Category Match Feed",
+            "url": "https://example.com/category-match.xml",
+            "source_type": "RSS",
+            "platform": "RSS",
+            "category": "AI产品",
+            "keyword": "delta",
+        },
+        {
+            "name": "Keyword Match Feed",
+            "url": "https://example.com/keyword-match.xml",
+            "source_type": "RSS",
+            "platform": "RSS",
+            "category": "默认",
+            "keyword": "deep-search-topic",
+        },
+    ]
+    for payload in cases:
+        created = await sources_http_client.post("/sources", json=payload)
+        assert created.status_code == 201
+
+    expectations = [
+        ("Name Match", "Name Match Feed"),
+        ("search-target.example.com", "URL Match Feed"),
+        ("Reddit", "Platform Match Feed"),
+        ("AI产品", "Category Match Feed"),
+        ("deep-search-topic", "Keyword Match Feed"),
+    ]
+    for query, expected_name in expectations:
+        listed = await sources_http_client.get(f"/sources?page=1&page_size=20&keyword={query}")
+        assert listed.status_code == 200
+        names = {item["name"] for item in listed.json()["items"]}
+        assert expected_name in names
+
+
+@pytest.mark.asyncio
 async def test_update_source_rejects_duplicate_url():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)

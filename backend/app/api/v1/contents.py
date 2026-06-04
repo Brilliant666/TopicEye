@@ -6,14 +6,17 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy import select, text, update
+from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_user
 from app.core.database import async_session, database_profile, get_db
 from app.core.config import settings
 from app.core.sqlite_retry import retry_sqlite_locked, is_sqlite_locked
 from app.models.content import ContentItem
+from app.models.favorite import FavoriteTargetType
+from app.models.user import User
 from app.repositories.content_repo import ContentRepo
 from app.repositories.favorite_repo import FavoriteRepo
 from app.repositories.analysis_repo import AnalysisRepository
@@ -283,8 +286,9 @@ async def scoring_flow(
 async def list_favorites(
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    cache_key = f"contents:favorites:list:{page}:{page_size}"
+    cache_key = f"contents:favorites:list:{current_user.id}:{page}:{page_size}"
     cached = get_cached_json(cache_key, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
     if cached:
         content, age_seconds = cached
@@ -294,7 +298,18 @@ async def list_favorites(
             headers={"X-Content-Favorites-Cache": f"HIT; age={age_seconds:.3f}s"},
         )
 
-    items, total = await ContentRepo(db).list_favorites(page=page, page_size=page_size)
+    favorites, total = await FavoriteRepo(db, current_user.id).list_paginated(
+        page=page,
+        page_size=page_size,
+        target_type=FavoriteTargetType.CONTENT,
+    )
+    content_ids = [item.target_id for item in favorites if item.target_id is not None]
+    if content_ids:
+        result = await db.execute(select(ContentItem).where(ContentItem.id.in_(content_ids)))
+        by_id = {item.id: item for item in result.scalars().all()}
+        items = [by_id[content_id] for content_id in content_ids if content_id in by_id]
+    else:
+        items = []
     payload = {"items": [content_with_latest_analysis(i) for i in items],
                "total": total, "page": page, "page_size": page_size}
     content = set_cached_json(cache_key, payload)
@@ -368,22 +383,22 @@ async def get_content(content_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{content_id}/favorite")
-async def toggle_favorite(content_id: int, db: AsyncSession = Depends(get_db)):
+async def toggle_favorite(
+    content_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Toggle favorite status for a content item."""
-    result = await db.execute(select(ContentItem.is_favorited).where(ContentItem.id == content_id))
-    current = result.scalar_one_or_none()
-    if current is None:
+    result = await db.execute(select(ContentItem.id).where(ContentItem.id == content_id))
+    if result.scalar_one_or_none() is None:
         raise HTTPException(404, "Content not found")
 
-    next_value = not bool(current)
+    favorite_repo = FavoriteRepo(db, current_user.id)
+    target_key = favorite_repo.make_target_key(FavoriteTargetType.CONTENT, target_id=content_id)
+    current = await favorite_repo.get_by_target(FavoriteTargetType.CONTENT, target_key)
+    next_value = current is None
 
     async def _write() -> Optional[int]:
-        await db.execute(
-            update(ContentItem)
-            .where(ContentItem.id == content_id)
-            .values(is_favorited=next_value, updated_at=datetime.utcnow())
-        )
-        favorite_repo = FavoriteRepo(db)
         if next_value:
             favorite = await favorite_repo.create_from_content(content_id)
             favorite_id = favorite.id

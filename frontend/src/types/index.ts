@@ -320,6 +320,7 @@ export type FavoriteStatus = 'inbox' | 'researching' | 'drafting' | 'archived';
 
 export interface FavoriteItem {
   id: number;
+  user_id: number;
   target_type: FavoriteTargetType;
   target_id?: number | null;
   target_key: string;

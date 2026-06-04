@@ -271,9 +271,48 @@ async def ensure_favorite_items_schema(conn) -> None:
     if not database_profile.is_sqlite:
         return
 
+    admin_email = settings.ADMIN_EMAIL.strip().lower()
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email VARCHAR(255) NOT NULL UNIQUE,
+            password_hash VARCHAR(512) NOT NULL,
+            display_name VARCHAR(100),
+            plan VARCHAR(20) NOT NULL DEFAULT 'free',
+            role VARCHAR(20) NOT NULL DEFAULT 'user',
+            is_active BOOLEAN NOT NULL DEFAULT 1,
+            created_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL
+        )
+    """))
+    await conn.execute(text("""
+        INSERT OR IGNORE INTO users (
+            email, password_hash, display_name, plan, role, is_active, created_at, updated_at
+        )
+        VALUES (
+            :email,
+            '__seeded_after_startup__',
+            :display_name,
+            'free',
+            'admin',
+            1,
+            CURRENT_TIMESTAMP,
+            CURRENT_TIMESTAMP
+        )
+    """), {
+        "email": admin_email,
+        "display_name": settings.ADMIN_DISPLAY_NAME,
+    })
+    admin_id_result = await conn.execute(
+        text("SELECT id FROM users WHERE email = :email"),
+        {"email": admin_email},
+    )
+    admin_user_id = int(admin_id_result.scalar_one() or 1)
+
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS favorite_items (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL DEFAULT 1,
             target_type VARCHAR(20) NOT NULL,
             target_id INTEGER,
             target_key VARCHAR(255) NOT NULL,
@@ -289,31 +328,106 @@ async def ensure_favorite_items_schema(conn) -> None:
             snapshot JSON,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL,
-            CONSTRAINT uq_favorite_target UNIQUE (target_type, target_key)
+            CONSTRAINT uq_favorite_user_target UNIQUE (user_id, target_type, target_key),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         )
     """))
     result = await conn.execute(text("PRAGMA table_info(favorite_items)"))
     columns = {row[1] for row in result.fetchall()}
+    if "user_id" not in columns:
+        await conn.execute(text("ALTER TABLE favorite_items ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1"))
+        await conn.execute(
+            text("UPDATE favorite_items SET user_id = :user_id WHERE user_id = 1"),
+            {"user_id": admin_user_id},
+        )
     if "position" not in columns:
         await conn.execute(text("ALTER TABLE favorite_items ADD COLUMN position INTEGER NOT NULL DEFAULT 0"))
+
+    index_rows = await conn.execute(text("PRAGMA index_list(favorite_items)"))
+    has_legacy_unique = False
+    for row in index_rows.fetchall():
+        index_name = row[1]
+        is_unique = bool(row[2])
+        if not is_unique:
+            continue
+        info_rows = await conn.execute(text(f"PRAGMA index_info('{index_name}')"))
+        index_cols = [info[2] for info in info_rows.fetchall()]
+        if index_cols == ["target_type", "target_key"]:
+            has_legacy_unique = True
+            break
+
+    if has_legacy_unique:
+        logger.info("Rebuilding favorite_items table for per-user favorite schema")
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS favorite_items_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                target_type VARCHAR(20) NOT NULL,
+                target_id INTEGER,
+                target_key VARCHAR(255) NOT NULL,
+                title VARCHAR(500) NOT NULL,
+                url VARCHAR(1024),
+                cover_url VARCHAR(1024),
+                source_name VARCHAR(255),
+                collection_id INTEGER,
+                tags JSON,
+                note TEXT,
+                status VARCHAR(20) NOT NULL DEFAULT 'inbox',
+                position INTEGER NOT NULL DEFAULT 0,
+                snapshot JSON,
+                created_at DATETIME NOT NULL,
+                updated_at DATETIME NOT NULL,
+                CONSTRAINT uq_favorite_user_target UNIQUE (user_id, target_type, target_key),
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """))
+        await conn.execute(text("""
+            INSERT OR IGNORE INTO favorite_items_new (
+                id, user_id, target_type, target_id, target_key, title, url, cover_url,
+                source_name, collection_id, tags, note, status, position, snapshot, created_at, updated_at
+            )
+            SELECT
+                id,
+                COALESCE(user_id, :user_id),
+                target_type,
+                target_id,
+                target_key,
+                title,
+                url,
+                cover_url,
+                source_name,
+                collection_id,
+                tags,
+                note,
+                COALESCE(status, 'inbox'),
+                COALESCE(position, id * 1000),
+                snapshot,
+                COALESCE(created_at, CURRENT_TIMESTAMP),
+                COALESCE(updated_at, CURRENT_TIMESTAMP)
+            FROM favorite_items
+        """), {"user_id": admin_user_id})
+        await conn.execute(text("DROP TABLE favorite_items"))
+        await conn.execute(text("ALTER TABLE favorite_items_new RENAME TO favorite_items"))
+
     await conn.execute(text(
-        "CREATE INDEX IF NOT EXISTS ix_favorite_items_type_created "
-        "ON favorite_items(target_type, created_at)"
+        "CREATE INDEX IF NOT EXISTS ix_favorite_items_user_type_created "
+        "ON favorite_items(user_id, target_type, created_at)"
     ))
     await conn.execute(text(
-        "CREATE INDEX IF NOT EXISTS ix_favorite_items_status_created "
-        "ON favorite_items(status, created_at)"
+        "CREATE INDEX IF NOT EXISTS ix_favorite_items_user_status_created "
+        "ON favorite_items(user_id, status, created_at)"
     ))
     await conn.execute(text(
-        "CREATE INDEX IF NOT EXISTS ix_favorite_items_status_position "
-        "ON favorite_items(status, position)"
+        "CREATE INDEX IF NOT EXISTS ix_favorite_items_user_status_position "
+        "ON favorite_items(user_id, status, position)"
     ))
     await conn.execute(text("""
         INSERT OR IGNORE INTO favorite_items (
-            target_type, target_id, target_key, title, url, cover_url, source_name,
+            user_id, target_type, target_id, target_key, title, url, cover_url, source_name,
             status, position, snapshot, created_at, updated_at
         )
         SELECT
+            :user_id,
             'content',
             id,
             CAST(id AS TEXT),
@@ -337,7 +451,7 @@ async def ensure_favorite_items_schema(conn) -> None:
             COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
         FROM content_items
         WHERE is_favorited = 1
-    """))
+    """), {"user_id": admin_user_id})
     await conn.execute(text("""
         UPDATE favorite_items
         SET position = id * 1000

@@ -12,8 +12,9 @@ from app.schemas.favorite import FavoriteCreate, FavoriteUpdate
 
 
 class FavoriteRepo:
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, user_id: int):
         self.db = db
+        self.user_id = user_id
 
     @staticmethod
     def make_target_key(
@@ -35,6 +36,7 @@ class FavoriteRepo:
     ) -> Optional[FavoriteItem]:
         result = await self.db.execute(
             select(FavoriteItem).where(
+                FavoriteItem.user_id == self.user_id,
                 FavoriteItem.target_type == target_type,
                 FavoriteItem.target_key == target_key,
             )
@@ -50,6 +52,7 @@ class FavoriteRepo:
         )
         payload = data.model_dump()
         payload["target_key"] = target_key
+        payload["user_id"] = self.user_id
 
         if data.target_type == FavoriteTargetType.CONTENT:
             payload = await self._merge_content_snapshot(payload)
@@ -94,6 +97,7 @@ class FavoriteRepo:
         existing = await self.get_by_target(target_type, target_key)
         result = await self.db.execute(
             delete(FavoriteItem).where(
+                FavoriteItem.user_id == self.user_id,
                 FavoriteItem.target_type == target_type,
                 FavoriteItem.target_key == target_key,
             )
@@ -105,7 +109,12 @@ class FavoriteRepo:
 
     async def delete(self, favorite_id: int) -> bool:
         item = await self.get_by_id(favorite_id)
-        result = await self.db.execute(delete(FavoriteItem).where(FavoriteItem.id == favorite_id))
+        result = await self.db.execute(
+            delete(FavoriteItem).where(
+                FavoriteItem.id == favorite_id,
+                FavoriteItem.user_id == self.user_id,
+            )
+        )
         if item:
             await self._sync_content_flag(item, False)
         await self.db.flush()
@@ -116,7 +125,12 @@ class FavoriteRepo:
             return 0
 
         unique_ids = list(dict.fromkeys(ids))
-        result = await self.db.execute(select(FavoriteItem).where(FavoriteItem.id.in_(unique_ids)))
+        result = await self.db.execute(
+            select(FavoriteItem).where(
+                FavoriteItem.user_id == self.user_id,
+                FavoriteItem.id.in_(unique_ids),
+            )
+        )
         items = list(result.scalars().all())
         by_id = {item.id: item for item in items}
 
@@ -124,19 +138,15 @@ class FavoriteRepo:
         if missing_ids:
             raise LookupError(f"Favorite not found: {missing_ids[0]}")
 
-        content_ids = [
-            item.target_id
-            for item in items
-            if item.target_type == FavoriteTargetType.CONTENT and item.target_id is not None
-        ]
-        if content_ids:
-            await self.db.execute(
-                update(ContentItem)
-                .where(ContentItem.id.in_(content_ids))
-                .values(is_favorited=False, updated_at=datetime.utcnow())
-            )
+        for item in items:
+            await self._sync_content_flag(item, False)
 
-        deleted = await self.db.execute(delete(FavoriteItem).where(FavoriteItem.id.in_(unique_ids)))
+        deleted = await self.db.execute(
+            delete(FavoriteItem).where(
+                FavoriteItem.user_id == self.user_id,
+                FavoriteItem.id.in_(unique_ids),
+            )
+        )
         await self.db.flush()
         return int(deleted.rowcount or 0)
 
@@ -157,7 +167,12 @@ class FavoriteRepo:
         return item
 
     async def get_by_id(self, favorite_id: int) -> Optional[FavoriteItem]:
-        result = await self.db.execute(select(FavoriteItem).where(FavoriteItem.id == favorite_id))
+        result = await self.db.execute(
+            select(FavoriteItem).where(
+                FavoriteItem.user_id == self.user_id,
+                FavoriteItem.id == favorite_id,
+            )
+        )
         return result.scalar_one_or_none()
 
     async def list_paginated(
@@ -169,8 +184,8 @@ class FavoriteRepo:
         status: Optional[FavoriteStatus] = None,
         keyword: Optional[str] = None,
     ) -> tuple[Sequence[FavoriteItem], int]:
-        stmt = select(FavoriteItem)
-        count_stmt = select(func.count()).select_from(FavoriteItem)
+        stmt = select(FavoriteItem).where(FavoriteItem.user_id == self.user_id)
+        count_stmt = select(func.count()).select_from(FavoriteItem).where(FavoriteItem.user_id == self.user_id)
 
         if target_type:
             stmt = stmt.where(FavoriteItem.target_type == target_type)
@@ -207,6 +222,7 @@ class FavoriteRepo:
     async def next_position_for_status(self, status: Union[FavoriteStatus, str]) -> int:
         result = await self.db.execute(
             select(func.min(FavoriteItem.position)).where(FavoriteItem.status == status)
+            .where(FavoriteItem.user_id == self.user_id)
         )
         current_min = result.scalar()
         if current_min is None:
@@ -239,7 +255,12 @@ class FavoriteRepo:
             return []
 
         unique_ids = list(dict.fromkeys(leading_ids))
-        result = await self.db.execute(select(FavoriteItem).where(FavoriteItem.id.in_(unique_ids)))
+        result = await self.db.execute(
+            select(FavoriteItem).where(
+                FavoriteItem.user_id == self.user_id,
+                FavoriteItem.id.in_(unique_ids),
+            )
+        )
         items = list(result.scalars().all())
         by_id = {item.id: item for item in items}
 
@@ -251,6 +272,7 @@ class FavoriteRepo:
             select(FavoriteItem)
             .where(
                 FavoriteItem.status == status,
+                FavoriteItem.user_id == self.user_id,
                 FavoriteItem.id.notin_(unique_ids),
             )
             .order_by(
@@ -286,6 +308,7 @@ class FavoriteRepo:
 
         result = await self.db.execute(
             select(FavoriteItem).where(
+                FavoriteItem.user_id == self.user_id,
                 FavoriteItem.target_type == target_type,
                 FavoriteItem.target_key.in_(keys),
             )
@@ -303,6 +326,15 @@ class FavoriteRepo:
     async def _sync_content_flag(self, item: FavoriteItem, is_favorited: bool) -> None:
         if item.target_type != FavoriteTargetType.CONTENT or item.target_id is None:
             return
+        if not is_favorited:
+            result = await self.db.execute(
+                select(func.count()).select_from(FavoriteItem).where(
+                    FavoriteItem.target_type == FavoriteTargetType.CONTENT,
+                    FavoriteItem.target_key == item.target_key,
+                    FavoriteItem.user_id != self.user_id,
+                )
+            )
+            is_favorited = int(result.scalar() or 0) > 0
         await self.db.execute(
             update(ContentItem)
             .where(ContentItem.id == item.target_id)

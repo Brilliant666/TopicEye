@@ -8,23 +8,24 @@ import pytest_asyncio
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.api.v1.auth import get_current_user
 from app.api.v1 import contents as contents_api
 from app.api.v1 import favorites as favorites_api
 from app.core.database import Base
 from app.core.dependencies import get_db
 from app.models.content import ContentItem, ContentStatus
+from app.models.user import User
 from app.services.favorite_cache import invalidate_favorite_cache
 
 
 @pytest_asyncio.fixture
-async def contents_client(monkeypatch) -> AsyncGenerator[httpx.AsyncClient, None]:
+async def contents_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
     invalidate_favorite_cache()
-    monkeypatch.setattr(contents_api, "async_session", session_factory)
 
     app = FastAPI()
     app.include_router(contents_api.router)
@@ -40,6 +41,8 @@ async def contents_client(monkeypatch) -> AsyncGenerator[httpx.AsyncClient, None
                 raise
 
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[contents_api.get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = lambda: User(id=1, email="user@example.com", password_hash="hash")
 
     async with session_factory() as db:
         db.add(

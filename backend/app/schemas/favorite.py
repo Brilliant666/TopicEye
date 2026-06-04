@@ -91,6 +91,7 @@ class FavoriteBulkDeleteRequest(BaseModel):
 
 class FavoriteResponse(BaseModel):
     id: int
+    user_id: int
     target_type: str
     target_id: Optional[int] = None
     target_key: str

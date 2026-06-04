@@ -13,7 +13,7 @@ function normalizeIds(ids: Array<number | null | undefined>): number[] {
 }
 
 export function useContentFavoriteStates(ids: Array<number | null | undefined>) {
-  const { favorites } = useAppContext();
+  const { currentUser, favorites } = useAppContext();
   const [serverFavoriteIds, setServerFavoriteIds] = useState<Set<number>>(new Set());
   const [validatedKey, setValidatedKey] = useState('');
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -29,7 +29,7 @@ export function useContentFavoriteStates(ids: Array<number | null | undefined>) 
   }, []);
 
   useEffect(() => {
-    if (!idsKey) {
+    if (!idsKey || !currentUser) {
       setServerFavoriteIds(new Set());
       setValidatedKey('');
       return;
@@ -59,7 +59,7 @@ export function useContentFavoriteStates(ids: Array<number | null | undefined>) 
         setValidatedKey('');
       }
     })();
-  }, [idsKey, refreshVersion]);
+  }, [currentUser, idsKey, refreshVersion]);
 
   const favoriteIds = useMemo(() => {
     if (!idsKey || validatedKey !== idsKey) {

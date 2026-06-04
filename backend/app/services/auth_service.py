@@ -101,6 +101,9 @@ async def ensure_admin_user(
         )
 
     changed = False
+    if user.password_hash == "__seeded_after_startup__":
+        user.password_hash = hash_password(password)
+        changed = True
     if user.role != "admin":
         user.role = "admin"
         changed = True

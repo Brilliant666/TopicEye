@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import async_session
+from app.api.v1.auth import get_current_user
 from app.core.dependencies import get_db
 from app.models.favorite import FavoriteStatus, FavoriteTargetType
+from app.models.user import User
 from app.repositories.favorite_repo import FavoriteRepo
 from app.schemas.favorite import (
     FavoriteBulkDeleteRequest,
@@ -98,9 +99,9 @@ def _normalize_state_target_keys(
     return normalized
 
 
-def _favorite_state_cache_key(target_type: FavoriteTargetType, target_keys: list[str]) -> str:
+def _favorite_state_cache_key(user_id: int, target_type: FavoriteTargetType, target_keys: list[str]) -> str:
     digest = hashlib.sha256("\n".join(target_keys).encode("utf-8")).hexdigest()
-    return f"state:{target_type.value}:{digest}"
+    return f"user:{user_id}:state:{target_type.value}:{digest}"
 
 
 @router.get("", response_model=FavoriteListResponse)
@@ -110,21 +111,22 @@ async def list_favorites(
     target_type: Optional[FavoriteTargetType] = None,
     status: Optional[FavoriteStatus] = None,
     keyword: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    cache_key = f"list:{page}:{page_size}:{target_type or ''}:{status or ''}:{keyword or ''}"
+    cache_key = f"user:{current_user.id}:list:{page}:{page_size}:{target_type or ''}:{status or ''}:{keyword or ''}"
     cached = get_cached_json(cache_key)
     if cached:
         content, age_seconds = cached
         return _favorite_cache_hit_response(content, age_seconds)
 
-    async with async_session() as db:
-        items, total = await FavoriteRepo(db).list_paginated(
-            page=page,
-            page_size=page_size,
-            target_type=target_type,
-            status=status,
-            keyword=keyword,
-        )
+    items, total = await FavoriteRepo(db, current_user.id).list_paginated(
+        page=page,
+        page_size=page_size,
+        target_type=target_type,
+        status=status,
+        keyword=keyword,
+    )
     payload = {
         "items": [favorite_to_dict(item) for item in items],
         "total": total,
@@ -143,8 +145,9 @@ async def list_favorites(
 async def create_favorite(
     data: FavoriteCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    repo = FavoriteRepo(db)
+    repo = FavoriteRepo(db, current_user.id)
     try:
         item = await repo.upsert(data)
         _invalidate_favorite_mutation_caches(content_changed=data.target_type == FavoriteTargetType.CONTENT)
@@ -160,23 +163,24 @@ async def favorite_state(
     target_type: FavoriteTargetType,
     target_ids: Optional[str] = Query(None, description="Comma-separated target IDs"),
     target_keys: Optional[str] = Query(None, description="Comma-separated target keys"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     keys = _normalize_state_target_keys(
         target_type,
         target_ids=target_ids,
         target_keys=target_keys,
     )
-    cache_key = _favorite_state_cache_key(target_type, keys)
+    cache_key = _favorite_state_cache_key(current_user.id, target_type, keys)
     cached = get_cached_json(cache_key)
     if cached:
         content, age_seconds = cached
         return _favorite_cache_hit_response(content, age_seconds)
 
-    async with async_session() as db:
-        state_items = await FavoriteRepo(db).state_for_targets(
-            target_type,
-            target_keys=keys,
-        )
+    state_items = await FavoriteRepo(db, current_user.id).state_for_targets(
+        target_type,
+        target_keys=keys,
+    )
     payload = {"items": state_items}
     content = set_cached_json(cache_key, payload)
     return Response(
@@ -190,9 +194,10 @@ async def favorite_state(
 async def reorder_favorites(
     data: FavoriteReorderRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
-        items = await FavoriteRepo(db).reorder_status(status=data.status, ordered_ids=data.ordered_ids)
+        items = await FavoriteRepo(db, current_user.id).reorder_status(status=data.status, ordered_ids=data.ordered_ids)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     _invalidate_favorite_mutation_caches()
@@ -203,9 +208,10 @@ async def reorder_favorites(
 async def bulk_update_favorite_status(
     data: FavoriteBulkStatusRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     try:
-        items = await FavoriteRepo(db).bulk_update_status(status=data.status, ids=data.ids)
+        items = await FavoriteRepo(db, current_user.id).bulk_update_status(status=data.status, ids=data.ids)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     _invalidate_favorite_mutation_caches()
@@ -216,8 +222,9 @@ async def bulk_update_favorite_status(
 async def bulk_delete_favorites(
     data: FavoriteBulkDeleteRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    repo = FavoriteRepo(db)
+    repo = FavoriteRepo(db, current_user.id)
     content_changed = False
     for favorite_id in data.ids:
         item = await repo.get_by_id(favorite_id)
@@ -237,8 +244,9 @@ async def update_favorite(
     favorite_id: int,
     data: FavoriteUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    item = await FavoriteRepo(db).update(favorite_id, data)
+    item = await FavoriteRepo(db, current_user.id).update(favorite_id, data)
     if not item:
         raise HTTPException(status_code=404, detail="Favorite not found")
     _invalidate_favorite_mutation_caches()
@@ -249,8 +257,9 @@ async def update_favorite(
 async def delete_favorite(
     favorite_id: int,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    repo = FavoriteRepo(db)
+    repo = FavoriteRepo(db, current_user.id)
     item = await repo.get_by_id(favorite_id)
     deleted = await repo.delete(favorite_id)
     if not deleted:

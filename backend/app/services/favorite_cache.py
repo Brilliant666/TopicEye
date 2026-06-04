@@ -35,6 +35,7 @@ def invalidate_favorite_cache() -> None:
 def favorite_to_dict(item: Any) -> dict[str, Any]:
     return {
         "id": item.id,
+        "user_id": item.user_id,
         "target_type": _enum_value(item.target_type),
         "target_id": item.target_id,
         "target_key": item.target_key,

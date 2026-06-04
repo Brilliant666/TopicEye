@@ -56,10 +56,15 @@ const FAVORITES_STORAGE_KEY = 'topiceye_favorites';
 const FAVORITE_TARGETS_STORAGE_KEY = 'topiceye_favorite_targets';
 const FAVORITE_INDEX_PAGE_SIZE = 200;
 
-function loadFavoritesFromStorage(): Set<number> {
+function userStorageKey(baseKey: string, userId: number | null): string {
+  return userId ? `${baseKey}:user:${userId}` : baseKey;
+}
+
+function loadFavoritesFromStorage(userId: number | null): Set<number> {
+  if (!userId) return new Set();
   if (typeof window === 'undefined') return new Set();
   try {
-    const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
+    const raw = localStorage.getItem(userStorageKey(FAVORITES_STORAGE_KEY, userId));
     if (!raw) return new Set();
     const arr: number[] = JSON.parse(raw);
     return new Set(arr);
@@ -68,10 +73,11 @@ function loadFavoritesFromStorage(): Set<number> {
   }
 }
 
-function loadFavoriteTargetsFromStorage(): Set<string> {
+function loadFavoriteTargetsFromStorage(userId: number | null): Set<string> {
+  if (!userId) return new Set();
   if (typeof window === 'undefined') return new Set();
   try {
-    const raw = localStorage.getItem(FAVORITE_TARGETS_STORAGE_KEY);
+    const raw = localStorage.getItem(userStorageKey(FAVORITE_TARGETS_STORAGE_KEY, userId));
     if (!raw) return new Set();
     const arr: string[] = JSON.parse(raw);
     return new Set(arr.filter((item) => typeof item === 'string' && item.includes(':')));
@@ -80,17 +86,19 @@ function loadFavoriteTargetsFromStorage(): Set<string> {
   }
 }
 
-function saveFavoritesToStorage(favSet: Set<number>): void {
+function saveFavoritesToStorage(userId: number | null, favSet: Set<number>): void {
+  if (!userId) return;
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...favSet]));
+    localStorage.setItem(userStorageKey(FAVORITES_STORAGE_KEY, userId), JSON.stringify([...favSet]));
   } catch {}
 }
 
-function saveFavoriteTargetsToStorage(favSet: Set<string>): void {
+function saveFavoriteTargetsToStorage(userId: number | null, favSet: Set<string>): void {
+  if (!userId) return;
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(FAVORITE_TARGETS_STORAGE_KEY, JSON.stringify([...favSet]));
+    localStorage.setItem(userStorageKey(FAVORITE_TARGETS_STORAGE_KEY, userId), JSON.stringify([...favSet]));
   } catch {}
 }
 
@@ -152,6 +160,16 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   const refreshCounts = useCallback(async () => {
     try {
+      if (!currentUser) {
+        const contents = await contentsApi.list({ page_size: 1 });
+        setContentCount(contents.total || 0);
+        setSourceCount(0);
+        setFavoriteTotal(0);
+        setFavorites(new Set());
+        setFavoriteTargets(new Set());
+        setFavoriteTargetIds(new Map());
+        return;
+      }
       const [contents, sources, allFavorites] = await Promise.all([
         contentsApi.list({ page_size: 1 }),
         isAdmin(currentUser) ? sourcesApi.list() : Promise.resolve(null),
@@ -179,17 +197,26 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   }, [currentUser]);
 
   useEffect(() => {
-    const storedFavorites = loadFavoritesFromStorage();
+    if (authLoading) return;
+    if (!currentUser) {
+      setFavorites(new Set());
+      setFavoriteTargets(new Set());
+      setFavoriteTargetIds(new Map());
+      setFavoriteTotal(0);
+      void refreshCounts();
+      return;
+    }
+
+    const storedFavorites = loadFavoritesFromStorage(currentUser.id);
     setFavorites(storedFavorites);
-    setFavoriteTargets((prev) => {
-      const next = new Set([...loadFavoriteTargetsFromStorage(), ...prev]);
-      for (const id of storedFavorites) {
-        next.add(getContentFavoriteKey(id));
-      }
-      return next;
-    });
+    const storedFavoriteTargets = loadFavoriteTargetsFromStorage(currentUser.id);
+    for (const id of storedFavorites) {
+      storedFavoriteTargets.add(getContentFavoriteKey(id));
+    }
+    setFavoriteTargets(storedFavoriteTargets);
+    setFavoriteTargetIds(new Map());
     void refreshCounts();
-  }, [refreshCounts]);
+  }, [authLoading, currentUser, refreshCounts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -228,12 +255,12 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   // Sync favorites to localStorage whenever it changes
   useEffect(() => {
-    saveFavoritesToStorage(favorites);
-  }, [favorites]);
+    saveFavoritesToStorage(currentUser?.id || null, favorites);
+  }, [currentUser?.id, favorites]);
 
   useEffect(() => {
-    saveFavoriteTargetsToStorage(favoriteTargets);
-  }, [favoriteTargets]);
+    saveFavoriteTargetsToStorage(currentUser?.id || null, favoriteTargets);
+  }, [currentUser?.id, favoriteTargets]);
 
   const isFavoriteTarget = useCallback((target: FavoriteTargetRef): boolean => {
     try {
@@ -248,6 +275,13 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     options?: { throwOnError?: boolean },
   ): Promise<boolean> => {
     const key = getFavoriteTargetKey(target);
+    if (!currentUser) {
+      router.push('/login');
+      if (options?.throwOnError) {
+        throw new Error('请先登录');
+      }
+      return favoriteTargets.has(key);
+    }
     if (favoriteTargetPendingRef.current.has(key)) {
       return favoriteTargets.has(key);
     }
@@ -315,10 +349,17 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         return next;
       });
     }
-  }, [favoriteTargetIds, favoriteTargets]);
+  }, [currentUser, favoriteTargetIds, favoriteTargets, router]);
 
   const toggleFavorite = useCallback(async (id: number, options?: { throwOnError?: boolean }): Promise<boolean> => {
     const targetKey = getContentFavoriteKey(id);
+    if (!currentUser) {
+      router.push('/login');
+      if (options?.throwOnError) {
+        throw new Error('请先登录');
+      }
+      return favorites.has(id);
+    }
     if (favoritePendingRef.current.has(id)) {
       return favorites.has(id);
     }
@@ -372,7 +413,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         return next;
       });
     }
-  }, [favorites]);
+  }, [currentUser, favorites, router]);
 
   return (
     <AppContext.Provider

@@ -32,7 +32,7 @@ async def test_content_favorite_upsert_builds_snapshot_and_dedupes():
         )
         await db.flush()
 
-        repo = FavoriteRepo(db)
+        repo = FavoriteRepo(db, 1)
         first = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.CONTENT, target_id=1))
         second = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.CONTENT, target_id=1, note="研究一下"))
 
@@ -72,7 +72,7 @@ async def test_deleting_content_favorite_syncs_legacy_content_flag():
         )
         await db.flush()
 
-        repo = FavoriteRepo(db)
+        repo = FavoriteRepo(db, 1)
         favorite = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.CONTENT, target_id=2))
         await repo.delete(favorite.id)
         content = await db.get(ContentItem, 2)
@@ -119,7 +119,7 @@ async def test_bulk_deleting_content_favorites_syncs_legacy_content_flags():
         )
         await db.flush()
 
-        repo = FavoriteRepo(db)
+        repo = FavoriteRepo(db, 1)
         first = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.CONTENT, target_id=3))
         second = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.CONTENT, target_id=4))
         deleted = await repo.bulk_delete([first.id, second.id])
@@ -143,7 +143,7 @@ async def test_external_favorite_requires_title_when_target_not_resolved():
         await conn.run_sync(Base.metadata.create_all)
 
     async with session_factory() as db:
-        repo = FavoriteRepo(db)
+        repo = FavoriteRepo(db, 1)
         with pytest.raises(ValueError):
             await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.BOOK, target_key="fanqie:1"))
 
@@ -162,6 +162,36 @@ async def test_external_favorite_requires_title_when_target_not_resolved():
 
 
 @pytest.mark.asyncio
+async def test_same_target_can_be_favorited_by_different_users_independently():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        first_repo = FavoriteRepo(db, 1)
+        second_repo = FavoriteRepo(db, 2)
+
+        first = await first_repo.upsert(
+            FavoriteCreate(target_type=FavoriteTargetType.BOOK, target_key="book:shared", title="共同目标")
+        )
+        second = await second_repo.upsert(
+            FavoriteCreate(target_type=FavoriteTargetType.BOOK, target_key="book:shared", title="共同目标")
+        )
+
+        first_state = await first_repo.state_for_targets(FavoriteTargetType.BOOK, target_keys=["book:shared"])
+        second_state = await second_repo.state_for_targets(FavoriteTargetType.BOOK, target_keys=["book:shared"])
+
+        assert first.id != second.id
+        assert first.user_id == 1
+        assert second.user_id == 2
+        assert first_state[0]["favorite_id"] == first.id
+        assert second_state[0]["favorite_id"] == second.id
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_reorder_status_updates_positions_and_status():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -169,7 +199,7 @@ async def test_reorder_status_updates_positions_and_status():
         await conn.run_sync(Base.metadata.create_all)
 
     async with session_factory() as db:
-        repo = FavoriteRepo(db)
+        repo = FavoriteRepo(db, 1)
         first = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.BOOK, target_key="book:1", title="第一本"))
         second = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.BOOK, target_key="book:2", title="第二本"))
         third = await repo.upsert(FavoriteCreate(target_type=FavoriteTargetType.SOURCE, target_key="source:1", title="信源"))
@@ -197,7 +227,7 @@ async def test_update_favorite_can_persist_creation_plan_snapshot():
         await conn.run_sync(Base.metadata.create_all)
 
     async with session_factory() as db:
-        repo = FavoriteRepo(db)
+        repo = FavoriteRepo(db, 1)
         item = await repo.upsert(
             FavoriteCreate(
                 target_type=FavoriteTargetType.BOOK,

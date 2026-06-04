@@ -4,11 +4,12 @@ import enum
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Index, Integer, JSON, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
 from app.models.enum_types import value_enum
+from app.models.user import User
 
 
 class FavoriteTargetType(str, enum.Enum):
@@ -31,6 +32,7 @@ class FavoriteItem(Base):
     __tablename__ = "favorite_items"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     target_type: Mapped[str] = mapped_column(value_enum(FavoriteTargetType), nullable=False)
     target_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     target_key: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -47,9 +49,11 @@ class FavoriteItem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    user: Mapped[User] = relationship()
+
     __table_args__ = (
-        UniqueConstraint("target_type", "target_key", name="uq_favorite_target"),
-        Index("ix_favorite_items_type_created", "target_type", "created_at"),
-        Index("ix_favorite_items_status_created", "status", "created_at"),
-        Index("ix_favorite_items_status_position", "status", "position"),
+        UniqueConstraint("user_id", "target_type", "target_key", name="uq_favorite_user_target"),
+        Index("ix_favorite_items_user_type_created", "user_id", "target_type", "created_at"),
+        Index("ix_favorite_items_user_status_created", "user_id", "status", "created_at"),
+        Index("ix_favorite_items_user_status_position", "user_id", "status", "position"),
     )

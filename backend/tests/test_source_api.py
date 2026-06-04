@@ -17,6 +17,7 @@ from app.api.v1.sources import create_source, router as sources_router, update_s
 from app.core.database import Base
 from app.core.dependencies import get_db
 from app.models.source import Source, SourceStatus, SourceType
+from app.repositories.source_repo import SourceRepository
 from app.schemas.source import SourceCreate, SourceUpdate
 from app.services.source_cache import invalidate_source_list_cache
 
@@ -120,6 +121,65 @@ async def test_create_disabled_source_sets_disabled_status(sources_http_client: 
     payload = created.json()
     assert payload["enabled"] is False
     assert payload["status"] == "disabled"
+
+
+@pytest.mark.asyncio
+async def test_enabled_sources_are_syncable_and_user_ordered():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        db.add_all([
+            Source(
+                name="后同步",
+                url="https://example.com/sync-later.xml",
+                source_type=SourceType.RSS,
+                enabled=True,
+                status=SourceStatus.ACTIVE,
+                sort_order=30,
+            ),
+            Source(
+                name="先同步",
+                url="https://example.com/sync-first.xml",
+                source_type=SourceType.RSS,
+                enabled=True,
+                status=SourceStatus.ACTIVE,
+                sort_order=10,
+            ),
+            Source(
+                name="同序号稳定同步",
+                url="https://example.com/sync-same-order.xml",
+                source_type=SourceType.RSS,
+                enabled=True,
+                status=SourceStatus.ACTIVE,
+                sort_order=10,
+            ),
+            Source(
+                name="禁用状态不应同步",
+                url="https://example.com/status-disabled.xml",
+                source_type=SourceType.RSS,
+                enabled=True,
+                status=SourceStatus.DISABLED,
+                sort_order=1,
+            ),
+            Source(
+                name="关闭开关不应同步",
+                url="https://example.com/enabled-false.xml",
+                source_type=SourceType.RSS,
+                enabled=False,
+                status=SourceStatus.ACTIVE,
+                sort_order=1,
+            ),
+        ])
+        await db.flush()
+
+        sources = await SourceRepository(db).get_enabled_sources()
+
+        assert [source.name for source in sources] == ["先同步", "同序号稳定同步", "后同步"]
+
+    await engine.dispose()
 
 
 @pytest.mark.asyncio

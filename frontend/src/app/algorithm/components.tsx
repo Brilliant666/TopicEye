@@ -447,7 +447,7 @@ export function Funnel({ data, selectedKey }: { data: ScoringFlowResponse; selec
                   className="font-mono text-sm font-black leading-none md:mt-1"
                   style={{ color: previous && lost > 0 ? COLORS.red : COLORS.gray500 }}
                 >
-                  {previous ? `-${lost}` : stage.count}
+                  {previous ? (lost > 0 ? `-${lost}` : '0') : stage.count}
                 </div>
               </div>
             </div>

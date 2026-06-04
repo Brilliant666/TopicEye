@@ -229,6 +229,41 @@ async def test_favorites_api_reorder_persists_board_order(favorites_client: http
 
 
 @pytest.mark.asyncio
+async def test_favorites_api_same_status_update_preserves_board_order(favorites_client: httpx.AsyncClient):
+    created = []
+    for index in range(2):
+        response = await favorites_client.post(
+            "/favorites",
+            json={
+                "target_type": "book",
+                "target_key": f"book:same-status-update:{index}",
+                "title": f"同状态更新样本 {index}",
+            },
+        )
+        assert response.status_code == 201
+        created.append(response.json())
+
+    ordered_ids = [created[0]["id"], created[1]["id"]]
+    reordered = await favorites_client.post(
+        "/favorites/reorder",
+        json={"status": "inbox", "ordered_ids": ordered_ids},
+    )
+    assert reordered.status_code == 200
+
+    updated = await favorites_client.patch(
+        f"/favorites/{created[1]['id']}",
+        json={"status": "inbox", "note": "只更新备注，不改排序"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["position"] == 2000
+
+    listed = await favorites_client.get("/favorites?page=1&page_size=20&status=inbox")
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()["items"]] == ordered_ids
+    assert [item["position"] for item in listed.json()["items"]] == [1000, 2000]
+
+
+@pytest.mark.asyncio
 async def test_favorites_api_reorder_normalizes_unsubmitted_status_items(favorites_client: httpx.AsyncClient):
     created = []
     for index in range(4):

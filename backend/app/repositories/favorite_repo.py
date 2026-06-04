@@ -144,11 +144,12 @@ class FavoriteRepo:
         item = await self.get_by_id(favorite_id)
         if not item:
             return None
+        original_status = item.status
         payload = data.model_dump(exclude_unset=True)
         for key, value in payload.items():
             if hasattr(item, key):
                 setattr(item, key, value)
-        if payload.get("status"):
+        if payload.get("status") and payload["status"] != original_status:
             item.position = await self.next_position_for_status(payload["status"])
         item.updated_at = datetime.utcnow()
         await self.db.flush()

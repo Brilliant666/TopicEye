@@ -59,7 +59,7 @@ export default function LoginPage() {
             把选题、收藏和创作流绑定到你的账号
           </h1>
           <p className="max-w-[560px] text-[14px] leading-7 text-gray-500">
-            登录后可以稳定保存收藏、信源偏好和后续付费区权限。当前版本保持开放访问，不会打断现有选题工作流。
+            登录后可以稳定保存收藏、信源偏好和后续付费区权限。复盘、创作和个人工作台需要登录，管理入口仅管理员可见。
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             <Badge tone="primary">邮箱登录</Badge>

@@ -63,15 +63,57 @@ async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
     return result.scalar_one_or_none()
 
 
-async def create_user(db: AsyncSession, *, email: str, password: str, display_name: Optional[str] = None) -> User:
+async def create_user(
+    db: AsyncSession,
+    *,
+    email: str,
+    password: str,
+    display_name: Optional[str] = None,
+    role: str = "user",
+) -> User:
     user = User(
         email=normalize_email(email),
         password_hash=hash_password(password),
         display_name=display_name or normalize_email(email).split("@", 1)[0],
+        role=role,
     )
     db.add(user)
     await db.flush()
     await db.refresh(user)
+    return user
+
+
+async def ensure_admin_user(
+    db: AsyncSession,
+    *,
+    email: str,
+    password: str,
+    display_name: Optional[str] = None,
+) -> User:
+    user = await get_user_by_email(db, email)
+    if not user:
+        return await create_user(
+            db,
+            email=email,
+            password=password,
+            display_name=display_name,
+            role="admin",
+        )
+
+    changed = False
+    if user.role != "admin":
+        user.role = "admin"
+        changed = True
+    if not user.is_active:
+        user.is_active = True
+        changed = True
+    if display_name and not user.display_name:
+        user.display_name = display_name
+        changed = True
+    if changed:
+        user.updated_at = datetime.utcnow()
+        await db.flush()
+        await db.refresh(user)
     return user
 
 

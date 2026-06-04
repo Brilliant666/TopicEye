@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     # ── Startup behavior ──
     AUTO_CREATE_TABLES_ON_STARTUP: bool = True
     STARTUP_SEED_ENABLED: bool = True
+    ADMIN_SEED_ENABLED: bool = True
+    ADMIN_EMAIL: str = "admin@topiceye.local"
+    ADMIN_PASSWORD: str = "TopicEyeAdmin123!"
+    ADMIN_DISPLAY_NAME: str = "TopicEye 管理员"
     SCHEDULER_ENABLED: bool = True
     CACHE_WARMUP_ENABLED: bool = True
     READ_CACHE_TTL_SECONDS: float = 60.0

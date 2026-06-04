@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import NotificationBell from '@/components/NotificationBell';
 import { authApi, getAuthToken, setAuthToken, sourcesApi, contentsApi, favoritesApi } from '@/lib/api';
@@ -11,6 +12,7 @@ import {
   type FavoriteCreatePayload,
   type FavoriteTargetRef,
 } from '@/lib/favorites';
+import { canAccessPath, requiredAccessForPath } from '@/lib/navigation';
 import type { AuthTokenResponse, AuthUser, FavoriteItem } from '@/types';
 
 // App context - shared across pages
@@ -114,6 +116,8 @@ async function fetchAllFavoriteItems(): Promise<{ items: FavoriteItem[]; total: 
 }
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
@@ -216,6 +220,11 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     window.addEventListener('resize', updateCompact);
     return () => window.removeEventListener('resize', updateCompact);
   }, []);
+
+  useEffect(() => {
+    if (authLoading || canAccessPath(pathname, currentUser)) return;
+    router.replace(requiredAccessForPath(pathname) === 'admin' && currentUser ? '/' : '/login');
+  }, [authLoading, currentUser, pathname, router]);
 
   // Sync favorites to localStorage whenever it changes
   useEffect(() => {

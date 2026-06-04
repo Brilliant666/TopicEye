@@ -38,6 +38,7 @@ class UserResponse(BaseModel):
     email: str
     display_name: Optional[str] = None
     plan: str
+    role: str
     is_active: bool
     created_at: datetime
 

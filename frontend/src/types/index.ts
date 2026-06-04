@@ -12,6 +12,7 @@ export interface AuthUser {
   email: string;
   display_name?: string | null;
   plan: 'free' | 'paid' | string;
+  role: 'admin' | 'user' | string;
   is_active: boolean;
   created_at: string;
 }

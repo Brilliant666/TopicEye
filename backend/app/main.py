@@ -357,11 +357,16 @@ async def ensure_user_auth_schema(conn) -> None:
             password_hash VARCHAR(512) NOT NULL,
             display_name VARCHAR(100),
             plan VARCHAR(20) NOT NULL DEFAULT 'free',
+            role VARCHAR(20) NOT NULL DEFAULT 'user',
             is_active BOOLEAN NOT NULL DEFAULT 1,
             created_at DATETIME NOT NULL,
             updated_at DATETIME NOT NULL
         )
     """))
+    result = await conn.execute(text("PRAGMA table_info(users)"))
+    columns = {row[1] for row in result.fetchall()}
+    if "role" not in columns:
+        await conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'user'"))
     await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users(email)"))
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS user_sessions (
@@ -440,6 +445,23 @@ async def lifespan(app: FastAPI):
             await ensure_sqlite_upgrade_schema(conn)
     else:
         logger.info("Startup table creation skipped by config")
+
+    if settings.ADMIN_SEED_ENABLED:
+        try:
+            from app.services.auth_service import ensure_admin_user
+            async with async_session() as admin_db:
+                admin = await ensure_admin_user(
+                    admin_db,
+                    email=settings.ADMIN_EMAIL,
+                    password=settings.ADMIN_PASSWORD,
+                    display_name=settings.ADMIN_DISPLAY_NAME,
+                )
+                await admin_db.commit()
+                logger.info("Admin account ready: %s", admin.email)
+        except Exception as e:
+            logger.warning("Admin account seed skipped: %s", e)
+    else:
+        logger.info("Admin account seed skipped by config")
 
     # Seed categories from hardcoded defaults (no-op if already seeded)
     if settings.STARTUP_SEED_ENABLED:

@@ -13,6 +13,7 @@ from app.services.auth_service import (
     authenticate_user,
     create_session,
     create_user,
+    ensure_admin_user,
     get_user_for_token,
     revoke_token,
     verify_password,
@@ -63,6 +64,7 @@ async def test_auth_service_registers_lowercase_email_and_hashes_password():
 
         assert user.email == "codex@example.com"
         assert user.display_name == "codex"
+        assert user.role == "user"
         assert user.password_hash != "Password123"
         assert verify_password("Password123", user.password_hash)
         assert not verify_password("wrong-password", user.password_hash)
@@ -120,6 +122,7 @@ async def test_auth_route_functions_register_login_me_logout():
             db,
         )
         assert registered.user.email == "route@example.com"
+        assert registered.user.role == "user"
         assert registered.token_type == "bearer"
 
         duplicate_error = None
@@ -131,6 +134,7 @@ async def test_auth_route_functions_register_login_me_logout():
         assert duplicate_error.status_code == 409
 
         logged_in = await login(AuthLoginRequest(email="route@example.com", password="Password123"), db)
+        assert logged_in.user.role == "user"
         current_user = await get_current_user(f"Bearer {logged_in.access_token}", db)
         assert isinstance(current_user, User)
         assert (await me(current_user)).email == "route@example.com"
@@ -143,5 +147,75 @@ async def test_auth_route_functions_register_login_me_logout():
             invalid_error = exc
         assert invalid_error is not None
         assert invalid_error.status_code == 401
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_ensure_admin_user_creates_builtin_admin():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        admin = await ensure_admin_user(
+            db,
+            email="Admin@TopicEye.Local",
+            password="TopicEyeAdmin123!",
+            display_name="TopicEye 管理员",
+        )
+
+        assert admin.email == "admin@topiceye.local"
+        assert admin.display_name == "TopicEye 管理员"
+        assert admin.role == "admin"
+        assert admin.is_active is True
+        assert await authenticate_user(
+            db,
+            email="admin@topiceye.local",
+            password="TopicEyeAdmin123!",
+        ) is admin
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_ensure_admin_user_promotes_existing_account_without_resetting_password():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        user = await create_user(
+            db,
+            email="admin@topiceye.local",
+            password="CustomPassword123",
+            display_name="Custom Admin",
+        )
+        user.is_active = False
+        await db.flush()
+
+        admin = await ensure_admin_user(
+            db,
+            email="admin@topiceye.local",
+            password="TopicEyeAdmin123!",
+            display_name="TopicEye 管理员",
+        )
+
+        assert admin.id == user.id
+        assert admin.role == "admin"
+        assert admin.is_active is True
+        assert admin.display_name == "Custom Admin"
+        assert await authenticate_user(
+            db,
+            email="admin@topiceye.local",
+            password="CustomPassword123",
+        ) is admin
+        assert await authenticate_user(
+            db,
+            email="admin@topiceye.local",
+            password="TopicEyeAdmin123!",
+        ) is None
 
     await engine.dispose()

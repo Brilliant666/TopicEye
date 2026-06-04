@@ -3,29 +3,13 @@
 import React from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
-  BarChart3,
-  BookOpen,
-  Bookmark,
-  BrainCircuit,
-  CalendarDays,
-  ClipboardList,
-  Crosshair,
-  GitBranch,
-  Flame,
-  Gem,
-  Lightbulb,
   LogIn,
   LogOut,
-  Newspaper,
   Radar,
-  RadioTower,
-  Search,
-  Star,
-  TrendingUp,
   UserRound,
-  type LucideIcon,
 } from 'lucide-react';
 import { cx } from '@/components/ui';
+import { isAdmin, visibleNavSpaces } from '@/lib/navigation';
 import type { AuthUser } from '@/types';
 
 interface SidebarProps {
@@ -36,20 +20,6 @@ interface SidebarProps {
   currentUser?: AuthUser | null;
   authLoading?: boolean;
   onLogout?: () => void;
-}
-
-interface NavItem {
-  id: string;
-  label: string;
-  href: string;
-  icon: LucideIcon;
-  count?: number;
-}
-
-interface NavSpace {
-  id: string;
-  label: string;
-  items: NavItem[];
 }
 
 export default function Sidebar({
@@ -64,54 +34,12 @@ export default function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
 
-  const navSpaces: NavSpace[] = [
-    {
-      id: 'discover',
-      label: '发现',
-      items: [
-        { id: 'lfv', label: '低粉爆文', href: '/low-follower-viral', icon: Flame },
-        { id: 'trending', label: '趋势雷达', href: '/trending', icon: Search },
-        { id: 'trends', label: '趋势追踪', href: '/trends', icon: TrendingUp },
-      ],
-    },
-    {
-      id: 'today',
-      label: '今日',
-      items: [
-        { id: 'today', label: '今日选题', href: '/', icon: Lightbulb, count: topicCount },
-        { id: 'picks', label: '当日精选', href: '/today-picks', icon: Star },
-      ],
-    },
-    {
-      id: 'review',
-      label: '复盘',
-      items: [
-        { id: 'daily', label: '日报', href: '/daily', icon: Newspaper },
-        { id: 'weekly', label: '周刊', href: '/weekly', icon: ClipboardList },
-        { id: 'monthly', label: '月刊', href: '/monthly', icon: CalendarDays },
-        { id: 'stats', label: '数据统计', href: '/stats', icon: BarChart3 },
-      ],
-    },
-    {
-      id: 'create',
-      label: '创作',
-      items: [
-        { id: 'my-topics', label: '我的母题', href: '/my-topics', icon: Crosshair },
-        { id: 'favorites', label: '收藏夹', href: '/favorites', icon: Bookmark, count: favCount },
-        { id: 'algorithm', label: '算法流程', href: '/algorithm', icon: GitBranch },
-      ],
-    },
-    {
-      id: 'manage',
-      label: '管理',
-      items: [
-        { id: 'sources', label: '信源管理', href: '/sources', icon: RadioTower, count: sourceCount },
-        { id: 'fanqie', label: '网文雷达', href: '/fanqie', icon: BookOpen },
-        { id: 'model-eval', label: 'AI 引擎', href: '/model-eval', icon: BrainCircuit },
-        { id: 'plans', label: '权益规划', href: '/plans', icon: Gem },
-      ],
-    },
-  ];
+  const navSpaces = visibleNavSpaces(currentUser);
+  const counts = {
+    topics: topicCount,
+    favorites: favCount,
+    sources: sourceCount,
+  };
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
@@ -157,6 +85,7 @@ export default function Sidebar({
             {space.items.map((item) => {
               const active = isActive(item.href);
               const Icon = item.icon;
+              const count = item.countKey ? counts[item.countKey] : 0;
               return (
                 <button
                   key={item.id}
@@ -173,9 +102,9 @@ export default function Sidebar({
                     <Icon size={16} strokeWidth={active ? 2.2 : 1.8} />
                     {!compact && <span>{item.label}</span>}
                   </span>
-                  {!compact && (item.count ?? 0) > 0 ? (
+                  {!compact && count > 0 ? (
                     <span className={cx('rounded-full px-2 py-px font-mono text-[11px] font-medium', active ? 'bg-primary/10 text-primary' : 'bg-gray-100 text-gray-400')}>
-                      {item.count}
+                      {count}
                     </span>
                   ) : null}
                 </button>
@@ -201,7 +130,9 @@ export default function Sidebar({
               {!compact && (
                 <div className="min-w-0">
                   <div className="truncate text-xs font-medium text-gray-700">{currentUser.display_name || currentUser.email}</div>
-                  <div className="text-[10px] text-gray-400">{currentUser.plan === 'free' ? '免费版' : '付费版'}</div>
+                  <div className="text-[10px] text-gray-400">
+                    {isAdmin(currentUser) ? '管理员' : currentUser.plan === 'free' ? '免费版' : '付费版'}
+                  </div>
                 </div>
               )}
             </div>

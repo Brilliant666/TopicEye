@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.database import Base, async_session, database_profile, engine
-from app.core.db_backend import database_diagnostics
+from app.core.db_backend import database_diagnostics, redact_database_secrets
 from app.core.sqlite_retry import is_sqlite_locked, retry_sqlite_locked
 from app.api.v1.router import router as v1_router
 from app.scheduler import start_scheduler, shutdown_scheduler
@@ -572,7 +572,11 @@ async def health_check():
 
         duckdb_status = get_analytics().status()
     except Exception as exc:
-        duckdb_status = {"status": "error", "available": False, "error": str(exc)}
+        duckdb_status = {
+            "status": "error",
+            "available": False,
+            "error": redact_database_secrets(str(exc), database_profile),
+        }
 
     return {
         "status": "ok",

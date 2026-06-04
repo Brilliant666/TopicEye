@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.api.v1 import notifications as notifications_api
 from app.api.v1 import settings as settings_api
 from app.core.database import Base
+from app.core.db_backend import create_database_profile
+from app import main as app_main
 from app.models.app_setting import DEFAULT_RSSHUB_INSTANCES
 from app.services import notification_service
 from app.services import duckdb_service
@@ -135,6 +137,53 @@ async def test_duckdb_status_reports_database_diagnostics(
     assert payload["database"]["analytics"]["backend"] == "duckdb"
     assert payload["database"]["analytics"]["attach_mode"] == "read_only"
     assert payload["note"] == "No sync needed; DuckDB reads the configured OLTP backend directly."
+
+
+@pytest.mark.asyncio
+async def test_duckdb_status_redacts_database_secret_on_unhandled_error(
+    settings_notifications_client: httpx.AsyncClient,
+    monkeypatch,
+):
+    url = "postgresql+asyncpg://topiceye:s3 cr'et@localhost:5432/topiceye"
+    profile = create_database_profile(url)
+
+    def fail_get_analytics():
+        raise RuntimeError(f"cannot attach {url}; conninfo password='s3 cr\\'et'")
+
+    monkeypatch.setattr(settings_api, "database_profile", profile)
+    monkeypatch.setattr(duckdb_service, "get_analytics", fail_get_analytics)
+
+    response = await settings_notifications_client.get("/settings/duckdb/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "error"
+    assert "s3 cr'et" not in payload["error"]
+    assert "s3 cr\\'et" not in payload["error"]
+    assert "password=***" in payload["error"]
+    assert "postgresql+asyncpg://topiceye:***@localhost:5432/topiceye" in payload["error"]
+
+
+@pytest.mark.asyncio
+async def test_health_redacts_duckdb_database_secret_on_error(monkeypatch):
+    url = "postgresql+asyncpg://topiceye:s3 cr'et@localhost:5432/topiceye"
+    profile = create_database_profile(url)
+
+    def fail_get_analytics():
+        raise RuntimeError(f"cannot attach {url}; conninfo password='s3 cr\\'et'")
+
+    monkeypatch.setattr(app_main, "database_profile", profile)
+    monkeypatch.setattr(duckdb_service, "get_analytics", fail_get_analytics)
+
+    payload = await app_main.health_check()
+
+    error = payload["database"]["duckdb"]["error"]
+    assert payload["database"]["backend"] == "postgresql"
+    assert payload["database"]["duckdb"]["status"] == "error"
+    assert "s3 cr'et" not in error
+    assert "s3 cr\\'et" not in error
+    assert "password=***" in error
+    assert "postgresql+asyncpg://topiceye:***@localhost:5432/topiceye" in error
 
 
 @pytest.mark.asyncio

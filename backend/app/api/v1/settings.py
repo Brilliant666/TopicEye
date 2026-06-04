@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import database_profile, get_db
-from app.core.db_backend import database_diagnostics
+from app.core.db_backend import database_diagnostics, redact_database_secrets
 from app.models.app_setting import AppSetting
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -135,4 +135,7 @@ async def duckdb_status():
                     else "DuckDB package or required extension is unavailable. App falls back to SQLAlchemy.",
         }
     except Exception as e:
-        return {"status": "error", "error": str(e)}
+        return {
+            "status": "error",
+            "error": redact_database_secrets(str(e), database_profile),
+        }

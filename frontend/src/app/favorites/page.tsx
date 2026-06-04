@@ -455,11 +455,13 @@ export default function FavoritesPage() {
       setDirtyStatuses(new Set());
       setSavedNotice('排序已保存');
     } catch (err) {
-      setError(err instanceof Error ? err.message : '排序保存失败');
+      const message = err instanceof Error ? err.message : '排序保存失败';
+      await fetchFavorites();
+      setError(`${message}，已恢复服务器排序`);
     } finally {
       setSavingOrder(false);
     }
-  }, [dirtyStatuses, items]);
+  }, [dirtyStatuses, fetchFavorites, items]);
 
   const updateSelectedStatus = async (nextStatus: FavoriteStatus) => {
     if (selectedItems.length === 0) return;

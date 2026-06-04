@@ -413,6 +413,21 @@ async def ensure_user_integrations_schema(conn) -> None:
     ))
 
 
+async def ensure_sqlite_upgrade_schema(conn) -> None:
+    """Run SQLite-only schema upgrade helpers for existing local installs."""
+    if not database_profile.is_sqlite:
+        return
+
+    await ensure_source_sort_order_column(conn)
+    await ensure_daily_report_version_schema(conn)
+    await ensure_llm_call_logs_schema(conn)
+    await ensure_performance_indexes(conn)
+    await ensure_content_status_values(conn)
+    await ensure_favorite_items_schema(conn)
+    await ensure_user_auth_schema(conn)
+    await ensure_user_integrations_schema(conn)
+
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -422,14 +437,7 @@ async def lifespan(app: FastAPI):
     if settings.AUTO_CREATE_TABLES_ON_STARTUP:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-            await ensure_source_sort_order_column(conn)
-            await ensure_daily_report_version_schema(conn)
-            await ensure_llm_call_logs_schema(conn)
-            await ensure_performance_indexes(conn)
-            await ensure_content_status_values(conn)
-            await ensure_favorite_items_schema(conn)
-            await ensure_user_auth_schema(conn)
-            await ensure_user_integrations_schema(conn)
+            await ensure_sqlite_upgrade_schema(conn)
     else:
         logger.info("Startup table creation skipped by config")
 

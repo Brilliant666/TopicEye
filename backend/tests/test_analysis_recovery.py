@@ -178,3 +178,47 @@ async def test_source_sort_order_backfill_skips_sqlite_lock(monkeypatch):
         await app_main.ensure_source_sort_order_column(conn)
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_upgrade_schema_skips_non_sqlite_backends(monkeypatch):
+    class NoSqlConn:
+        async def execute(self, statement):
+            raise AssertionError(f"non-SQLite backend should not execute SQLite upgrade SQL: {statement}")
+
+    monkeypatch.setattr(app_main, "database_profile", SimpleNamespace(is_sqlite=False))
+
+    await app_main.ensure_sqlite_upgrade_schema(NoSqlConn())
+
+
+@pytest.mark.asyncio
+async def test_sqlite_upgrade_schema_runs_helpers_for_sqlite(monkeypatch):
+    calls = []
+
+    def helper(name):
+        async def _run(_conn):
+            calls.append(name)
+        return _run
+
+    monkeypatch.setattr(app_main, "database_profile", SimpleNamespace(is_sqlite=True))
+    monkeypatch.setattr(app_main, "ensure_source_sort_order_column", helper("source_sort_order"))
+    monkeypatch.setattr(app_main, "ensure_daily_report_version_schema", helper("daily_report_version"))
+    monkeypatch.setattr(app_main, "ensure_llm_call_logs_schema", helper("llm_call_logs"))
+    monkeypatch.setattr(app_main, "ensure_performance_indexes", helper("performance_indexes"))
+    monkeypatch.setattr(app_main, "ensure_content_status_values", helper("content_status_values"))
+    monkeypatch.setattr(app_main, "ensure_favorite_items_schema", helper("favorite_items"))
+    monkeypatch.setattr(app_main, "ensure_user_auth_schema", helper("user_auth"))
+    monkeypatch.setattr(app_main, "ensure_user_integrations_schema", helper("user_integrations"))
+
+    await app_main.ensure_sqlite_upgrade_schema(object())
+
+    assert calls == [
+        "source_sort_order",
+        "daily_report_version",
+        "llm_call_logs",
+        "performance_indexes",
+        "content_status_values",
+        "favorite_items",
+        "user_auth",
+        "user_integrations",
+    ]

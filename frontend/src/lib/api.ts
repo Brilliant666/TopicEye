@@ -73,9 +73,9 @@ export function formatApiErrorDetail(detail: unknown): string | undefined {
   return formatDetailItem(detail);
 }
 
-function assertUniqueOrderedIds(orderedIds: number[]): void {
-  if (orderedIds.length !== new Set(orderedIds).size) {
-    throw new Error('信源排序包含重复项，请刷新后重试');
+function assertUniqueIds(ids: number[], message: string): void {
+  if (ids.length !== new Set(ids).size) {
+    throw new Error(message);
   }
 }
 
@@ -278,7 +278,7 @@ export const sourcesApi = {
 
   /** 保存信源排序（用于信源地图看板拖拽） */
   reorder(ordered_ids: number[]): Promise<{ message: string; updated: number }> {
-    assertUniqueOrderedIds(ordered_ids);
+    assertUniqueIds(ordered_ids, '信源排序包含重复项，请刷新后重试');
     return request('/sources/reorder', {
       method: 'POST',
       body: JSON.stringify({ ordered_ids }),
@@ -470,6 +470,7 @@ export const favoritesApi = {
   },
 
   reorder(status: FavoriteStatus, orderedIds: number[]): Promise<FavoriteItem[]> {
+    assertUniqueIds(orderedIds, '收藏排序包含重复项，请刷新后重试');
     return request('/favorites/reorder', {
       method: 'POST',
       body: JSON.stringify({ status, ordered_ids: orderedIds }),
@@ -477,6 +478,7 @@ export const favoritesApi = {
   },
 
   bulkStatus(status: FavoriteStatus, ids: number[]): Promise<FavoriteItem[]> {
+    assertUniqueIds(ids, '批量移动包含重复收藏，请刷新后重试');
     return request('/favorites/bulk-status', {
       method: 'POST',
       body: JSON.stringify({ status, ids }),
@@ -484,6 +486,7 @@ export const favoritesApi = {
   },
 
   bulkDelete(ids: number[]): Promise<{ deleted: number }> {
+    assertUniqueIds(ids, '批量删除包含重复收藏，请刷新后重试');
     return request('/favorites/bulk-delete', {
       method: 'POST',
       body: JSON.stringify({ ids }),

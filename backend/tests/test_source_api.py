@@ -345,6 +345,59 @@ async def test_import_opml_normalizes_urls_and_skips_invalid_protocols(
 
 
 @pytest.mark.asyncio
+async def test_reorder_sources_persists_order(sources_http_client: httpx.AsyncClient):
+    created = []
+    for index in range(3):
+        response = await sources_http_client.post(
+            "/sources",
+            json={
+                "name": f"排序信源 {index}",
+                "url": f"https://example.com/reorder-{index}.xml",
+                "source_type": "RSS",
+            },
+        )
+        assert response.status_code == 201
+        created.append(response.json())
+
+    ordered_ids = [created[2]["id"], created[0]["id"], created[1]["id"]]
+    reordered = await sources_http_client.post(
+        "/sources/reorder",
+        json={"ordered_ids": ordered_ids},
+    )
+
+    assert reordered.status_code == 200
+    assert reordered.json() == {"message": "信源顺序已保存", "updated": 3}
+
+    listed = await sources_http_client.get("/sources?page=1&page_size=20")
+    assert listed.status_code == 200
+    items = listed.json()["items"]
+    assert [item["id"] for item in items] == ordered_ids
+    assert [item["sort_order"] for item in items] == [10, 20, 30]
+
+
+@pytest.mark.asyncio
+async def test_reorder_sources_rejects_duplicate_ids(sources_http_client: httpx.AsyncClient):
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "重复排序信源",
+            "url": "https://example.com/duplicate-source-reorder.xml",
+            "source_type": "RSS",
+        },
+    )
+    assert created.status_code == 201
+    source_id = created.json()["id"]
+
+    reordered = await sources_http_client.post(
+        "/sources/reorder",
+        json={"ordered_ids": [source_id, source_id]},
+    )
+
+    assert reordered.status_code == 422
+    assert "ordered_ids must not contain duplicates" in str(reordered.json()["detail"])
+
+
+@pytest.mark.asyncio
 async def test_sync_source_error_state_persists_over_http(
     sources_http_client: httpx.AsyncClient,
     monkeypatch,

@@ -148,9 +148,11 @@ class DuckDBAnalytics:
     def query_today_picks(
         self,
         hours: int = 48,
-        curation_threshold: float = 82,  # P75 threshold for ~25% selection rate
+        curation_threshold: float = 55,
         weight_bonus: int = 8,
         risk_threshold: float = 70,
+        category: Optional[str] = None,
+        limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Top curated picks from the last N hours.
@@ -160,14 +162,24 @@ class DuckDBAnalytics:
         """
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+        params: List[Any] = [cutoff]
+        category_clause = ""
+        if category:
+            category_clause = " AND c.category = ?"
+            params.append(category)
+        _ = limit
 
         results = conn.execute(f"""
+            WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 c.id, c.title, c.url, c.source_id, c.source_name, c.source_type,
                 c.platform, c.author,
                 c.published_at, c.crawled_at,
-                c.summary, c.category, c.tags, c.language,
+                c.content_hash, c.summary, c.raw_content, c.cover_url,
+                c.category, c.tags, c.language, c.status, c.is_favorited,
                 c.topic_id, c.duplicate_of, c.similarity_score,
+                c.created_at, c.updated_at,
+                a.id AS analysis_id, a.created_at AS analysis_created_at,
                 a.quality_score, a.hot_score, a.freshness_score,
                 a.creator_score, a.viral_score, a.risk_score,
                 a.curation_score, a.info_density, a.actionability,
@@ -182,19 +194,23 @@ class DuckDBAnalytics:
                          + (COALESCE(s.weight, 3) - 3) * {weight_bonus}
                 END AS adjusted_curation_score
             FROM oltp_db.content_items c
-            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN latest_analysis a ON a.content_id = c.id
             LEFT JOIN oltp_db.sources s ON s.id = c.source_id
-            WHERE c.crawled_at >= '{cutoff}'
+            WHERE c.crawled_at >= ?
               AND a.risk_score <= {risk_threshold}
               AND a.curation_score IS NOT NULL
+              {category_clause}
             ORDER BY adjusted_curation_score DESC
-        """).fetchall()
+        """, params).fetchall()
 
         columns = [
             'id', 'title', 'url', 'source_id', 'source_name', 'source_type',
             'platform', 'author', 'published_at', 'crawled_at',
-            'summary', 'category', 'tags', 'language',
+            'content_hash', 'summary', 'raw_content', 'cover_url',
+            'category', 'tags', 'language', 'status', 'is_favorited',
             'topic_id', 'duplicate_of', 'similarity_score',
+            'created_at', 'updated_at',
+            'analysis_id', 'analysis_created_at',
             'quality_score', 'hot_score', 'freshness_score',
             'creator_score', 'viral_score', 'risk_score',
             'curation_score', 'info_density', 'actionability',
@@ -210,7 +226,7 @@ class DuckDBAnalytics:
             if item['adjusted_curation_score'] < curation_threshold:
                 continue
             # Serialize datetime fields
-            for dt_field in ('published_at', 'crawled_at'):
+            for dt_field in ('published_at', 'crawled_at', 'created_at', 'updated_at', 'analysis_created_at'):
                 val = item.get(dt_field)
                 if val and hasattr(val, 'isoformat'):
                     item[dt_field] = val.isoformat()

@@ -227,17 +227,26 @@ async def today_picks(
         return Response(
             content=content,
             media_type="application/json",
-            headers={"X-Today-Picks-Cache": f"HIT; age={age_seconds:.3f}s"},
+            headers={
+                "X-Analytics-Backend": "duckdb",
+                "X-Today-Picks-Cache": f"HIT; age={age_seconds:.3f}s",
+            },
         )
 
-    async with async_session() as db:
-        payload = await build_today_picks(db, category=category, hours=params.hours, limit=params.limit)
-        content = set_cached_today_picks(params, payload)
-        return Response(
-            content=content,
-            media_type="application/json",
-            headers={"X-Today-Picks-Cache": "MISS"},
-        )
+    try:
+        async with async_session() as db:
+            payload = await build_today_picks(db, category=category, hours=params.hours, limit=params.limit)
+            content = set_cached_today_picks(params, payload)
+            return Response(
+                content=content,
+                media_type="application/json",
+                headers={
+                    "X-Analytics-Backend": "duckdb",
+                    "X-Today-Picks-Cache": "MISS",
+                },
+            )
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="DuckDB analytical layer unavailable") from exc
 
 
 @router.get("/scoring-flow")

@@ -108,3 +108,108 @@ def test_stats_queries_use_latest_analysis_only(monkeypatch):
     assert daily_trend["trend"][0]["analyzed_count"] == 1
 
     conn.close()
+
+
+def test_today_picks_query_uses_latest_analysis_only(monkeypatch):
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE SCHEMA oltp_db")
+    conn.execute("""
+        CREATE TABLE oltp_db.content_items (
+            id INTEGER,
+            title VARCHAR,
+            url VARCHAR,
+            source_id INTEGER,
+            source_name VARCHAR,
+            source_type VARCHAR,
+            platform VARCHAR,
+            author VARCHAR,
+            published_at TIMESTAMP,
+            crawled_at TIMESTAMP,
+            content_hash VARCHAR,
+            summary VARCHAR,
+            raw_content VARCHAR,
+            cover_url VARCHAR,
+            category VARCHAR,
+            tags VARCHAR,
+            language VARCHAR,
+            status VARCHAR,
+            is_favorited BOOLEAN,
+            topic_id INTEGER,
+            duplicate_of INTEGER,
+            similarity_score DOUBLE,
+            created_at TIMESTAMP,
+            updated_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.sources (
+            id INTEGER,
+            weight INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.ai_analyses (
+            id INTEGER,
+            content_id INTEGER,
+            quality_score DOUBLE,
+            hot_score DOUBLE,
+            freshness_score DOUBLE,
+            creator_score DOUBLE,
+            viral_score DOUBLE,
+            risk_score DOUBLE,
+            curation_score DOUBLE,
+            info_density DOUBLE,
+            actionability DOUBLE,
+            recommended_reason VARCHAR,
+            recommendation VARCHAR,
+            summary VARCHAR,
+            tags VARCHAR,
+            enrichment_status VARCHAR,
+            enrichment VARCHAR,
+            created_at TIMESTAMP
+        )
+    """)
+
+    now = datetime.utcnow()
+    conn.execute("INSERT INTO oltp_db.sources VALUES (1, 5)")
+    conn.execute(
+        """
+        INSERT INTO oltp_db.content_items VALUES (
+            1, '最新分析精选', 'https://example.com/pick', 1, '测试信源', 'RSS',
+            'rss', NULL, NULL, ?, NULL, '摘要', NULL, NULL, 'AI', '["AI"]',
+            'zh', 'analyzed', false, NULL, NULL, 0.0, ?, ?
+        )
+        """,
+        [now, now, now],
+    )
+    conn.execute(
+        """
+        INSERT INTO oltp_db.ai_analyses VALUES (
+            1, 1, 50, 50, 50, 50, 50, 10, 20, 50, 50,
+            '旧理由', '旧推荐', '旧摘要', '["旧"]', 'pending', NULL, ?
+        )
+        """,
+        [now - timedelta(hours=2)],
+    )
+    conn.execute(
+        """
+        INSERT INTO oltp_db.ai_analyses VALUES (
+            2, 1, 88, 80, 90, 86, 78, 12, 90, 85, 82,
+            '新理由', '新推荐', '新摘要', '["新"]', 'pending', NULL, ?
+        )
+        """,
+        [now - timedelta(hours=1)],
+    )
+
+    analytics = duckdb_service.DuckDBAnalytics()
+    monkeypatch.setattr(analytics, "_get_conn", lambda: conn)
+
+    rows = analytics.query_today_picks(hours=48, curation_threshold=0)
+
+    assert len(rows) == 1
+    assert rows[0]["analysis_id"] == 2
+    assert rows[0]["curation_score"] == 90.0
+    assert rows[0]["recommended_reason"] == "新理由"
+    assert rows[0]["adjusted_curation_score"] == 106.0
+
+    conn.close()

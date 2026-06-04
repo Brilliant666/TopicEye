@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import AsyncGenerator
 
 import httpx
@@ -13,12 +14,14 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import app.main  # noqa: F401 - import all models for Base.metadata
 import app.api.v1.sources as sources_api
+import app.services.content_pipeline as content_pipeline
 from app.api.v1.sources import create_source, router as sources_router, update_source
 from app.core.database import Base
 from app.core.dependencies import get_db
 from app.models.source import Source, SourceStatus, SourceType
 from app.repositories.source_repo import SourceRepository
 from app.schemas.source import SourceCreate, SourceUpdate
+from app.services.content_pipeline import ingest_from_source, redact_source_sync_error
 from app.services.source_cache import invalidate_source_list_cache
 
 
@@ -551,6 +554,83 @@ async def test_sync_source_error_state_persists_over_http(
     assert persisted.status_code == 200
     assert persisted.json()["status"] == "error"
     assert persisted.json()["sync_error"] == "API endpoint unavailable"
+
+
+def test_redact_source_sync_error_removes_credentials(monkeypatch):
+    monkeypatch.setenv("APIFY_TOKEN", "apify_secret_123456")
+    message = (
+        "GET https://api.example.com/feed?token=source_secret_123&limit=10 "
+        "failed Authorization: Bearer xgo_secret_123 "
+        "api_key=plain_secret_456 access_token=access_secret_789 "
+        "env apify_secret_123456 encoded apify_secret_123456"
+    )
+
+    redacted = redact_source_sync_error(message)
+
+    assert "source_secret_123" not in redacted
+    assert "xgo_secret_123" not in redacted
+    assert "plain_secret_456" not in redacted
+    assert "access_secret_789" not in redacted
+    assert "apify_secret_123456" not in redacted
+    assert "Bearer ***" in redacted
+    assert "token=***" in redacted
+    assert "api_key=***" in redacted
+    assert "access_token=***" in redacted
+
+
+@pytest.mark.asyncio
+async def test_ingest_source_persists_redacted_sync_error(monkeypatch, caplog):
+    class SecretFailingScraper:
+        def __init__(self, source_url: str, source_config: dict):
+            self.source_url = source_url
+            self.source_config = source_config
+
+        async def fetch(self, client: httpx.AsyncClient):
+            raise RuntimeError(
+                "upstream failed for https://api.example.com/feed?token=source_secret_123 "
+                "Authorization: Bearer xgo_secret_123 api_key=plain_secret_456"
+            )
+
+    monkeypatch.setattr(content_pipeline, "get_scraper_cls", lambda source_type: SecretFailingScraper)
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        source = Source(
+            name="Secret API",
+            url="https://api.example.com/feed?token=source_secret_123",
+            source_type=SourceType.API,
+            status=SourceStatus.ACTIVE,
+            enabled=True,
+        )
+        db.add(source)
+        await db.flush()
+
+        with caplog.at_level(logging.ERROR, logger="app.services.content_pipeline"):
+            stats = await ingest_from_source(source, db)
+        await db.refresh(source)
+
+        assert stats == {"fetched": 0, "new": 0, "duplicates": 0}
+        assert source.status == SourceStatus.ERROR
+        assert source.sync_error is not None
+        assert "source_secret_123" not in source.sync_error
+        assert "xgo_secret_123" not in source.sync_error
+        assert "plain_secret_456" not in source.sync_error
+        assert "Bearer ***" in source.sync_error
+        assert "token=***" in source.sync_error
+        assert "api_key=***" in source.sync_error
+        log_text = caplog.text
+        assert "source_secret_123" not in log_text
+        assert "xgo_secret_123" not in log_text
+        assert "plain_secret_456" not in log_text
+        assert "Bearer ***" in log_text
+        assert "token=***" in log_text
+        assert "api_key=***" in log_text
+
+    await engine.dispose()
 
 
 @pytest.mark.asyncio

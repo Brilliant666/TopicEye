@@ -10,10 +10,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from datetime import datetime
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 from sqlalchemy import select, text
@@ -28,6 +29,18 @@ from app.services.content_read_cache import invalidate_content_read_caches
 from app.services.scrapers import get_scraper_cls
 
 logger = logging.getLogger(__name__)
+
+_SENSITIVE_ENV_SUFFIXES = ("API_KEY", "TOKEN", "SECRET", "PASSWORD")
+_SENSITIVE_PAIR_RE = re.compile(
+    r"(?i)([\"']?\b(?:access[_-]?token|api[_-]?key|apikey|auth[_-]?token|"
+    r"client[_-]?secret|secret|password|passwd|pwd|token|key)\b[\"']?\s*[:=]\s*[\"']?)"
+    r"([^&\s,;\"'<>}]+)([\"']?)"
+)
+_AUTH_HEADER_RE = re.compile(
+    r"(?i)([\"']?\bauthorization\b[\"']?\s*[:=]\s*[\"']?)(?!Bearer\s+\*\*\*)"
+    r"([^,\s;\"'<>}]+)([\"']?)"
+)
+_BEARER_RE = re.compile(r"\bBearer\s+[^\s,;\"'<>]+", re.IGNORECASE)
 
 
 async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]:
@@ -200,8 +213,15 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
         )
 
     except Exception as exc:
-        logger.exception("Error ingesting source %s (%d)", source.name, source.id)
-        _update_source_error(source, str(exc) or exc.__class__.__name__)
+        error_message = str(exc) or exc.__class__.__name__
+        safe_message = redact_source_sync_error(error_message)
+        logger.error(
+            "Error ingesting source %s (%d): %s",
+            source.name,
+            source.id,
+            safe_message,
+        )
+        _update_source_error(source, safe_message)
         await db.flush()
 
     return {"fetched": fetched_count, "new": new_count, "duplicates": duplicate_count}
@@ -219,8 +239,34 @@ def _update_source_error(source: Source, message: str) -> None:
     """Record a failed sync attempt without causing immediate retry loops."""
     source.last_sync_at = datetime.utcnow()
     source.status = SourceStatus.ERROR
-    source.sync_error = (message.strip() or "信源同步失败")[:500]
+    source.sync_error = redact_source_sync_error(message)[:500]
     source.updated_at = datetime.utcnow()
+
+
+def redact_source_sync_error(message: str) -> str:
+    """Remove source credentials before persisting sync errors."""
+    redacted = str(message or "")
+
+    for secret in _source_error_secrets():
+        redacted = redacted.replace(secret, "***")
+
+    redacted = _BEARER_RE.sub("Bearer ***", redacted)
+    redacted = _AUTH_HEADER_RE.sub(r"\1***\3", redacted)
+    redacted = _SENSITIVE_PAIR_RE.sub(r"\1***\3", redacted)
+    return redacted.strip() or "信源同步失败"
+
+
+def _source_error_secrets() -> list[str]:
+    secrets: set[str] = set()
+    for name, value in os.environ.items():
+        if not value or len(value.strip()) < 8:
+            continue
+        upper_name = name.upper()
+        if upper_name.endswith(_SENSITIVE_ENV_SUFFIXES) or upper_name in {"HTTPS_PROXY", "HTTP_PROXY"}:
+            stripped = value.strip()
+            secrets.add(stripped)
+            secrets.add(quote(stripped, safe=""))
+    return sorted(secrets, key=len, reverse=True)
 
 
 def _build_http_client_kwargs(source_url: str) -> dict[str, Any]:

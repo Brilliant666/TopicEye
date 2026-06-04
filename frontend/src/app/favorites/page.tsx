@@ -275,6 +275,38 @@ export default function FavoritesPage() {
   );
   const dragEnabled = !targetType && !keyword.trim() && total === items.length;
 
+  const favoriteMatchesFilters = useCallback((item: FavoriteItem) => {
+    if (targetType && item.target_type !== targetType) return false;
+    if (status && item.status !== status) return false;
+    const query = keyword.trim().toLowerCase();
+    if (!query) return true;
+    return [item.title, item.note, item.source_name, item.target_key]
+      .some((value) => String(value || '').toLowerCase().includes(query));
+  }, [keyword, status, targetType]);
+
+  const applyFavoriteUpdates = useCallback((updatedItems: FavoriteItem[]) => {
+    if (updatedItems.length === 0) return;
+    const byId = new Map(updatedItems.map((item) => [item.id, item]));
+    const removedIds = new Set<number>();
+    const nextItems = items.flatMap((item) => {
+      const updated = byId.get(item.id);
+      if (!updated) return [item];
+      if (favoriteMatchesFilters(updated)) return [updated];
+      removedIds.add(item.id);
+      return [];
+    });
+
+    setItems(nextItems);
+    if (removedIds.size > 0) {
+      setTotal((prev) => Math.max(0, prev - removedIds.size));
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of removedIds) next.delete(id);
+        return next;
+      });
+    }
+  }, [favoriteMatchesFilters, items]);
+
   const handleSearch = () => setKeyword(draftKeyword);
 
   const startEdit = (item: FavoriteItem) => {
@@ -298,7 +330,7 @@ export default function FavoritesPage() {
         note: editNote.trim() || null,
         tags: parseTagInput(editTags),
       });
-      setItems((prev) => prev.map((row) => (row.id === item.id ? updated : row)));
+      applyFavoriteUpdates([updated]);
       cancelEdit();
     } catch (err) {
       setError(err instanceof Error ? err.message : '收藏备注保存失败');
@@ -333,7 +365,7 @@ export default function FavoritesPage() {
     setError(null);
     try {
       const updated = await favoritesApi.update(item.id, { status: nextStatus });
-      setItems((prev) => prev.map((row) => (row.id === item.id ? updated : row)));
+      applyFavoriteUpdates([updated]);
     } catch (err) {
       setError(err instanceof Error ? err.message : '状态更新失败');
     } finally {
@@ -426,8 +458,7 @@ export default function FavoritesPage() {
     setError(null);
     try {
       const updated = await favoritesApi.bulkStatus(nextStatus, selectedItems.map((item) => item.id));
-      const byId = new Map(updated.map((item) => [item.id, item]));
-      setItems((prev) => prev.map((item) => byId.get(item.id) || item));
+      applyFavoriteUpdates(updated);
       setSelectedIds(new Set());
     } catch (err) {
       setError(err instanceof Error ? err.message : '批量更新失败');
@@ -486,7 +517,7 @@ export default function FavoritesPage() {
         snapshot: withSavedCreationPlan(item, planPlatform, plan),
       });
       setCreationDraft({ item: updated, platform: planPlatform, plan });
-      setItems((prev) => prev.map((row) => (row.id === item.id ? updated : row)));
+      applyFavoriteUpdates([updated]);
     } catch (err) {
       setError(err instanceof Error ? err.message : '创作方案生成失败');
     } finally {

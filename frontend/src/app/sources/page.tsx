@@ -143,7 +143,11 @@ function SourceMapView({
           const meta = sourceTierMeta[key];
           const isDragOver = dropTarget?.tier === key;
           return (
-            <section key={key} className="flex h-[clamp(420px,calc(100vh-300px),760px)] min-w-0 flex-col">
+            <section
+              key={key}
+              data-source-tier={key}
+              className="flex h-[clamp(420px,calc(100vh-300px),760px)] min-w-0 flex-col"
+            >
               <div className="mb-2 flex shrink-0 items-center justify-between gap-3 px-0.5">
                 <h3 className={cx('m-0 text-[13px] font-black', meta.text)}>{meta.label}</h3>
                 <span className="font-mono text-[11px] text-gray-400">{sourceMap.tiers[key].length} 条</span>
@@ -257,6 +261,9 @@ function SourceMapCard({
 
   return (
     <div
+      data-source-map-card-id={source.id}
+      data-source-map-card-name={source.name}
+      data-source-map-card-tier={tierKey}
       draggable
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -357,7 +364,7 @@ export default function SourcesPage() {
   const [batchImporting, setBatchImporting] = useState(false);
 
   // ─── Fetch sources ───
-  const fetchSources = useCallback(async (p: number = 1) => {
+  const fetchSources = useCallback(async (p: number = 1): Promise<boolean> => {
     try {
       setLoading(true);
       setError(null);
@@ -372,14 +379,16 @@ export default function SourcesPage() {
       setSources(items as BackendSource[]);
       setTotal(res?.total ?? 0);
       setPage(p);
+      return true;
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '加载信源列表失败');
+      return false;
     } finally {
       setLoading(false);
     }
   }, [pageSize, filterType, filterEnabled, searchKeyword]);
 
-  const fetchSourceMap = useCallback(async () => {
+  const fetchSourceMap = useCallback(async (): Promise<boolean> => {
     try {
       const pageSizeForMap = 100;
       const firstPage = await sourcesApi.list({
@@ -409,8 +418,10 @@ export default function SourcesPage() {
       }
 
       setMapSources(allItems);
+      return true;
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : '加载信源地图失败');
+      return false;
     }
   }, [filterType, filterEnabled, searchKeyword]);
 
@@ -760,9 +771,18 @@ export default function SourcesPage() {
       await fetchSources(page);
       await fetchSourceMap();
     } catch (err: unknown) {
-      setSources(previousSources);
-      setMapSources(previousMapSources);
-      setError(err instanceof Error ? err.message : '移动信源分组失败');
+      const message = err instanceof Error ? err.message : '移动信源分组失败';
+      const [listRestored, mapRestored] = await Promise.all([
+        fetchSources(page),
+        fetchSourceMap(),
+      ]);
+      if (listRestored || mapRestored) {
+        setError(`${message}，已恢复服务器状态`);
+      } else {
+        setSources(previousSources);
+        setMapSources(previousMapSources);
+        setError(`${message}，恢复服务器状态失败，请手动刷新`);
+      }
     }
   };
 

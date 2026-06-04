@@ -48,11 +48,7 @@ def _get_week_range(reference_date: Optional[date] = None) -> tuple[str, str, st
 
 
 async def _fetch_weekly_analyzed(db: AsyncSession, week_start: str, week_end: str) -> list[dict]:
-    """Fetch analyzed content items within the given week range.
-
-    Tries DuckDB analytical layer first for better performance.
-    Falls back to SQLite if DuckDB is not available.
-    """
+    """Fetch analyzed content items within the given week range through DuckDB."""
     return await fetch_analyzed_content(db, week_start, week_end)
 
 

@@ -18,7 +18,7 @@ from app.services.digest_context import (
     build_category_stats,
     build_category_text,
     build_items_text,
-    fetch_analyzed_content_with_fallback,
+    fetch_analyzed_content_with_expanded_window,
 )
 from app.services.llm import call_llm_json
 from app.services.llm.prompts.monthly_digest import MONTHLY_DIGEST_PROMPT
@@ -63,11 +63,11 @@ async def generate_monthly_digest(
     if digest and digest.status == "DONE":
         return digest
 
-    items_data = await fetch_analyzed_content_with_fallback(
+    items_data = await fetch_analyzed_content_with_expanded_window(
         db,
         month_start,
         month_end,
-        fallback_days=30,
+        expanded_days=30,
     )
 
     if not items_data:

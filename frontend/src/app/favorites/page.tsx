@@ -88,6 +88,7 @@ const CREATION_PLATFORMS: Array<{ id: string; label: string; icon: LucideIcon }>
   { id: 'wechat', label: '公众号', icon: FileText },
   { id: 'short_video', label: '短视频', icon: Video },
 ];
+const FAVORITES_PAGE_SIZE = 200;
 
 function parseUTC(s: string): Date {
   const normalized = s.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(s) ? s : s + 'Z';
@@ -206,14 +207,30 @@ export default function FavoritesPage() {
     try {
       setLoading(true);
       setError(null);
-      const res = await favoritesApi.list({
-        page_size: 200,
+      const firstPage = await favoritesApi.list({
+        page: 1,
+        page_size: FAVORITES_PAGE_SIZE,
         target_type: targetType,
         status,
         keyword: keyword.trim() || undefined,
       });
-      setItems(res.items || []);
-      setTotal(res.total || 0);
+      const totalItems = firstPage.total || 0;
+      const totalPages = Math.ceil(totalItems / FAVORITES_PAGE_SIZE);
+      const allItems = [...(firstPage.items || [])];
+      if (totalPages > 1) {
+        const rest = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, index) => favoritesApi.list({
+            page: index + 2,
+            page_size: FAVORITES_PAGE_SIZE,
+            target_type: targetType,
+            status,
+            keyword: keyword.trim() || undefined,
+          }))
+        );
+        rest.forEach((page) => allItems.push(...(page.items || [])));
+      }
+      setItems(allItems);
+      setTotal(totalItems);
       setSelectedIds(new Set());
       setDirtyStatuses(new Set());
       setSavedNotice(null);

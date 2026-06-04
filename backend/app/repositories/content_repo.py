@@ -23,6 +23,7 @@ from app.models.content import ContentItem, ContentStatus
 from app.repositories.base import BaseRepository
 
 logger = logging.getLogger(__name__)
+ANALYSIS_STALE_MINUTES = 10
 
 
 @dataclass
@@ -115,10 +116,17 @@ class ContentRepo(BaseRepository[ContentItem]):
         limit: int = 20,
         hours: Optional[int] = None,
     ) -> Sequence[ContentItem]:
-        """Fetch recent pending items for analysis, newest collected first."""
+        """Fetch recent pending or stale analyzing items for analysis, newest collected first."""
+        stale_cutoff = datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES)
         stmt = (
             select(self.model)
-            .where(self.model.status == ContentStatus.PENDING)
+            .where(
+                (self.model.status == ContentStatus.PENDING)
+                | (
+                    (self.model.status == ContentStatus.ANALYZING)
+                    & (self.model.updated_at <= stale_cutoff)
+                )
+            )
             .order_by(self.model.crawled_at.desc(), self.model.created_at.desc())
             .limit(limit)
         )

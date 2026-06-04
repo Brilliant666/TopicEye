@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from sqlalchemy import select, update
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.sqlite_retry import is_sqlite_locked, retry_sqlite_locked
 from app.models.content import ContentItem, ContentStatus
 from app.models.analysis import AiAnalysis
+from app.repositories.content_repo import ANALYSIS_STALE_MINUTES
 from app.services.llm import call_llm_json
 from app.services.llm.prompts.analysis import (
     SYSTEM_PROMPT,
@@ -241,11 +243,18 @@ async def analyze_batch(
 ) -> list[AiAnalysis]:
     """Analyze multiple content items sequentially (respecting rate limits)."""
     results = []
+    stale_cutoff = datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES)
 
     result = await db.execute(
         select(ContentItem).where(
             ContentItem.id.in_(content_ids),
-            ContentItem.status == ContentStatus.PENDING,
+            (
+                (ContentItem.status == ContentStatus.PENDING)
+                | (
+                    (ContentItem.status == ContentStatus.ANALYZING)
+                    & (ContentItem.updated_at <= stale_cutoff)
+                )
+            ),
         )
     )
     items = result.scalars().all()
@@ -253,20 +262,31 @@ async def analyze_batch(
     for item in items:
         content_id = item.id
         try:
-            async def _mark_analyzing() -> None:
-                await db.execute(
+            async def _mark_analyzing() -> bool:
+                result = await db.execute(
                     update(ContentItem)
                     .where(ContentItem.id == content_id)
-                    .values(status=ContentStatus.ANALYZING)
+                    .where(
+                        (ContentItem.status == ContentStatus.PENDING)
+                        | (
+                            (ContentItem.status == ContentStatus.ANALYZING)
+                            & (ContentItem.updated_at <= stale_cutoff)
+                        )
+                    )
+                    .values(status=ContentStatus.ANALYZING, updated_at=datetime.utcnow())
                 )
                 await db.commit()
+                return result.rowcount > 0
 
-            await retry_sqlite_locked(
+            claimed = await retry_sqlite_locked(
                 _mark_analyzing,
                 attempts=3,
                 base_delay=0.1,
                 on_retry=db.rollback,
             )
+            if not claimed:
+                logger.info("Skipped analysis for content id=%d: already claimed or no longer stale", content_id)
+                continue
 
             content = await db.get(ContentItem, content_id)
             if content is None:

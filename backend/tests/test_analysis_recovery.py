@@ -15,7 +15,7 @@ from app.models.content import ContentItem, ContentStatus
 from app.models.metrics import ContentMetrics  # noqa: F401
 from app.models.source import Source  # noqa: F401
 from app.models.topic import TopicGroup  # noqa: F401
-from app.repositories.content_repo import ContentRepo
+from app.repositories.content_repo import ANALYSIS_STALE_MINUTES, ContentRepo
 from app.services import analysis
 
 
@@ -55,12 +55,28 @@ async def test_list_pending_for_analysis_filters_recent_pending_items():
                 status=ContentStatus.ANALYZED,
                 crawled_at=now,
             ),
+            ContentItem(
+                id=4,
+                title="超时分析中内容",
+                url="https://example.com/stale-analyzing",
+                status=ContentStatus.ANALYZING,
+                crawled_at=now - timedelta(minutes=30),
+                updated_at=now - timedelta(minutes=ANALYSIS_STALE_MINUTES + 5),
+            ),
+            ContentItem(
+                id=5,
+                title="刚进入分析中的内容",
+                url="https://example.com/fresh-analyzing",
+                status=ContentStatus.ANALYZING,
+                crawled_at=now - timedelta(minutes=20),
+                updated_at=now,
+            ),
         ])
         await db.commit()
 
         pending = await ContentRepo(db).list_pending_for_analysis(limit=10, hours=24)
 
-    assert [item.id for item in pending] == [2]
+    assert [item.id for item in pending] == [4, 2]
     await engine.dispose()
 
 
@@ -133,6 +149,71 @@ async def test_analyze_batch_recovers_from_empty_llm_response(monkeypatch):
     assert stored_analysis.summary
     assert stored_analysis.curation_score and stored_analysis.curation_score > 0
     assert stored_content.status == ContentStatus.ANALYZED
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_analyze_batch_retries_stale_analyzing_content(monkeypatch):
+    async def empty_llm_response(*args, **kwargs):
+        return {"raw_response": ""}
+
+    monkeypatch.setattr(analysis, "call_llm_json", empty_llm_response)
+    engine, session_factory = await _session_factory()
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="超时分析任务",
+                url="https://example.com/stale-analysis-task",
+                source_name="测试信源",
+                source_type="RSS",
+                platform="rsshub",
+                status=ContentStatus.ANALYZING,
+                updated_at=datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES + 5),
+                raw_content="这是一条分析中状态超时的内容，应当重新进入算法分析流程。",
+            )
+        )
+        await db.commit()
+
+        results = await analysis.analyze_batch([1], db)
+
+        stored_analysis = await db.scalar(select(AiAnalysis).where(AiAnalysis.content_id == 1))
+        stored_content = await db.get(ContentItem, 1)
+
+    assert [item.content_id for item in results] == [1]
+    assert stored_analysis is not None
+    assert stored_content.status == ContentStatus.ANALYZED
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_analyze_batch_skips_fresh_analyzing_content(monkeypatch):
+    async def fail_if_llm_runs(*args, **kwargs):
+        raise AssertionError("fresh analyzing content should not be retried")
+
+    monkeypatch.setattr(analysis, "call_llm_json", fail_if_llm_runs)
+    engine, session_factory = await _session_factory()
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="刚开始分析任务",
+                url="https://example.com/fresh-analysis-task",
+                status=ContentStatus.ANALYZING,
+                updated_at=datetime.utcnow(),
+                raw_content="这是一条刚进入分析中的内容，不应被重复抢占。",
+            )
+        )
+        await db.commit()
+
+        results = await analysis.analyze_batch([1], db)
+
+        stored_content = await db.get(ContentItem, 1)
+
+    assert results == []
+    assert stored_content.status == ContentStatus.ANALYZING
     await engine.dispose()
 
 

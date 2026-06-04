@@ -6,7 +6,7 @@ Endpoints:
 - GET  /api/v1/trends/topics    — topic trend curves (last N days)
 - GET  /api/v1/trends/keywords  — keyword word cloud (last N days)
 
-Read queries use DuckDB when available, falling back to SQLite.
+Read queries use DuckDB as the fixed analytical layer.
 """
 
 from __future__ import annotations
@@ -14,14 +14,16 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from typing import Optional
 
 from app.core.database import async_session
-from app.services.trends import snapshot_daily_trends, get_topic_trends, get_keyword_cloud
+from app.services import duckdb_service
+from app.services.trends import snapshot_daily_trends
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/trends", tags=["trends"])
+ANALYTICS_HEADERS = {"X-Analytics-Backend": "duckdb"}
 
 
 @router.post("/snapshot")
@@ -38,38 +40,30 @@ async def trigger_snapshot(
 
 @router.get("/topics")
 async def topic_trends(
+    response: Response,
     days: int = Query(7, ge=1, le=30, description="Number of days to look back"),
 ):
-    """Get topic trend data for charts. Uses DuckDB when synced."""
-    # ── Try DuckDB fast path ──
+    """Get topic trend data for charts through DuckDB."""
     try:
-        from app.services.duckdb_service import query_trend_topics
-        trends = query_trend_topics(days=days)
-        return {"days": days, "trends": trends}
-    except Exception:
-        pass  # Fall through to SQLite
-
-    # ── SQLite fallback ──
-    async with async_session() as db:
-        trends = await get_topic_trends(db, days=days)
+        trends = duckdb_service.query_trend_topics(days=days)
+    except Exception as exc:
+        logger.exception("DuckDB topic trend query failed")
+        raise HTTPException(status_code=503, detail="DuckDB analytical layer unavailable") from exc
+    response.headers.update(ANALYTICS_HEADERS)
     return {"days": days, "trends": trends}
 
 
 @router.get("/keywords")
 async def keyword_cloud(
+    response: Response,
     days: int = Query(7, ge=1, le=30),
     limit: int = Query(50, ge=10, le=200),
 ):
-    """Get keyword frequency for word cloud visualization. Uses DuckDB when synced."""
-    # ── Try DuckDB fast path ──
+    """Get keyword frequency for word cloud visualization through DuckDB."""
     try:
-        from app.services.duckdb_service import query_keyword_cloud
-        keywords = query_keyword_cloud(days=days, limit=limit)
-        return {"days": days, "keywords": keywords}
-    except Exception:
-        pass  # Fall through to SQLite
-
-    # ── SQLite fallback ──
-    async with async_session() as db:
-        keywords = await get_keyword_cloud(db, days=days, limit=limit)
+        keywords = duckdb_service.query_keyword_cloud(days=days, limit=limit)
+    except Exception as exc:
+        logger.exception("DuckDB keyword cloud query failed")
+        raise HTTPException(status_code=503, detail="DuckDB analytical layer unavailable") from exc
+    response.headers.update(ANALYTICS_HEADERS)
     return {"days": days, "keywords": keywords}

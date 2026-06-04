@@ -35,6 +35,22 @@ from app.core.db_backend import (
 logger = logging.getLogger(__name__)
 STATS_CURATION_FALLBACK_THRESHOLD = 83.0
 
+LATEST_ANALYSIS_CTE = """
+latest_analysis AS (
+    SELECT *
+    FROM (
+        SELECT
+            a.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY a.content_id
+                ORDER BY a.created_at DESC, a.id DESC
+            ) AS analysis_rank
+        FROM oltp_db.ai_analyses a
+    )
+    WHERE analysis_rank = 1
+)
+"""
+
 # ── DuckDB Analytics singleton ─────────────────────────────────────────
 
 class DuckDBAnalytics:
@@ -286,8 +302,9 @@ class DuckDBAnalytics:
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
         rows = conn.execute(f"""
+            WITH {LATEST_ANALYSIS_CTE}
             SELECT a.curation_score
-            FROM oltp_db.ai_analyses a
+            FROM latest_analysis a
             JOIN oltp_db.content_items c ON c.id = a.content_id
             WHERE c.crawled_at >= '{cutoff}'
               AND c.duplicate_of IS NULL
@@ -307,12 +324,13 @@ class DuckDBAnalytics:
         threshold = self.query_stats_curation_threshold(days=days)
 
         row = conn.execute(f"""
+            WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 COUNT(c.id) AS total,
                 COUNT(CASE WHEN a.curation_score IS NOT NULL THEN c.id END) AS analyzed,
                 COUNT(CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated
             FROM oltp_db.content_items c
-            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN latest_analysis a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
               AND c.duplicate_of IS NULL
         """).fetchone()
@@ -337,6 +355,7 @@ class DuckDBAnalytics:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
         threshold = self.query_stats_curation_threshold(days=days)
         rows = conn.execute(f"""
+            WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 COALESCE(s.name, '未知') AS source_name,
                 LOWER(COALESCE(CAST(s.source_type AS VARCHAR), 'unknown')) AS source_type,
@@ -344,7 +363,7 @@ class DuckDBAnalytics:
                 COUNT(CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated_count
             FROM oltp_db.content_items c
             LEFT JOIN oltp_db.sources s ON s.id = c.source_id
-            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN latest_analysis a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
               AND c.duplicate_of IS NULL
             GROUP BY s.id, s.name, s.source_type
@@ -370,12 +389,13 @@ class DuckDBAnalytics:
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
         rows = conn.execute(f"""
+            WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 COALESCE(c.category, '未分类') AS category,
                 COUNT(c.id) AS content_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_score
             FROM oltp_db.content_items c
-            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN latest_analysis a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
               AND c.duplicate_of IS NULL
             GROUP BY c.category
@@ -398,13 +418,14 @@ class DuckDBAnalytics:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
         threshold = self.query_stats_curation_threshold(days=days)
         rows = conn.execute(f"""
+            WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 CAST(c.crawled_at AS DATE) AS crawl_date,
                 COUNT(c.id) AS content_count,
                 COUNT(CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated_count,
                 COUNT(CASE WHEN a.id IS NOT NULL THEN c.id END) AS analyzed_count
             FROM oltp_db.content_items c
-            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN latest_analysis a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
               AND c.duplicate_of IS NULL
             GROUP BY CAST(c.crawled_at AS DATE)
@@ -492,18 +513,20 @@ class DuckDBAnalytics:
 
         # ── KPI row ────────────────────────────────────────────────────────
         kpi_row = conn.execute(f"""
+            WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 COUNT(DISTINCT c.id) AS total_crawled,
                 COUNT(DISTINCT CASE WHEN a.curation_score >= 70 THEN c.id END) AS total_curated,
                 ROUND(AVG(a.curation_score), 1) AS avg_curation,
                 COUNT(DISTINCT c.source_id) AS active_sources
             FROM oltp_db.content_items c
-            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN latest_analysis a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
         """).fetchone()
 
         # ── Source breakdown (curated count per source) ───────────────────
         source_rows = conn.execute(f"""
+            WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 s.name,
                 s.source_type,
@@ -511,7 +534,7 @@ class DuckDBAnalytics:
                 COUNT(DISTINCT CASE WHEN a.curation_score >= 70 THEN c.id END) AS curated_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_score
             FROM oltp_db.content_items c
-            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN latest_analysis a ON a.content_id = c.id
             LEFT JOIN oltp_db.sources s ON s.id = c.source_id
             WHERE c.crawled_at >= '{cutoff}'
             GROUP BY s.id, s.name, s.source_type
@@ -522,13 +545,14 @@ class DuckDBAnalytics:
 
         # ── Daily volume trend ─────────────────────────────────────────────
         trend_rows = conn.execute(f"""
+            WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 CAST(c.crawled_at AS DATE) AS crawl_date,
                 COUNT(DISTINCT c.id) AS content_count,
                 COUNT(DISTINCT CASE WHEN a.curation_score >= 70 THEN c.id END) AS curated_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_curation
             FROM oltp_db.content_items c
-            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN latest_analysis a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
             GROUP BY CAST(c.crawled_at AS DATE)
             ORDER BY crawl_date ASC

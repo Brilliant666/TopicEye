@@ -34,7 +34,7 @@ from app.services.source_cache import (
     set_cached_source_list,
 )
 import app.services.weread_materials as weread_materials
-from app.services.weread_materials import normalize_weread_entries
+from app.services.weread_materials import normalize_weread_entries, redact_weread_sync_error
 
 
 @pytest_asyncio.fixture
@@ -97,6 +97,63 @@ async def test_weread_status_masks_api_key_and_reports_endpoint(monkeypatch):
 def test_weread_api_key_rejects_blank_after_strip():
     with pytest.raises(ValueError):
         IntegrationUpdateRequest(api_key="        ")
+
+
+def test_weread_sync_error_redacts_api_key_and_bearer_token():
+    message = (
+        "Skill failed for Authorization: Bearer wr_secret red/123; "
+        "query_key=wr_secret%20red%2F123 raw=wr_secret red/123"
+    )
+
+    redacted = redact_weread_sync_error(message, "wr_secret red/123")
+
+    assert "wr_secret red/123" not in redacted
+    assert "wr_secret%20red%2F123" not in redacted
+    assert "Bearer ***" in redacted
+    assert redacted.count("***") >= 2
+
+
+@pytest.mark.asyncio
+async def test_weread_fetch_http_error_uses_redacted_response_body(monkeypatch):
+    api_key = "wr_secret_http_error_123456"
+
+    class FakeResponse:
+        status_code = 500
+        text = "Skill rejected Authorization: Bearer wr_secret_http_error_123456"
+
+        def raise_for_status(self):
+            request = httpx.Request("GET", "http://testserver/weread")
+            response = httpx.Response(self.status_code, request=request, text=self.text)
+            raise httpx.HTTPStatusError("boom", request=request, response=response)
+
+        def json(self):
+            return {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, endpoint, *, headers, params):
+            assert endpoint == "http://127.0.0.1:9999/weread"
+            assert headers["Authorization"] == f"Bearer {api_key}"
+            assert params == {"limit": 1}
+            return FakeResponse()
+
+    monkeypatch.setattr(settings, "WEREAD_SKILL_API_URL", "http://127.0.0.1:9999/weread")
+    monkeypatch.setattr(weread_materials.httpx, "AsyncClient", FakeClient)
+
+    with pytest.raises(RuntimeError) as error:
+        await weread_materials.fetch_weread_materials(api_key, limit=1)
+
+    assert "微信读书 Skill 返回 500" in str(error.value)
+    assert api_key not in str(error.value)
+    assert "Bearer ***" in str(error.value)
 
 
 @pytest.mark.asyncio
@@ -266,6 +323,55 @@ async def test_weread_sync_error_state_persists_and_key_changes_reset_over_http(
     assert cleared.json()["api_key_hint"] is None
     assert cleared.json()["last_sync_status"] is None
     assert cleared.json()["last_sync_error"] is None
+
+
+@pytest.mark.asyncio
+async def test_weread_sync_failure_persists_redacted_error(monkeypatch):
+    async def failed_fetch(api_key: str, *, limit: int = 50):
+        assert api_key == "wr_secret_leaky_123456"
+        raise RuntimeError(
+            "Skill rejected Authorization: Bearer wr_secret_leaky_123456 "
+            "token=wr_secret_leaky_123456"
+        )
+
+    monkeypatch.setattr(settings, "WEREAD_SKILL_API_URL", "http://127.0.0.1:9999/weread")
+    monkeypatch.setattr(weread_materials, "fetch_weread_materials", failed_fetch)
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        user = await create_user(db, email="sync-redacted-weread@example.com", password="Password123")
+        await update_weread_integration(
+            IntegrationUpdateRequest(api_key="wr_secret_leaky_123456"),
+            user,
+            db,
+        )
+
+        error = None
+        try:
+            await sync_weread(limit=1, current_user=user, db=db)
+        except HTTPException as exc:
+            error = exc
+
+        assert error is not None
+        assert error.status_code == 502
+        assert "wr_secret_leaky_123456" not in str(error.detail)
+        assert "Bearer ***" in str(error.detail)
+
+        status = await get_weread_integration(user, db)
+        assert status["last_sync_status"] == "error"
+        assert "wr_secret_leaky_123456" not in status["last_sync_error"]
+        assert "Bearer ***" in status["last_sync_error"]
+
+        source = await db.scalar(select(Source).where(Source.name == "微信读书素材"))
+        assert source is not None
+        assert source.status == SourceStatus.ERROR
+        assert "wr_secret_leaky_123456" not in source.sync_error
+        assert "Bearer ***" in source.sync_error
+
+    await engine.dispose()
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+import re
+from typing import Any, Dict, Optional, Union
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import select
@@ -32,6 +34,15 @@ def _entry_url(entry: dict[str, Any]) -> str:
         or WEREAD_SOURCE_URL
     ).strip()
     return value or WEREAD_SOURCE_URL
+
+
+def redact_weread_sync_error(message: str, api_key: Optional[str]) -> str:
+    redacted = str(message)
+    stripped_key = (api_key or "").strip()
+    secrets = {stripped_key, quote(stripped_key, safe="")} if stripped_key else set()
+    for secret in sorted((item for item in secrets if item), key=len, reverse=True):
+        redacted = redacted.replace(secret, "***")
+    return re.sub(r"Bearer\s+[^\s,;]+", "Bearer ***", redacted, flags=re.IGNORECASE)
 
 
 def _collect_weread_items(payload: Any, *, depth: int = 0) -> list[Any]:
@@ -100,7 +111,14 @@ async def fetch_weread_materials(api_key: str, *, limit: int = 50) -> list[dict[
             headers={"Authorization": f"Bearer {api_key.strip()}"},
             params={"limit": limit},
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            body = redact_weread_sync_error(response.text, api_key).strip()
+            detail = f"微信读书 Skill 返回 {response.status_code}"
+            if body:
+                detail = f"{detail}: {body[:300]}"
+            raise RuntimeError(detail) from exc
         return normalize_weread_entries(response.json())
 
 
@@ -131,7 +149,7 @@ async def sync_weread_materials(
     integration: UserIntegration,
     *,
     limit: int = 50,
-) -> dict[str, int | str]:
+) -> Dict[str, Union[int, str]]:
     if integration.provider != WEREAD_PROVIDER or not integration.api_key:
         raise ValueError("微信读书 API Key 未配置")
 
@@ -183,7 +201,7 @@ async def sync_weread_materials(
             "source_name": source.name,
         }
     except Exception as exc:
-        message = str(exc)
+        message = redact_weread_sync_error(str(exc), integration.api_key)
         source.last_sync_at = now
         source.status = SourceStatus.ERROR
         source.sync_error = message[:500]
@@ -192,4 +210,4 @@ async def sync_weread_materials(
         integration.last_sync_error = message[:500]
         await db.flush()
         invalidate_source_read_caches()
-        raise
+        raise RuntimeError(message) from exc

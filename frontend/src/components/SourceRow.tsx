@@ -41,9 +41,41 @@ const INTERVAL_OPTIONS = [
   { value: 1440, label: '1天' },
 ];
 
+const SENSITIVE_QUERY_KEYS = new Set([
+  'access_token',
+  'apikey',
+  'api_key',
+  'auth_token',
+  'authorization',
+  'client_secret',
+  'key',
+  'password',
+  'secret',
+  'token',
+]);
+
 function formatInterval(minutes: number): string {
   const opt = INTERVAL_OPTIONS.find((o) => o.value === minutes);
   return opt ? opt.label : `${minutes}分钟`;
+}
+
+function redactSourceUrlForDisplay(value: string): string {
+  try {
+    const url = new URL(value);
+    let changed = false;
+    url.searchParams.forEach((_, key) => {
+      if (SENSITIVE_QUERY_KEYS.has(key.toLowerCase())) {
+        url.searchParams.set(key, '***');
+        changed = true;
+      }
+    });
+    return changed ? url.toString() : value;
+  } catch {
+    return value.replace(
+      /([?&](?:access_token|apikey|api_key|auth_token|authorization|client_secret|key|password|secret|token)=)[^&#\s]+/gi,
+      '$1***',
+    );
+  }
 }
 
 function Spinner() {
@@ -84,6 +116,7 @@ export default function SourceRowComponent({
   const isActive = source.status === 'active' && source.enabled;
   const sourceDisabled = !source.enabled || source.status === 'disabled';
   const syncDisabled = syncing || sourceDisabled;
+  const displayUrl = source.url ? redactSourceUrlForDisplay(source.url) : '';
 
   return (
     <div
@@ -95,7 +128,11 @@ export default function SourceRowComponent({
     >
       <div className="min-w-0">
         <span className="font-bold">{source.name}</span>
-        {source.url && <div className="mt-0.5 max-w-[220px] truncate text-[11px] text-gray-400">{source.url}</div>}
+        {displayUrl && (
+          <div className="mt-0.5 max-w-[220px] truncate text-[11px] text-gray-400" title={displayUrl}>
+            {displayUrl}
+          </div>
+        )}
       </div>
 
       <span className={cx('w-fit rounded px-2 py-0.5 text-[11px] font-bold', typeClass)}>{source.source_type}</span>

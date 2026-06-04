@@ -25,15 +25,15 @@ from app.services.content_pipeline import ingest_from_source
 from app.services.source_cache import (
     SourceListCacheParams,
     get_cached_source_list,
-    invalidate_source_list_cache,
     set_cached_source_list,
 )
+from app.services.source_read_cache import invalidate_source_read_caches
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
 
 def _invalidate_source_cache() -> None:
-    invalidate_source_list_cache()
+    invalidate_source_read_caches()
 
 
 def _normalize_source_status(payload: dict, current: Optional[Source] = None) -> dict:

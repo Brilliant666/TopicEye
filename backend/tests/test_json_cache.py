@@ -12,6 +12,7 @@ from app.services.scoring_flow import (
     invalidate_scoring_flow_cache,
 )
 from app.services.source_cache import SourceListCacheParams, invalidate_source_list_cache
+from app.services.source_read_cache import invalidate_source_read_caches
 from app.services.stats_cache import STATS_CACHE_PREFIX, invalidate_stats_cache
 from app.services.today_picks_cache import TodayPicksCacheParams, invalidate_today_picks_cache
 from app.services.trending_cache import (
@@ -103,6 +104,23 @@ def test_source_list_cache_key_and_invalidation():
     invalidate_source_list_cache()
 
     assert get_cached_json(key, ttl_seconds=10) is None
+    assert get_cached_json("contents:list:example", ttl_seconds=10) is not None
+    invalidate_json_cache()
+
+
+def test_source_read_cache_invalidation_covers_source_derived_stats():
+    invalidate_json_cache()
+    params = SourceListCacheParams(page=1, page_size=20)
+    set_cached_json(params.key, {"items": [], "total": 0})
+    set_cached_json("stats:source-distribution:7", {"sources": []})
+    set_cached_json("stats:dashboard:7", {"kpi": {}})
+    set_cached_json("contents:list:example", {"items": []})
+
+    invalidate_source_read_caches()
+
+    assert get_cached_json(params.key, ttl_seconds=10) is None
+    assert get_cached_json("stats:source-distribution:7", ttl_seconds=10) is None
+    assert get_cached_json("stats:dashboard:7", ttl_seconds=10) is None
     assert get_cached_json("contents:list:example", ttl_seconds=10) is not None
     invalidate_json_cache()
 

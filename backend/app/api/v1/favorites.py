@@ -19,6 +19,7 @@ from app.schemas.favorite import (
     FavoriteResponse,
     FavoriteUpdate,
 )
+from app.services.content_read_cache import invalidate_content_read_caches
 from app.services.favorite_cache import (
     favorite_to_dict,
     get_cached_json,
@@ -28,6 +29,13 @@ from app.services.favorite_cache import (
 from app.services.json_cache import invalidate_json_cache
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
+
+
+def _invalidate_favorite_mutation_caches(*, content_changed: bool = False) -> None:
+    invalidate_favorite_cache()
+    invalidate_json_cache("contents:favorites:")
+    if content_changed:
+        invalidate_content_read_caches()
 
 
 def _favorite_cache_hit_response(content: bytes, age_seconds: float) -> Response:
@@ -85,8 +93,7 @@ async def create_favorite(
     repo = FavoriteRepo(db)
     try:
         item = await repo.upsert(data)
-        invalidate_favorite_cache()
-        invalidate_json_cache("contents:favorites:")
+        _invalidate_favorite_mutation_caches(content_changed=data.target_type == FavoriteTargetType.CONTENT)
         return item
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
@@ -135,8 +142,7 @@ async def reorder_favorites(
         items = await FavoriteRepo(db).reorder_status(status=data.status, ordered_ids=data.ordered_ids)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    invalidate_favorite_cache()
-    invalidate_json_cache("contents:favorites:")
+    _invalidate_favorite_mutation_caches()
     return items
 
 
@@ -149,8 +155,7 @@ async def bulk_update_favorite_status(
         items = await FavoriteRepo(db).bulk_update_status(status=data.status, ids=data.ids)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    invalidate_favorite_cache()
-    invalidate_json_cache("contents:favorites:")
+    _invalidate_favorite_mutation_caches()
     return items
 
 
@@ -159,12 +164,18 @@ async def bulk_delete_favorites(
     data: FavoriteBulkDeleteRequest,
     db: AsyncSession = Depends(get_db),
 ):
+    repo = FavoriteRepo(db)
+    content_changed = False
+    for favorite_id in data.ids:
+        item = await repo.get_by_id(favorite_id)
+        if item is not None and item.target_type == FavoriteTargetType.CONTENT:
+            content_changed = True
+            break
     try:
-        deleted = await FavoriteRepo(db).bulk_delete(data.ids)
+        deleted = await repo.bulk_delete(data.ids)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    invalidate_favorite_cache()
-    invalidate_json_cache("contents:favorites:")
+    _invalidate_favorite_mutation_caches(content_changed=content_changed)
     return {"deleted": deleted}
 
 
@@ -177,8 +188,7 @@ async def update_favorite(
     item = await FavoriteRepo(db).update(favorite_id, data)
     if not item:
         raise HTTPException(status_code=404, detail="Favorite not found")
-    invalidate_favorite_cache()
-    invalidate_json_cache("contents:favorites:")
+    _invalidate_favorite_mutation_caches()
     return item
 
 
@@ -187,9 +197,12 @@ async def delete_favorite(
     favorite_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    deleted = await FavoriteRepo(db).delete(favorite_id)
+    repo = FavoriteRepo(db)
+    item = await repo.get_by_id(favorite_id)
+    deleted = await repo.delete(favorite_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Favorite not found")
-    invalidate_favorite_cache()
-    invalidate_json_cache("contents:favorites:")
+    _invalidate_favorite_mutation_caches(
+        content_changed=item is not None and item.target_type == FavoriteTargetType.CONTENT
+    )
     return {"deleted": True}

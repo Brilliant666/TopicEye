@@ -11,7 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.database import Base
 from app.core.dependencies import get_db
 from app.api.v1 import favorites as favorites_api
+from app.models.content import ContentItem, ContentStatus
 from app.services.favorite_cache import invalidate_favorite_cache
+from app.services.scoring_flow import (
+    build_empty_payload,
+    cache_payload,
+    get_cached_scoring_flow_json,
+    invalidate_scoring_flow_cache,
+)
 
 
 @pytest_asyncio.fixture
@@ -22,6 +29,7 @@ async def favorites_client(monkeypatch) -> AsyncGenerator[httpx.AsyncClient, Non
         await conn.run_sync(Base.metadata.create_all)
 
     invalidate_favorite_cache()
+    invalidate_scoring_flow_cache()
     monkeypatch.setattr(favorites_api, "async_session", session_factory)
 
     app = FastAPI()
@@ -37,11 +45,26 @@ async def favorites_client(monkeypatch) -> AsyncGenerator[httpx.AsyncClient, Non
                 raise
 
     app.dependency_overrides[get_db] = override_get_db
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="收藏缓存联动样本",
+                url="https://example.com/favorite-cache",
+                source_name="测试信源",
+                source_type="RSS",
+                status=ContentStatus.ANALYZED,
+            )
+        )
+        await db.commit()
+
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client
 
     invalidate_favorite_cache()
+    invalidate_scoring_flow_cache()
     await engine.dispose()
 
 
@@ -109,6 +132,47 @@ async def test_favorites_api_create_state_list_and_cache_invalidation(favorites_
     invalid_state = await favorites_client.get("/favorites/state?target_type=book&target_ids=1,not-a-number")
     assert invalid_state.status_code == 422
     assert invalid_state.json()["detail"] == "target_ids must be comma-separated integers"
+
+
+def _prime_scoring_flow_cache() -> None:
+    cache_payload((24, 160, 80), build_empty_payload(
+        hours=24,
+        analyzed_total=0,
+        window_total=0,
+        ignored_count=0,
+        limit=160,
+        sample_limit=80,
+    ))
+    assert get_cached_scoring_flow_json(hours=24, limit=160) is not None
+
+
+@pytest.mark.asyncio
+async def test_content_favorite_api_invalidates_scoring_flow_cache(favorites_client: httpx.AsyncClient):
+    _prime_scoring_flow_cache()
+
+    created = await favorites_client.post(
+        "/favorites",
+        json={"target_type": "content", "target_id": 1},
+    )
+    assert created.status_code == 201
+    assert get_cached_scoring_flow_json(hours=24, limit=160) is None
+
+    _prime_scoring_flow_cache()
+    deleted = await favorites_client.delete(f"/favorites/{created.json()['id']}")
+    assert deleted.status_code == 200
+    assert get_cached_scoring_flow_json(hours=24, limit=160) is None
+
+
+@pytest.mark.asyncio
+async def test_external_favorite_api_keeps_scoring_flow_cache(favorites_client: httpx.AsyncClient):
+    _prime_scoring_flow_cache()
+
+    created = await favorites_client.post(
+        "/favorites",
+        json={"target_type": "book", "target_key": "book:cache-scope", "title": "缓存范围样本"},
+    )
+    assert created.status_code == 201
+    assert get_cached_scoring_flow_json(hours=24, limit=160) is not None
 
 
 @pytest.mark.asyncio

@@ -5,6 +5,7 @@ App-level settings API — RSSHub instance management.
 from __future__ import annotations
 import json
 from datetime import datetime
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -32,6 +33,17 @@ class RSSHubInstancesGetResponse(BaseModel):
 
 class RSSHubInstancesUpdateRequest(BaseModel):
     instances: list[RSSHubInstanceItem]
+
+
+def normalize_rsshub_instance_url(value: str) -> str:
+    url = value.strip()
+    parts = urlsplit(url)
+    scheme = parts.scheme.lower()
+    if scheme not in {"http", "https"} or not parts.netloc:
+        raise ValueError(f"Invalid URL: {value}")
+    netloc = parts.netloc.lower()
+    path = parts.path.rstrip("/")
+    return urlunsplit((scheme, netloc, path, "", ""))
 
 
 @router.get("/rsshub/instances", response_model=RSSHubInstancesGetResponse)
@@ -64,12 +76,19 @@ async def update_rsshub_instances(
     db: AsyncSession = Depends(get_db),
 ):
     """Update RSSHub instance list. Supports enable/disable/add/remove."""
-    # Validate URLs
+    normalized_instances = []
+    seen_urls: set[str] = set()
     for inst in req.instances:
-        if not inst.url.startswith("http://") and not inst.url.startswith("https://"):
-            raise HTTPException(status_code=400, detail=f"Invalid URL: {inst.url}")
+        try:
+            url = normalize_rsshub_instance_url(inst.url)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if url in seen_urls:
+            raise HTTPException(status_code=409, detail=f"RSSHub instance already exists: {url}")
+        seen_urls.add(url)
+        normalized_instances.append(inst.model_copy(update={"url": url}))
 
-    raw_value = json.dumps([inst.model_dump() for inst in req.instances], ensure_ascii=False)
+    raw_value = json.dumps([inst.model_dump() for inst in normalized_instances], ensure_ascii=False)
 
     result = await db.execute(
         select(AppSetting).where(AppSetting.key == "rsshub_instances")
@@ -89,7 +108,7 @@ async def update_rsshub_instances(
 
     await db.commit()
 
-    return {"instances": req.instances, "updated": True}
+    return {"instances": normalized_instances, "updated": True}
 
 
 # ── DuckDB analytics layer management ──

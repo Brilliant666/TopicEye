@@ -33,6 +33,21 @@ function getSourceTier(source: BackendSource): SourceTierKey {
   return 'stable';
 }
 
+function normalizeRsshubInstanceUrl(value: string): string | null {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    url.protocol = url.protocol.toLowerCase();
+    url.hostname = url.hostname.toLowerCase();
+    url.pathname = url.pathname.replace(/\/+$/, '');
+    url.search = '';
+    url.hash = '';
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+
 function SourceMapView({
   sourceMap,
   syncingIds,
@@ -464,12 +479,12 @@ export default function SourcesPage() {
 
   // ─── Add instance ───
   const addInstance = async () => {
-    const url = newInstanceUrl.trim();
-    if (!url || !url.startsWith('http')) {
+    const url = normalizeRsshubInstanceUrl(newInstanceUrl);
+    if (!url) {
       setRsshubError('请输入以 http/https 开头的有效 URL');
       return;
     }
-    if (rsshubInstances.find((i) => i.url === url)) {
+    if (rsshubInstances.find((i) => normalizeRsshubInstanceUrl(i.url) === url)) {
       setRsshubError('该实例已存在');
       return;
     }

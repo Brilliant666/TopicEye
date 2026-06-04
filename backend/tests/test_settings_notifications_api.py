@@ -64,7 +64,7 @@ async def test_rsshub_settings_read_validate_and_update(settings_notifications_c
         json={
             "instances": [
                 {
-                    "url": "https://rsshub.example.com",
+                    "url": " HTTPS://RSSHub.Example.com/ ",
                     "enabled": True,
                     "priority": 3,
                     "note": "测试实例",
@@ -74,6 +74,7 @@ async def test_rsshub_settings_read_validate_and_update(settings_notifications_c
     )
     assert updated.status_code == 200
     assert updated.json()["updated"] is True
+    assert updated.json()["instances"][0]["url"] == "https://rsshub.example.com"
 
     current = await settings_notifications_client.get("/settings/rsshub/instances")
     assert current.status_code == 200
@@ -85,6 +86,24 @@ async def test_rsshub_settings_read_validate_and_update(settings_notifications_c
             "note": "测试实例",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_rsshub_settings_reject_duplicate_normalized_instances(
+    settings_notifications_client: httpx.AsyncClient,
+):
+    duplicated = await settings_notifications_client.put(
+        "/settings/rsshub/instances",
+        json={
+            "instances": [
+                {"url": "https://rsshub.example.com/", "enabled": True, "priority": 1},
+                {"url": "HTTPS://RSSHUB.EXAMPLE.COM", "enabled": True, "priority": 2},
+            ]
+        },
+    )
+
+    assert duplicated.status_code == 409
+    assert "RSSHub instance already exists" in duplicated.json()["detail"]
 
 
 @pytest.mark.asyncio

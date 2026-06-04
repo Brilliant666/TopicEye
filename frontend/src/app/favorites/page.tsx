@@ -207,6 +207,8 @@ export default function FavoritesPage() {
     try {
       setLoading(true);
       setError(null);
+      setDraggingId(null);
+      setDropTarget(null);
       const firstPage = await favoritesApi.list({
         page: 1,
         page_size: FAVORITES_PAGE_SIZE,
@@ -274,6 +276,13 @@ export default function FavoritesPage() {
     [items, selectedIds],
   );
   const dragEnabled = !targetType && !keyword.trim() && total === items.length;
+
+  useEffect(() => {
+    if (!dragEnabled && draggingId !== null) {
+      setDraggingId(null);
+      setDropTarget(null);
+    }
+  }, [dragEnabled, draggingId]);
 
   const favoriteMatchesFilters = useCallback((item: FavoriteItem) => {
     if (targetType && item.target_type !== targetType) return false;

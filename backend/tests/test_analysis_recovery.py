@@ -137,6 +137,106 @@ async def test_analyze_batch_recovers_from_empty_llm_response(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_analyze_batch_commits_analyzing_status_before_llm_call(monkeypatch):
+    engine, session_factory = await _session_factory()
+    observed = {}
+
+    async def fake_analyze_content(content, db):
+        async with session_factory() as observer:
+            stored_content = await observer.get(ContentItem, content.id)
+            observed["status_before_analysis"] = stored_content.status
+
+        analysis_record = AiAnalysis(
+            content_id=content.id,
+            summary="已分析",
+            curation_score=60,
+            quality_score=60,
+            hot_score=60,
+            freshness_score=60,
+            creator_score=60,
+            viral_score=60,
+            risk_score=20,
+        )
+        db.add(analysis_record)
+        content.status = ContentStatus.ANALYZED
+        await db.flush()
+        return analysis_record
+
+    monkeypatch.setattr(analysis, "analyze_content", fake_analyze_content)
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="事务边界测试内容",
+                url="https://example.com/analysis-transaction",
+                status=ContentStatus.PENDING,
+                raw_content="用于验证批量分析不会把外部 LLM 调用包在长写事务中。",
+            )
+        )
+        await db.commit()
+
+        results = await analysis.analyze_batch([1], db)
+
+        stored_content = await db.get(ContentItem, 1)
+
+    assert observed["status_before_analysis"] == ContentStatus.ANALYZING
+    assert [item.content_id for item in results] == [1]
+    assert stored_content.status == ContentStatus.ANALYZED
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_analyze_single_commits_analyzing_status_before_llm_call(monkeypatch):
+    engine, session_factory = await _session_factory()
+    observed = {}
+
+    async def fake_analyze_content(content, db):
+        async with session_factory() as observer:
+            stored_content = await observer.get(ContentItem, content.id)
+            observed["status_before_analysis"] = stored_content.status
+
+        analysis_record = AiAnalysis(
+            content_id=content.id,
+            summary="已分析",
+            curation_score=60,
+            quality_score=60,
+            hot_score=60,
+            freshness_score=60,
+            creator_score=60,
+            viral_score=60,
+            risk_score=20,
+        )
+        db.add(analysis_record)
+        content.status = ContentStatus.ANALYZED
+        await db.flush()
+        return analysis_record
+
+    monkeypatch.setattr(analyses_api, "analyze_content", fake_analyze_content)
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="单条事务边界测试内容",
+                url="https://example.com/single-analysis-transaction",
+                status=ContentStatus.PENDING,
+                raw_content="用于验证单条分析接口不会把外部 LLM 调用包在长写事务中。",
+            )
+        )
+        await db.commit()
+
+        result = await analyses_api.analyze_single(1, db=db)
+
+        stored_content = await db.get(ContentItem, 1)
+
+    assert observed["status_before_analysis"] == ContentStatus.ANALYZING
+    assert result.content_id == 1
+    assert stored_content.status == ContentStatus.ANALYZED
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_analyze_batch_skips_sqlite_locked_item_without_crashing(monkeypatch):
     async def locked_write(*args, **kwargs):
         raise OperationalError("UPDATE content_items", {}, Exception("database is locked"))

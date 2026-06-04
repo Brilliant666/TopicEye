@@ -40,13 +40,15 @@ async def analyze_single(
 
     try:
         content.status = ContentStatus.ANALYZING
-        await db.flush()
+        await db.commit()
+        content = await content_repo.get_by_id_or_raise(content_id, "Content")
         analysis = await analyze_content(content, db)
         await db.commit()
         return analysis
     except Exception as e:
         await db.rollback()
         try:
+            content = await content_repo.get_by_id_or_raise(content_id, "Content")
             content.status = ContentStatus.ERROR
             await db.commit()
         except Exception:

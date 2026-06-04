@@ -259,7 +259,7 @@ async def analyze_batch(
                     .where(ContentItem.id == content_id)
                     .values(status=ContentStatus.ANALYZING)
                 )
-                await db.flush()
+                await db.commit()
 
             await retry_sqlite_locked(
                 _mark_analyzing,
@@ -268,7 +268,11 @@ async def analyze_batch(
                 on_retry=db.rollback,
             )
 
-            analysis = await analyze_content(item, db)
+            content = await db.get(ContentItem, content_id)
+            if content is None:
+                continue
+
+            analysis = await analyze_content(content, db)
             results.append(analysis)
             await db.commit()
         except Exception as e:

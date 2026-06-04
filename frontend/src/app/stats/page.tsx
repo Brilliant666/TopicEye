@@ -156,6 +156,12 @@ function formatShortDate(dateKey: string) {
   return `${date.getMonth() + 1}/${date.getDate()}`;
 }
 
+function formatRatePercent(part: number, total: number) {
+  if (part <= 0 || total <= 0) return 0;
+  const value = (part / total) * 100;
+  return value < 0.1 ? 0.1 : Number(value.toFixed(1));
+}
+
 function getHeatColor(value: number, max: number) {
   if (value <= 0) return '#F3F4F6';
   const ratio = value / Math.max(max, 1);
@@ -422,7 +428,7 @@ export default function StatsPage() {
     fetchAll();
   }, [fetchAll]);
 
-  const curatedRate = overview && overview.total > 0 ? Math.round((overview.curated / overview.total) * 100) : 0;
+  const curatedRate = overview ? formatRatePercent(overview.curated, overview.total) : 0;
 
   // ── Donut chart approximation via CSS ──
   function SourcePieChart() {

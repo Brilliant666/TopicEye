@@ -10,6 +10,7 @@ from app.models.feedback import (
     FeedbackType,
     FEEDBACK_SCORE_DELTAS,
 )
+from app.models.content import ContentItem
 from app.schemas.feedback import (
     FeedbackCreate,
     FeedbackResponse,
@@ -38,6 +39,10 @@ async def submit_feedback(
             status_code=422,
             detail=f"Invalid feedback_type. Must be one of: {valid}",
         )
+
+    content_id = await db.scalar(select(ContentItem.id).where(ContentItem.id == data.content_id))
+    if content_id is None:
+        raise HTTPException(status_code=404, detail="Content not found")
 
     existing_result = await db.execute(
         select(UserFeedback)

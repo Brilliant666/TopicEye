@@ -13,7 +13,11 @@ from app.services.scoring_flow import (
 )
 from app.services.source_cache import SourceListCacheParams, invalidate_source_list_cache
 from app.services.source_read_cache import invalidate_source_read_caches
-from app.services.stats_cache import STATS_CACHE_PREFIX, invalidate_stats_cache
+from app.services.stats_cache import (
+    STATS_CACHE_PREFIX,
+    invalidate_novel_platform_stats_cache,
+    invalidate_stats_cache,
+)
 from app.services.today_picks_cache import TodayPicksCacheParams, invalidate_today_picks_cache
 from app.services.trending_cache import (
     TRENDING_CROSS_PLATFORM_CACHE_PREFIX,
@@ -165,6 +169,24 @@ def test_stats_cache_invalidation_is_scoped():
     assert get_cached_json("stats:overview:7", ttl_seconds=10) is None
     assert get_cached_json("stats:dashboard:7", ttl_seconds=10) is None
     assert get_cached_json("contents:list:example", ttl_seconds=10) is not None
+    invalidate_json_cache()
+
+
+def test_novel_platform_stats_cache_invalidation_is_scoped():
+    invalidate_json_cache()
+    set_cached_json("stats:novel-platforms", {"platforms": []})
+    set_cached_json("stats:dashboard:7", {"platforms": []})
+    set_cached_json("stats:dashboard:30", {"platforms": []})
+    set_cached_json("stats:overview:7", {"total": 1})
+    set_cached_json("stats:source-distribution:7", {"sources": []})
+
+    invalidate_novel_platform_stats_cache()
+
+    assert get_cached_json("stats:novel-platforms", ttl_seconds=10) is None
+    assert get_cached_json("stats:dashboard:7", ttl_seconds=10) is None
+    assert get_cached_json("stats:dashboard:30", ttl_seconds=10) is None
+    assert get_cached_json("stats:overview:7", ttl_seconds=10) is not None
+    assert get_cached_json("stats:source-distribution:7", ttl_seconds=10) is not None
     invalidate_json_cache()
 
 

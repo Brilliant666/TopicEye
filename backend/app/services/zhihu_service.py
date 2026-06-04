@@ -19,6 +19,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.core.database import async_session, database_profile
 from app.models.zhihu import ZhihuAlbum, ZhihuCategory
+from app.services.stats_cache import invalidate_novel_platform_stats_cache
 
 logger = logging.getLogger(__name__)
 
@@ -414,6 +415,7 @@ async def sync_zhihu_ranks() -> dict:
 
     elapsed = time.time() - t0
     logger.info(f'Zhihu sync done: {cat_count} categories, {total} albums in {elapsed:.1f}s')
+    invalidate_novel_platform_stats_cache()
     return {
         'categories': cat_count,
         'rank_groups': len(combos) + len(STORY_SUBCATS) * len(SORT_TYPES),

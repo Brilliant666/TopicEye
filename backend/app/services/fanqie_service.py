@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import async_session
 from app.models.fanqie import FanqieCategory, FanqieBook, FanqieRankSnapshot
 from app.services.fanqie_text_decoder import clean_books
+from app.services.stats_cache import invalidate_novel_platform_stats_cache
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +244,7 @@ async def full_sync() -> dict:
 
     elapsed = (datetime.now() - start).total_seconds()
     logger.info(f"=== 番茄全量同步完成，耗时 {elapsed:.1f}s ===")
+    invalidate_novel_platform_stats_cache()
 
     # 推送通知
     try:

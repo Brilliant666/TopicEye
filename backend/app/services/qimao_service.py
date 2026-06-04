@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import async_session
 from app.models.qimao import QimaoBook
 from app.services.qimao_scraper import fetch_list_data, fetch_all_ranks
+from app.services.stats_cache import invalidate_novel_platform_stats_cache
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,7 @@ async def sync_qimao_ranks() -> dict:
 
     elapsed = (datetime.now() - start).total_seconds()
     logger.info(f"=== 七猫同步完成，{total_books} 本，耗时 {elapsed:.1f}s，错误 {errors} 次 ===")
+    invalidate_novel_platform_stats_cache()
 
     # 通知
     try:

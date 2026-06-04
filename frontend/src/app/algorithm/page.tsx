@@ -15,6 +15,18 @@ import {
 } from './components';
 
 const DEFAULT_HOURS = 24;
+const ANALYSIS_POLL_INTERVAL_MS = 3000;
+const ANALYSIS_POLL_MAX_ATTEMPTS = 20;
+
+type FlowFetchOptions = {
+  silent?: boolean;
+};
+
+type AnalysisPollState = {
+  queuedIds: Set<number>;
+  baselineAnalyzedTotal: number;
+  attempts: number;
+};
 
 function formatWindow(hours: number) {
   return hours >= 168 ? `${hours / 24} 天` : `${hours} 小时`;
@@ -45,12 +57,21 @@ export default function AlgorithmPage() {
   const [analysisNotice, setAnalysisNotice] = useState<string | null>(null);
   const requestSeqRef = useRef(0);
   const initialFallbackRef = useRef(false);
-  const analysisRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analysisPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analysisPollStateRef = useRef<AnalysisPollState | null>(null);
 
-  const fetchFlow = useCallback(async () => {
+  const clearAnalysisPolling = useCallback(() => {
+    if (analysisPollTimerRef.current) {
+      clearTimeout(analysisPollTimerRef.current);
+      analysisPollTimerRef.current = null;
+    }
+    analysisPollStateRef.current = null;
+  }, []);
+
+  const fetchFlow = useCallback(async (options: FlowFetchOptions = {}) => {
     const requestSeq = requestSeqRef.current + 1;
     requestSeqRef.current = requestSeq;
-    setLoading(true);
+    if (!options.silent) setLoading(true);
     setError(null);
     try {
       const result = await contentsApi.scoringFlow({ hours, limit: 160 });
@@ -71,67 +92,111 @@ export default function AlgorithmPage() {
       }
       setData(result);
       setSelected((prev) => result.samples.find((s) => s.id === prev?.id) || result.samples[0]);
+      return result;
     } catch (err) {
       if (requestSeq !== requestSeqRef.current) return;
       setError(err instanceof Error ? err.message : '算法流程加载失败');
+      return null;
     } finally {
-      if (requestSeq === requestSeqRef.current) setLoading(false);
+      if (requestSeq === requestSeqRef.current && !options.silent) setLoading(false);
     }
   }, [hours]);
 
   useEffect(() => { void fetchFlow(); }, [fetchFlow]);
 
   useEffect(() => () => {
-    if (analysisRefreshTimerRef.current) {
-      clearTimeout(analysisRefreshTimerRef.current);
-    }
+    clearAnalysisPolling();
+  }, [clearAnalysisPolling]);
+
+  const isAnalysisPollingSettled = useCallback((result: ScoringFlowResponse, pollState: AnalysisPollState) => {
+    const hasQueuedSample = result.samples.some((sample) => pollState.queuedIds.has(sample.id));
+    const analyzedTotal = result.diagnostics?.analyzed_total ?? 0;
+    return hasQueuedSample || analyzedTotal > pollState.baselineAnalyzedTotal;
   }, []);
 
-  const scheduleAnalysisRefresh = useCallback(() => {
-    if (analysisRefreshTimerRef.current) {
-      clearTimeout(analysisRefreshTimerRef.current);
+  const scheduleAnalysisPoll = useCallback((pollState: AnalysisPollState) => {
+    if (analysisPollTimerRef.current) {
+      clearTimeout(analysisPollTimerRef.current);
     }
-    analysisRefreshTimerRef.current = setTimeout(() => {
-      analysisRefreshTimerRef.current = null;
-      void fetchFlow();
-    }, 5000);
-  }, [fetchFlow]);
+    analysisPollStateRef.current = pollState;
+    analysisPollTimerRef.current = setTimeout(() => {
+      analysisPollTimerRef.current = null;
+      void (async () => {
+        const current = analysisPollStateRef.current;
+        if (!current) return;
+
+        const result = await fetchFlow({ silent: true });
+        if (!result) {
+          if (current.attempts + 1 >= ANALYSIS_POLL_MAX_ATTEMPTS) {
+            clearAnalysisPolling();
+            setAnalysisNotice('后台分析仍未完成，请稍后手动刷新评分流程。');
+            return;
+          }
+          scheduleAnalysisPoll({ ...current, attempts: current.attempts + 1 });
+          return;
+        }
+
+        if (isAnalysisPollingSettled(result, current)) {
+          clearAnalysisPolling();
+          setAnalysisNotice('后台分析完成，评分流程已刷新。');
+          return;
+        }
+
+        if (current.attempts + 1 >= ANALYSIS_POLL_MAX_ATTEMPTS) {
+          clearAnalysisPolling();
+          setAnalysisNotice('后台分析耗时较长，已停止自动刷新；稍后可手动刷新评分流程。');
+          return;
+        }
+
+        scheduleAnalysisPoll({ ...current, attempts: current.attempts + 1 });
+      })();
+    }, ANALYSIS_POLL_INTERVAL_MS);
+  }, [clearAnalysisPolling, fetchFlow, isAnalysisPollingSettled]);
 
   const handleHoursChange = useCallback((nextHours: number) => {
-    if (analysisRefreshTimerRef.current) {
-      clearTimeout(analysisRefreshTimerRef.current);
-      analysisRefreshTimerRef.current = null;
-    }
+    clearAnalysisPolling();
     initialFallbackRef.current = true;
     setFallbackNotice(null);
     setAnalysisNotice(null);
     setHours(nextHours);
-  }, []);
+  }, [clearAnalysisPolling]);
 
   const handleAnalyzePending = useCallback(async () => {
     setAnalyzing(true);
     setError(null);
     setAnalysisNotice(null);
     try {
+      const baselineAnalyzedTotal = data?.diagnostics?.analyzed_total ?? 0;
       const result = await analysesApi.analyzePending({ limit: 1, hours });
       const queuedCount = result.queued_ids?.length ?? 0;
       const analyzedCount = result.analyzed_ids?.length ?? 0;
       const windowText = formatWindow(hours);
       setAnalysisNotice(
         queuedCount > 0
-          ? `已提交最近 ${windowText}内 ${queuedCount} 条内容到后台分析，页面会自动刷新评分流程。`
+          ? `已提交最近 ${windowText}内 ${queuedCount} 条内容到后台分析，页面会持续刷新评分流程。`
           : analyzedCount > 0
             ? `已同步分析最近 ${windowText}内 ${analyzedCount} 条内容，正在刷新评分流程。`
           : '当前窗口没有可分析的待处理内容。'
       );
-      await fetchFlow();
-      if (queuedCount > 0) scheduleAnalysisRefresh();
+      const flow = await fetchFlow();
+      if (queuedCount > 0) {
+        const pollState = {
+          queuedIds: new Set(result.queued_ids || []),
+          baselineAnalyzedTotal,
+          attempts: 0,
+        };
+        if (flow && isAnalysisPollingSettled(flow, pollState)) {
+          setAnalysisNotice('后台分析完成，评分流程已刷新。');
+        } else {
+          scheduleAnalysisPoll(pollState);
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : '最近内容分析失败');
     } finally {
       setAnalyzing(false);
     }
-  }, [fetchFlow, hours, scheduleAnalysisRefresh]);
+  }, [data?.diagnostics?.analyzed_total, fetchFlow, hours, isAnalysisPollingSettled, scheduleAnalysisPoll]);
 
   const handleFeedback = useCallback(async (sample: ScoringFlowSample, type: FeedbackType) => {
     setFeedbacking(true);

@@ -20,6 +20,7 @@ from app.schemas.source import (
     SourceCreate, SourceUpdate, SourceResponse, SourceListResponse,
     SourceReorderRequest, SyncResultResponse,
     normalize_source_url_value,
+    normalize_api_source_config_value,
 )
 from app.repositories.source_repo import SourceRepository
 from app.services.content_pipeline import ingest_from_source
@@ -52,6 +53,25 @@ def _normalize_source_status(payload: dict, current: Optional[Source] = None) ->
     if payload.get("enabled") is True and current is not None and current.status == SourceStatus.DISABLED:
         payload.setdefault("status", SourceStatus.ACTIVE)
 
+    return payload
+
+
+def _normalize_api_source_config(payload: dict, current: Optional[Source] = None) -> dict:
+    source_type = payload.get("source_type")
+    if source_type is None and current is not None:
+        source_type = current.source_type
+    if source_type != SourceType.API:
+        return payload
+
+    keyword = payload.get("keyword")
+    if keyword is None and current is not None:
+        keyword = current.keyword
+    try:
+        normalized = normalize_api_source_config_value(keyword)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if normalized is not None or "keyword" in payload:
+        payload["keyword"] = normalized
     return payload
 
 
@@ -258,6 +278,7 @@ async def create_source(data: SourceCreate, db: AsyncSession = Depends(get_db)):
     repo = SourceRepository(db)
     payload = data.model_dump()
     _normalize_source_status(payload)
+    _normalize_api_source_config(payload)
     existing = await repo.get_one(Source.url == payload["url"])
     if existing:
         raise HTTPException(status_code=409, detail="信源 URL 已存在")
@@ -495,6 +516,7 @@ async def update_source(
         payload = data.model_dump(exclude_unset=True)
         current = await repo.get_by_id_or_raise(source_id, resource_name="Source")
         _normalize_source_status(payload, current)
+        _normalize_api_source_config(payload, current)
         if "url" in payload:
             existing = await repo.get_one(Source.url == payload["url"])
             if existing and existing.id != source_id:

@@ -48,6 +48,50 @@ function normalizeRsshubInstanceUrl(value: string): string | null {
   }
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateApiSourceConfig(form: FormState): string | null {
+  if (form.source_type !== 'API' || !form.keyword.trim()) return null;
+
+  let config: unknown;
+  try {
+    config = JSON.parse(form.keyword);
+  } catch {
+    return 'API 配置必须是合法 JSON 对象';
+  }
+
+  if (!isPlainObject(config)) return 'API 配置必须是合法 JSON 对象';
+
+  const method = config.method;
+  if (method !== undefined && (typeof method !== 'string' || !['GET', 'POST'].includes(method.trim().toUpperCase()))) {
+    return 'API 配置 method 仅支持 GET 或 POST';
+  }
+
+  for (const key of ['headers', 'params', 'body', 'fields']) {
+    const value = config[key];
+    if (value !== undefined && value !== null && !isPlainObject(value)) {
+      return `API 配置 ${key} 必须是 JSON 对象`;
+    }
+  }
+
+  const itemsPath = config.items_path;
+  if (itemsPath !== undefined && (typeof itemsPath !== 'string' || !itemsPath.trim())) {
+    return 'API 配置 items_path 必须是非空字符串';
+  }
+
+  const timeout = config.timeout;
+  if (timeout !== undefined) {
+    const value = Number(timeout);
+    if (!Number.isFinite(value) || value < 1 || value > 120) {
+      return 'API 配置 timeout 必须是 1 到 120 秒之间的数字';
+    }
+  }
+
+  return null;
+}
+
 function SourceMapView({
   sourceMap,
   syncingIds,
@@ -535,6 +579,11 @@ export default function SourcesPage() {
   // ─── Create source ───
   const handleCreate = async () => {
     if (!form.name.trim()) return;
+    const configError = validateApiSourceConfig(form);
+    if (configError) {
+      setError(configError);
+      return;
+    }
     try {
       setSubmitting(true);
       await sourcesApi.create({
@@ -632,6 +681,11 @@ export default function SourcesPage() {
   // ─── Update source ───
   const handleUpdate = async () => {
     if (!editingSource || !form.name.trim()) return;
+    const configError = validateApiSourceConfig(form);
+    if (configError) {
+      setError(configError);
+      return;
+    }
     try {
       setSubmitting(true);
       await sourcesApi.update(editingSource.id, {

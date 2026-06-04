@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Optional
 from urllib.parse import urlsplit, urlunsplit
 from pydantic import BaseModel, Field, field_validator
 from app.models.source import SourceType, SourceStatus
+
+API_SOURCE_ALLOWED_METHODS = {"GET", "POST"}
 
 
 def normalize_source_url_value(value: str) -> str:
@@ -22,6 +25,55 @@ def normalize_optional_text(value: Optional[str]) -> Optional[str]:
         return None
     text = value.strip()
     return text or None
+
+
+def normalize_api_source_config_value(value: Optional[str]) -> Optional[str]:
+    """Validate and normalize JSON stored in Source.keyword for API sources."""
+    text = normalize_optional_text(value)
+    if text is None:
+        return None
+    try:
+        config = json.loads(text)
+    except json.JSONDecodeError:
+        raise ValueError("API 信源配置必须是合法 JSON 对象")
+    if not isinstance(config, dict):
+        raise ValueError("API 信源配置必须是合法 JSON 对象")
+
+    method = config.get("method")
+    if method is not None:
+        if not isinstance(method, str) or method.strip().upper() not in API_SOURCE_ALLOWED_METHODS:
+            raise ValueError("API 信源 method 仅支持 GET 或 POST")
+        config["method"] = method.strip().upper()
+
+    for key in ("headers", "params", "body", "fields"):
+        if key in config and config[key] is not None and not isinstance(config[key], dict):
+            raise ValueError(f"API 信源 {key} 必须是 JSON 对象")
+
+    items_path = config.get("items_path")
+    if items_path is not None:
+        if not isinstance(items_path, str) or not items_path.strip():
+            raise ValueError("API 信源 items_path 必须是非空字符串")
+        config["items_path"] = items_path.strip()
+
+    fields = config.get("fields")
+    if isinstance(fields, dict):
+        for field_name, path in fields.items():
+            if not isinstance(field_name, str) or not field_name.strip():
+                raise ValueError("API 信源 fields 的字段名必须是非空字符串")
+            if not isinstance(path, str) or not path.strip():
+                raise ValueError("API 信源 fields 的路径必须是非空字符串")
+
+    timeout = config.get("timeout")
+    if timeout is not None:
+        try:
+            timeout_value = float(timeout)
+        except (TypeError, ValueError):
+            raise ValueError("API 信源 timeout 必须是 1 到 120 秒之间的数字")
+        if timeout_value < 1 or timeout_value > 120:
+            raise ValueError("API 信源 timeout 必须是 1 到 120 秒之间的数字")
+        config["timeout"] = timeout_value
+
+    return json.dumps(config, ensure_ascii=False, separators=(",", ":"))
 
 
 class SourceCreate(BaseModel):

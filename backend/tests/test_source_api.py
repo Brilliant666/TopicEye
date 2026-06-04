@@ -129,6 +129,92 @@ async def test_create_disabled_source_sets_disabled_status(sources_http_client: 
 
 
 @pytest.mark.asyncio
+async def test_create_api_source_normalizes_valid_config(sources_http_client: httpx.AsyncClient):
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "JSON API",
+            "url": "https://example.com/api/items",
+            "source_type": "API",
+            "keyword": """
+            {
+              "method": "get",
+              "items_path": " data.items ",
+              "timeout": "5",
+              "headers": {"Authorization": "Bearer token"},
+              "params": {"limit": 20},
+              "fields": {"title": "title", "url": "url"}
+            }
+            """,
+        },
+    )
+
+    assert created.status_code == 201
+    assert created.json()["keyword"] == (
+        '{"method":"GET","items_path":"data.items","timeout":5.0,'
+        '"headers":{"Authorization":"Bearer token"},"params":{"limit":20},'
+        '"fields":{"title":"title","url":"url"}}'
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_api_source_rejects_invalid_json_config(sources_http_client: httpx.AsyncClient):
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "Broken API",
+            "url": "https://example.com/api/broken",
+            "source_type": "API",
+            "keyword": "{not-json",
+        },
+    )
+
+    assert created.status_code == 422
+    assert created.json()["detail"] == "API 信源配置必须是合法 JSON 对象"
+
+
+@pytest.mark.asyncio
+async def test_create_api_source_rejects_invalid_config_shape(sources_http_client: httpx.AsyncClient):
+    invalid_cases = [
+        ('{"method":"DELETE"}', "API 信源 method 仅支持 GET 或 POST"),
+        ('{"headers":["Authorization"]}', "API 信源 headers 必须是 JSON 对象"),
+        ('{"items_path":"   "}', "API 信源 items_path 必须是非空字符串"),
+        ('{"timeout":121}', "API 信源 timeout 必须是 1 到 120 秒之间的数字"),
+        ('{"fields":{"title":""}}', "API 信源 fields 的路径必须是非空字符串"),
+    ]
+
+    for index, (keyword, detail) in enumerate(invalid_cases):
+        created = await sources_http_client.post(
+            "/sources",
+            json={
+                "name": f"Invalid API {index}",
+                "url": f"https://example.com/api/invalid-{index}",
+                "source_type": "API",
+                "keyword": keyword,
+            },
+        )
+
+        assert created.status_code == 422
+        assert created.json()["detail"] == detail
+
+
+@pytest.mark.asyncio
+async def test_create_non_api_source_keeps_keyword_text(sources_http_client: httpx.AsyncClient):
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "Keyword Feed",
+            "url": "https://example.com/keyword-feed.xml",
+            "source_type": "RSS",
+            "keyword": "plain topic keyword",
+        },
+    )
+
+    assert created.status_code == 201
+    assert created.json()["keyword"] == "plain topic keyword"
+
+
+@pytest.mark.asyncio
 async def test_enabled_sources_are_syncable_and_user_ordered():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -329,6 +415,56 @@ async def test_update_source_disables_enabled_flag_when_status_disabled(sources_
     assert updated.status_code == 200
     assert updated.json()["enabled"] is False
     assert updated.json()["status"] == "disabled"
+
+
+@pytest.mark.asyncio
+async def test_update_api_source_validates_and_normalizes_config(sources_http_client: httpx.AsyncClient):
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "Mutable API",
+            "url": "https://example.com/api/mutable",
+            "source_type": "API",
+            "keyword": '{"items_path":"items"}',
+        },
+    )
+    assert created.status_code == 201
+
+    invalid = await sources_http_client.put(
+        f"/sources/{created.json()['id']}",
+        json={"keyword": '{"params":[]}'},
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"] == "API 信源 params 必须是 JSON 对象"
+
+    valid = await sources_http_client.put(
+        f"/sources/{created.json()['id']}",
+        json={"keyword": '{"method":"post","body":{"q":"ai"},"timeout":10}'},
+    )
+    assert valid.status_code == 200
+    assert valid.json()["keyword"] == '{"method":"POST","body":{"q":"ai"},"timeout":10.0}'
+
+
+@pytest.mark.asyncio
+async def test_update_source_to_api_validates_existing_keyword(sources_http_client: httpx.AsyncClient):
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "RSS With Keyword",
+            "url": "https://example.com/rss-with-keyword.xml",
+            "source_type": "RSS",
+            "keyword": "plain keyword",
+        },
+    )
+    assert created.status_code == 201
+
+    updated = await sources_http_client.put(
+        f"/sources/{created.json()['id']}",
+        json={"source_type": "API"},
+    )
+
+    assert updated.status_code == 422
+    assert updated.json()["detail"] == "API 信源配置必须是合法 JSON 对象"
 
 
 def test_source_create_rejects_invalid_url_after_strip():

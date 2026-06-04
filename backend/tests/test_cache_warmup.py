@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -9,6 +9,7 @@ from app.core.database import Base
 from app.models.analysis import AiAnalysis
 from app.models.content import ContentItem, ContentStatus
 from app.models.source import Source, SourceStatus, SourceType
+from app.models.trending import TrendingCategory, TrendingItem, TrendingSnapshot, TrendingSource
 from app.services import cache_warmup
 from app.services.content_list_cache import home_content_list_cache_params
 from app.services.json_cache import get_cached_json, invalidate_json_cache
@@ -27,6 +28,13 @@ STATS_WORKSPACE_CACHE_KEYS = {
     "stats:daily-trend:7",
     "stats:novel-platforms",
     "stats:dashboard:7",
+}
+
+TRENDING_WORKSPACE_CACHE_KEYS = {
+    "trending:list:limit=200",
+    "trending:sources",
+    "trending:cross-platform:min_resonance=2&limit=50",
+    "trending:persistent:min_days=2&min_sources=1&days_back=7",
 }
 
 
@@ -74,6 +82,38 @@ async def seed_cache_warmup_fixture(session_factory) -> None:
                 recommendation="适合作为创作者选题观察样本",
             )
         )
+        db.add(
+            TrendingItem(
+                id=1,
+                source=TrendingSource.WEIBO,
+                category=TrendingCategory.HOT,
+                rank=1,
+                title="AI 产品趋势测试样本",
+                url="https://example.com/trending/ai",
+                hot_value=1200,
+                hot_value_raw="1200",
+                trend="up",
+                batch_id="test-batch",
+            )
+        )
+        today = date.today()
+        for offset in (1, 0):
+            db.add(
+                TrendingSnapshot(
+                    snapshot_date=today - timedelta(days=offset),
+                    snapshot_hour=8,
+                    source=TrendingSource.WEIBO,
+                    category=TrendingCategory.HOT.value,
+                    items=[
+                        {
+                            "title": "AI 产品趋势测试样本",
+                            "rank": offset + 1,
+                            "hot_value": 1200,
+                        }
+                    ],
+                    total_count=1,
+                )
+            )
         await db.commit()
 
 
@@ -108,6 +148,7 @@ async def test_warmup_read_caches_populates_hot_read_cache_keys(cache_warmup_ses
         "contents:favorites:list:1:20",
     }
     expected_warmed.update(STATS_WORKSPACE_CACHE_KEYS)
+    expected_warmed.update(TRENDING_WORKSPACE_CACHE_KEYS)
     expected_warmed.update(f"scoring-flow:{hours}:{limit}" for hours, limit in SCORING_FLOW_WARMUP_TARGETS)
     assert set(result["warmed"]) == expected_warmed
     assert result["errors"] == []
@@ -117,6 +158,8 @@ async def test_warmup_read_caches_populates_hot_read_cache_keys(cache_warmup_ses
     assert get_cached_json(default_today_picks_cache_params().key, ttl_seconds=ttl) is not None
     assert get_cached_json("contents:favorites:list:1:20", ttl_seconds=ttl) is not None
     for key in STATS_WORKSPACE_CACHE_KEYS:
+        assert get_cached_json(key, ttl_seconds=ttl) is not None
+    for key in TRENDING_WORKSPACE_CACHE_KEYS:
         assert get_cached_json(key, ttl_seconds=ttl) is not None
     for hours, limit in SCORING_FLOW_WARMUP_TARGETS:
         assert get_cached_scoring_flow_json(hours=hours, limit=limit) is not None

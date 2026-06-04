@@ -425,21 +425,12 @@ function TrendingPage() {
   const fetchList = useCallback(async () => {
     setLoading(true);
     try {
-      const [itemList, srcList] = await Promise.all([
-        trendingApi.list({
-          category: selectedCategory || undefined,
-          source: selectedSource || undefined,
-          limit: 200,
-        }),
-        trendingApi.listSources(),
-      ]);
+      const itemList = await trendingApi.list({
+        category: selectedCategory || undefined,
+        source: selectedSource || undefined,
+        limit: 200,
+      });
       setItems(itemList);
-      setSources(srcList);
-      setStats(prev => ({
-        ...prev,
-        sourceCount: srcList.length,
-        sampleCount: srcList.reduce((sum, source) => sum + source.count, 0),
-      }));
     } catch (e) {
       console.error('Failed to fetch trending:', e);
     } finally {
@@ -707,7 +698,7 @@ function TrendingPage() {
                           try {
                             const data = await trendingApi.sync(source);
                             if (data.fetched > 0) {
-                              fetchList();
+                              await Promise.all([fetchList(), fetchStats()]);
                             }
                           } catch (err) {
                             console.error('Sync source failed:', err);

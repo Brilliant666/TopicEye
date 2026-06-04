@@ -19,6 +19,7 @@ from app.models.trending import TrendingItem, TrendingCategory, TrendingSource
 from app.services.trending_cache import (
     CrossPlatformCacheParams,
     PersistentTopicsCacheParams,
+    TRENDING_SOURCES_CACHE_KEY,
     TrendingListCacheParams,
     get_cached_cross_platform,
     get_cached_persistent_topics,
@@ -35,6 +36,12 @@ from app.services.zhihu_url import normalize_zhihu_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/trending", tags=["trending"])
+DEFAULT_TRENDING_LIST_LIMIT = 200
+DEFAULT_TRENDING_MIN_RESONANCE = 2
+DEFAULT_TRENDING_CROSS_LIMIT = 50
+DEFAULT_TRENDING_MIN_DAYS = 2
+DEFAULT_TRENDING_MIN_SOURCES = 1
+DEFAULT_TRENDING_DAYS_BACK = 7
 
 
 class TrendingItemOut(BaseModel):
@@ -83,31 +90,46 @@ async def get_trending(
         )
 
     async with async_session() as db:
-        stmt = select(TrendingItem)
-
-        if category:
-            try:
-                cat_enum = TrendingCategory(category)
-                stmt = stmt.where(TrendingItem.category == cat_enum)
-            except ValueError:
-                pass
-        if source:
-            try:
-                src_enum = TrendingSource(source)
-                stmt = stmt.where(TrendingItem.source == src_enum)
-            except ValueError:
-                pass
-
-        stmt = stmt.order_by(TrendingItem.source, TrendingItem.rank).limit(limit * 10)
-        result = await db.execute(stmt)
-        items = result.scalars().all()
-    payload = [TrendingItemOut.model_validate(item).model_dump() for item in items]
+        payload = await build_trending_list_payload(
+            db,
+            category=category,
+            source=source,
+            limit=limit,
+        )
     content = set_cached_trending_list(cache_params, payload)
     return Response(
         content=content,
         media_type="application/json",
         headers={"X-Trending-Cache": "MISS"},
     )
+
+
+async def build_trending_list_payload(
+    db: AsyncSession,
+    *,
+    category: Optional[str] = None,
+    source: Optional[str] = None,
+    limit: int = 30,
+) -> list[dict]:
+    stmt = select(TrendingItem)
+
+    if category:
+        try:
+            cat_enum = TrendingCategory(category)
+            stmt = stmt.where(TrendingItem.category == cat_enum)
+        except ValueError:
+            pass
+    if source:
+        try:
+            src_enum = TrendingSource(source)
+            stmt = stmt.where(TrendingItem.source == src_enum)
+        except ValueError:
+            pass
+
+    stmt = stmt.order_by(TrendingItem.source, TrendingItem.rank).limit(limit * 10)
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+    return [TrendingItemOut.model_validate(item).model_dump() for item in items]
 
 
 @router.get("/sources", response_model=list[TrendingSourceInfo])
@@ -123,18 +145,28 @@ async def get_trending_sources():
         )
 
     async with async_session() as db:
-        stmt = (
-            select(
-                TrendingItem.source,
-                TrendingItem.category,
-                func.count(TrendingItem.id).label("count"),
-                func.max(TrendingItem.fetched_at).label("last_synced"),
-            )
-            .group_by(TrendingItem.source, TrendingItem.category)
-            .order_by(TrendingItem.category, TrendingItem.source)
+        payload = await build_trending_sources_payload(db)
+    content = set_cached_trending_sources(payload)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"X-Trending-Sources-Cache": "MISS"},
+    )
+
+
+async def build_trending_sources_payload(db: AsyncSession) -> list[dict]:
+    stmt = (
+        select(
+            TrendingItem.source,
+            TrendingItem.category,
+            func.count(TrendingItem.id).label("count"),
+            func.max(TrendingItem.fetched_at).label("last_synced"),
         )
-        result = await db.execute(stmt)
-        rows = result.all()
+        .group_by(TrendingItem.source, TrendingItem.category)
+        .order_by(TrendingItem.category, TrendingItem.source)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
     payload = [
         TrendingSourceInfo(
             source=row[0],
@@ -144,12 +176,7 @@ async def get_trending_sources():
         ).model_dump()
         for row in rows
     ]
-    content = set_cached_trending_sources(payload)
-    return Response(
-        content=content,
-        media_type="application/json",
-        headers={"X-Trending-Sources-Cache": "MISS"},
-    )
+    return payload
 
 
 @router.post("/sync/{source_name}")
@@ -183,8 +210,6 @@ async def get_cross_platform(
     对所有趋势数据做标题聚类，找出在多平台同时出现的热点话题。
     resonance >= 3 为"高共振"，值得关注。
     """
-    from app.services.trending_cross import cluster_trending_items
-
     cache_params = CrossPlatformCacheParams(min_resonance=min_resonance, limit=limit)
     cached = get_cached_cross_platform(cache_params, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
     if cached:
@@ -195,13 +220,23 @@ async def get_cross_platform(
             headers={"X-Trending-Cross-Cache": f"HIT; age={age_seconds:.3f}s"},
         )
 
-    # 取全部数据
     async with async_session() as db:
-        stmt = select(TrendingItem).order_by(TrendingItem.source, TrendingItem.rank)
-        result = await db.execute(stmt)
-        items = result.scalars().all()
+        payload = await build_cross_platform_payload(db, min_resonance=min_resonance, limit=limit)
+    content = set_cached_cross_platform(cache_params, payload)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={"X-Trending-Cross-Cache": "MISS"},
+    )
 
-    # 转成 dict 列表给聚类函数
+
+async def build_cross_platform_payload(db: AsyncSession, *, min_resonance: int, limit: int) -> dict:
+    from app.services.trending_cross import cluster_trending_items
+
+    stmt = select(TrendingItem).order_by(TrendingItem.source, TrendingItem.rank)
+    result = await db.execute(stmt)
+    items = result.scalars().all()
+
     item_dicts = [
         {
             "id": it.id,
@@ -219,14 +254,9 @@ async def get_cross_platform(
     ]
 
     clusters = cluster_trending_items(item_dicts)
-
-    # 过滤最小共振数
     clusters = [c for c in clusters if c["resonance"] >= min_resonance]
-
-    # 限制返回数量
     clusters = clusters[:limit]
 
-    # 清理内部字段
     for c in clusters:
         for it in c.get("items", []):
             it.pop("_keywords", None)
@@ -235,12 +265,7 @@ async def get_cross_platform(
         "total": len(clusters),
         "clusters": clusters,
     }
-    content = set_cached_cross_platform(cache_params, payload)
-    return Response(
-        content=content,
-        media_type="application/json",
-        headers={"X-Trending-Cross-Cache": "MISS"},
-    )
+    return payload
 
 
 # ── 历史快照 API ────────────────────────────────────────────────────────
@@ -290,8 +315,6 @@ async def get_persistent_topics(
 
     返回按天数+平台数排序的话题列表。
     """
-    from app.services.trending_snapshot import analyze_persistent_topics
-
     cache_params = PersistentTopicsCacheParams(
         min_days=min_days,
         min_sources=min_sources,
@@ -307,17 +330,62 @@ async def get_persistent_topics(
         )
 
     async with async_session() as db:
-        topics = await analyze_persistent_topics(db, min_days, min_sources, days_back)
-    payload = {
-        "total": len(topics),
-        "topics": topics,
-    }
+        payload = await build_persistent_topics_payload(
+            db,
+            min_days=min_days,
+            min_sources=min_sources,
+            days_back=days_back,
+        )
     content = set_cached_persistent_topics(cache_params, payload)
     return Response(
         content=content,
         media_type="application/json",
         headers={"X-Trending-Persistent-Cache": "MISS"},
     )
+
+
+async def build_persistent_topics_payload(
+    db: AsyncSession,
+    *,
+    min_days: int,
+    min_sources: int,
+    days_back: int,
+) -> dict:
+    from app.services.trending_snapshot import analyze_persistent_topics
+
+    topics = await analyze_persistent_topics(db, min_days, min_sources, days_back)
+    return {
+        "total": len(topics),
+        "topics": topics,
+    }
+
+
+async def build_default_trending_cache_payloads(db: AsyncSession) -> dict[str, object]:
+    list_params = TrendingListCacheParams(limit=DEFAULT_TRENDING_LIST_LIMIT)
+    cross_params = CrossPlatformCacheParams(
+        min_resonance=DEFAULT_TRENDING_MIN_RESONANCE,
+        limit=DEFAULT_TRENDING_CROSS_LIMIT,
+    )
+    persistent_params = PersistentTopicsCacheParams(
+        min_days=DEFAULT_TRENDING_MIN_DAYS,
+        min_sources=DEFAULT_TRENDING_MIN_SOURCES,
+        days_back=DEFAULT_TRENDING_DAYS_BACK,
+    )
+    return {
+        list_params.key: await build_trending_list_payload(db, limit=DEFAULT_TRENDING_LIST_LIMIT),
+        TRENDING_SOURCES_CACHE_KEY: await build_trending_sources_payload(db),
+        cross_params.key: await build_cross_platform_payload(
+            db,
+            min_resonance=DEFAULT_TRENDING_MIN_RESONANCE,
+            limit=DEFAULT_TRENDING_CROSS_LIMIT,
+        ),
+        persistent_params.key: await build_persistent_topics_payload(
+            db,
+            min_days=DEFAULT_TRENDING_MIN_DAYS,
+            min_sources=DEFAULT_TRENDING_MIN_SOURCES,
+            days_back=DEFAULT_TRENDING_DAYS_BACK,
+        ),
+    }
 
 
 # ── 角度推荐 API ────────────────────────────────────────────────────────

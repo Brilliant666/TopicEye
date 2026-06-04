@@ -84,6 +84,12 @@ async def warmup_read_caches(*, include_scoring_flow: bool = True) -> dict[str, 
             logger.warning("Stats workspace cache warmup skipped: %s", exc)
             errors.append(f"stats:{exc}")
 
+        try:
+            warmed.extend(await warmup_trending_workspace(db))
+        except Exception as exc:
+            logger.warning("Trending workspace cache warmup skipped: %s", exc)
+            errors.append(f"trending:{exc}")
+
         if include_scoring_flow:
             try:
                 warmed.extend(await warmup_scoring_flow(db))
@@ -158,6 +164,15 @@ async def warmup_stats_workspace() -> list[str]:
     from app.api.v1.stats import build_default_stats_cache_payloads
 
     payloads = build_default_stats_cache_payloads()
+    for key, payload in payloads.items():
+        set_cached_json(key, payload)
+    return list(payloads)
+
+
+async def warmup_trending_workspace(db) -> list[str]:
+    from app.api.v1.trending import build_default_trending_cache_payloads
+
+    payloads = await build_default_trending_cache_payloads(db)
     for key, payload in payloads.items():
         set_cached_json(key, payload)
     return list(payloads)

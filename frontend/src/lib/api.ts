@@ -73,6 +73,12 @@ export function formatApiErrorDetail(detail: unknown): string | undefined {
   return formatDetailItem(detail);
 }
 
+function assertUniqueOrderedIds(orderedIds: number[]): void {
+  if (orderedIds.length !== new Set(orderedIds).size) {
+    throw new Error('信源排序包含重复项，请刷新后重试');
+  }
+}
+
 export function getAuthToken(): string | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -272,6 +278,7 @@ export const sourcesApi = {
 
   /** 保存信源排序（用于信源地图看板拖拽） */
   reorder(ordered_ids: number[]): Promise<{ message: string; updated: number }> {
+    assertUniqueOrderedIds(ordered_ids);
     return request('/sources/reorder', {
       method: 'POST',
       body: JSON.stringify({ ordered_ids }),

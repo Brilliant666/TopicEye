@@ -37,6 +37,7 @@ export type FeedbackType = 'like' | 'dislike' | 'skip' | 'not_relevant' | 'outda
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
 const AUTH_TOKEN_STORAGE_KEY = 'topiceye_auth_token';
+const FAVORITE_STATE_BATCH_SIZE = 200;
 
 function formatDetailItem(item: unknown): string | undefined {
   if (!item) return undefined;
@@ -77,6 +78,14 @@ function assertUniqueIds(ids: number[], message: string): void {
   if (ids.length !== new Set(ids).size) {
     throw new Error(message);
   }
+}
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
 }
 
 export function getAuthToken(): string | null {
@@ -450,15 +459,29 @@ export const favoritesApi = {
     });
   },
 
-  state(params: {
+  async state(params: {
     target_type: FavoriteTargetType;
     target_ids?: number[];
     target_keys?: string[];
   }): Promise<{ items: FavoriteTargetState[] }> {
+    const targetIds = params.target_ids || [];
+    const targetKeys = params.target_keys || [];
+    if (targetIds.length + targetKeys.length > FAVORITE_STATE_BATCH_SIZE) {
+      const responses = await Promise.all([
+        ...chunkArray(targetIds, FAVORITE_STATE_BATCH_SIZE).map((ids) => (
+          favoritesApi.state({ target_type: params.target_type, target_ids: ids })
+        )),
+        ...chunkArray(targetKeys, FAVORITE_STATE_BATCH_SIZE).map((keys) => (
+          favoritesApi.state({ target_type: params.target_type, target_keys: keys })
+        )),
+      ]);
+      return { items: responses.flatMap((response) => response.items || []) };
+    }
+
     const qs = new URLSearchParams();
     qs.set('target_type', params.target_type);
-    if (params.target_ids?.length) qs.set('target_ids', params.target_ids.join(','));
-    if (params.target_keys?.length) qs.set('target_keys', params.target_keys.join(','));
+    if (targetIds.length) qs.set('target_ids', targetIds.join(','));
+    if (targetKeys.length) qs.set('target_keys', targetKeys.join(','));
     return request(`/favorites/state?${qs.toString()}`);
   },
 

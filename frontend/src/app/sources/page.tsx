@@ -18,7 +18,6 @@ import { getFavoriteTargetKey } from '@/lib/favorites';
 
 type SourceTierKey = 'core' | 'stable' | 'watch' | 'attention';
 type DropTarget = { tier: SourceTierKey; beforeId: number | null };
-const FAVORITE_STATE_BATCH_SIZE = 200;
 
 const sourceTierMeta: Record<SourceTierKey, { label: string; desc: string; text: string; bg: string; border: string; dot: string; tone: 'primary' | 'teal' | 'amber' | 'red' }> = {
   core: { label: '核心信源', desc: '高权重、正常采集，影响精选排序', text: 'text-primary', bg: 'bg-primary-light', border: 'border-primary-border', dot: 'bg-primary', tone: 'primary' },
@@ -47,14 +46,6 @@ function normalizeRsshubInstanceUrl(value: string): string | null {
   } catch {
     return null;
   }
-}
-
-function chunkSourceIds(ids: number[]): number[][] {
-  const chunks: number[][] = [];
-  for (let index = 0; index < ids.length; index += FAVORITE_STATE_BATCH_SIZE) {
-    chunks.push(ids.slice(index, index + FAVORITE_STATE_BATCH_SIZE));
-  }
-  return chunks;
 }
 
 function SourceMapView({
@@ -452,16 +443,13 @@ export default function SourcesPage() {
     let cancelled = false;
     (async () => {
       try {
-        const responses = await Promise.all(
-          chunkSourceIds(ids).map((targetIds) => favoritesApi.state({
-            target_type: 'source',
-            target_ids: targetIds,
-          }))
-        );
+        const state = await favoritesApi.state({
+          target_type: 'source',
+          target_ids: ids,
+        });
         if (cancelled) return;
         const favoriteIds = new Set(
-          responses
-            .flatMap((res) => res.items || [])
+          (state.items || [])
             .filter((item) => item.is_favorited)
             .map((item) => Number(item.target_key))
             .filter((id) => Number.isFinite(id)),

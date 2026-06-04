@@ -170,10 +170,14 @@ async def test_warmup_startup_critical_caches_populates_scoring_flow(cache_warmu
     result = await cache_warmup.warmup_startup_critical_caches()
 
     expected_warmed = {f"scoring-flow:{hours}:{limit}" for hours, limit in SCORING_FLOW_WARMUP_TARGETS}
+    expected_warmed.update(STATS_WORKSPACE_CACHE_KEYS)
     assert set(result["warmed"]) == expected_warmed
     assert result["errors"] == []
+    ttl = settings.READ_CACHE_TTL_SECONDS
     for hours, limit in SCORING_FLOW_WARMUP_TARGETS:
         assert get_cached_scoring_flow_json(hours=hours, limit=limit) is not None
+    for key in STATS_WORKSPACE_CACHE_KEYS:
+        assert get_cached_json(key, ttl_seconds=ttl) is not None
 
 
 @pytest.mark.asyncio
@@ -186,3 +190,16 @@ async def test_warmup_read_caches_can_skip_scoring_flow(cache_warmup_session):
     assert result["errors"] == []
     for hours, limit in SCORING_FLOW_WARMUP_TARGETS:
         assert get_cached_scoring_flow_json(hours=hours, limit=limit) is None
+
+
+@pytest.mark.asyncio
+async def test_warmup_read_caches_can_skip_stats_workspace(cache_warmup_session):
+    result = await cache_warmup.warmup_read_caches(include_scoring_flow=False, include_stats=False)
+
+    assert "sources:list:1:20" in result["warmed"]
+    assert "contents:list:1:50:48" in result["warmed"]
+    assert all(not label.startswith("stats:") for label in result["warmed"])
+    assert result["errors"] == []
+    ttl = settings.READ_CACHE_TTL_SECONDS
+    for key in STATS_WORKSPACE_CACHE_KEYS:
+        assert get_cached_json(key, ttl_seconds=ttl) is None

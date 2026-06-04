@@ -496,7 +496,7 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("Startup critical read caches warmed")
 
-        _cache_warmup_task = asyncio.create_task(warmup_read_caches(include_scoring_flow=False))
+        _cache_warmup_task = asyncio.create_task(warmup_read_caches(include_scoring_flow=False, include_stats=False))
         logger.info("Background read cache warmup scheduled")
 
     yield

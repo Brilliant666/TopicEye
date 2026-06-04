@@ -1,7 +1,8 @@
 from app.api.v1 import stats
-from app.services.json_cache import invalidate_json_cache
+from app.services.json_cache import get_cached_json, invalidate_json_cache
 
 import pytest
+from fastapi import HTTPException
 
 
 @pytest.mark.asyncio
@@ -19,6 +20,26 @@ async def test_stats_cache_headers_are_stable_hit_miss(monkeypatch):
     assert second.headers["X-Analytics-Backend"] == "duckdb"
     assert second.headers["X-Stats-Cache"] == "HIT"
     assert float(second.headers["X-Stats-Cache-Age-Ms"]) >= 0
+
+    invalidate_json_cache()
+
+
+@pytest.mark.asyncio
+async def test_stats_query_failure_returns_503_without_cache(monkeypatch):
+    invalidate_json_cache()
+    monkeypatch.setattr(stats.settings, "READ_CACHE_TTL_SECONDS", 60)
+
+    def fail_query(days=7):
+        raise RuntimeError("duckdb attach failed")
+
+    monkeypatch.setattr(stats, "query_dashboard_stats", fail_query)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await stats.get_dashboard_stats(days=7)
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "DuckDB analytical layer unavailable"
+    assert get_cached_json("stats:dashboard:7", ttl_seconds=60) is None
 
     invalidate_json_cache()
 

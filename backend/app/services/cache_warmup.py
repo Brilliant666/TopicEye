@@ -38,12 +38,18 @@ async def warmup_startup_critical_caches() -> dict[str, Any]:
             logger.warning("Startup scoring flow cache warmup skipped: %s", exc)
             errors.append(f"scoring-flow:{exc}")
 
+    try:
+        warmed.extend(await warmup_stats_workspace())
+    except Exception as exc:
+        logger.warning("Startup stats workspace cache warmup skipped: %s", exc)
+        errors.append(f"stats:{exc}")
+
     elapsed_ms = (time.perf_counter() - started_at) * 1000
     logger.info("Startup critical cache warmup completed in %.1fms: %s", elapsed_ms, ", ".join(warmed) or "none")
     return {"warmed": warmed, "errors": errors, "elapsed_ms": elapsed_ms}
 
 
-async def warmup_read_caches(*, include_scoring_flow: bool = True) -> dict[str, Any]:
+async def warmup_read_caches(*, include_scoring_flow: bool = True, include_stats: bool = True) -> dict[str, Any]:
     """Warm hot read caches without blocking application startup."""
     started_at = time.perf_counter()
     warmed: list[str] = []
@@ -78,11 +84,12 @@ async def warmup_read_caches(*, include_scoring_flow: bool = True) -> dict[str, 
             logger.warning("Content favorites cache warmup skipped: %s", exc)
             errors.append(f"favorites:{exc}")
 
-        try:
-            warmed.extend(await warmup_stats_workspace())
-        except Exception as exc:
-            logger.warning("Stats workspace cache warmup skipped: %s", exc)
-            errors.append(f"stats:{exc}")
+        if include_stats:
+            try:
+                warmed.extend(await warmup_stats_workspace())
+            except Exception as exc:
+                logger.warning("Stats workspace cache warmup skipped: %s", exc)
+                errors.append(f"stats:{exc}")
 
         try:
             warmed.extend(await warmup_trending_workspace(db))

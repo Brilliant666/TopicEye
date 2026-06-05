@@ -12,6 +12,7 @@ from app.api.v1 import auth as auth_api
 from app.api.v1 import trending as trending_api
 from app.api.v1 import trends as trends_api
 from app.core.database import Base
+from app.models.trending import TrendingCategory, TrendingItem, TrendingSource
 from app.services import trending_snapshot
 from app.services.auth_service import create_session, create_user
 
@@ -121,4 +122,71 @@ async def test_trending_write_apis_require_admin_and_keep_sync_all_route(monkeyp
         }
 
     assert calls == ["all", "source:weibo", "save_snapshots", "trend_snapshot"]
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_trending_angle_generation_requires_login_not_admin(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        user = await create_user(db, email="angle-user@example.com", password="Password123", role="user")
+        token, _ = await create_session(db, user)
+        db.add(
+            TrendingItem(
+                id=1,
+                source=TrendingSource.WEIBO,
+                category=TrendingCategory.HOT,
+                rank=1,
+                title="AI 角度测试话题",
+                url="https://example.com/angle",
+                hot_value=100,
+                hot_value_raw="100",
+                extra={"keywords": ["AI"]},
+                batch_id="angle-test",
+            )
+        )
+        await db.commit()
+
+    async def fake_generate_angles_for_topic(topic: str, keywords: list[str], platform_titles: list[str]):
+        return {
+            "common_angles": ["常规角度"],
+            "contrast_angles": [{"angle": "反差角度", "reasoning": "有解释力"}],
+            "angle_note": f"{topic}:{','.join(keywords)}:{platform_titles[0]}",
+        }
+
+    import app.services.angle_recommend as angle_recommend
+
+    monkeypatch.setattr(angle_recommend, "generate_angles_for_topic", fake_generate_angles_for_topic)
+
+    app = FastAPI()
+    app.include_router(trending_api.router)
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[auth_api.get_db] = override_get_db
+    app.dependency_overrides[trending_api.get_db] = override_get_db
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        anonymous = await client.get("/trending/angles?topic=AI%20角度测试")
+        assert anonymous.status_code == 401
+
+        authorized = await client.get(
+            "/trending/angles?topic=AI%20角度测试",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert authorized.status_code == 200
+        assert authorized.json()["contrast_angles"][0]["angle"] == "反差角度"
+
     await engine.dispose()

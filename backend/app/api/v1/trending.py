@@ -13,7 +13,7 @@ from pydantic import field_serializer
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_admin_user
+from app.api.v1.auth import get_current_admin_user, get_current_user
 from app.core.config import settings
 from app.core.database import async_session, get_db
 from app.models.trending import TrendingItem, TrendingCategory, TrendingSource
@@ -397,7 +397,7 @@ class AngleRecommendOut(BaseModel):
     angle_note: str
 
 
-@router.get("/angles", response_model=AngleRecommendOut)
+@router.get("/angles", response_model=AngleRecommendOut, dependencies=[Depends(get_current_user)])
 async def get_topic_angles(
     topic: str = Query(..., description="话题标题"),
     db: AsyncSession = Depends(get_db),

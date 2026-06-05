@@ -196,6 +196,7 @@ function SourceMiniItem({ item }: { item: CrossPlatformSourceItem }) {
 /* ── 角度推荐面板 ── */
 
 function AnglePanel({ cluster }: { cluster: CrossPlatformCluster }) {
+  const { currentUser } = useAppContext();
   const [angles, setAngles] = useState<TrendingAngleRecommendation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -215,6 +216,8 @@ function AnglePanel({ cluster }: { cluster: CrossPlatformCluster }) {
       setLoading(false);
     }
   };
+
+  if (!currentUser) return null;
 
   return (
     <div className="mt-2 rounded-sm border border-amber-border bg-amber-light px-3.5 py-2.5">

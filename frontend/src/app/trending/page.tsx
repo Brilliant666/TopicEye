@@ -514,9 +514,26 @@ function TrendingPage() {
     }
   };
 
-  const filteredSources = selectedCategory
-    ? sources.filter(s => s.category === selectedCategory)
-    : sources;
+  const filteredSources = Array.from(
+    (selectedCategory
+      ? sources.filter(s => s.category === selectedCategory)
+      : sources
+    ).reduce((bySource, src) => {
+      const existing = bySource.get(src.source);
+      if (!existing) {
+        bySource.set(src.source, src);
+        return bySource;
+      }
+      bySource.set(src.source, {
+        ...existing,
+        count: existing.count + src.count,
+        last_synced: existing.last_synced && src.last_synced
+          ? existing.last_synced > src.last_synced ? existing.last_synced : src.last_synced
+          : existing.last_synced || src.last_synced,
+      });
+      return bySource;
+    }, new Map<string, TrendingSource>()).values()
+  );
 
   // Group items by source for display
   const groupedItems: Record<string, TrendingItem[]> = {};

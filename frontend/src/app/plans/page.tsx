@@ -60,9 +60,9 @@ export default function PlansPage() {
             <Gem size={14} />
             功能权益
           </div>
-          <h1 className="mb-1.5 text-[26px] font-black text-gray-900">免费区 / 付费区规划</h1>
+          <h1 className="mb-1.5 text-[26px] font-black text-gray-900">功能边界与后续规划</h1>
           <p className="max-w-[760px] text-[13px] leading-6 text-gray-500">
-            把 PRD 里的商业模式拆成可查询的产品边界，后续权限控制、导航提示和付费功能开关都以这份配置为准。
+            这里展示当前已经开放的访问边界，以及还没有正式上线的付费和团队能力。未标为当前可用的内容只作为路线图，不作为已交付承诺。
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:min-w-[560px]">
@@ -74,7 +74,7 @@ export default function PlansPage() {
               </div>
               <div className="text-lg font-black text-gray-900">{currentTier.name}</div>
               <div className="mt-1 text-xs leading-5 text-gray-500">
-                {currentUser ? `${currentUser.display_name || currentUser.email} · ${currentTier.highlight}` : '未登录时按免费版边界展示'}
+                {currentUser ? `${currentUser.display_name || currentUser.email} · ${currentTier.highlight}` : '未登录时只展示公开访问边界'}
               </div>
             </Panel>
           )}
@@ -106,8 +106,8 @@ export default function PlansPage() {
       ) : catalog && (
         <>
           <div className="mb-5 grid gap-3 lg:grid-cols-2">
-            <AreaPanel title="免费区" icon={<ShieldCheck size={17} />} items={catalog.free_area} tone="teal" />
-            <AreaPanel title="付费区" icon={<LockKeyhole size={17} />} items={catalog.paid_area} tone="primary" />
+            <AreaPanel title="当前访问边界" icon={<ShieldCheck size={17} />} items={catalog.free_area} tone="teal" />
+            <AreaPanel title="付费与团队规划" icon={<LockKeyhole size={17} />} items={catalog.paid_area} tone="primary" />
           </div>
 
           <div className="grid gap-3 pb-10 xl:grid-cols-4">

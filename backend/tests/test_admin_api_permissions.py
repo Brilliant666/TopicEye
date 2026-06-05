@@ -93,10 +93,6 @@ async def test_management_apis_require_admin_role(admin_api_client):
     endpoints = [
         "/sources?page=1&page_size=1",
         "/settings/duckdb/status",
-        "/fanqie/categories",
-        "/qimao/books",
-        "/zhihu/categories",
-        "/webnovel/reports/weekly?days=7",
         "/models",
         "/scheduler/jobs",
     ]
@@ -110,3 +106,69 @@ async def test_management_apis_require_admin_role(admin_api_client):
 
         admin = await client.get(endpoint, headers={"Authorization": f"Bearer {admin_token}"})
         assert admin.status_code == 200, endpoint
+
+
+@pytest.mark.asyncio
+async def test_webnovel_read_apis_require_login_not_admin(admin_api_client):
+    client, user_token, admin_token = admin_api_client
+    endpoints = [
+        "/fanqie/categories",
+        "/fanqie/rankings",
+        "/fanqie/category/1/books",
+        "/qimao/rankings",
+        "/qimao/categories",
+        "/qimao/books",
+        "/zhihu/categories",
+        "/zhihu/albums",
+        "/webnovel/reports/weekly?days=7",
+    ]
+
+    for endpoint in endpoints:
+        anonymous = await client.get(endpoint)
+        assert anonymous.status_code == 401, endpoint
+
+        ordinary = await client.get(endpoint, headers={"Authorization": f"Bearer {user_token}"})
+        assert ordinary.status_code == 200, endpoint
+
+        admin = await client.get(endpoint, headers={"Authorization": f"Bearer {admin_token}"})
+        assert admin.status_code == 200, endpoint
+
+
+@pytest.mark.asyncio
+async def test_webnovel_sync_apis_still_require_admin(admin_api_client, monkeypatch):
+    client, user_token, admin_token = admin_api_client
+    sync_calls = []
+
+    async def fake_fanqie_sync():
+        sync_calls.append("fanqie")
+        return {"status": "ok"}
+
+    async def fake_qimao_sync():
+        sync_calls.append("qimao")
+
+    async def fake_zhihu_sync():
+        sync_calls.append("zhihu")
+
+    from app.services import fanqie_service, qimao_service, zhihu_service
+
+    monkeypatch.setattr(fanqie_service, "full_sync", fake_fanqie_sync)
+    monkeypatch.setattr(qimao_service, "sync_qimao_ranks", fake_qimao_sync)
+    monkeypatch.setattr(zhihu_service, "sync_zhihu_ranks", fake_zhihu_sync)
+
+    endpoints = [
+        "/fanqie/sync",
+        "/qimao/sync",
+        "/zhihu/sync",
+    ]
+
+    for endpoint in endpoints:
+        anonymous = await client.post(endpoint)
+        assert anonymous.status_code == 401, endpoint
+
+        ordinary = await client.post(endpoint, headers={"Authorization": f"Bearer {user_token}"})
+        assert ordinary.status_code == 403, endpoint
+
+        admin = await client.post(endpoint, headers={"Authorization": f"Bearer {admin_token}"})
+        assert admin.status_code == 200, endpoint
+
+    assert sync_calls == ["fanqie", "qimao", "zhihu"]

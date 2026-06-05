@@ -57,31 +57,32 @@ function visibleLabels(currentUser) {
 }
 
 const anonymousLabels = visibleLabels(null);
-for (const label of ['日报', '周刊', '月刊', '数据统计', '我的母题', '收藏夹', '算法流程', '信源管理', '网文雷达', 'AI 引擎']) {
+for (const label of ['日报', '周刊', '月刊', '数据统计', '我的母题', '收藏夹', '算法流程', '网文雷达', '信源管理', 'AI 引擎']) {
   assert(!anonymousLabels.includes(label), `anonymous navigation should hide ${label}`);
 }
 
 const userLabels = visibleLabels(user);
-for (const label of ['日报', '周刊', '月刊', '数据统计', '我的母题', '收藏夹', '算法流程']) {
+for (const label of ['日报', '周刊', '月刊', '数据统计', '我的母题', '收藏夹', '算法流程', '网文雷达']) {
   assert(userLabels.includes(label), `user navigation should show ${label}`);
 }
-for (const label of ['信源管理', '网文雷达', 'AI 引擎']) {
+for (const label of ['信源管理', 'AI 引擎']) {
   assert(!userLabels.includes(label), `user navigation should hide ${label}`);
 }
 
 const adminLabels = visibleLabels(admin);
-for (const label of ['信源管理', '网文雷达', 'AI 引擎']) {
+for (const label of ['信源管理', 'AI 引擎']) {
   assert(adminLabels.includes(label), `admin navigation should show ${label}`);
 }
+assert(adminLabels.includes('网文雷达'), 'admin navigation should still show 网文雷达');
 
-for (const pathName of ['/daily', '/weekly', '/monthly', '/stats', '/my-topics', '/favorites', '/algorithm', '/profile']) {
+for (const pathName of ['/daily', '/weekly', '/monthly', '/stats', '/my-topics', '/favorites', '/algorithm', '/fanqie', '/profile']) {
   assert(USER_ONLY_PATHS.includes(pathName), `USER_ONLY_PATHS should include ${pathName}`);
   assert.strictEqual(requiredAccessForPath(pathName), 'user');
   assert.strictEqual(canAccessPath(pathName, null), false, `${pathName} should require login`);
   assert.strictEqual(canAccessPath(pathName, user), true, `${pathName} should allow user`);
 }
 
-for (const pathName of ['/sources', '/fanqie', '/model-eval', '/contents', '/mother-topics/config']) {
+for (const pathName of ['/sources', '/model-eval', '/contents', '/mother-topics/config']) {
   assert(ADMIN_ONLY_PATHS.includes(pathName), `ADMIN_ONLY_PATHS should include ${pathName}`);
   assert.strictEqual(requiredAccessForPath(pathName), 'admin');
   assert.strictEqual(canAccessPath(pathName, null), false, `${pathName} should require admin login`);

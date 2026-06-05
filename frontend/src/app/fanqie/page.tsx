@@ -531,7 +531,7 @@ function BookCard({
 }
 
 export default function FanqiePage() {
-  const { refreshCounts } = useAppContext();
+  const { currentUser, refreshCounts } = useAppContext();
   const [viewMode, setViewMode] = useState<ViewMode>('rankings');
   const [platform, setPlatform] = useState<Platform>('fanqie');
   const [query, setQuery] = useState('');
@@ -802,6 +802,7 @@ export default function FanqiePage() {
   };
 
   const syncBusy = syncing || qimaoSyncing || zhihuSyncing;
+  const canSyncRankings = currentUser?.role === 'admin';
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-page">
@@ -851,16 +852,18 @@ export default function FanqiePage() {
               周报
             </button>
           </div>
-          <button
-            type="button"
-            onClick={handleSync}
-            disabled={syncBusy}
-            className="inline-flex items-center gap-2 rounded-sm border-0 px-3.5 py-2 text-[13px] font-extrabold text-white transition disabled:cursor-wait disabled:bg-gray-200"
-            style={{ background: syncBusy ? undefined : platformMeta.color }}
-          >
-            <RefreshCw size={15} className={syncBusy ? 'fanqie-spin' : undefined} />
-            {syncBusy ? '同步中' : `同步${platformMeta.label}`}
-          </button>
+          {canSyncRankings && (
+            <button
+              type="button"
+              onClick={handleSync}
+              disabled={syncBusy}
+              className="inline-flex items-center gap-2 rounded-sm border-0 px-3.5 py-2 text-[13px] font-extrabold text-white transition disabled:cursor-wait disabled:bg-gray-200"
+              style={{ background: syncBusy ? undefined : platformMeta.color }}
+            >
+              <RefreshCw size={15} className={syncBusy ? 'fanqie-spin' : undefined} />
+              {syncBusy ? '同步中' : `同步${platformMeta.label}`}
+            </button>
+          )}
         </div>
       </div>
 

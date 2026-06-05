@@ -12,12 +12,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_admin_user
+from app.api.v1.auth import get_current_admin_user, get_current_user
 from app.core.database import get_db
 from app.models.fanqie import FanqieCategory, FanqieBook
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/fanqie", tags=["番茄小说"], dependencies=[Depends(get_current_admin_user)])
+router = APIRouter(prefix="/fanqie", tags=["番茄小说"])
 
 
 def _book_url(book_id: str) -> str:
@@ -68,7 +69,10 @@ class RankingItem(BaseModel):
 # ── API 端点 ───────────────────────────────────────────────────
 
 @router.get("/categories")
-async def list_categories(db: AsyncSession = Depends(get_db)) -> list[dict]:
+async def list_categories(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[dict]:
     """返回所有番茄分类（按 group 和 display_order 排序）。"""
     result = await db.execute(
         select(FanqieCategory).order_by(
@@ -87,6 +91,7 @@ async def list_categories(db: AsyncSession = Depends(get_db)) -> list[dict]:
 async def list_rankings(
     type: Optional[str] = Query(None, description="male_reading/male_new/female_reading/female_new"),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
     """
     返回四大榜单（或指定某榜单）。
@@ -136,6 +141,7 @@ async def list_rankings(
 async def category_books(
     fanqie_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     rank_type: Optional[str] = Query(None, description="new / reading"),
     limit: int = Query(20, le=100),
 ) -> dict:
@@ -192,7 +198,7 @@ async def category_books(
 
 
 @router.post("/sync")
-async def trigger_sync():
+async def trigger_sync(current_user: User = Depends(get_current_admin_user)):
     """手动触发全量同步。"""
     from app.services.fanqie_service import full_sync
     result = await full_sync()

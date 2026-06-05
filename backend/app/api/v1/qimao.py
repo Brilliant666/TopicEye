@@ -8,11 +8,12 @@ from fastapi import APIRouter, Query, Depends, BackgroundTasks
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_admin_user
+from app.api.v1.auth import get_current_admin_user, get_current_user
 from app.core.database import get_db
 from app.models.qimao import QimaoBook
+from app.models.user import User
 
-router = APIRouter(prefix="/qimao", tags=["qimao"], dependencies=[Depends(get_current_admin_user)])
+router = APIRouter(prefix="/qimao", tags=["qimao"])
 
 
 def _book_url(book_id: str) -> str:
@@ -22,6 +23,7 @@ def _book_url(book_id: str) -> str:
 @router.get("/rankings")
 async def rankings(
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     channel: str = Query("boy", description="boy / girl"),
 ):
     """各榜单概览：每个榜单有多少本。"""
@@ -54,6 +56,7 @@ async def rankings(
 @router.get("/categories")
 async def categories(
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     channel: str = Query(None, description="boy / girl，不传则返回全部"),
 ):
     """分类列表：从已有数据中提取去重的 category1_name。"""
@@ -86,6 +89,7 @@ async def list_books(
     limit: int = Query(20, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """指定榜单的图书列表。"""
     query = (
@@ -137,7 +141,10 @@ async def list_books(
 
 
 @router.post("/sync")
-async def sync_qimao(background_tasks: BackgroundTasks):
+async def sync_qimao(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_admin_user),
+):
     """后台触发七猫全量同步（耗时约 30s）。"""
     async def _run():
         from app.services.qimao_service import sync_qimao_ranks

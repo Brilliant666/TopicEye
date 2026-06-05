@@ -9,11 +9,12 @@ from fastapi import APIRouter, Depends, Query, BackgroundTasks
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_admin_user
+from app.api.v1.auth import get_current_admin_user, get_current_user
 from app.core.database import get_db
 from app.models.zhihu import ZhihuAlbum, ZhihuCategory
+from app.models.user import User
 
-router = APIRouter(prefix='/zhihu', tags=['知乎'], dependencies=[Depends(get_current_admin_user)])
+router = APIRouter(prefix='/zhihu', tags=['知乎'])
 
 STORY_CATEGORY_ID = '1512'
 STORY_ALL_LABEL = '故事全部'
@@ -73,6 +74,7 @@ async def list_albums(
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """知乎盐选专辑列表（支持分类+子分类+排序过滤）。"""
     db_sort_type, resolved_subcategory = _resolve_album_scope(category, subcategory, sort_type)
@@ -138,6 +140,7 @@ async def list_albums(
 async def list_categories(
     parent_id: Optional[str] = Query(None, description='父分类 ID，null 表示一级分类'),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """知乎盐选分类列表。"""
     if parent_id:
@@ -168,6 +171,7 @@ async def list_categories(
 @router.post('/sync')
 async def sync_zhihu(
     background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_admin_user),
 ):
     """触发知乎全量同步（后台运行）。"""
     from app.services.zhihu_service import sync_zhihu_ranks

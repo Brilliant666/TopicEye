@@ -71,6 +71,7 @@ export const NAV_SPACES: NavSpace[] = [
       { id: 'my-topics', label: '我的母题', href: '/my-topics', icon: Crosshair, access: 'user' },
       { id: 'favorites', label: '收藏夹', href: '/favorites', icon: Bookmark, access: 'user', countKey: 'favorites' },
       { id: 'algorithm', label: '算法流程', href: '/algorithm', icon: GitBranch, access: 'user' },
+      { id: 'fanqie', label: '网文雷达', href: '/fanqie', icon: BookOpen, access: 'user' },
     ],
   },
   {
@@ -85,7 +86,6 @@ export const NAV_SPACES: NavSpace[] = [
     label: '管理',
     items: [
       { id: 'sources', label: '信源管理', href: '/sources', icon: RadioTower, access: 'admin', countKey: 'sources' },
-      { id: 'fanqie', label: '网文雷达', href: '/fanqie', icon: BookOpen, access: 'admin' },
       { id: 'model-eval', label: 'AI 引擎', href: '/model-eval', icon: BrainCircuit, access: 'admin' },
     ],
   },

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_user
 from app.core.database import get_db
 from app.models.monthly_digest import MonthlyDigest
 from app.repositories.monthly_digest_repo import MonthlyDigestRepository
@@ -20,7 +21,7 @@ from app.schemas.monthly_digest import (
 )
 from app.services.monthly_digest import generate_monthly_digest
 
-router = APIRouter(prefix="/monthly-digests", tags=["monthly-digests"])
+router = APIRouter(prefix="/monthly-digests", tags=["monthly-digests"], dependencies=[Depends(get_current_user)])
 
 
 def _parse_month_key(month_key: str) -> date:

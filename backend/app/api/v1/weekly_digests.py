@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_user
 from app.core.database import get_db
 from app.models.weekly_digest import WeeklyDigest
 from app.repositories.weekly_digest_repo import WeeklyDigestRepository
@@ -20,7 +21,7 @@ from app.schemas.weekly_digest import (
 )
 from app.services.weekly_digest import generate_weekly_digest
 
-router = APIRouter(prefix="/weekly-digests", tags=["weekly-digests"])
+router = APIRouter(prefix="/weekly-digests", tags=["weekly-digests"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/current", response_model=WeeklyDigestResponse)

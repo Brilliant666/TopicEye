@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_user
 from app.core.database import get_db
 from app.models.daily_report import DailyReport
 from app.repositories.daily_report_repo import DailyReportRepository
@@ -22,7 +23,7 @@ from app.schemas.daily_report import (
 )
 from app.services.daily_report import LOCAL_TZ, WEEKDAYS, generate_daily_report, get_latest_today_report
 
-router = APIRouter(prefix="/daily-reports", tags=["daily-reports"])
+router = APIRouter(prefix="/daily-reports", tags=["daily-reports"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("/today", response_model=DailyReportResponse)

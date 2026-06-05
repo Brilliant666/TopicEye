@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_user
 from app.core.dependencies import get_db
 from app.core.exceptions import NotFoundError
 from app.models.content import ContentStatus
@@ -16,7 +17,7 @@ from app.repositories.content_repo import ContentRepo
 from app.repositories.analysis_repo import AnalysisRepository
 from app.services.analysis import analyze_content, analyze_batch
 
-router = APIRouter(prefix="/analyses", tags=["analyses"])
+router = APIRouter(prefix="/analyses", tags=["analyses"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("/content/{content_id}", response_model=AiAnalysisResponse)

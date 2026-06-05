@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from app.api.v1.auth import get_current_user
 from app.services import notification_service
 
-router = APIRouter(prefix="/notifications", tags=["notifications"])
+router = APIRouter(prefix="/notifications", tags=["notifications"], dependencies=[Depends(get_current_user)])
 
 
 @router.get("")

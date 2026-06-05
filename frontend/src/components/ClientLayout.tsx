@@ -445,7 +445,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         />
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-page">
           <div className="flex h-12 shrink-0 items-center justify-end border-b border-gray-100 bg-white px-6">
-            <NotificationBell />
+            {currentUser && <NotificationBell />}
           </div>
           <div className="min-h-0 flex-1 overflow-auto">
             {children}

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.api.v1 import notifications as notifications_api
 from app.api.v1 import settings as settings_api
-from app.api.v1.auth import get_current_admin_user
+from app.api.v1.auth import get_current_admin_user, get_current_user
 from app.core.database import Base
 from app.core.db_backend import create_database_profile
 from app import main as app_main
@@ -32,6 +32,7 @@ async def settings_notifications_client(monkeypatch) -> AsyncGenerator[httpx.Asy
     app.include_router(settings_api.router)
     app.include_router(notifications_api.router)
     app.dependency_overrides[get_current_admin_user] = lambda: object()
+    app.dependency_overrides[get_current_user] = lambda: object()
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         async with session_factory() as session:

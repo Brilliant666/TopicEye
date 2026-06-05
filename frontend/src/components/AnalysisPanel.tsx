@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { BookOpen, Loader2, PenLine, Video, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useAppContext } from '@/components/ClientLayout';
 import { creationApi } from '@/lib/api';
 import { Button, Panel, cx } from '@/components/ui';
 import type { ContentAnalysis } from '@/types';
@@ -14,6 +15,7 @@ interface AnalysisPanelProps {
 }
 
 export default function AnalysisPanel({ analysis, onClose }: AnalysisPanelProps) {
+  const { currentUser } = useAppContext();
   const contentId = analysis.content_id || 0;
   const [creationPlan, setCreationPlan] = useState<Record<string, unknown> | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -123,45 +125,46 @@ export default function AnalysisPanel({ analysis, onClose }: AnalysisPanelProps)
           </div>
         )}
 
-        {/* 创作方案生成 */}
-        <Panel className="mt-7 border-primary-border/60 bg-primary-light/40 p-5">
-          <h3 className="mb-1 flex items-center gap-2 text-sm font-bold text-gray-900">
-            <PenLine size={15} strokeWidth={2} />
-            生成创作方案
-          </h3>
-          <p className="mb-3.5 text-xs text-gray-500">基于该内容生成平台专属创作方案</p>
+        {currentUser && (
+          <Panel className="mt-7 border-primary-border/60 bg-primary-light/40 p-5">
+            <h3 className="mb-1 flex items-center gap-2 text-sm font-bold text-gray-900">
+              <PenLine size={15} strokeWidth={2} />
+              生成创作方案
+            </h3>
+            <p className="mb-3.5 text-xs text-gray-500">基于该内容生成平台专属创作方案</p>
 
-          <div className="mb-4 flex gap-2">
-            {platforms.map((p) => {
-              const Icon = p.icon;
-              const active = activePlatform === p.id && creationPlan;
-              return (
-                <Button
-                  key={p.id}
-                  type="button"
-                  onClick={() => handleGenerate(p.id)}
-                  disabled={generating}
-                  variant={active ? 'primary' : 'secondary'}
-                  className="flex-1 px-2 py-2.5 text-xs font-semibold"
-                >
-                  <Icon size={14} strokeWidth={2} />
-                  {p.label}
-                </Button>
-              );
-            })}
-          </div>
-
-          {generating && (
-            <div className="p-6 text-center text-[13px] text-gray-400">
-              <Loader2 size={20} strokeWidth={2} className="mx-auto mb-2 animate-spin" />
-              创作方案生成中...
+            <div className="mb-4 flex gap-2">
+              {platforms.map((p) => {
+                const Icon = p.icon;
+                const active = activePlatform === p.id && creationPlan;
+                return (
+                  <Button
+                    key={p.id}
+                    type="button"
+                    onClick={() => handleGenerate(p.id)}
+                    disabled={generating}
+                    variant={active ? 'primary' : 'secondary'}
+                    className="flex-1 px-2 py-2.5 text-xs font-semibold"
+                  >
+                    <Icon size={14} strokeWidth={2} />
+                    {p.label}
+                  </Button>
+                );
+              })}
             </div>
-          )}
 
-          {creationPlan && !generating && (
-            <CreationPlanDisplay plan={creationPlan} platform={activePlatform || ''} />
-          )}
-        </Panel>
+            {generating && (
+              <div className="p-6 text-center text-[13px] text-gray-400">
+                <Loader2 size={20} strokeWidth={2} className="mx-auto mb-2 animate-spin" />
+                创作方案生成中...
+              </div>
+            )}
+
+            {creationPlan && !generating && (
+              <CreationPlanDisplay plan={creationPlan} platform={activePlatform || ''} />
+            )}
+          </Panel>
+        )}
       </div>
     </>
   );

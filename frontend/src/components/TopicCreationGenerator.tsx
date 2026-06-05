@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { BookOpen, FileText, PenLine, Video } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useAppContext } from '@/components/ClientLayout';
 import SectionTitle from '@/components/SectionTitle';
 import { Button, Panel, Toolbar, cx } from '@/components/ui';
 import CreationPlanDisplay, { type CreationPlan } from '@/components/CreationPlanDisplay';
@@ -12,6 +13,7 @@ interface TopicCreationGeneratorProps {
 }
 
 export default function TopicCreationGenerator({ contentId }: TopicCreationGeneratorProps) {
+  const { currentUser } = useAppContext();
   const [creationPlan, setCreationPlan] = useState<CreationPlan | null>(null);
   const [creating, setCreating] = useState(false);
   const [creatingPlatform, setCreatingPlatform] = useState<string | null>(null);
@@ -41,6 +43,8 @@ export default function TopicCreationGenerator({ contentId }: TopicCreationGener
       setCreatingPlatform(null);
     }
   };
+
+  if (!currentUser) return null;
 
   return (
     <Panel className="mb-5 p-7">

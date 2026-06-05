@@ -60,6 +60,11 @@ class ProcessTimeHeaderMiddleware:
         await self.app(scope, receive, send_with_process_time)
 
 
+def should_retry_stats_warmup(errors: list[str]) -> bool:
+    """Retry stats in background only when startup critical stats warmup failed."""
+    return any(error.startswith("stats:") for error in errors)
+
+
 async def ensure_source_sort_order_column(conn) -> None:
     """SQLite create_all does not add columns to existing tables."""
     if not database_profile.is_sqlite:
@@ -632,7 +637,12 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("Startup critical read caches warmed")
 
-        _cache_warmup_task = asyncio.create_task(warmup_read_caches(include_scoring_flow=False, include_stats=False))
+        _cache_warmup_task = asyncio.create_task(
+            warmup_read_caches(
+                include_scoring_flow=False,
+                include_stats=should_retry_stats_warmup(critical_warmup_result["errors"]),
+            )
+        )
         logger.info("Background read cache warmup scheduled")
 
     yield

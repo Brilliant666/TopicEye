@@ -19,6 +19,7 @@ import {
   Star,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useAppContext } from '@/components/ClientLayout';
 import { Badge, Button, Panel, cx } from '@/components/ui';
 import {
   trendingApi,
@@ -404,6 +405,7 @@ function formatTime(isoStr: string): string {
 /* ── Page ── */
 
 function TrendingPage() {
+  const { currentUser } = useAppContext();
   const [tab, setTab] = useState<'list' | 'resonance' | 'persistent'>('list');
   const [items, setItems] = useState<TrendingItem[]>([]);
   const [sources, setSources] = useState<TrendingSource[]>([]);
@@ -521,6 +523,7 @@ function TrendingPage() {
   }
 
   const activeLabel = tab === 'list' ? '榜单扫描' : tab === 'resonance' ? '共振发现' : '持续热度';
+  const canSyncTrending = currentUser?.role === 'admin';
   const topSources = Object.entries(groupedItems)
     .sort((a, b) => b[1].length - a[1].length)
     .slice(0, 8);
@@ -544,10 +547,12 @@ function TrendingPage() {
               把多平台榜单、跨平台共振和持续热度放在同一个扫描台里，优先看到正在扩散、已经共振、还在持续的内容信号。
             </p>
           </div>
-          <Button type="button" variant="primary" onClick={handleSyncAll} disabled={syncing} className="whitespace-nowrap px-4 shadow-[0_10px_22px_rgba(255,107,53,0.18)]">
-            <RefreshCw size={14} strokeWidth={2.3} className={syncing ? 'animate-spin' : ''} />
-            {syncing ? '同步中...' : '刷新全量'}
-          </Button>
+          {canSyncTrending && (
+            <Button type="button" variant="primary" onClick={handleSyncAll} disabled={syncing} className="whitespace-nowrap px-4 shadow-[0_10px_22px_rgba(255,107,53,0.18)]">
+              <RefreshCw size={14} strokeWidth={2.3} className={syncing ? 'animate-spin' : ''} />
+              {syncing ? '同步中...' : '刷新全量'}
+            </Button>
+          )}
         </div>
         <div className="mt-4.5 grid grid-cols-4 gap-2.5 max-md:grid-cols-2">
           <StatTile icon={Rss} label="信源" value={stats.sourceCount || filteredSources.length || sources.length} hint="当前可扫描平台" colorClass="text-primary" />
@@ -689,29 +694,31 @@ function TrendingPage() {
                       <span className="rounded-xs bg-white px-1.5 py-0.5 text-[9px] font-black" style={{ color: brand.color }}>
                         {srcItems.length}条
                       </span>
-                      <button
-                        type="button"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          const btn = e.currentTarget as HTMLButtonElement;
-                          btn.disabled = true;
-                          try {
-                            const data = await trendingApi.sync(source);
-                            if (data.fetched > 0) {
-                              await Promise.all([fetchList(), fetchStats()]);
+                      {canSyncTrending && (
+                        <button
+                          type="button"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            const btn = e.currentTarget as HTMLButtonElement;
+                            btn.disabled = true;
+                            try {
+                              const data = await trendingApi.sync(source);
+                              if (data.fetched > 0) {
+                                await Promise.all([fetchList(), fetchStats()]);
+                              }
+                            } catch (err) {
+                              console.error('Sync source failed:', err);
+                            } finally {
+                              btn.disabled = false;
                             }
-                          } catch (err) {
-                            console.error('Sync source failed:', err);
-                          } finally {
-                            btn.disabled = false;
-                          }
-                        }}
-                        className="inline-flex h-[22px] w-6 items-center justify-center rounded-xs border border-gray-200 bg-white p-0 transition disabled:cursor-wait disabled:opacity-60"
-                        style={{ color: brand.color }}
-                        title="刷新此榜单"
-                      >
-                        <RefreshCw size={12} strokeWidth={2.2} />
-                      </button>
+                          }}
+                          className="inline-flex h-[22px] w-6 items-center justify-center rounded-xs border border-gray-200 bg-white p-0 transition disabled:cursor-wait disabled:opacity-60"
+                          style={{ color: brand.color }}
+                          title="刷新此榜单"
+                        >
+                          <RefreshCw size={12} strokeWidth={2.2} />
+                        </button>
+                      )}
                       {lastSynced && (
                         <span className="rounded bg-white px-1.5 py-px text-[9px] text-gray-400">
                           {formatTime(lastSynced)}

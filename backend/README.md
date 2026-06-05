@@ -24,5 +24,23 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-Files such as `tests/test_duckdb.py`, `tests/test_cost.py`, and `test_perf.py`
-are manual diagnostics rather than pytest tests.
+Files such as `tests/test_duckdb.py`, `tests/test_cost.py`,
+`scripts/duckdb_perf.py`, and `scripts/perf_baseline.py` are manual diagnostics
+rather than pytest tests.
+
+## Manual diagnostics
+
+```bash
+cd backend
+python scripts/duckdb_perf.py
+python scripts/perf_baseline.py
+```
+
+Operational helper scripts live under `scripts/` as well. For example,
+`scripts/batch_analyze.sh` analyzes local content items that do not yet have an
+AI analysis:
+
+```bash
+cd backend
+./scripts/batch_analyze.sh
+```

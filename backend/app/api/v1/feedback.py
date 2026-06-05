@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete, select, func
 
+from app.api.v1.auth import get_current_user
 from app.core.dependencies import get_db
 from app.models.feedback import (
     UserFeedback,
@@ -18,7 +19,7 @@ from app.schemas.feedback import (
 )
 from app.services.content_read_cache import invalidate_content_read_caches
 
-router = APIRouter(prefix="/feedback", tags=["feedback"])
+router = APIRouter(prefix="/feedback", tags=["feedback"], dependencies=[Depends(get_current_user)])
 
 
 @router.post("", response_model=FeedbackResponse, status_code=201)

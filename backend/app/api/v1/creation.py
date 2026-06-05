@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_user
 from app.core.database import async_session
 from app.services.creation import generate_creation_plan, PLATFORM_PROMPTS
 
@@ -25,7 +26,11 @@ async def get_db():
 
 
 @router.post("/plan")
-async def create_plan(req: CreationRequest, db: AsyncSession = Depends(get_db)):
+async def create_plan(
+    req: CreationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     """Generate a creation plan for a content item on a specific platform."""
     if req.platform not in PLATFORM_PROMPTS:
         raise HTTPException(

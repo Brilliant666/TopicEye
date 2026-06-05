@@ -702,11 +702,16 @@ const FEEDBACK_OPTIONS: { type: FeedbackType; icon: LucideIcon; label: string; c
 ];
 
 function FeedbackButtons({ contentId }: { contentId: number }) {
+  const { currentUser } = useAppContext();
   const [activeFeedback, setActiveFeedback] = useState<FeedbackType | null>(null);
   const [showMore, setShowMore] = useState(false);
 
   const handleFeedback = async (type: FeedbackType) => {
     if (activeFeedback === type) return; // already submitted
+    if (!currentUser) {
+      window.location.href = '/login';
+      return;
+    }
     try {
       await feedbackApi.submit(contentId, type);
       setActiveFeedback(type);

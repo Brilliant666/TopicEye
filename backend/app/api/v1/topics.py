@@ -15,7 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import Optional, Any
 
+from app.api.v1.auth import get_current_admin_user
 from app.core.database import get_db
+from app.models.user import User
 from app.models.topic import TopicGroup
 from app.models.content import ContentItem
 from app.services.topic_clustering import cluster_and_dedup
@@ -43,6 +45,7 @@ class TopicListResponse(BaseModel):
 @router.post("/cluster")
 async def run_clustering(
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
 ):
     """Run dedup + topic clustering on all analyzed content."""
     stats = await cluster_and_dedup(db)

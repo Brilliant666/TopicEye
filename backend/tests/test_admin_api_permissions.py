@@ -16,9 +16,11 @@ from app.api.v1 import qimao as qimao_api
 from app.api.v1 import scheduler as scheduler_api
 from app.api.v1 import settings as settings_api
 from app.api.v1 import sources as sources_api
+from app.api.v1 import topics as topics_api
 from app.api.v1 import webnovel_reports as webnovel_reports_api
 from app.api.v1 import zhihu as zhihu_api
 from app.core.database import Base
+from app.models.topic import TopicGroup
 from app.services.auth_service import create_session, create_user
 from app.services.llm.model_list_cache import invalidate_model_list_cache
 from app.services.source_cache import invalidate_source_list_cache
@@ -39,6 +41,7 @@ async def admin_api_client(monkeypatch) -> AsyncGenerator[tuple[httpx.AsyncClien
         admin = await create_user(db, email="admin@example.com", password="Password123", role="admin")
         user_token, _ = await create_session(db, user)
         admin_token, _ = await create_session(db, admin)
+        db.add(TopicGroup(name="公开话题", keywords=["topic"], content_count=0, best_score=12.0))
         await db.commit()
 
     app = FastAPI()
@@ -51,6 +54,7 @@ async def admin_api_client(monkeypatch) -> AsyncGenerator[tuple[httpx.AsyncClien
     app.include_router(webnovel_reports_api.router)
     app.include_router(llm_models_api.router)
     app.include_router(scheduler_api.router)
+    app.include_router(topics_api.router)
 
     async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         async with session_factory() as session:
@@ -70,6 +74,7 @@ async def admin_api_client(monkeypatch) -> AsyncGenerator[tuple[httpx.AsyncClien
         zhihu_api.get_db,
         webnovel_reports_api.get_db,
         llm_models_api.get_db,
+        topics_api.get_db,
     }:
         app.dependency_overrides[dependency] = override_get_db
 
@@ -77,6 +82,11 @@ async def admin_api_client(monkeypatch) -> AsyncGenerator[tuple[httpx.AsyncClien
         return []
 
     monkeypatch.setattr(scheduler_api, "get_all_job_configs", fake_jobs)
+
+    async def fake_cluster_and_dedup(db):
+        return {"groups": 1}
+
+    monkeypatch.setattr(topics_api, "cluster_and_dedup", fake_cluster_and_dedup)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -172,3 +182,22 @@ async def test_webnovel_sync_apis_still_require_admin(admin_api_client, monkeypa
         assert admin.status_code == 200, endpoint
 
     assert sync_calls == ["fanqie", "qimao", "zhihu"]
+
+
+@pytest.mark.asyncio
+async def test_topic_reads_are_public_but_clustering_requires_admin(admin_api_client):
+    client, user_token, admin_token = admin_api_client
+
+    public_list = await client.get("/topics")
+    assert public_list.status_code == 200
+    assert public_list.json()["items"][0]["name"] == "公开话题"
+
+    anonymous = await client.post("/topics/cluster")
+    assert anonymous.status_code == 401
+
+    ordinary = await client.post("/topics/cluster", headers={"Authorization": f"Bearer {user_token}"})
+    assert ordinary.status_code == 403
+
+    admin = await client.post("/topics/cluster", headers={"Authorization": f"Bearer {admin_token}"})
+    assert admin.status_code == 200
+    assert admin.json() == {"status": "ok", "stats": {"groups": 1}}

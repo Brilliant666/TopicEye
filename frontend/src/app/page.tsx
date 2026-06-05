@@ -101,7 +101,7 @@ function formatTimelineDate(dateStr: string): string {
 // ── Page Component ──
 
 export default function HomePage() {
-  const { toggleFavorite, refreshCounts } = useAppContext();
+  const { currentUser, toggleFavorite, refreshCounts } = useAppContext();
   const [items, setItems] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -143,6 +143,10 @@ export default function HomePage() {
   }, [activeTimeRange, activeSourceType]);
 
   const handleIgnore = useCallback(async (id: number) => {
+    if (!currentUser) {
+      window.location.href = '/login';
+      return;
+    }
     try {
       await contentsApi.ignore(id);
       setItems((prev) => prev.filter((item) => item.id !== id));
@@ -150,7 +154,7 @@ export default function HomePage() {
     } catch (err) {
       console.error('Ignore failed:', err);
     }
-  }, [refreshCounts]);
+  }, [currentUser, refreshCounts]);
 
   // Dynamic categories derived from data
   const categories = useMemo(() => {

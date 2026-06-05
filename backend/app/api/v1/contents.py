@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_user
+from app.api.v1.auth import get_current_admin_user, get_current_user
 from app.core.database import async_session, database_profile, get_db
 from app.core.config import settings
 from app.core.sqlite_retry import retry_sqlite_locked, is_sqlite_locked
@@ -322,7 +322,11 @@ async def list_favorites(
 
 
 @router.get("/{content_id}/enrich")
-async def get_enrichment(content_id: int, db: AsyncSession = Depends(get_db)):
+async def get_enrichment(
+    content_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Get or trigger Round-2 enrichment for a content item."""
     from app.services.enricher import enrich_content
     analysis = await AnalysisRepository(db).get_by_content_id(content_id)
@@ -348,6 +352,7 @@ async def enrich_top_items(
     min_score: float = Query(70.0, ge=0, le=100),
     limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
 ):
     """Batch-enrich top curated items (scheduler-friendly)."""
     from app.services.enricher import enrich_batch
@@ -437,6 +442,7 @@ async def ignore_content(
     content_id: int,
     reason: str = Query("not_interested", description="Ignore reason: not_interested, seen, irrelevant"),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Mark a content item as ignored (won't appear in feeds)."""
     from app.repositories.ignored_repo import IgnoredRepo
@@ -449,7 +455,11 @@ async def ignore_content(
 
 
 @router.delete("/{content_id}/ignore")
-async def unignore_content(content_id: int, db: AsyncSession = Depends(get_db)):
+async def unignore_content(
+    content_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Remove ignore flag from a content item."""
     from app.repositories.ignored_repo import IgnoredRepo
     removed = await IgnoredRepo(db).unignore(content_id)

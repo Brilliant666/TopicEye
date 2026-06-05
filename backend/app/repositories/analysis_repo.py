@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.models.analysis import AiAnalysis
 from app.repositories.base import BaseRepository
@@ -22,6 +22,23 @@ class AnalysisRepository(BaseRepository[AiAnalysis]):
         stmt = select(AiAnalysis).where(AiAnalysis.content_id == content_id)
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_pending_enrichment_ids(self, min_score: float, limit: int) -> list[int]:
+        """Return high-value analysis content IDs that still need enrichment."""
+        stmt = (
+            select(AiAnalysis.content_id)
+            .where(
+                AiAnalysis.curation_score >= min_score,
+                or_(
+                    AiAnalysis.enrichment_status.is_(None),
+                    AiAnalysis.enrichment_status != "completed",
+                ),
+            )
+            .order_by(AiAnalysis.curation_score.desc(), AiAnalysis.created_at.desc())
+            .limit(limit)
+        )
+        result = await self.db.execute(stmt)
+        return [int(content_id) for content_id in result.scalars().all()]
 
     async def list_with_score_filter(
         self,

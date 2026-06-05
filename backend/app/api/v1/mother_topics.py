@@ -12,9 +12,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_admin_user, get_current_user
 from app.core.database import get_db
 from app.models.mother_topic import MotherTopic
 from app.models.content import ContentItem
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/mother-topics", tags=["母题"])
@@ -95,8 +97,11 @@ class ContentScoringResult(BaseModel):
 async def list_mother_topics(
     active_only: bool = False,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """列出所有母题，支持只返回激活的。"""
+    if not active_only and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin privileges required")
     stmt = select(MotherTopic).order_by(MotherTopic.display_order, MotherTopic.id)
     if active_only:
         stmt = stmt.where(MotherTopic.is_active == True)
@@ -109,6 +114,7 @@ async def list_mother_topics(
 async def create_mother_topic(
     topic_in: MotherTopicCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
 ):
     """创建新母题。"""
     topic = MotherTopic(
@@ -132,6 +138,7 @@ async def update_mother_topic(
     topic_id: int,
     update_in: MotherTopicUpdate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
 ):
     """更新母题。"""
     topic = await db.get(MotherTopic, topic_id)
@@ -149,6 +156,7 @@ async def update_mother_topic(
 async def delete_mother_topic(
     topic_id: int,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
 ):
     """删除母题（软删除：is_active=False）。"""
     topic = await db.get(MotherTopic, topic_id)
@@ -163,6 +171,7 @@ async def delete_mother_topic(
 async def score_content(
     req: ContentScoringRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     对单条内容按母题打分。
@@ -227,6 +236,7 @@ class BatchScoringResult(BaseModel):
 async def score_content_batch(
     req: BatchScoringRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     批量对多条内容按母题打分。
@@ -285,6 +295,7 @@ async def score_content_batch(
 async def match_content_to_topics(
     content_id: int,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """对已入库的内容重新匹配母题。"""
     content = await db.get(ContentItem, content_id)

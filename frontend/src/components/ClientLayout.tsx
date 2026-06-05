@@ -55,6 +55,7 @@ export function useAppContext() {
 const FAVORITES_STORAGE_KEY = 'topiceye_favorites';
 const FAVORITE_TARGETS_STORAGE_KEY = 'topiceye_favorite_targets';
 const FAVORITE_INDEX_PAGE_SIZE = 200;
+const CHROMELESS_PATHS = new Set(['/login']);
 
 function userStorageKey(baseKey: string, userId: number | null): string {
   return userId ? `${baseKey}:user:${userId}` : baseKey;
@@ -139,6 +140,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
   const [sourceCount, setSourceCount] = useState(0);
   const [favoriteTotal, setFavoriteTotal] = useState(0);
   const [compactNav, setCompactNav] = useState(false);
+  const isChromelessPath = CHROMELESS_PATHS.has(pathname);
 
   const applyAuthSession = useCallback((session: AuthTokenResponse) => {
     setAuthToken(session.access_token);
@@ -433,25 +435,31 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         refreshCounts,
       }}
     >
-      <div className="flex h-dvh overflow-hidden">
-        <Sidebar
-          topicCount={contentCount}
-          favCount={favoriteTotal}
-          sourceCount={sourceCount}
-          compact={compactNav}
-          currentUser={currentUser}
-          authLoading={authLoading}
-          onLogout={logout}
-        />
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-page">
-          <div className="flex h-12 shrink-0 items-center justify-end border-b border-gray-100 bg-white px-6">
-            {currentUser && <NotificationBell />}
-          </div>
-          <div className="min-h-0 flex-1 overflow-auto">
-            {children}
-          </div>
+      {isChromelessPath ? (
+        <main className="h-dvh overflow-hidden bg-page">
+          {children}
         </main>
-      </div>
+      ) : (
+        <div className="flex h-dvh overflow-hidden">
+          <Sidebar
+            topicCount={contentCount}
+            favCount={favoriteTotal}
+            sourceCount={sourceCount}
+            compact={compactNav}
+            currentUser={currentUser}
+            authLoading={authLoading}
+            onLogout={logout}
+          />
+          <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-page">
+            <div className="flex h-12 shrink-0 items-center justify-end border-b border-gray-100 bg-white px-6">
+              {currentUser && <NotificationBell />}
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              {children}
+            </div>
+          </main>
+        </div>
+      )}
     </AppContext.Provider>
   );
 }

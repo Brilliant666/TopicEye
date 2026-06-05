@@ -1,8 +1,62 @@
+from typing import AsyncGenerator
+
+import httpx
+import pytest
+from fastapi import FastAPI
+from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from app.api.v1 import auth as auth_api
 from app.api.v1 import stats
+from app.core.database import Base
+from app.services.auth_service import create_session, create_user
 from app.services.json_cache import get_cached_json, invalidate_json_cache
 
-import pytest
-from fastapi import HTTPException
+
+@pytest.mark.asyncio
+async def test_stats_routes_require_login(monkeypatch):
+    invalidate_json_cache()
+    monkeypatch.setattr(stats.settings, "READ_CACHE_TTL_SECONDS", 60)
+    monkeypatch.setattr(stats, "query_stats_source_distribution", lambda days=7: {"sources": []})
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        user = await create_user(db, email="stats-user@example.com", password="Password123", role="user")
+        token, _session = await create_session(db, user)
+        await db.commit()
+
+    app = FastAPI()
+    app.include_router(stats.router)
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[auth_api.get_db] = override_get_db
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        anonymous = await client.get("/stats/source-distribution?days=7")
+        assert anonymous.status_code == 401
+
+        authorized = await client.get(
+            "/stats/source-distribution?days=7",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert authorized.status_code == 200
+        assert authorized.headers["X-Analytics-Backend"] == "duckdb"
+
+    invalidate_json_cache()
+    await engine.dispose()
 
 
 @pytest.mark.asyncio

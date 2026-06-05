@@ -4,11 +4,12 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.api.v1.auth import get_current_user
 from app.core.database import async_session
 from app.services.duckdb_service import (
     query_dashboard_stats,
@@ -21,7 +22,7 @@ from app.services.duckdb_service import (
 from app.services.json_cache import get_cached_json, set_cached_json
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/stats", tags=["stats"])
+router = APIRouter(prefix="/stats", tags=["stats"], dependencies=[Depends(get_current_user)])
 ANALYTICS_HEADERS = {"X-Analytics-Backend": "duckdb"}
 DEFAULT_STATS_DAYS = 7
 STATS_CACHE_KEYS = {

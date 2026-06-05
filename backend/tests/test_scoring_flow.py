@@ -1,10 +1,15 @@
 import time
+from typing import AsyncGenerator
 
 import httpx
 import pytest
 from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.api.v1 import auth as auth_api
 from app.api.v1 import contents as contents_api
+from app.core.database import Base
+from app.services.auth_service import create_session, create_user
 from app.services.scoring_engine import ScoreBreakdown, ScoringInput
 from app.services.scoring_flow import (
     build_empty_payload,
@@ -294,8 +299,30 @@ async def test_scoring_flow_api_cache_headers_and_503(monkeypatch):
     invalidate_scoring_flow_cache()
     monkeypatch.setattr(contents_api, "async_session", _dummy_session_factory)
 
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        user = await create_user(db, email="algorithm-user@example.com", password="Password123", role="user")
+        token, _session = await create_session(db, user)
+        await db.commit()
+
     app = FastAPI()
     app.include_router(contents_api.router)
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[auth_api.get_db] = override_get_db
+
     transport = httpx.ASGITransport(app=app)
     calls = {"count": 0}
 
@@ -316,9 +343,17 @@ async def test_scoring_flow_api_cache_headers_and_503(monkeypatch):
     monkeypatch.setattr(contents_api, "build_scoring_flow_payload", fake_build_scoring_flow_payload)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        first = await client.get("/contents/scoring-flow?hours=24&limit=160")
-        second = await client.get("/contents/scoring-flow?hours=24&limit=160")
+        anonymous = await client.get("/contents/scoring-flow?hours=24&limit=160")
+        first = await client.get(
+            "/contents/scoring-flow?hours=24&limit=160",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        second = await client.get(
+            "/contents/scoring-flow?hours=24&limit=160",
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
+    assert anonymous.status_code == 401
     assert first.status_code == 200
     assert first.headers["x-scoring-flow-cache"] == "MISS"
     assert first.json()["cache"]["hit"] is False
@@ -335,8 +370,12 @@ async def test_scoring_flow_api_cache_headers_and_503(monkeypatch):
     monkeypatch.setattr(contents_api, "build_scoring_flow_payload", fail_build_scoring_flow_payload)
 
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        failed = await client.get("/contents/scoring-flow?hours=24&limit=160")
+        failed = await client.get(
+            "/contents/scoring-flow?hours=24&limit=160",
+            headers={"Authorization": f"Bearer {token}"},
+        )
 
     assert failed.status_code == 503
     assert failed.json()["detail"] == "Scoring flow unavailable"
     invalidate_scoring_flow_cache()
+    await engine.dispose()

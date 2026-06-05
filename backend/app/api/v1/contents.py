@@ -256,6 +256,7 @@ async def today_picks(
 async def scoring_flow(
     hours: Optional[int] = Query(None, ge=1, le=720),
     limit: Optional[int] = Query(None, ge=20, le=500),
+    current_user: User = Depends(get_current_user),
 ):
     """Return a read-only explanation payload for the content scoring funnel."""
     hours = hours or DEFAULT_SCORING_FLOW_HOURS

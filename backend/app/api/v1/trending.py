@@ -13,6 +13,7 @@ from pydantic import field_serializer
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_admin_user
 from app.core.config import settings
 from app.core.database import async_session, get_db
 from app.models.trending import TrendingItem, TrendingCategory, TrendingSource
@@ -179,7 +180,17 @@ async def build_trending_sources_payload(db: AsyncSession) -> list[dict]:
     return payload
 
 
-@router.post("/sync/{source_name}")
+@router.post("/sync-all", dependencies=[Depends(get_current_admin_user)])
+async def trigger_sync_all(
+    db: AsyncSession = Depends(get_db),
+):
+    """手动触发所有趋势源同步。"""
+    results = await sync_all_trending(db)
+    invalidate_trending_cache()
+    return results
+
+
+@router.post("/sync/{source_name}", dependencies=[Depends(get_current_admin_user)])
 async def trigger_sync(
     source_name: str,
     db: AsyncSession = Depends(get_db),
@@ -188,16 +199,6 @@ async def trigger_sync(
     result = await sync_trending_source(source_name, db)
     invalidate_trending_cache()
     return result
-
-
-@router.post("/sync-all")
-async def trigger_sync_all(
-    db: AsyncSession = Depends(get_db),
-):
-    """手动触发所有趋势源同步。"""
-    results = await sync_all_trending(db)
-    invalidate_trending_cache()
-    return results
 
 
 @router.get("/cross-platform")
@@ -287,7 +288,7 @@ async def get_snapshot_diff_api(
     return {"source": source, "available": True, **diff}
 
 
-@router.post("/snapshots/save")
+@router.post("/snapshots/save", dependencies=[Depends(get_current_admin_user)])
 async def manual_save_snapshots(
     db: AsyncSession = Depends(get_db),
 ):

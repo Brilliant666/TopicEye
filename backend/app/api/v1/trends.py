@@ -14,9 +14,10 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from typing import Optional
 
+from app.api.v1.auth import get_current_admin_user
 from app.core.database import async_session
 from app.services import duckdb_service
 from app.services.trends import snapshot_daily_trends
@@ -26,7 +27,7 @@ router = APIRouter(prefix="/trends", tags=["trends"])
 ANALYTICS_HEADERS = {"X-Analytics-Backend": "duckdb"}
 
 
-@router.post("/snapshot")
+@router.post("/snapshot", dependencies=[Depends(get_current_admin_user)])
 async def trigger_snapshot(
     target_date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today"),
 ):

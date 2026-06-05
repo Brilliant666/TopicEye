@@ -8,11 +8,10 @@ import os
 import secrets
 from typing import Optional
 
-from sqlalchemy import select, update
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.sqlite_retry import is_sqlite_locked
+from app.core.sqlite_retry import retry_sqlite_locked
 from app.models.user import User, UserSession
 
 _HASH_ALGORITHM = "pbkdf2_sha256"
@@ -136,9 +135,14 @@ async def create_session(db: AsyncSession, user: User, *, days: int = 30) -> tup
         token_hash=hash_token(token),
         expires_at=datetime.utcnow() + timedelta(days=days),
     )
-    db.add(session)
-    await db.flush()
-    await db.refresh(session)
+
+    async def insert_session() -> UserSession:
+        db.add(session)
+        await db.flush()
+        await db.refresh(session)
+        return session
+
+    await retry_sqlite_locked(insert_session, on_retry=db.rollback)
     return token, session
 
 
@@ -157,18 +161,7 @@ async def get_user_for_token(db: AsyncSession, token: str) -> Optional[User]:
     row = result.first()
     if not row:
         return None
-    session_id, user_id = row
-    try:
-        await db.execute(
-            update(UserSession)
-            .where(UserSession.id == session_id)
-            .values(last_seen_at=now)
-        )
-        await db.flush()
-    except OperationalError as exc:
-        if not is_sqlite_locked(exc):
-            raise
-        await db.rollback()
+    _, user_id = row
     return await db.get(User, user_id)
 
 

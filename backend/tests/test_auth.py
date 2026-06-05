@@ -28,28 +28,49 @@ class _FakeSessionLookupResult:
         return self._row
 
 
-class _LockedLastSeenSession:
+class _ReadOnlyTokenLookupSession:
     def __init__(self, user):
         self.user = user
         self.execute_count = 0
-        self.rolled_back = False
 
     async def execute(self, _statement):
         self.execute_count += 1
-        if self.execute_count == 1:
-            return _FakeSessionLookupResult((101, self.user.id))
-        raise OperationalError("UPDATE user_sessions", {}, Exception("database is locked"))
+        return _FakeSessionLookupResult((101, self.user.id))
 
     async def flush(self):
-        raise AssertionError("flush should not run after a locked update")
+        raise AssertionError("token lookup should not write last_seen_at")
 
     async def rollback(self):
-        self.rolled_back = True
+        raise AssertionError("token lookup should not need rollback")
 
     async def get(self, model, user_id):
         assert model is User
         assert user_id == self.user.id
         return self.user
+
+
+class _LockedCreateSessionDb:
+    def __init__(self):
+        self.add_count = 0
+        self.flush_count = 0
+        self.refresh_count = 0
+        self.rollback_count = 0
+
+    def add(self, item):
+        self.add_count += 1
+        self.item = item
+
+    async def flush(self):
+        self.flush_count += 1
+        if self.flush_count == 1:
+            raise OperationalError("INSERT user_sessions", {}, Exception("database is locked"))
+
+    async def refresh(self, item):
+        self.refresh_count += 1
+        assert item is self.item
+
+    async def rollback(self):
+        self.rollback_count += 1
 
 
 @pytest.mark.asyncio
@@ -98,15 +119,29 @@ async def test_auth_service_session_lifecycle():
 
 
 @pytest.mark.asyncio
-async def test_get_user_for_token_returns_user_when_last_seen_sqlite_locked():
-    user = User(id=7, email="locked@example.com", password_hash="hash", display_name="Locked")
-    db = _LockedLastSeenSession(user)
+async def test_get_user_for_token_does_not_write_last_seen():
+    user = User(id=7, email="readonly@example.com", password_hash="hash", display_name="Readonly")
+    db = _ReadOnlyTokenLookupSession(user)
 
     current_user = await get_user_for_token(db, "session-token")
 
     assert current_user is user
-    assert db.rolled_back is True
-    assert db.execute_count == 2
+    assert db.execute_count == 1
+
+
+@pytest.mark.asyncio
+async def test_create_session_retries_sqlite_locked_insert():
+    user = User(id=7, email="locked@example.com", password_hash="hash", display_name="Locked")
+    db = _LockedCreateSessionDb()
+
+    token, session = await create_session(db, user)
+
+    assert token
+    assert session.user_id == user.id
+    assert db.add_count == 2
+    assert db.flush_count == 2
+    assert db.refresh_count == 1
+    assert db.rollback_count == 1
 
 
 @pytest.mark.asyncio

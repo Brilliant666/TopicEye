@@ -276,7 +276,8 @@ async def ensure_favorite_items_schema(conn) -> None:
     if not database_profile.is_sqlite:
         return
 
-    admin_email = settings.ADMIN_EMAIL.strip().lower()
+    admin_email = (settings.ADMIN_EMAIL or "").strip().lower()
+    admin_user_id: int | None = None
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -290,29 +291,36 @@ async def ensure_favorite_items_schema(conn) -> None:
             updated_at DATETIME NOT NULL
         )
     """))
-    await conn.execute(text("""
-        INSERT OR IGNORE INTO users (
-            email, password_hash, display_name, plan, role, is_active, created_at, updated_at
+    if admin_email:
+        await conn.execute(text("""
+            INSERT OR IGNORE INTO users (
+                email, password_hash, display_name, plan, role, is_active, created_at, updated_at
+            )
+            VALUES (
+                :email,
+                '__seeded_after_startup__',
+                :display_name,
+                'free',
+                'admin',
+                1,
+                CURRENT_TIMESTAMP,
+                CURRENT_TIMESTAMP
+            )
+        """), {
+            "email": admin_email,
+            "display_name": settings.ADMIN_DISPLAY_NAME,
+        })
+        admin_id_result = await conn.execute(
+            text("SELECT id FROM users WHERE email = :email"),
+            {"email": admin_email},
         )
-        VALUES (
-            :email,
-            '__seeded_after_startup__',
-            :display_name,
-            'free',
-            'admin',
-            1,
-            CURRENT_TIMESTAMP,
-            CURRENT_TIMESTAMP
+        admin_user_id = int(admin_id_result.scalar_one() or 1)
+    else:
+        admin_id_result = await conn.execute(
+            text("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1")
         )
-    """), {
-        "email": admin_email,
-        "display_name": settings.ADMIN_DISPLAY_NAME,
-    })
-    admin_id_result = await conn.execute(
-        text("SELECT id FROM users WHERE email = :email"),
-        {"email": admin_email},
-    )
-    admin_user_id = int(admin_id_result.scalar_one() or 1)
+        existing_admin_id = admin_id_result.scalar_one_or_none()
+        admin_user_id = int(existing_admin_id) if existing_admin_id else None
 
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS favorite_items (
@@ -341,10 +349,11 @@ async def ensure_favorite_items_schema(conn) -> None:
     columns = {row[1] for row in result.fetchall()}
     if "user_id" not in columns:
         await conn.execute(text("ALTER TABLE favorite_items ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1"))
-        await conn.execute(
-            text("UPDATE favorite_items SET user_id = :user_id WHERE user_id = 1"),
-            {"user_id": admin_user_id},
-        )
+        if admin_user_id is not None:
+            await conn.execute(
+                text("UPDATE favorite_items SET user_id = :user_id WHERE user_id = 1"),
+                {"user_id": admin_user_id},
+            )
     if "position" not in columns:
         await conn.execute(text("ALTER TABLE favorite_items ADD COLUMN position INTEGER NOT NULL DEFAULT 0"))
 
@@ -410,7 +419,7 @@ async def ensure_favorite_items_schema(conn) -> None:
                 COALESCE(created_at, CURRENT_TIMESTAMP),
                 COALESCE(updated_at, CURRENT_TIMESTAMP)
             FROM favorite_items
-        """), {"user_id": admin_user_id})
+        """), {"user_id": admin_user_id or 1})
         await conn.execute(text("DROP TABLE favorite_items"))
         await conn.execute(text("ALTER TABLE favorite_items_new RENAME TO favorite_items"))
 
@@ -426,37 +435,38 @@ async def ensure_favorite_items_schema(conn) -> None:
         "CREATE INDEX IF NOT EXISTS ix_favorite_items_user_status_position "
         "ON favorite_items(user_id, status, position)"
     ))
-    await conn.execute(text("""
-        INSERT OR IGNORE INTO favorite_items (
-            user_id, target_type, target_id, target_key, title, url, cover_url, source_name,
-            status, position, snapshot, created_at, updated_at
-        )
-        SELECT
-            :user_id,
-            'content',
-            id,
-            CAST(id AS TEXT),
-            title,
-            url,
-            cover_url,
-            source_name,
-            'inbox',
-            id * 1000,
-            json_object(
-                'content_id', id,
-                'category', category,
-                'source_type', source_type,
-                'platform', platform,
-                'author', author,
-                'published_at', published_at,
-                'crawled_at', crawled_at,
-                'summary', summary
-            ),
-            COALESCE(updated_at, created_at, CURRENT_TIMESTAMP),
-            COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
-        FROM content_items
-        WHERE is_favorited = 1
-    """), {"user_id": admin_user_id})
+    if admin_user_id is not None:
+        await conn.execute(text("""
+            INSERT OR IGNORE INTO favorite_items (
+                user_id, target_type, target_id, target_key, title, url, cover_url, source_name,
+                status, position, snapshot, created_at, updated_at
+            )
+            SELECT
+                :user_id,
+                'content',
+                id,
+                CAST(id AS TEXT),
+                title,
+                url,
+                cover_url,
+                source_name,
+                'inbox',
+                id * 1000,
+                json_object(
+                    'content_id', id,
+                    'category', category,
+                    'source_type', source_type,
+                    'platform', platform,
+                    'author', author,
+                    'published_at', published_at,
+                    'crawled_at', crawled_at,
+                    'summary', summary
+                ),
+                COALESCE(updated_at, created_at, CURRENT_TIMESTAMP),
+                COALESCE(updated_at, created_at, CURRENT_TIMESTAMP)
+            FROM content_items
+            WHERE is_favorited = 1
+        """), {"user_id": admin_user_id})
     await conn.execute(text("""
         UPDATE favorite_items
         SET position = id * 1000
@@ -565,20 +575,24 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Startup table creation skipped by config")
 
-    if settings.ADMIN_SEED_ENABLED:
+    admin_email = (settings.ADMIN_EMAIL or "").strip()
+    admin_password = settings.ADMIN_PASSWORD or ""
+    if settings.ADMIN_SEED_ENABLED and admin_email and admin_password:
         try:
             from app.services.auth_service import ensure_admin_user
             async with async_session() as admin_db:
                 admin = await ensure_admin_user(
                     admin_db,
-                    email=settings.ADMIN_EMAIL,
-                    password=settings.ADMIN_PASSWORD,
+                    email=admin_email,
+                    password=admin_password,
                     display_name=settings.ADMIN_DISPLAY_NAME,
                 )
                 await admin_db.commit()
                 logger.info("Admin account ready: %s", admin.email)
         except Exception as e:
             logger.warning("Admin account seed skipped: %s", e)
+    elif settings.ADMIN_SEED_ENABLED:
+        logger.info("Admin account seed skipped: ADMIN_EMAIL and ADMIN_PASSWORD are not configured")
     else:
         logger.info("Admin account seed skipped by config")
 

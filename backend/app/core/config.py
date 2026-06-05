@@ -16,10 +16,10 @@ class Settings(BaseSettings):
     # ── Startup behavior ──
     AUTO_CREATE_TABLES_ON_STARTUP: bool = True
     STARTUP_SEED_ENABLED: bool = True
-    ADMIN_SEED_ENABLED: bool = True
-    ADMIN_EMAIL: str = "admin@topiceye.local"
-    ADMIN_PASSWORD: str = "TopicEyeAdmin123!"
-    ADMIN_DISPLAY_NAME: str = "TopicEye 管理员"
+    ADMIN_SEED_ENABLED: bool = False
+    ADMIN_EMAIL: Optional[str] = None
+    ADMIN_PASSWORD: Optional[str] = None
+    ADMIN_DISPLAY_NAME: Optional[str] = None
     APP_SECRET_KEY: str = "topiceye-local-dev-secret-change-me"
     INTEGRATION_SECRET_KEY: Optional[str] = None
     SCHEDULER_ENABLED: bool = True

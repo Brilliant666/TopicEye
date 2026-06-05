@@ -91,10 +91,20 @@ def sync_database_url(url: str) -> str:
     parsed = make_url(url)
     backend = database_backend(url)
     if backend == "sqlite":
-        return str(parsed.set(drivername="sqlite"))
+        return _render_url(parsed.set(drivername="sqlite"))
     if backend == "postgresql":
-        return str(parsed.set(drivername="postgresql"))
-    return str(parsed)
+        return _render_url(parsed.set(drivername="postgresql"))
+    return _render_url(parsed)
+
+
+def async_database_url(url: str) -> str:
+    parsed = make_url(url)
+    backend = database_backend(url)
+    if backend == "sqlite":
+        return _render_url(parsed.set(drivername="sqlite+aiosqlite"))
+    if backend == "postgresql":
+        return _render_url(parsed.set(drivername="postgresql+asyncpg"))
+    return _render_url(parsed)
 
 
 def sqlite_path_from_url(url: str) -> Optional[str]:
@@ -136,18 +146,19 @@ def create_database_profile(
             "Unsupported database backend for DATABASE_URL: "
             f"{driver}. Use sqlite+aiosqlite:// or postgresql+asyncpg://."
         )
-    parsed = make_url(url)
+    normalized_url = async_database_url(url)
+    normalized = make_url(normalized_url)
     domain_urls = (
-        sqlite_domain_urls(url, sqlite_domain_dir)
+        sqlite_domain_urls(normalized_url, sqlite_domain_dir)
         if backend == "sqlite" and sqlite_domain_split_enabled
         else {}
     )
     return DatabaseProfile(
-        url=url,
+        url=normalized_url,
         backend=backend,
-        async_driver=parsed.drivername.split("+", 1)[1] if "+" in parsed.drivername else None,
-        sync_url=sync_database_url(url),
-        sqlite_path=sqlite_path_from_url(url),
+        async_driver=normalized.drivername.split("+", 1)[1] if "+" in normalized.drivername else None,
+        sync_url=sync_database_url(normalized_url),
+        sqlite_path=sqlite_path_from_url(normalized_url),
         sqlite_domain_urls=domain_urls,
     )
 
@@ -260,3 +271,7 @@ def _libpq_value(value: str) -> str:
 
 def _duckdb_sql_literal(value: str) -> str:
     return value.replace("'", "''")
+
+
+def _render_url(url: URL) -> str:
+    return url.render_as_string(hide_password=False)

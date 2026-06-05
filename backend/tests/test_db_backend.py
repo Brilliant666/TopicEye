@@ -1,4 +1,5 @@
 from app.core.db_backend import (
+    async_database_url,
     create_database_profile,
     database_backend,
     database_diagnostics,
@@ -12,12 +13,14 @@ from app.core.db_backend import (
 
 def test_sqlite_profile_and_duckdb_attach_sql(tmp_path):
     db_path = tmp_path / "topiceye.db"
-    url = f"sqlite+aiosqlite:///{db_path}"
+    url = f"sqlite:///{db_path}"
 
     profile = create_database_profile(url)
 
     assert database_backend(url) == "sqlite"
     assert profile.is_sqlite
+    assert profile.url.startswith("sqlite+aiosqlite:///")
+    assert async_database_url(url).startswith("sqlite+aiosqlite:///")
     assert profile.sync_url.startswith("sqlite:///")
     assert profile.sqlite_path == str(db_path)
     assert duckdb_extension_name(profile) == "sqlite"
@@ -41,12 +44,14 @@ def test_sqlite_profile_and_duckdb_attach_sql(tmp_path):
 
 
 def test_postgresql_profile_and_duckdb_attach_sql():
-    url = "postgresql+asyncpg://topiceye:secret@localhost:5432/topiceye"
+    url = "postgresql://topiceye:secret@localhost:5432/topiceye"
 
     profile = create_database_profile(url)
 
     assert database_backend(url) == "postgresql"
     assert profile.is_postgresql
+    assert profile.url == "postgresql+asyncpg://topiceye:***@localhost:5432/topiceye".replace("***", "secret")
+    assert async_database_url(url) == profile.url
     assert sync_database_url(url).startswith("postgresql://")
     assert duckdb_extension_name(profile) == "postgres"
     attach_sql = duckdb_attach_sql(profile)
@@ -68,6 +73,19 @@ def test_postgresql_profile_and_duckdb_attach_sql():
         "extension": "postgres",
     }
     assert "secret" not in str(diagnostics)
+
+
+def test_postgres_alias_profile_uses_asyncpg_and_duckdb_postgres_attach():
+    url = "postgres://topiceye:secret@localhost:5432/topiceye"
+
+    profile = create_database_profile(url)
+
+    assert database_backend(url) == "postgresql"
+    assert profile.url == "postgresql+asyncpg://topiceye:secret@localhost:5432/topiceye"
+    assert profile.sync_url == "postgresql://topiceye:secret@localhost:5432/topiceye"
+    assert profile.async_driver == "asyncpg"
+    assert duckdb_extension_name(profile) == "postgres"
+    assert "TYPE postgres" in duckdb_attach_sql(profile)
 
 
 def test_database_secret_redaction_covers_urls_conninfo_and_attach_sql():

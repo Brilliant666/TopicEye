@@ -15,16 +15,6 @@ services:
       - DUCKDB_THREADS=${DUCKDB_THREADS:-2}
       - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-256MB}
       - DUCKDB_EXTENSION_DIR=${DUCKDB_EXTENSION_DIR:-./data/duckdb_extensions}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
-      - LLM_PROVIDER=${LLM_PROVIDER:-deepseek}
-      - LLM_API_KEY=${LLM_API_KEY:-}
-      - LLM_BASE_URL=${LLM_BASE_URL:-}
-      - LLM_MODEL=${LLM_MODEL:-deepseek/deepseek-chat}
-      - LLM_FALLBACK_ENABLED=${LLM_FALLBACK_ENABLED:-false}
-      - LLM_FALLBACK_PROVIDER=${LLM_FALLBACK_PROVIDER:-openai}
-      - LLM_FALLBACK_API_KEY=${LLM_FALLBACK_API_KEY:-}
-      - LLM_FALLBACK_MODEL=${LLM_FALLBACK_MODEL:-openai/gpt-4o-mini}
     restart: unless-stopped
 
   postgres:

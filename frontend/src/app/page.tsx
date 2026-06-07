@@ -101,6 +101,17 @@ function formatTimelineDate(dateStr: string): string {
   }
 }
 
+function formatShanghaiToday(): string {
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')} 年 ${get('month')} 月 ${get('day')} 日`;
+}
+
 // ── Page Component ──
 
 export default function HomePage() {
@@ -248,8 +259,7 @@ export default function HomePage() {
   const todayCount = useMemo(() => items.filter((i) => isToday(getContentTime(i))).length, [items]);
 
   // Today's date
-  const today = new Date();
-  const dateStr = `${today.getFullYear()} 年 ${today.getMonth() + 1} 月 ${today.getDate()} 日`;
+  const dateStr = formatShanghaiToday();
 
   return (
     <div className="fade-in h-full overflow-y-auto px-10 py-8">

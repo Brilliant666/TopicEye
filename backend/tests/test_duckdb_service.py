@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 
-import duckdb
+import pytest
+
+duckdb = pytest.importorskip("duckdb")
 
 from app.core.db_backend import duckdb_attach_sql
 from app.services import duckdb_service

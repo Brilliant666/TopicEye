@@ -4,7 +4,7 @@ Manual DuckDB integration check.
 
 NOT a pytest test — requires DuckDB + sqlite extension installed.
 Run manually:
-    python tests/test_duckdb.py
+    python scripts/duckdb_check.py
 """
 import sys
 import os

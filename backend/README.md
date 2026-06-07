@@ -24,7 +24,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-Files such as `tests/test_duckdb.py`, `tests/test_cost.py`,
+Files such as `scripts/duckdb_check.py`, `scripts/estimate_llm_cost.py`,
 `scripts/duckdb_perf.py`, and `scripts/perf_baseline.py` are manual diagnostics
 rather than pytest tests.
 
@@ -34,6 +34,7 @@ rather than pytest tests.
 cd backend
 python scripts/duckdb_perf.py
 python scripts/perf_baseline.py
+python scripts/duckdb_check.py
 ```
 
 Operational helper scripts live under `scripts/` as well. For example,

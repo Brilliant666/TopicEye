@@ -46,8 +46,7 @@ class BookItem(BaseModel):
     female_new_pos: Optional[int]
     rank_pos_diff: Optional[int] = None  # 排名变化（正=上升，负=下降，null=新上榜）
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class CategoryItem(BaseModel):
@@ -56,8 +55,7 @@ class CategoryItem(BaseModel):
     group: str
     display_order: int
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
 
 class RankingItem(BaseModel):

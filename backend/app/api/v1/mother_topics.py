@@ -55,8 +55,7 @@ class MotherTopicOut(MotherTopicBase):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
     @classmethod
     def from_orm_model(cls, obj) -> "MotherTopicOut":

@@ -58,8 +58,7 @@ class TrendingItemOut(BaseModel):
     cover_url: Optional[str] = None
     extra: Optional[dict] = None
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True}
 
     @field_serializer("url")
     def serialize_url(self, value: str) -> str:

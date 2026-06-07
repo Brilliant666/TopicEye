@@ -21,7 +21,6 @@ import {
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
-  Star,
   Trash2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -68,9 +67,9 @@ const PROVIDER_PRESETS: Record<string, ProviderPreset> = {
     modelPlaceholder: 'glm-4-plus',
   },
   custom: {
-    label: '自定义 OpenAI 兼容',
+    label: '高级 LiteLLM 路由',
     baseUrl: '',
-    modelPlaceholder: 'opencode/deepseek-v4-flash-free',
+    modelPlaceholder: 'openai/deepseek-v4-flash-free',
   },
 };
 
@@ -287,11 +286,13 @@ export default function ModelEvalPage() {
 
   const enabledCount = models.filter((m) => m.enabled).length;
   const runnableCount = models.filter((m) => m.enabled && (m.api_key_set || !m.api_base)).length;
-  const primaryModel = models.find((m) => m.is_primary);
-  const fallbackModel = models.find((m) => m.is_fallback);
+  const routeGroups = new Set(models.map((m) => m.routing_group || 'default')).size;
+  const firstRouteModel = [...models]
+    .filter((m) => m.enabled)
+    .sort((a, b) => (a.routing_group || 'default').localeCompare(b.routing_group || 'default') || a.routing_priority - b.routing_priority || a.id - b.id)[0];
 
   const tabs: Array<{ key: Tab; label: string; desc: string; icon: LucideIcon }> = [
-    { key: 'models', label: '模型配置', desc: '主备模型、密钥和限流参数', icon: Settings2 },
+    { key: 'models', label: '模型配置', desc: '路由链、密钥和限流参数', icon: Settings2 },
     { key: 'evaluate', label: 'A/B 测评', desc: '多模型同题测试并人工评分', icon: FlaskConical },
     { key: 'usage', label: '用量统计', desc: 'Token 消耗和费用预估', icon: BarChart3 },
     { key: 'history', label: '测评历史', desc: '查看历史运行与评分记录', icon: History },
@@ -324,8 +325,8 @@ export default function ModelEvalPage() {
         <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
           <StatTile icon={Layers3} label="模型配置" value={models.length} hint={`${enabledCount} 个启用`} tone="primary" />
           <StatTile icon={KeyRound} label="可测模型" value={runnableCount} hint="具备调用条件" tone="teal" />
-          <StatTile icon={ShieldCheck} label="主模型" value={primaryModel ? 1 : 0} hint={primaryModel?.name || '未设置'} tone="amber" />
-          <StatTile icon={Clock3} label="备用模型" value={fallbackModel ? 1 : 0} hint={fallbackModel?.name || '未设置'} />
+          <StatTile icon={ShieldCheck} label="路由组" value={routeGroups} hint="按组独立排序" tone="amber" />
+          <StatTile icon={Clock3} label="首选路由" value={firstRouteModel ? `#${firstRouteModel.routing_priority}` : '-'} hint={firstRouteModel?.name || '未设置'} />
           <StatTile icon={Gauge} label="30日 Token" value={usage ? formatTokens(usage.total.tokens_total) : '-'} hint={`输入 ${formatTokens(usage?.total.tokens_input || 0)} · 输出 ${formatTokens(usage?.total.tokens_output || 0)}`} tone="purple" />
           <StatTile icon={Coins} label="费用预估" value={usage ? formatCurrency(usage.total.estimated_cost) : '-'} hint={`${usage?.total.calls || 0} 次模型调用`} tone="primary" />
         </div>
@@ -388,16 +389,6 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
     setTesting(null);
   };
 
-  const handleSetPrimary = async (id: number) => {
-    await modelsApi.setPrimary(id);
-    onRefresh();
-  };
-
-  const handleSetFallback = async (id: number) => {
-    await modelsApi.setFallback(id);
-    onRefresh();
-  };
-
   const handleToggle = async (m: LlmModelItem) => {
     await modelsApi.update(m.id, { enabled: !m.enabled });
     onRefresh();
@@ -417,7 +408,7 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
       <Surface title="模型配置" icon={Settings2} hint={`${models.length} 个模型 · ${enabledCount} 个启用 · ${keyedCount} 个可调用`}>
         <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
           <div className="text-[13px] leading-7 text-gray-500">
-            维护主模型、备用模型和可参与测评的候选模型。禁用模型不会参与自动任务和 A/B 测评。
+            维护运行时路由链、渠道分组和可参与测评的候选模型。禁用模型不会参与自动任务和 A/B 测评。
           </div>
           <Button type="button" variant="primary" onClick={() => setShowAdd(true)} className="w-fit whitespace-nowrap">
             <Plus size={14} strokeWidth={2.2} />
@@ -436,15 +427,13 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
             className={cx(
               'flex flex-col gap-3.5 p-4.5 transition',
               !m.enabled && 'opacity-60',
-              m.is_primary && 'border-primary-border shadow-[0_12px_28px_rgba(255,107,53,0.08)]',
-              m.is_fallback && !m.is_primary && 'border-teal-border',
+              m.enabled && m.routing_priority <= 10 && 'border-primary-border shadow-[0_12px_28px_rgba(255,107,53,0.08)]',
             )}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                  {m.is_primary && <StatusPill tone="primary"><Star size={11} className="fill-primary" />主模型</StatusPill>}
-                  {m.is_fallback && <StatusPill tone="teal"><ShieldCheck size={11} />备用</StatusPill>}
+                  <StatusPill tone="neutral">#{m.routing_priority}</StatusPill>
                   {!m.enabled && <StatusPill>已禁用</StatusPill>}
                   {!m.api_key_set && m.api_base && <StatusPill tone="amber"><KeyRound size={11} />缺 Key</StatusPill>}
                 </div>
@@ -464,9 +453,16 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
 
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <InfoCell label="Provider" value={m.provider} />
+              <InfoCell label="路由组" value={m.routing_group || 'default'} />
+              <InfoCell label="模型族" value={m.model_family || '-'} muted={!m.model_family} />
+              <InfoCell label="渠道" value={m.channel_name || '-'} muted={!m.channel_name} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <InfoCell label="Temp" value={m.temperature} />
               <InfoCell label="Tokens" value={m.max_tokens} />
               <InfoCell label="RPM" value={m.requests_per_minute} />
+              <InfoCell label="冷却" value={`${m.cooldown_seconds}s`} />
             </div>
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -499,8 +495,6 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
             )}
 
             <Toolbar className="border-t border-gray-100 pt-3">
-              {!m.is_primary && <Button type="button" variant="secondary" onClick={() => handleSetPrimary(m.id)}>设为主模型</Button>}
-              {!m.is_primary && !m.is_fallback && <Button type="button" variant="secondary" onClick={() => handleSetFallback(m.id)}>设为备用</Button>}
               <Button type="button" variant="secondary" onClick={() => handleToggle(m)}>{m.enabled ? '禁用' : '启用'}</Button>
               <Button type="button" variant="secondary" onClick={() => handleTest(m.id)} disabled={testing === m.id} className="text-primary">
                 {testing === m.id ? '测试中...' : '测试'}
@@ -533,6 +527,11 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
     model_id: model?.model_id || '',
     api_key: '',
     api_base: model?.api_base || initialPreset.baseUrl,
+    routing_group: model?.routing_group || 'default',
+    model_family: model?.model_family || '',
+    channel_name: model?.channel_name || '',
+    routing_priority: model?.routing_priority ?? 100,
+    cooldown_seconds: model?.cooldown_seconds ?? 300,
     temperature: model?.temperature ?? 0.3,
     max_tokens: model?.max_tokens ?? 2000,
     requests_per_minute: model?.requests_per_minute ?? 60,
@@ -553,6 +552,8 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
       payload.cost_per_1m_output = parseOptionalNumber(form.cost_per_1m_output);
       if (!payload.api_key) delete payload.api_key;
       if (!payload.api_base) delete payload.api_base;
+      if (!payload.model_family) delete payload.model_family;
+      if (!payload.channel_name) delete payload.channel_name;
       if (!payload.description) delete payload.description;
       if (isEdit && model) {
         await modelsApi.update(model.id, payload);
@@ -612,14 +613,32 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
               <option key={value} value={value}>{preset.label}</option>
             ))}
           </SelectInput>
+          <div className="mt-1 text-[10px] leading-4 text-gray-400">这里填写 LiteLLM provider。OpenCode、智谱等 OpenAI-compatible 网关通常选 OpenAI，再配置 API Base。</div>
         </div>
         <div>
           <FieldLabel>Model ID *</FieldLabel>
           <TextInput value={form.model_id} onChange={(e) => handleModelIdChange(e.target.value)} placeholder={`如 ${currentPreset.modelPlaceholder}`} />
+          <div className="mt-1 text-[10px] leading-4 text-gray-400">可填裸模型名，也可直接填完整 LiteLLM 路由，如 openai/deepseek-v4-flash-free。</div>
         </div>
         <div>
           <FieldLabel>API Key {isEdit ? '(留空不修改)' : '*'}</FieldLabel>
           <TextInput type="password" value={form.api_key} onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))} />
+        </div>
+        <div>
+          <FieldLabel>路由组</FieldLabel>
+          <TextInput value={form.routing_group} onChange={(e) => setForm((f) => ({ ...f, routing_group: e.target.value || 'default' }))} placeholder="default" />
+        </div>
+        <div>
+          <FieldLabel>路由优先级</FieldLabel>
+          <TextInput type="number" value={form.routing_priority} onChange={(e) => setForm((f) => ({ ...f, routing_priority: parseInt(e.target.value, 10) || 100 }))} />
+        </div>
+        <div>
+          <FieldLabel>模型家族</FieldLabel>
+          <TextInput value={form.model_family} onChange={(e) => setForm((f) => ({ ...f, model_family: e.target.value }))} placeholder="如 deepseek / qwen / glm" />
+        </div>
+        <div>
+          <FieldLabel>渠道名</FieldLabel>
+          <TextInput value={form.channel_name} onChange={(e) => setForm((f) => ({ ...f, channel_name: e.target.value }))} placeholder="如 official / opencode / openrouter" />
         </div>
         <div>
           <div className="mb-1 flex items-center justify-between gap-2">
@@ -636,6 +655,7 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
           </div>
           <TextInput value={form.api_base} onChange={(e) => setForm((f) => ({ ...f, api_base: e.target.value }))} placeholder="https://api.example.com/v1" />
           {currentPreset.baseUrl && <div className="mt-1 text-[10px] leading-4 text-gray-400">内置默认：{currentPreset.baseUrl}</div>}
+          {!currentPreset.baseUrl && <div className="mt-1 text-[10px] leading-4 text-gray-400">OpenCode 示例：https://opencode.ai/zen/v1</div>}
         </div>
         <div>
           <FieldLabel>描述</FieldLabel>
@@ -648,6 +668,10 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
         <div>
           <FieldLabel>Max Tokens</FieldLabel>
           <TextInput type="number" value={form.max_tokens} onChange={(e) => setForm((f) => ({ ...f, max_tokens: parseInt(e.target.value, 10) || 2000 }))} />
+        </div>
+        <div>
+          <FieldLabel>失败冷却秒数</FieldLabel>
+          <TextInput type="number" value={form.cooldown_seconds} onChange={(e) => setForm((f) => ({ ...f, cooldown_seconds: parseInt(e.target.value, 10) || 300 }))} />
         </div>
         <div>
           <FieldLabel>输入未命中单价 / 百万 Tokens</FieldLabel>
@@ -767,7 +791,6 @@ function EvaluateTab({ models }: { models: LlmModelItem[] }) {
                 )}
               >
                 {m.name}
-                {m.is_primary && <span className="ml-1 text-[10px]">(主)</span>}
                 {!runnable && <span className="ml-1 text-[10px]">(缺 Key)</span>}
               </button>
             );

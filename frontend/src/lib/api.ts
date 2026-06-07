@@ -1503,8 +1503,11 @@ export interface LlmModelItem {
   api_base: string | null;
   api_key_set: boolean;
   enabled: boolean;
-  is_primary: boolean;
-  is_fallback: boolean;
+  routing_group: string;
+  model_family: string | null;
+  channel_name: string | null;
+  routing_priority: number;
+  cooldown_seconds: number;
   temperature: number;
   max_tokens: number;
   requests_per_minute: number;
@@ -1599,12 +1602,6 @@ export const modelsApi = {
   },
   delete(id: number): Promise<{ message: string }> {
     return request(`/models/${id}`, { method: 'DELETE' });
-  },
-  setPrimary(id: number): Promise<{ message: string }> {
-    return request(`/models/${id}/set-primary`, { method: 'POST' });
-  },
-  setFallback(id: number): Promise<{ message: string }> {
-    return request(`/models/${id}/set-fallback`, { method: 'POST' });
   },
   test(id: number): Promise<{ status: string; model_name: string; response?: string; error?: string; duration_ms: number; tokens_input?: number; tokens_output?: number; cache_read_tokens?: number; cache_creation_tokens?: number }> {
     return request(`/models/${id}/test`, { method: 'POST' });

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Ban,
   Check,
@@ -707,13 +708,14 @@ const FEEDBACK_OPTIONS: { type: FeedbackType; icon: LucideIcon; label: string; c
 
 function FeedbackButtons({ contentId }: { contentId: number }) {
   const { currentUser } = useAppContext();
+  const router = useRouter();
   const [activeFeedback, setActiveFeedback] = useState<FeedbackType | null>(null);
   const [showMore, setShowMore] = useState(false);
 
   const handleFeedback = async (type: FeedbackType) => {
     if (activeFeedback === type) return; // already submitted
     if (!currentUser) {
-      window.location.href = '/login';
+      router.push('/login');
       return;
     }
     try {

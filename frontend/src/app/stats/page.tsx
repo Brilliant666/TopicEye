@@ -144,6 +144,51 @@ function HorizontalBarChart({
   );
 }
 
+function SourcePieChart({ sources }: { sources: StatsSourceItem[] }) {
+  if (sources.length === 0) {
+    return <div className="text-[13px] text-gray-400">暂无数据</div>;
+  }
+
+  const total = sources.reduce((sum, item) => sum + item.content_count, 0) || 1;
+
+  return (
+    <div>
+      <div className="mb-3.5 flex h-[18px] overflow-hidden rounded">
+        {sources.map((source, index) => {
+          const pct = (source.content_count / total) * 100;
+          if (pct < 0.5) return null;
+          return (
+            <div
+              key={`${source.source_name}-${index}`}
+              className="transition-[width] duration-300"
+              style={{
+                width: `${pct}%`,
+                background: barColor(index),
+              }}
+              title={`${source.source_name}: ${source.content_count} (${pct.toFixed(1)}%)`}
+            />
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {sources.slice(0, 10).map((source, index) => (
+          <div key={`${source.source_name}-${index}`} className="flex items-center gap-1 text-xs">
+            <div
+              className="h-2 w-2 shrink-0 rounded-full"
+              style={{
+                background: barColor(index),
+              }}
+            />
+            <span className="max-w-[120px] truncate text-gray-600">{source.source_name}</span>
+            <span className="font-mono text-[11px] text-gray-400">{source.content_count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function formatDayKey(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -430,52 +475,6 @@ export default function StatsPage() {
 
   const curatedRate = overview ? formatRatePercent(overview.curated, overview.total) : 0;
 
-  // ── Donut chart approximation via CSS ──
-  function SourcePieChart() {
-    if (sources.length === 0)
-      return <div className="text-[13px] text-gray-400">暂无数据</div>;
-
-    const total = sources.reduce((s, it) => s + it.content_count, 0) || 1;
-    // Build a horizontal stacked bar as a "pie" approximation
-    return (
-      <div>
-        <div className="mb-3.5 flex h-[18px] overflow-hidden rounded">
-          {sources.map((src, i) => {
-            const pct = (src.content_count / total) * 100;
-            if (pct < 0.5) return null;
-            return (
-              <div
-                key={i}
-                className="transition-[width] duration-300"
-                style={{
-                  width: `${pct}%`,
-                  background: barColor(i),
-                }}
-                title={`${src.source_name}: ${src.content_count} (${pct.toFixed(1)}%)`}
-              />
-            );
-          })}
-        </div>
-
-        {/* Legend */}
-        <div className="flex flex-wrap gap-2">
-          {sources.slice(0, 10).map((src, i) => (
-            <div key={i} className="flex items-center gap-1 text-xs">
-              <div
-                className="h-2 w-2 shrink-0 rounded-full"
-                style={{
-                  background: barColor(i),
-                }}
-              />
-              <span className="max-w-[120px] truncate text-gray-600">{src.source_name}</span>
-              <span className="font-mono text-[11px] text-gray-400">{src.content_count}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="flex-1 overflow-y-auto bg-page">
       <div className="mx-auto max-w-[1480px] px-10 pb-16 pt-7">
@@ -597,7 +596,7 @@ export default function StatsPage() {
             <div className="mb-3.5 grid grid-cols-[repeat(auto-fit,minmax(360px,1fr))] items-start gap-3.5">
               {/* B. 信源分布 */}
               <Surface title="信源分布" icon={RadioTower} hint={`${sources.length} 个信源`}>
-                <SourcePieChart />
+                <SourcePieChart sources={sources} />
 
                 {/* Source table */}
                 {sources.length > 0 && (

@@ -116,12 +116,12 @@ async function request<T>(
   const url = `${BASE_URL}${endpoint}`;
   const token = getAuthToken();
   const config: RequestInit = {
+    ...options,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
-    ...options,
   };
 
   const response = await fetch(url, config);

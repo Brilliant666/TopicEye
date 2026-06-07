@@ -60,6 +60,7 @@ export default function AlgorithmPage() {
   const initialFallbackRef = useRef(false);
   const analysisPollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const analysisPollStateRef = useRef<AnalysisPollState | null>(null);
+  const scheduleAnalysisPollRef = useRef<((pollState: AnalysisPollState) => void) | null>(null);
 
   const clearAnalysisPolling = useCallback(() => {
     if (analysisPollTimerRef.current) {
@@ -133,7 +134,7 @@ export default function AlgorithmPage() {
             setAnalysisNotice('后台分析仍未完成，请稍后手动刷新评分流程。');
             return;
           }
-          scheduleAnalysisPoll({ ...current, attempts: current.attempts + 1 });
+          scheduleAnalysisPollRef.current?.({ ...current, attempts: current.attempts + 1 });
           return;
         }
 
@@ -149,10 +150,14 @@ export default function AlgorithmPage() {
           return;
         }
 
-        scheduleAnalysisPoll({ ...current, attempts: current.attempts + 1 });
+        scheduleAnalysisPollRef.current?.({ ...current, attempts: current.attempts + 1 });
       })();
     }, ANALYSIS_POLL_INTERVAL_MS);
   }, [clearAnalysisPolling, fetchFlow, isAnalysisPollingSettled]);
+
+  useEffect(() => {
+    scheduleAnalysisPollRef.current = scheduleAnalysisPoll;
+  }, [scheduleAnalysisPoll]);
 
   const handleHoursChange = useCallback((nextHours: number) => {
     clearAnalysisPolling();
@@ -197,7 +202,7 @@ export default function AlgorithmPage() {
     } finally {
       setAnalyzing(false);
     }
-  }, [data?.diagnostics?.analyzed_total, fetchFlow, hours, isAnalysisPollingSettled, scheduleAnalysisPoll]);
+  }, [data, fetchFlow, hours, isAnalysisPollingSettled, scheduleAnalysisPoll]);
 
   const handleFeedback = useCallback(async (sample: ScoringFlowSample, type: FeedbackType) => {
     setFeedbacking(true);

@@ -14,6 +14,12 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
   ]),
   {
+    files: ["*.js", "scripts/**/*.js"],
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+  {
     rules: {
       // Data-fetching in useEffect naturally calls setState via async flow.
       // This rule flags indirect setState in effects, causing false positives

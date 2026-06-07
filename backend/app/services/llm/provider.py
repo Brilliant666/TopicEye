@@ -2,9 +2,8 @@
 LLM service layer — unified AI calls via litellm.
 
 Features:
-- Primary + fallback provider support with automatic failover
-- Rate limit detection (429) → auto-degrade to fallback
-- Recovery check → auto-switch back to primary
+- Ordered DB-backed route chain with automatic failover
+- Per-route cooldown and recovery checks
 - Rate limiting (token bucket)
 - Retry with exponential backoff
 - Structured JSON output parsing
@@ -33,17 +32,44 @@ from app.services.llm_usage import extract_usage, record_llm_call_in_new_session
 
 logger = logging.getLogger(__name__)
 
+LITELLM_COMPLETION_PARAM_KEYS = {
+    "api_version",
+    "custom_llm_provider",
+    "default_headers",
+    "drop_params",
+    "extra_headers",
+    "extra_query",
+    "metadata",
+    "num_retries",
+    "organization",
+    "timeout",
+}
+
+
+def _litellm_extra_kwargs(model_config: Any = None) -> dict[str, Any]:
+    """Return explicitly configured LiteLLM kwargs from model.extra_params."""
+    extra_params = getattr(model_config, "extra_params", None)
+    if not isinstance(extra_params, dict):
+        return {}
+    litellm_params = extra_params.get("litellm_params")
+    if not isinstance(litellm_params, dict):
+        return {}
+    return {
+        key: value
+        for key, value in litellm_params.items()
+        if key in LITELLM_COMPLETION_PARAM_KEYS and value is not None
+    }
+
 
 # ── DB-backed model config cache ──────────────────────────────────────
 
 class ModelConfigCache:
     """
-    Caches primary/fallback model config from DB.
+    Caches enabled model route configs from DB.
     Refreshes every 60 seconds so changes in the UI take effect quickly.
     """
     def __init__(self):
-        self._primary = None
-        self._fallback = None
+        self._route_models: list[Any] = []
         self._last_refresh = 0.0
         self._lock = asyncio.Lock()
 
@@ -56,41 +82,28 @@ class ModelConfigCache:
 
             async with async_session() as session:
                 result = await session.execute(
-                    select(LlmModel).where(LlmModel.enabled == True)
+                    select(LlmModel)
+                    .where(LlmModel.enabled == True)
+                    .order_by(LlmModel.routing_group, LlmModel.routing_priority, LlmModel.id)
                 )
                 models = result.scalars().all()
 
-                primary = None
-                fallback = None
-                for m in models:
-                    if m.is_primary and not primary:
-                        primary = m
-                    if m.is_fallback and not fallback:
-                        fallback = m
-
-                self._primary = primary
-                self._fallback = fallback
+                self._route_models = list(models)
                 self._last_refresh = time.monotonic()
-                if primary:
-                    logger.debug("ModelConfigCache: primary=%s", primary.model_id)
-                if fallback:
-                    logger.debug("ModelConfigCache: fallback=%s", fallback.model_id)
+                logger.debug("ModelConfigCache: %d route models loaded", len(models))
         except Exception as e:
             logger.warning("ModelConfigCache refresh failed: %s", e)
 
-    async def get_primary(self):
+    async def get_route_models(self, routing_group: str = "default"):
         if time.monotonic() - self._last_refresh > 60:
             async with self._lock:
                 if time.monotonic() - self._last_refresh > 60:
                     await self.refresh()
-        return self._primary
-
-    async def get_fallback(self):
-        if time.monotonic() - self._last_refresh > 60:
-            async with self._lock:
-                if time.monotonic() - self._last_refresh > 60:
-                    await self.refresh()
-        return self._fallback
+        group = (routing_group or "default").strip() or "default"
+        models = [m for m in self._route_models if (m.routing_group or "default") == group]
+        if models:
+            return models
+        return self._route_models
 
 
 _model_cache = ModelConfigCache()
@@ -99,8 +112,7 @@ _model_cache = ModelConfigCache()
 async def invalidate_model_cache() -> None:
     """Force the next LLM call to reload model settings from the database."""
     async with _model_cache._lock:
-        _model_cache._primary = None
-        _model_cache._fallback = None
+        _model_cache._route_models = []
         _model_cache._last_refresh = 0.0
     _failover.reset()
 
@@ -108,74 +120,71 @@ async def invalidate_model_cache() -> None:
 
 class ModelFailover:
     """
-    Tracks primary model health and manages auto-failover to backup.
+    Tracks per-model health and manages automatic failover chains.
 
     States:
-    - HEALTHY: primary is working normally
-    - DEGRADED: primary got 429, using fallback; resumes at the exact reset time
+    - HEALTHY: model is working normally
+    - DEGRADED: model failed, skip until its reset time
     """
 
     HEALTHY = "healthy"
     DEGRADED = "degraded"
 
     def __init__(self):
-        self._state = self.HEALTHY
-        self._reset_at: Optional[datetime] = None  # exact reset time from 429
+        self._cooldowns: dict[str, datetime] = {}
         self._lock = threading.Lock()
 
-    @property
-    def state(self) -> str:
+    def on_failure(self, key: str, *, reset_at: Optional[datetime] = None, cooldown_seconds: int = 300):
+        """Called when a model fails. Pass reset_at if the provider supplied one."""
+        cooldown = max(cooldown_seconds or 300, 1)
+        effective_reset = reset_at or (datetime.utcnow() + timedelta(seconds=cooldown))
         with self._lock:
-            return self._state
+            self._cooldowns[key] = effective_reset
+        logger.warning("ModelFailover: %s degraded until %s", key, effective_reset)
 
-    def on_rate_limit(self, reset_at: Optional[datetime] = None):
-        """Called when primary model returns 429. Pass reset_at if available."""
-        with self._lock:
-            if self._state == self.HEALTHY:
-                logger.warning("ModelFailover: PRIMARY rate-limited, switching to FALLBACK")
-            self._state = self.DEGRADED
-            self._reset_at = reset_at
-            if reset_at:
-                logger.info("ModelFailover: will probe PRIMARY again at %s", reset_at)
-
-    def on_success(self, used_primary: bool):
+    def on_success(self, key: str):
         """Called after a successful LLM call."""
         with self._lock:
-            if used_primary and self._state != self.HEALTHY:
-                logger.info("ModelFailover: PRIMARY recovered, switching back")
-                self._state = self.HEALTHY
-                self._reset_at = None
+            if key in self._cooldowns:
+                logger.info("ModelFailover: %s recovered", key)
+                self._cooldowns.pop(key, None)
 
     def reset(self):
         """Reset failover state after model configuration changes."""
         with self._lock:
-            self._state = self.HEALTHY
-            self._reset_at = None
+            self._cooldowns.clear()
 
-    def should_skip_primary(self) -> bool:
-        """Return True if we should use fallback. Check reset time before probing."""
+    def should_skip(self, key: str) -> bool:
+        """Return True if this model is still cooling down."""
         with self._lock:
-            if self._state == self.HEALTHY:
+            reset_at = self._cooldowns.get(key)
+            if not reset_at:
                 return False
-
-            if self._state == self.DEGRADED:
-                # If we have an exact reset time, only probe once it's passed
-                if self._reset_at:
-                    now = datetime.utcnow()
-                    if now < self._reset_at:
-                        # Still within cooldown, use fallback
-                        return True
-                    else:
-                        # Reset time passed, allow primary this call
-                        logger.info("ModelFailover: reset time passed, trying PRIMARY")
-                        return False
+            if datetime.utcnow() < reset_at:
                 return True
-
+            logger.info("ModelFailover: cooldown passed, trying %s", key)
+            self._cooldowns.pop(key, None)
             return False
 
 
 # Global failover tracker
 _failover = ModelFailover()
+
+
+def _model_key(model_config: Any) -> str:
+    return f"db:{model_config.id}"
+
+
+def _candidate_from_db_model(model_config: Any, temperature: float, max_tokens: int) -> dict[str, Any]:
+    return {
+        "request_model": resolve_litellm_model(model_config),
+        "api_key": model_config.api_key,
+        "api_base": model_config.api_base,
+        "temperature": temperature if temperature is not None else model_config.temperature,
+        "max_tokens": max_tokens if max_tokens is not None else model_config.max_tokens,
+        "model_config": model_config,
+        "cooldown_seconds": model_config.cooldown_seconds or 300,
+    }
 
 
 # ── Rate limiter (simple token bucket) ────────────────────────────────
@@ -270,6 +279,7 @@ async def _call_llm_single(
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    kwargs.update(_litellm_extra_kwargs(model_config))
     if api_key:
         kwargs["api_key"] = api_key
     if api_base:
@@ -334,84 +344,85 @@ async def call_llm(
     messages: list,
     temperature: float = 0.3,
     max_tokens: int = 2000,
-    use_fallback: bool = True,
     scene: str = "general",
 ) -> str:
     """
-    Call LLM with automatic primary→fallback failover.
+    Call LLM with automatic ordered failover.
 
-    Model config resolution order:
-    1. DB llm_models table (if primary/fallback configured there)
-    2. .env settings (legacy fallback)
+    Model config resolution:
+    - DB llm_models table ordered by routing_group/routing_priority.
     """
-    # Try DB-backed config first
-    db_primary = await _model_cache.get_primary()
-    db_fallback = await _model_cache.get_fallback()
+    db_models = await _model_cache.get_route_models("default")
+    candidates = [_candidate_from_db_model(m, temperature, max_tokens) for m in db_models]
 
-    if db_primary:
-        primary_model = resolve_litellm_model(db_primary)
-        primary_key = db_primary.api_key or settings.get_primary_api_key()
-        primary_base = db_primary.api_base or settings.get_primary_base_url()
-        temperature = temperature or db_primary.temperature
-        max_tokens = max_tokens or db_primary.max_tokens
-    else:
-        primary_model = settings.get_primary_model()
-        primary_key = settings.get_primary_api_key()
-        primary_base = settings.get_primary_base_url()
+    skipped: list[dict[str, Any]] = []
+    last_exc: Optional[Exception] = None
 
-    if db_fallback:
-        fallback_model = resolve_litellm_model(db_fallback)
-        fallback_key = db_fallback.api_key
-        fallback_base = db_fallback.api_base
-    else:
-        fallback_model = settings.get_fallback_model()
-        if fallback_model:
-            fallback_key = settings.get_fallback_api_key(fallback_model)
-            fallback_base = settings.get_fallback_base_url(fallback_model)
-        else:
-            fallback_key = None
-            fallback_base = None
+    for candidate in candidates:
+        model_config = candidate["model_config"]
+        request_model = candidate["request_model"]
+        api_base = candidate["api_base"]
+        key = _model_key(model_config)
+        if _failover.should_skip(key):
+            skipped.append(candidate)
+            continue
 
-    if not fallback_model:
-        # No fallback configured, just call primary
-        return await _call_with_retry(
-            messages, primary_model, primary_key, primary_base,
-            temperature, max_tokens, None, db_primary, scene,
-        )
-
-    is_degraded = _failover.should_skip_primary()
-    used_primary = not is_degraded
-
-    # ── Step 1: Try primary (if not degraded) ─────────────────────────
-    if not is_degraded:
         try:
-            result = await _call_with_retry(
-                messages, primary_model, primary_key, primary_base,
-                temperature, max_tokens, None, db_primary, scene,
+            logger.info("Calling LLM candidate: %s", request_model)
+            response = await _call_with_retry(
+                messages,
+                request_model,
+                candidate["api_key"],
+                api_base,
+                candidate["temperature"],
+                candidate["max_tokens"],
+                None,
+                model_config,
+                scene,
             )
-            _failover.on_success(used_primary=True)
-            return result
+            _failover.on_success(key)
+            return response
         except Exception as exc:
+            last_exc = exc
+            reset_time = _parse_reset_time(exc) if _is_rate_limit_error(exc) else None
+            _failover.on_failure(
+                key,
+                reset_at=reset_time,
+                cooldown_seconds=candidate["cooldown_seconds"],
+            )
             if _is_rate_limit_error(exc):
-                reset_time = _parse_reset_time(exc)
-                _failover.on_rate_limit(reset_at=reset_time)
-                logger.warning("Primary LLM rate-limited, switching to fallback: %s", exc)
+                logger.warning("LLM candidate rate-limited, trying next: %s", exc)
             else:
-                logger.warning("Primary LLM failed (non-rate-limit): %s", exc)
-            # Fall through to fallback
+                logger.warning("LLM candidate failed, trying next: %s", exc)
 
-    # ── Step 2: Try fallback ──────────────────────────────────────────
-    logger.info("Calling fallback model: %s", fallback_model)
-    try:
-        result = await _call_with_retry(
-            messages, fallback_model, fallback_key, fallback_base,
-            temperature, max_tokens, None, db_fallback, scene,
-        )
-        _failover.on_success(used_primary=False)
-        return result
-    except Exception as exc:
-        logger.error("Fallback LLM also failed: %s", exc)
-        raise
+    if skipped:
+        logger.info("All active LLM candidates failed or were cooling down; probing skipped candidates")
+        for candidate in skipped:
+            model_config = candidate["model_config"]
+            request_model = candidate["request_model"]
+            api_base = candidate["api_base"]
+            key = _model_key(model_config)
+            try:
+                response = await _call_with_retry(
+                    messages,
+                    request_model,
+                    candidate["api_key"],
+                    api_base,
+                    candidate["temperature"],
+                    candidate["max_tokens"],
+                    None,
+                    model_config,
+                    scene,
+                )
+                _failover.on_success(key)
+                return response
+            except Exception as exc:
+                last_exc = exc
+
+    if last_exc:
+        logger.error("All LLM candidates failed: %s", last_exc)
+        raise last_exc
+    raise RuntimeError("No enabled LLM route models configured")
 
 
 async def call_llm_json(

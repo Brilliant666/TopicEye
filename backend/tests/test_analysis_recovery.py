@@ -385,6 +385,7 @@ async def test_sqlite_upgrade_schema_runs_helpers_for_sqlite(monkeypatch):
     monkeypatch.setattr(app_main, "ensure_source_sort_order_column", helper("source_sort_order"))
     monkeypatch.setattr(app_main, "ensure_daily_report_version_schema", helper("daily_report_version"))
     monkeypatch.setattr(app_main, "ensure_llm_call_logs_schema", helper("llm_call_logs"))
+    monkeypatch.setattr(app_main, "ensure_llm_models_route_schema", helper("llm_models_route"))
     monkeypatch.setattr(app_main, "ensure_performance_indexes", helper("performance_indexes"))
     monkeypatch.setattr(app_main, "ensure_content_status_values", helper("content_status_values"))
     monkeypatch.setattr(app_main, "ensure_favorite_items_schema", helper("favorite_items"))
@@ -397,6 +398,7 @@ async def test_sqlite_upgrade_schema_runs_helpers_for_sqlite(monkeypatch):
         "source_sort_order",
         "daily_report_version",
         "llm_call_logs",
+        "llm_models_route",
         "performance_indexes",
         "content_status_values",
         "favorite_items",

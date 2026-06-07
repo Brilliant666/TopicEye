@@ -242,6 +242,34 @@ async def ensure_llm_call_logs_schema(conn) -> None:
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_llm_call_logs_scene_created ON llm_call_logs(scene, created_at)"))
 
 
+async def ensure_llm_models_route_schema(conn) -> None:
+    """SQLite create_all does not add new model routing columns."""
+    if not database_profile.is_sqlite:
+        return
+
+    result = await conn.execute(text("PRAGMA table_info(llm_models)"))
+    columns = {row[1] for row in result.fetchall()}
+    if not columns:
+        return
+
+    additions = {
+        "routing_group": "ALTER TABLE llm_models ADD COLUMN routing_group VARCHAR(50) NOT NULL DEFAULT 'default'",
+        "model_family": "ALTER TABLE llm_models ADD COLUMN model_family VARCHAR(50)",
+        "channel_name": "ALTER TABLE llm_models ADD COLUMN channel_name VARCHAR(100)",
+        "routing_priority": "ALTER TABLE llm_models ADD COLUMN routing_priority INTEGER NOT NULL DEFAULT 100",
+        "cooldown_seconds": "ALTER TABLE llm_models ADD COLUMN cooldown_seconds INTEGER NOT NULL DEFAULT 300",
+    }
+    for column, ddl in additions.items():
+        if column not in columns:
+            await conn.execute(text(ddl))
+
+    for obsolete_column in ("is_primary", "is_fallback"):
+        if obsolete_column in columns:
+            await conn.execute(text(f"ALTER TABLE llm_models DROP COLUMN {obsolete_column}"))
+
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_llm_models_route ON llm_models(routing_group, routing_priority)"))
+
+
 async def ensure_performance_indexes(conn) -> None:
     """SQLite create_all does not add indexes for existing installs."""
     if not database_profile.is_sqlite:
@@ -555,6 +583,7 @@ async def ensure_sqlite_upgrade_schema(conn) -> None:
     await ensure_source_sort_order_column(conn)
     await ensure_daily_report_version_schema(conn)
     await ensure_llm_call_logs_schema(conn)
+    await ensure_llm_models_route_schema(conn)
     await ensure_performance_indexes(conn)
     await ensure_content_status_values(conn)
     await ensure_favorite_items_schema(conn)

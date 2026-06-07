@@ -27,8 +27,11 @@ class LlmModel(Base):
     api_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="API Key (加密存储)")
     api_base: Mapped[Optional[str]] = mapped_column(String(500), nullable=True, comment="自定义 API endpoint")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="是否为主模型")
-    is_fallback: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, comment="是否为备用模型")
+    routing_group: Mapped[str] = mapped_column(String(50), default="default", nullable=False, comment="运行时路由组")
+    model_family: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, comment="模型家族，如 deepseek/qwen/glm")
+    channel_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, comment="渠道名，如 official/opencode/openrouter")
+    routing_priority: Mapped[int] = mapped_column(Integer, default=100, nullable=False, comment="路由优先级，数字越小越先尝试")
+    cooldown_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False, comment="失败后冷却秒数")
     temperature: Mapped[float] = mapped_column(Float, default=0.3, nullable=False)
     max_tokens: Mapped[int] = mapped_column(Integer, default=2000, nullable=False)
     requests_per_minute: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
@@ -41,6 +44,7 @@ class LlmModel(Base):
 
     __table_args__ = (
         Index("ix_llm_models_enabled", "enabled"),
+        Index("ix_llm_models_route", "routing_group", "routing_priority"),
     )
 
     def __repr__(self) -> str:

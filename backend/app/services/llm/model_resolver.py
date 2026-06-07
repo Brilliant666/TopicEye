@@ -2,37 +2,51 @@
 
 from __future__ import annotations
 
-from typing import Optional, Protocol
+from typing import Any, Optional, Protocol
 
 
 class ModelLike(Protocol):
     provider: str
     model_id: str
     api_base: Optional[str]
+    extra_params: Optional[dict[str, Any]]
 
 
-OPENAI_COMPATIBLE_PROVIDER = {"openai", "custom", "deepseek", "minimax", "zhipu"}
+def _extra_params(model: ModelLike) -> dict[str, Any]:
+    params = getattr(model, "extra_params", None)
+    return params if isinstance(params, dict) else {}
+
+
+def _clean(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    return cleaned or None
 
 
 def resolve_litellm_model(model: ModelLike) -> str:
-    """Return a LiteLLM model string that includes a provider when needed."""
-    model_id = (model.model_id or "").strip()
-    provider = (model.provider or "").strip().lower()
-    api_base = model.api_base or ""
+    """Return the model string sent to LiteLLM.
 
-    if "opencode.ai/zen" in api_base and model_id.startswith("opencode/"):
-        return f"openai/{model_id.removeprefix('opencode/')}"
+    LiteLLM routes by provider-prefixed model strings such as
+    ``deepseek/deepseek-chat`` or ``openai/gpt-4.1-mini``. The app should not
+    infer providers from endpoint hostnames; for custom gateways, configure the
+    LiteLLM provider explicitly and keep endpoint details in ``api_base``.
+    """
+    params = _extra_params(model)
+    litellm_params = params.get("litellm_params") if isinstance(params.get("litellm_params"), dict) else {}
+    explicit_model = _clean(params.get("litellm_model") or litellm_params.get("model"))
+    if explicit_model:
+        return explicit_model
 
-    if "/" in model_id and not (api_base and provider in OPENAI_COMPATIBLE_PROVIDER):
+    model_id = _clean(model.model_id) or ""
+    if "/" in model_id:
         return model_id
 
-    if "open.bigmodel.cn" in api_base:
-        return f"openai/{model_id}"
-
-    if api_base and provider in OPENAI_COMPATIBLE_PROVIDER:
-        if model_id.startswith("openai/"):
-            return model_id
-        return f"openai/{model_id}"
+    provider = _clean(
+        params.get("litellm_provider")
+        or litellm_params.get("custom_llm_provider")
+        or model.provider
+    )
 
     if provider:
         return f"{provider}/{model_id}"

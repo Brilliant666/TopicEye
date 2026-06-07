@@ -6,8 +6,6 @@ Model Config:
   POST   /models          — add a new model config
   PUT    /models/{id}     — update a model config
   DELETE /models/{id}     — delete a model config
-  POST   /models/{id}/set-primary   — set as primary model
-  POST   /models/{id}/set-fallback  — set as fallback model
   POST   /models/{id}/test          — test connectivity (single prompt)
 
 Evaluation:
@@ -52,6 +50,18 @@ from app.services.llm_usage import extract_usage, record_llm_call_in_new_session
 router = APIRouter(prefix="/models", tags=["models"], dependencies=[Depends(get_current_admin_user)])
 
 LLM_COMPLETION_TIMEOUT_SECONDS = 25
+LITELLM_COMPLETION_PARAM_KEYS = {
+    "api_version",
+    "custom_llm_provider",
+    "default_headers",
+    "drop_params",
+    "extra_headers",
+    "extra_query",
+    "metadata",
+    "num_retries",
+    "organization",
+    "timeout",
+}
 
 
 def _model_snapshot(model: LlmModel) -> SimpleNamespace:
@@ -62,6 +72,11 @@ def _model_snapshot(model: LlmModel) -> SimpleNamespace:
         model_id=model.model_id,
         api_key=model.api_key,
         api_base=model.api_base,
+        routing_group=model.routing_group,
+        model_family=model.model_family,
+        channel_name=model.channel_name,
+        routing_priority=model.routing_priority,
+        cooldown_seconds=model.cooldown_seconds,
         temperature=model.temperature,
         max_tokens=model.max_tokens,
         cost_per_1k_input=model.cost_per_1k_input,
@@ -101,6 +116,14 @@ def _completion_kwargs(
         "max_tokens": max_tokens,
         "timeout": LLM_COMPLETION_TIMEOUT_SECONDS,
     }
+    extra_params = model.extra_params if isinstance(model.extra_params, dict) else {}
+    litellm_params = extra_params.get("litellm_params")
+    if isinstance(litellm_params, dict):
+        kwargs.update({
+            key: value
+            for key, value in litellm_params.items()
+            if key in LITELLM_COMPLETION_PARAM_KEYS and value is not None
+        })
     if model.api_key:
         kwargs["api_key"] = model.api_key
     if model.api_base:
@@ -156,31 +179,6 @@ def _auto_score_response(content: str) -> float:
     return round(min(5.0, auto_score), 1)
 
 
-async def _normalize_model_roles(db: AsyncSession, models: list[LlmModel]) -> None:
-    """Repair duplicate role flags from older writes before returning configs."""
-    primary_seen = False
-    fallback_seen = False
-    dirty = False
-
-    for model in models:
-        if model.is_primary:
-            if primary_seen:
-                model.is_primary = False
-                dirty = True
-            else:
-                primary_seen = True
-
-        if model.is_fallback:
-            if model.is_primary or fallback_seen:
-                model.is_fallback = False
-                dirty = True
-            else:
-                fallback_seen = True
-
-    if dirty:
-        await db.commit()
-
-
 # ── Pydantic schemas ──────────────────────────────────────────────────
 
 class ModelCreateRequest(BaseModel):
@@ -190,6 +188,11 @@ class ModelCreateRequest(BaseModel):
     api_key: Optional[str] = None
     api_base: Optional[str] = None
     enabled: bool = True
+    routing_group: str = "default"
+    model_family: Optional[str] = None
+    channel_name: Optional[str] = None
+    routing_priority: int = 100
+    cooldown_seconds: int = 300
     temperature: float = 0.3
     max_tokens: int = 2000
     requests_per_minute: int = 60
@@ -201,10 +204,15 @@ class ModelCreateRequest(BaseModel):
     cost_per_1m_output: Optional[float] = None
     extra_params: Optional[dict] = None
 
-    @field_validator("api_key", "api_base", mode="before")
+    @field_validator("api_key", "api_base", "model_family", "channel_name", mode="before")
     @classmethod
     def normalize_optional_secret(cls, value):
         return _normalize_optional_config_value(value)
+
+    @field_validator("routing_group", mode="before")
+    @classmethod
+    def normalize_routing_group(cls, value):
+        return _normalize_optional_config_value(value) or "default"
 
 
 class ModelUpdateRequest(BaseModel):
@@ -214,8 +222,11 @@ class ModelUpdateRequest(BaseModel):
     api_key: Optional[str] = None
     api_base: Optional[str] = None
     enabled: Optional[bool] = None
-    is_primary: Optional[bool] = None
-    is_fallback: Optional[bool] = None
+    routing_group: Optional[str] = None
+    model_family: Optional[str] = None
+    channel_name: Optional[str] = None
+    routing_priority: Optional[int] = None
+    cooldown_seconds: Optional[int] = None
     temperature: Optional[float] = None
     max_tokens: Optional[int] = None
     requests_per_minute: Optional[int] = None
@@ -227,10 +238,17 @@ class ModelUpdateRequest(BaseModel):
     cost_per_1m_output: Optional[float] = None
     extra_params: Optional[dict] = None
 
-    @field_validator("api_key", "api_base", mode="before")
+    @field_validator("api_key", "api_base", "model_family", "channel_name", mode="before")
     @classmethod
     def normalize_optional_secret(cls, value):
         return _normalize_optional_config_value(value)
+
+    @field_validator("routing_group", mode="before")
+    @classmethod
+    def normalize_routing_group(cls, value):
+        if value is None:
+            return None
+        return _normalize_optional_config_value(value) or "default"
 
 
 class EvalRunRequest(BaseModel):
@@ -304,8 +322,11 @@ def _model_payload(m: LlmModel) -> dict:
         "api_base": m.api_base,
         "api_key_set": bool(m.api_key),
         "enabled": m.enabled,
-        "is_primary": m.is_primary,
-        "is_fallback": m.is_fallback,
+        "routing_group": m.routing_group,
+        "model_family": m.model_family,
+        "channel_name": m.channel_name,
+        "routing_priority": m.routing_priority,
+        "cooldown_seconds": m.cooldown_seconds,
         "temperature": m.temperature,
         "max_tokens": m.max_tokens,
         "requests_per_minute": m.requests_per_minute,
@@ -335,9 +356,8 @@ async def list_models(db: AsyncSession = Depends(get_db)):
             headers={MODEL_LIST_CACHE_HEADER: f"HIT; age={age_seconds:.3f}s"},
         )
 
-    result = await db.execute(select(LlmModel).order_by(LlmModel.id))
+    result = await db.execute(select(LlmModel).order_by(LlmModel.routing_group, LlmModel.routing_priority, LlmModel.id))
     models = result.scalars().all()
-    await _normalize_model_roles(db, models)
     payload = {
         "models": [_model_payload(m) for m in models],
         "total": len(models),
@@ -368,6 +388,11 @@ async def create_model(req: ModelCreateRequest, db: AsyncSession = Depends(get_d
             api_key=req.api_key,
             api_base=req.api_base,
             enabled=req.enabled,
+            routing_group=req.routing_group or "default",
+            model_family=req.model_family,
+            channel_name=req.channel_name,
+            routing_priority=req.routing_priority,
+            cooldown_seconds=req.cooldown_seconds,
             temperature=req.temperature,
             max_tokens=req.max_tokens,
             requests_per_minute=req.requests_per_minute,
@@ -556,22 +581,6 @@ async def update_model(model_id: int, req: ModelUpdateRequest, db: AsyncSession 
             model.cost_per_1k_output = 0.0
             model.extra_params = _pricing_extra_params(model.extra_params, 0.0)
 
-        # Ensure only one primary / one fallback
-        if req.is_primary is True:
-            await db.execute(
-                LlmModel.__table__.update()
-                .where(LlmModel.id != model_id)
-                .values(is_primary=False)
-            )
-            model.is_fallback = False
-        if req.is_fallback is True:
-            await db.execute(
-                LlmModel.__table__.update()
-                .where(LlmModel.id != model_id)
-                .values(is_fallback=False)
-            )
-            model.is_primary = False
-
         await db.flush()
         return {"message": f"模型 {model.name} 更新成功"}
 
@@ -592,44 +601,6 @@ async def delete_model(model_id: int, db: AsyncSession = Depends(get_db)):
         return {"message": f"模型 {name} 已删除"}
 
     return await _retry_write_and_invalidate_models(db, _delete)
-
-
-@router.post("/{model_id}/set-primary")
-async def set_primary(model_id: int, db: AsyncSession = Depends(get_db)):
-    """Set a model as the primary model (unset others)."""
-    async def _set_primary():
-        result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
-        model = result.scalar_one_or_none()
-        if not model:
-            raise HTTPException(404, f"Model {model_id} not found")
-
-        await db.execute(LlmModel.__table__.update().values(is_primary=False))
-        model.is_primary = True
-        model.is_fallback = False
-        model.enabled = True
-        await db.flush()
-        return {"message": f"{model.name} 已设为主模型"}
-
-    return await _retry_write_and_invalidate_models(db, _set_primary)
-
-
-@router.post("/{model_id}/set-fallback")
-async def set_fallback(model_id: int, db: AsyncSession = Depends(get_db)):
-    """Set a model as the fallback model."""
-    async def _set_fallback():
-        result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
-        model = result.scalar_one_or_none()
-        if not model:
-            raise HTTPException(404, f"Model {model_id} not found")
-
-        await db.execute(LlmModel.__table__.update().values(is_fallback=False))
-        model.is_fallback = True
-        model.is_primary = False
-        model.enabled = True
-        await db.flush()
-        return {"message": f"{model.name} 已设为备用模型"}
-
-    return await _retry_write_and_invalidate_models(db, _set_fallback)
 
 
 @router.post("/{model_id}/test")

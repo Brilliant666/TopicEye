@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
@@ -104,7 +104,7 @@ export default function ProfilePage() {
     return { label: '可同步', tone: 'teal' as const, text: 'Key 与同步 endpoint 均已配置。' };
   }, [status]);
 
-  const loadStatus = async () => {
+  const loadStatus = useCallback(async () => {
     if (!currentUser) {
       setLoadingStatus(false);
       return;
@@ -118,11 +118,11 @@ export default function ProfilePage() {
     } finally {
       setLoadingStatus(false);
     }
-  };
+  }, [currentUser]);
 
   useEffect(() => {
     void loadStatus();
-  }, [currentUser?.id]);
+  }, [loadStatus]);
 
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();

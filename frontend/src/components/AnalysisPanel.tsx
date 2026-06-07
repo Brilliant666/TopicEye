@@ -5,7 +5,7 @@ import { BookOpen, Loader2, PenLine, Video, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAppContext } from '@/components/ClientLayout';
 import { creationApi } from '@/lib/api';
-import { Button, Panel, cx } from '@/components/ui';
+import { Button, Panel } from '@/components/ui';
 import type { ContentAnalysis } from '@/types';
 import CreationPlanDisplay from '@/components/CreationPlanDisplay';
 

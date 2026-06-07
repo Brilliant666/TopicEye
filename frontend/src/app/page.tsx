@@ -102,6 +102,7 @@ function formatTimelineDate(dateStr: string): string {
 // ── Page Component ──
 
 export default function HomePage() {
+  const router = useRouter();
   const { currentUser, toggleFavorite, refreshCounts } = useAppContext();
   const [items, setItems] = useState<ContentItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -145,7 +146,7 @@ export default function HomePage() {
 
   const handleIgnore = useCallback(async (id: number) => {
     if (!currentUser) {
-      window.location.href = '/login';
+      router.push('/login');
       return;
     }
     try {
@@ -155,7 +156,7 @@ export default function HomePage() {
     } catch (err) {
       console.error('Ignore failed:', err);
     }
-  }, [currentUser, refreshCounts]);
+  }, [currentUser, refreshCounts, router]);
 
   // Dynamic categories derived from data
   const categories = useMemo(() => {

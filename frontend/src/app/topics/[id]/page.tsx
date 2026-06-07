@@ -6,7 +6,7 @@ import { AlertTriangle, ArrowLeft } from 'lucide-react';
 import { LEVEL_CONFIG } from '@/lib/design-tokens';
 import { useAppContext } from '@/components/ClientLayout';
 import { contentsApi, analysesApi } from '@/lib/api';
-import { Button, Panel, cx } from '@/components/ui';
+import { Button, Panel } from '@/components/ui';
 import { useContentFavoriteStates } from '@/hooks/useContentFavoriteStates';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
 import { explainRecommendation } from '@/lib/recommendation';

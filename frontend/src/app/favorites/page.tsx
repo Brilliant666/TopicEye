@@ -1024,6 +1024,7 @@ function FavoriteCard({
           {selected ? <CheckSquare size={13} /> : <Square size={13} />}
         </button>
         {item.cover_url && (
+          // eslint-disable-next-line @next/next/no-img-element -- Favorite covers are arbitrary external URLs.
           <img
             src={item.cover_url}
             alt={item.title}

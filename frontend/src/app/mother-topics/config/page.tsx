@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, ArrowRight, Settings } from 'lucide-react';
 import { motherTopicsApi, type MotherTopic } from '@/lib/api';
-import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
+import { Badge, Button, Panel, Toolbar } from '@/components/ui';
 
 /* ── helpers ── */
 
@@ -221,7 +221,6 @@ export default function MotherTopicsConfigPage() {
   const router = useRouter();
   const [topics, setTopics] = useState<MotherTopic[]>([]);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
 
   const loadTopics = useCallback(() => {
     setLoading(true);

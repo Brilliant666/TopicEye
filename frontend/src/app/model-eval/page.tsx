@@ -25,7 +25,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { Badge, Button, Metric, Panel, Toolbar, cx } from '@/components/ui';
+import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
 import { modelsApi } from '@/lib/api';
 import type { EvalResult, EvalRun, LlmModelItem, ModelUsageSummary } from '@/lib/api';
 

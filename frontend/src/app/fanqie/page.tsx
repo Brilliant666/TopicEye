@@ -9,7 +9,6 @@ import {
   Crown,
   ExternalLink,
   Filter,
-  Flame,
   Library,
   LineChart,
   RefreshCw,
@@ -19,7 +18,7 @@ import {
   TrendingUp,
   X,
 } from 'lucide-react';
-import { Button, Panel, Toolbar, cx } from '@/components/ui';
+import { Button, Panel, cx } from '@/components/ui';
 import { useAppContext } from '@/components/ClientLayout';
 import {
   favoritesApi,
@@ -463,6 +462,7 @@ function BookCard({
       </div>
 
       {coverSrc ? (
+        // eslint-disable-next-line @next/next/no-img-element -- Covers come from multiple external book platforms.
         <img
           src={coverSrc}
           alt={title}

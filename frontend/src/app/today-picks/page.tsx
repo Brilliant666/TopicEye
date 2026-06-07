@@ -14,6 +14,7 @@ import {
   Flame,
   Layers3,
   List,
+  PenLine,
   Search,
   SlidersHorizontal,
   Sparkles,
@@ -28,6 +29,7 @@ import { Badge, Button, Panel, cx } from '@/components/ui';
 import { useContentFavoriteStates } from '@/hooks/useContentFavoriteStates';
 import { getRecommendLevelLabel, getTagColor, timeAgo } from '@/lib/utils';
 import { getRecommendationReason } from '@/lib/recommendation';
+import { startContentWorkflow } from '@/lib/workflow';
 import type { ContentAnalysis, ContentItem, TopicInfo } from '@/types';
 
 const CATEGORIES = ['全部', 'AI', '职场', '商业', '教育', '自媒体', '科技', '生活', '产品'] as const;
@@ -76,6 +78,8 @@ function TodayPicksPage() {
   const [selectedAnalysis, setSelectedAnalysis] = useState<(ContentAnalysis & { _content_id?: number }) | null>(null);
   const [groupByTopic, setGroupByTopic] = useState(true);
   const [expandedTopics, setExpandedTopics] = useState<Set<number>>(new Set());
+  const [workflowPendingId, setWorkflowPendingId] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const updateURL = useCallback((cat: string, level: string, tr: string) => {
     const params = new URLSearchParams();
@@ -181,6 +185,24 @@ function TodayPicksPage() {
     await toggleFavorite(id);
     contentFavoriteState.refresh();
   };
+  const handleStartWorkflow = useCallback(async (item: ContentItem, isFavorited: boolean) => {
+    setWorkflowPendingId(item.id);
+    setActionError(null);
+    try {
+      await startContentWorkflow({
+        contentId: item.id,
+        title: item.title,
+        isFavorited,
+        toggleFavorite,
+        router,
+      });
+      contentFavoriteState.refresh();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '推进选题失败');
+    } finally {
+      setWorkflowPendingId(null);
+    }
+  }, [contentFavoriteState, router, toggleFavorite]);
   const toggleTopic = (id: number) => {
     setExpandedTopics((prev) => {
       const next = new Set(prev);
@@ -227,7 +249,22 @@ function TodayPicksPage() {
             dupCount={dupCount}
           />
 
-          {leadItem && <LeadPick item={leadItem} isFav={contentFavoriteState.isFavorited(leadItem.id)} onFav={handleFav} onOpen={setSelectedAnalysis} />}
+          {actionError && (
+            <div className="mb-4 rounded-sm border border-red/20 bg-red-light px-4 py-3 text-sm text-red">
+              {actionError}
+            </div>
+          )}
+
+          {leadItem && (
+            <LeadPick
+              item={leadItem}
+              isFav={contentFavoriteState.isFavorited(leadItem.id)}
+              onFav={handleFav}
+              onOpen={setSelectedAnalysis}
+              onStartWorkflow={handleStartWorkflow}
+              workflowPending={workflowPendingId === leadItem.id}
+            />
+          )}
 
           {loading ? (
             <EmptyState icon={Sparkles} title="精选加载中" desc="正在读取算法筛选结果..." />
@@ -251,11 +288,22 @@ function TodayPicksPage() {
               isFavorited={contentFavoriteState.isFavorited}
               onFav={handleFav}
               onOpen={setSelectedAnalysis}
+              onStartWorkflow={handleStartWorkflow}
+              workflowPendingId={workflowPendingId}
             />
           ) : (
             <div className="flex flex-col gap-2.5 pb-10">
               {sortedItems.map((item, idx) => (
-                <PickCard key={item.id} item={item} rank={idx + 1} isFav={contentFavoriteState.isFavorited(item.id)} onFav={handleFav} onOpen={setSelectedAnalysis} />
+                <PickCard
+                  key={item.id}
+                  item={item}
+                  rank={idx + 1}
+                  isFav={contentFavoriteState.isFavorited(item.id)}
+                  onFav={handleFav}
+                  onOpen={setSelectedAnalysis}
+                  onStartWorkflow={handleStartWorkflow}
+                  workflowPending={workflowPendingId === item.id}
+                />
               ))}
             </div>
           )}
@@ -329,11 +377,15 @@ function LeadPick({
   isFav,
   onFav,
   onOpen,
+  onStartWorkflow,
+  workflowPending,
 }: {
   item: ContentItem;
   isFav: boolean;
   onFav: (id: number) => void;
   onOpen: (a: ContentAnalysis & { _content_id?: number }) => void;
+  onStartWorkflow: (item: ContentItem, isFavorited: boolean) => void;
+  workflowPending: boolean;
 }) {
   const analysis = getAnalysis(item);
   const score = scoreOf(item);
@@ -363,7 +415,15 @@ function LeadPick({
               {recommendation}
             </p>
           )}
-          <PickActions item={item} analysis={analysis} isFav={isFav} onFav={onFav} onOpen={onOpen} />
+          <PickActions
+            item={item}
+            analysis={analysis}
+            isFav={isFav}
+            onFav={onFav}
+            onOpen={onOpen}
+            onStartWorkflow={onStartWorkflow}
+            workflowPending={workflowPending}
+          />
         </div>
         <div className="flex items-center justify-center rounded-sm border border-primary-border bg-primary-light p-4 max-md:justify-start">
           <div className="text-center max-md:text-left">
@@ -496,6 +556,8 @@ function TopicBoard({
   isFavorited,
   onFav,
   onOpen,
+  onStartWorkflow,
+  workflowPendingId,
 }: {
   topics: TopicInfo[];
   topicMap: Map<number | null, ContentItem[]>;
@@ -505,6 +567,8 @@ function TopicBoard({
   isFavorited: (id: number) => boolean;
   onFav: (id: number) => void;
   onOpen: (a: ContentAnalysis & { _content_id?: number }) => void;
+  onStartWorkflow: (item: ContentItem, isFavorited: boolean) => void;
+  workflowPendingId: number | null;
 }) {
   return (
     <div className="flex flex-col gap-3.5 pb-10">
@@ -531,7 +595,17 @@ function TopicBoard({
             </div>
             <div className="flex flex-col">
               {shownItems.map((item, idx) => (
-                <PickCard key={item.id} item={item} rank={idx + 1} isFav={isFavorited(item.id)} onFav={onFav} onOpen={onOpen} flush />
+                <PickCard
+                  key={item.id}
+                  item={item}
+                  rank={idx + 1}
+                  isFav={isFavorited(item.id)}
+                  onFav={onFav}
+                  onOpen={onOpen}
+                  onStartWorkflow={onStartWorkflow}
+                  workflowPending={workflowPendingId === item.id}
+                  flush
+                />
               ))}
             </div>
             {!isExpanded && hiddenCount > 0 && (
@@ -548,7 +622,16 @@ function TopicBoard({
           {topics.length > 0 && <SectionHeading title="其他精选" count={standaloneItems.length} />}
           <div className="flex flex-col gap-2.5">
             {[...standaloneItems].sort((a, b) => scoreOf(b) - scoreOf(a)).map((item, idx) => (
-              <PickCard key={item.id} item={item} rank={idx + 1} isFav={isFavorited(item.id)} onFav={onFav} onOpen={onOpen} />
+              <PickCard
+                key={item.id}
+                item={item}
+                rank={idx + 1}
+                isFav={isFavorited(item.id)}
+                onFav={onFav}
+                onOpen={onOpen}
+                onStartWorkflow={onStartWorkflow}
+                workflowPending={workflowPendingId === item.id}
+              />
             ))}
           </div>
         </section>
@@ -563,6 +646,8 @@ function PickCard({
   isFav,
   onFav,
   onOpen,
+  onStartWorkflow,
+  workflowPending,
   flush = false,
 }: {
   item: ContentItem;
@@ -570,6 +655,8 @@ function PickCard({
   isFav: boolean;
   onFav: (id: number) => void;
   onOpen: (a: ContentAnalysis & { _content_id?: number }) => void;
+  onStartWorkflow: (item: ContentItem, isFavorited: boolean) => void;
+  workflowPending: boolean;
   flush?: boolean;
 }) {
   const analysis = getAnalysis(item);
@@ -610,7 +697,15 @@ function PickCard({
             {recommendation}
           </p>
         )}
-        <PickActions item={item} analysis={analysis} isFav={isFav} onFav={onFav} onOpen={onOpen} />
+        <PickActions
+          item={item}
+          analysis={analysis}
+          isFav={isFav}
+          onFav={onFav}
+          onOpen={onOpen}
+          onStartWorkflow={onStartWorkflow}
+          workflowPending={workflowPending}
+        />
       </div>
       <div className="text-right">
         <div className={cx('font-mono text-[22px] font-black leading-none', scoreClass)}>
@@ -628,6 +723,8 @@ function PickActions({
   isFav,
   onFav,
   onOpen,
+  onStartWorkflow,
+  workflowPending,
   dark = false,
 }: {
   item: ContentItem;
@@ -635,6 +732,8 @@ function PickActions({
   isFav: boolean;
   onFav: (id: number) => void;
   onOpen: (a: ContentAnalysis & { _content_id?: number }) => void;
+  onStartWorkflow: (item: ContentItem, isFavorited: boolean) => void;
+  workflowPending: boolean;
   dark?: boolean;
 }) {
   const actionClass = dark
@@ -682,6 +781,21 @@ function PickActions({
         )}
       >
         <Star size={13} fill={isFav ? '#F59E0B' : 'none'} /> 收藏
+      </button>
+      <button
+        type="button"
+        disabled={workflowPending}
+        onClick={(e) => {
+          e.stopPropagation();
+          onStartWorkflow(item, isFav);
+        }}
+        className={cx(
+          'inline-flex items-center gap-1.5 rounded-xs border px-2.5 py-1.5 text-[11px] font-bold transition disabled:cursor-wait disabled:opacity-60',
+          dark ? 'border-white/15 bg-white/10 text-white hover:bg-white/15' : 'border-primary bg-primary text-white hover:bg-primary-hover',
+        )}
+      >
+        <PenLine size={13} />
+        {workflowPending ? '推进中' : '推进'}
       </button>
     </div>
   );

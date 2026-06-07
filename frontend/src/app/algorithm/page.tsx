@@ -14,6 +14,7 @@ import {
   SampleList,
   SummaryGrid,
 } from './components';
+import { startContentWorkflow } from '@/lib/workflow';
 
 const DEFAULT_HOURS = 24;
 const ANALYSIS_POLL_INTERVAL_MS = 3000;
@@ -241,15 +242,14 @@ export default function AlgorithmPage() {
     setError(null);
     setCreatePendingId(sample.id);
     try {
-      if (!favorites.has(sample.id) && !sample.is_favorited) {
-        const isFavorited = await toggleFavorite(sample.id, { throwOnError: true });
-        setSampleFavorite(sample.id, isFavorited);
-      }
-      const params = new URLSearchParams({
-        target_type: 'content',
-        keyword: sample.title,
+      await startContentWorkflow({
+        contentId: sample.id,
+        title: sample.title,
+        isFavorited: favorites.has(sample.id) || Boolean(sample.is_favorited),
+        toggleFavorite,
+        router,
       });
-      router.push(`/favorites?${params.toString()}`);
+      setSampleFavorite(sample.id, true);
     } catch (err) {
       setError(err instanceof Error ? err.message : '进入创作台失败');
     } finally {

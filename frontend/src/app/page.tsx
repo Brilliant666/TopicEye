@@ -10,6 +10,7 @@ import {
   Eye,
   ExternalLink,
   Flame,
+  PenLine,
   Star,
   ThumbsDown,
   ThumbsUp,
@@ -26,6 +27,7 @@ import { useContentFavoriteStates } from '@/hooks/useContentFavoriteStates';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
 import { explainRecommendation, getRecommendationReason } from '@/lib/recommendation';
 import ContentAnalysisPanel from '@/components/ContentAnalysisPanel';
+import { startContentWorkflow } from '@/lib/workflow';
 
 // ── Helpers ──
 
@@ -112,6 +114,7 @@ export default function HomePage() {
   const [activeTimeRange, setActiveTimeRange] = useState('48h');
   const [activeSourceType, setActiveSourceType] = useState('全部');
   const [selectedAnalysis, setSelectedAnalysis] = useState<ContentAnalysis | null>(null);
+  const [workflowPendingId, setWorkflowPendingId] = useState<number | null>(null);
 
   // Fetch data
   useEffect(() => {
@@ -202,6 +205,26 @@ export default function HomePage() {
   }, [filtered]);
   const visibleContentIds = useMemo(() => filtered.map((item) => item.id), [filtered]);
   const contentFavoriteState = useContentFavoriteStates(visibleContentIds);
+
+  const handleStartWorkflow = useCallback(async (item: ContentItem, isFavorited: boolean) => {
+    setWorkflowPendingId(item.id);
+    setError(null);
+    try {
+      await startContentWorkflow({
+        contentId: item.id,
+        title: item.title,
+        isFavorited,
+        toggleFavorite,
+        router,
+      });
+      contentFavoriteState.refresh();
+      refreshCounts?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '推进选题失败');
+    } finally {
+      setWorkflowPendingId(null);
+    }
+  }, [contentFavoriteState, refreshCounts, router, toggleFavorite]);
 
   const levelSummary = useMemo(() => {
     const groups: Array<{ level: RecommendLevel; title: string; items: ContentItem[] }> = [
@@ -339,6 +362,8 @@ export default function HomePage() {
               }}
               onIgnore={handleIgnore}
               onShowAnalysis={(a) => setSelectedAnalysis(a)}
+              onStartWorkflow={handleStartWorkflow}
+              workflowPendingId={workflowPendingId}
             />
             {filtered.length === 0 && (
               <div className="py-[60px] text-center text-sm text-gray-400">
@@ -373,12 +398,16 @@ function ContentTimeline({
   onToggleFav,
   onIgnore,
   onShowAnalysis,
+  onStartWorkflow,
+  workflowPendingId,
 }: {
   groups: Array<{ dateLabel: string; entries: Array<{ item: ContentItem; level: RecommendLevel }> }>;
   isFavorited: (id: number) => boolean;
   onToggleFav: (id: number) => void | Promise<void>;
   onIgnore: (id: number) => void;
   onShowAnalysis: (analysis: ContentAnalysis) => void;
+  onStartWorkflow: (item: ContentItem, isFavorited: boolean) => void | Promise<void>;
+  workflowPendingId: number | null;
 }) {
   if (groups.length === 0) {
     return null;
@@ -424,6 +453,8 @@ function ContentTimeline({
                   level={level}
                   compact
                   onShowAnalysis={onShowAnalysis}
+                  onStartWorkflow={onStartWorkflow}
+                  workflowPending={workflowPendingId === item.id}
                 />
               </div>
             ))}
@@ -501,6 +532,8 @@ function EditorialItem({
   level,
   compact = false,
   onShowAnalysis,
+  onStartWorkflow,
+  workflowPending,
 }: {
   item: ContentItem;
   isFav: boolean;
@@ -511,6 +544,8 @@ function EditorialItem({
   level?: RecommendLevel;
   compact?: boolean;
   onShowAnalysis: (analysis: ContentAnalysis) => void;
+  onStartWorkflow: (item: ContentItem, isFavorited: boolean) => void;
+  workflowPending: boolean;
 }) {
   const handleCardClick = useCallback(() => {
     if (item.analysis) {
@@ -598,6 +633,20 @@ function EditorialItem({
                 分析
               </Button>
             )}
+            <Button
+              type="button"
+              variant="primary"
+              disabled={workflowPending}
+              className="min-h-0 px-2 py-1 text-xs opacity-0 group-hover:opacity-100"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStartWorkflow(item, isFav);
+              }}
+              title="加入选题工作流"
+            >
+              <PenLine size={13} strokeWidth={2} />
+              {workflowPending ? '推进中' : '推进'}
+            </Button>
             {item.url && (
               <a
                 href={item.url}

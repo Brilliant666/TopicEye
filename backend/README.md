@@ -15,6 +15,29 @@ cp .env.example .env
 
 API docs: http://localhost:8000/docs
 
+## Database backend
+
+The backend runtime supports two OLTP profiles through `DATABASE_URL`:
+
+- SQLite: `sqlite+aiosqlite:///./topiceye.db`
+- PostgreSQL: `postgresql+asyncpg://user:password@host:5432/topiceye`
+
+SQLAlchemy remains the write path. DuckDB is the analytical read layer and
+attaches the configured OLTP database in read-only mode. Backend-specific URL
+normalization, DuckDB attach SQL, diagnostics, and secret redaction live in
+`app/core/db_backend.py`.
+
+Important boundaries:
+
+- Startup table creation uses SQLAlchemy metadata for both supported backends.
+- Local upgrade helpers in `app/main.py` are SQLite-only compatibility patches
+  for existing developer databases.
+- PostgreSQL production upgrades should be handled by a migration tool such as
+  Alembic before relying on long-lived production data.
+- `DATABASE_SQLITE_DOMAIN_SPLIT_ENABLED` currently exposes deterministic SQLite
+  domain database URLs for future routing work; repositories still use the
+  primary `DATABASE_URL`.
+
 ## Tests
 
 ```bash
@@ -38,10 +61,10 @@ python scripts/duckdb_check.py
 ```
 
 Operational helper scripts live under `scripts/` as well. For example,
-`scripts/batch_analyze.sh` analyzes local content items that do not yet have an
-AI analysis:
+`scripts/batch_analyze.sh` analyzes pending content through the HTTP API, so it
+works with either SQLite or PostgreSQL as long as the backend is running:
 
 ```bash
 cd backend
-./scripts/batch_analyze.sh
+AUTH_TOKEN=<login-token> BASE_URL=http://localhost:8000 ./scripts/batch_analyze.sh
 ```

@@ -162,6 +162,20 @@ class ContentRepo(BaseRepository[ContentItem]):
         await self.db.flush()
         return result.rowcount
 
+    async def release_analyzing_to_pending(self, ids: list[int]) -> int:
+        """Release still-in-flight analysis claims back to pending."""
+        if not ids:
+            return 0
+        stmt = (
+            update(self.model)
+            .where(self.model.id.in_(ids))
+            .where(self.model.status == ContentStatus.ANALYZING)
+            .values(status=ContentStatus.PENDING, updated_at=datetime.utcnow())
+        )
+        result = await self.db.execute(stmt)
+        await self.db.flush()
+        return result.rowcount
+
     # ── Topic & duplicate helpers ──────────────────────────────────
 
     async def get_by_topic(

@@ -275,10 +275,14 @@ async def _drain_pending_analysis(
             )
         except asyncio.TimeoutError:
             logger.warning("Scheduler: auto-analysis batch timed out for ids=%s", pending_ids)
+            released = await _release_inflight_analysis_claims(pending_ids)
+            logger.info("Scheduler: released %d timed-out analysis claims", released)
             stop_reason = "batch_timeout"
             break
         except Exception:
             logger.exception("Scheduler: auto-analysis batch failed for ids=%s", pending_ids)
+            released = await _release_inflight_analysis_claims(pending_ids)
+            logger.info("Scheduler: released %d failed analysis claims", released)
             stop_reason = "batch_failed"
             break
 
@@ -305,6 +309,15 @@ async def _drain_pending_analysis(
         "remaining": bool(remaining),
         "stop_reason": stop_reason,
     }
+
+
+async def _release_inflight_analysis_claims(content_ids: list[int]) -> int:
+    """Return still-analyzing items from a cancelled scheduler batch to pending."""
+    async with async_session() as db:
+        content_repo = ContentRepo(db)
+        released = await content_repo.release_analyzing_to_pending(content_ids)
+        await db.commit()
+        return released
 
 
 async def _rescan_sources() -> None:

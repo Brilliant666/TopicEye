@@ -680,6 +680,66 @@ async def test_post_sync_drain_processes_backlog_and_stale_analyzing(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_post_sync_drain_releases_claims_after_batch_timeout(monkeypatch):
+    engine, session_factory = await _session_factory()
+    monkeypatch.setattr(scheduler_module, "async_session", session_factory)
+
+    async def fake_analyze_batch(content_ids):
+        async with session_factory() as db:
+            for content_id in content_ids:
+                content = await db.get(ContentItem, content_id)
+                if content is not None:
+                    content.status = ContentStatus.ANALYZING
+            await db.commit()
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(scheduler_module, "analyze_batch_concurrent", fake_analyze_batch)
+
+    async with session_factory() as db:
+        db.add_all([
+            ContentItem(
+                id=1,
+                title="超时释放一",
+                url="https://example.com/timeout-release-1",
+                status=ContentStatus.PENDING,
+                crawled_at=datetime.utcnow(),
+            ),
+            ContentItem(
+                id=2,
+                title="超时释放二",
+                url="https://example.com/timeout-release-2",
+                status=ContentStatus.PENDING,
+                crawled_at=datetime.utcnow() - timedelta(minutes=1),
+            ),
+        ])
+        await db.commit()
+
+    stats = await scheduler_module._drain_pending_analysis(
+        batch_size=2,
+        time_budget_seconds=120,
+    )
+
+    async with session_factory() as db:
+        statuses = {
+            item.id: item.status
+            for item in (await db.execute(select(ContentItem))).scalars().all()
+        }
+
+    assert stats == {
+        "attempted": 2,
+        "analyzed": 0,
+        "batches": 1,
+        "remaining": True,
+        "stop_reason": "batch_timeout",
+    }
+    assert statuses == {
+        1: ContentStatus.PENDING,
+        2: ContentStatus.PENDING,
+    }
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_source_sort_order_backfill_skips_sqlite_lock(monkeypatch):
     async def locked_backfill(*args, **kwargs):
         raise OperationalError("UPDATE sources", {}, Exception("database is locked"))

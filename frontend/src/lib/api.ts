@@ -976,6 +976,154 @@ export const feedbackApi = {
   },
 };
 
+// ─── Product Feedback / Updates API ───
+
+export type IssueFeedbackSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type IssueFeedbackStatus = 'open' | 'triaged' | 'in_progress' | 'fixed' | 'closed';
+export type ProductUpdateKind = 'roadmap' | 'release' | 'fix' | 'improvement';
+export type ProductUpdateStatus = 'planned' | 'in_progress' | 'shipped';
+
+export interface IssueFeedbackItem {
+  id: number;
+  user_id: number;
+  title: string;
+  description: string;
+  area: string;
+  severity: IssueFeedbackSeverity;
+  status: IssueFeedbackStatus;
+  resolution_note?: string | null;
+  fixed_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  reporter_email?: string | null;
+  reporter_name?: string | null;
+}
+
+export interface IssueFeedbackListResponse {
+  items: IssueFeedbackItem[];
+  total: number;
+  open_count: number;
+  fixed_count: number;
+}
+
+export interface ProductUpdateItem {
+  id: number;
+  title: string;
+  description: string;
+  kind: ProductUpdateKind;
+  status: ProductUpdateStatus;
+  version?: string | null;
+  target_date?: string | null;
+  shipped_at?: string | null;
+  created_by_id?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductUpdateListResponse {
+  items: ProductUpdateItem[];
+  total: number;
+}
+
+export const productFeedbackApi = {
+  createIssue(data: {
+    title: string;
+    description: string;
+    area?: string;
+    severity?: IssueFeedbackSeverity;
+  }): Promise<IssueFeedbackItem> {
+    return request('/product-feedback/issues', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  listMine(params?: { status?: IssueFeedbackStatus | ''; limit?: number; offset?: number }): Promise<IssueFeedbackListResponse> {
+    const query = params
+      ? '?' + new URLSearchParams(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined && v !== '')
+            .map(([k, v]) => [k, String(v)])
+        ).toString()
+      : '';
+    return request(`/product-feedback/issues/mine${query}`);
+  },
+
+  listIssues(params?: {
+    status?: IssueFeedbackStatus | '';
+    severity?: IssueFeedbackSeverity | '';
+    area?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<IssueFeedbackListResponse> {
+    const query = params
+      ? '?' + new URLSearchParams(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined && v !== '')
+            .map(([k, v]) => [k, String(v)])
+        ).toString()
+      : '';
+    return request(`/product-feedback/issues${query}`);
+  },
+
+  updateIssue(id: number, data: {
+    status?: IssueFeedbackStatus;
+    severity?: IssueFeedbackSeverity;
+    area?: string;
+    resolution_note?: string | null;
+  }): Promise<IssueFeedbackItem> {
+    return request(`/product-feedback/issues/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  listUpdates(params?: {
+    kind?: ProductUpdateKind | '';
+    status?: ProductUpdateStatus | '';
+    limit?: number;
+    offset?: number;
+  }): Promise<ProductUpdateListResponse> {
+    const query = params
+      ? '?' + new URLSearchParams(
+          Object.entries(params)
+            .filter(([, v]) => v !== undefined && v !== '')
+            .map(([k, v]) => [k, String(v)])
+        ).toString()
+      : '';
+    return request(`/product-feedback/updates${query}`);
+  },
+
+  createUpdate(data: {
+    title: string;
+    description: string;
+    kind: ProductUpdateKind;
+    status: ProductUpdateStatus;
+    version?: string | null;
+    target_date?: string | null;
+  }): Promise<ProductUpdateItem> {
+    return request('/product-feedback/updates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  updateProductUpdate(id: number, data: Partial<{
+    title: string;
+    description: string;
+    kind: ProductUpdateKind;
+    status: ProductUpdateStatus;
+    version: string | null;
+    target_date: string | null;
+    shipped_at: string | null;
+  }>): Promise<ProductUpdateItem> {
+    return request(`/product-feedback/updates/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+};
+
 // ─── Weekly Digest (周刊) API ───
 
 export const weeklyDigestApi = {

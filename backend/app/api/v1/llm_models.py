@@ -199,7 +199,7 @@ class ModelCreateRequest(BaseModel):
     cooldown_seconds: int = 300
     temperature: float = 0.3
     max_tokens: int = 2000
-    requests_per_minute: int = 60
+    requests_per_minute: int = 30
     description: Optional[str] = None
     cost_per_1k_input: Optional[float] = None
     cost_per_1k_output: Optional[float] = None

@@ -14,6 +14,7 @@ import {
   History,
   KeyRound,
   Layers3,
+  Loader2,
   Play,
   Plus,
   Power,
@@ -26,7 +27,14 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
 import { modelsApi } from '@/lib/api';
-import type { EvalResult, EvalRun, LlmModelItem, ModelUsageSummary } from '@/lib/api';
+import type {
+  EvalResult,
+  EvalRun,
+  LlmModelItem,
+  LlmModelPresetCatalog,
+  LlmModelPresetItem,
+  ModelUsageSummary,
+} from '@/lib/api';
 
 type Tab = 'models' | 'evaluate' | 'usage' | 'history';
 type Tone = 'primary' | 'teal' | 'amber' | 'purple' | 'red' | 'neutral';
@@ -129,6 +137,21 @@ function formatCurrency(value: number): string {
 
 function formatPerMillion(value: number | null | undefined): string {
   return value !== null && value !== undefined ? `${formatCurrency(value)} / 百万` : '未配置';
+}
+
+function formatPresetValue(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '-';
+  if (typeof value === 'boolean') return value ? '开启' : '关闭';
+  return String(value);
+}
+
+function presetRequires(preset: LlmModelPresetItem | undefined, field: string): boolean {
+  return Boolean(preset?.requires.includes(field));
+}
+
+function presetNumberDefault(preset: LlmModelPresetItem | undefined, catalog: LlmModelPresetCatalog | null, field: string, fallback: number): number {
+  const value = preset?.defaults[field] ?? catalog?.defaults[field] ?? fallback;
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function parseOptionalNumber(value: string): number | null {
@@ -521,12 +544,16 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
 function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClose: () => void }) {
   const isEdit = !!model;
   const initialPreset = PROVIDER_PRESETS[model?.provider || 'openai'] || PROVIDER_PRESETS.openai;
+  const [catalog, setCatalog] = useState<LlmModelPresetCatalog | null>(null);
+  const [loadingCatalog, setLoadingCatalog] = useState(!isEdit);
+  const [presetKey, setPresetKey] = useState('deepseek_balanced');
+  const [showAdvanced, setShowAdvanced] = useState(isEdit);
   const [form, setForm] = useState({
     name: model?.name || '',
-    provider: model?.provider || 'openai',
+    provider: model?.provider || '',
     model_id: model?.model_id || '',
     api_key: '',
-    api_base: model?.api_base || initialPreset.baseUrl,
+    api_base: model?.api_base || '',
     routing_group: model?.routing_group || 'default',
     model_family: model?.model_family || '',
     channel_name: model?.channel_name || '',
@@ -534,7 +561,7 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
     cooldown_seconds: model?.cooldown_seconds ?? 300,
     temperature: model?.temperature ?? 0.3,
     max_tokens: model?.max_tokens ?? 2000,
-    requests_per_minute: model?.requests_per_minute ?? 60,
+    requests_per_minute: model?.requests_per_minute ?? 30,
     description: model?.description || '',
     enabled: model?.enabled ?? true,
     cost_per_1m_input: model?.cost_per_1m_input?.toString() ?? initialPreset.costPer1MInput?.toString() ?? '',
@@ -542,14 +569,80 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
     cost_per_1m_output: model?.cost_per_1m_output?.toString() ?? initialPreset.costPer1MOutput?.toString() ?? '',
   });
   const [saving, setSaving] = useState(false);
+  const selectedPreset = useMemo(
+    () => catalog?.presets.find((item) => item.key === presetKey),
+    [catalog, presetKey],
+  );
+  const currentPreset = PROVIDER_PRESETS[form.provider] || PROVIDER_PRESETS.custom;
+  const needsModelId = isEdit || presetRequires(selectedPreset, 'model_id') || presetKey === 'custom';
+  const needsApiBase = presetRequires(selectedPreset, 'api_base') || presetKey === 'openai_compatible';
+
+  const applyPreset = useCallback((nextKey: string, nextCatalog: LlmModelPresetCatalog | null) => {
+    const preset = nextCatalog?.presets.find((item) => item.key === nextKey);
+    if (!preset) return;
+    const defaults = preset.defaults || {};
+    setPresetKey(nextKey);
+    setForm((prev) => ({
+      ...prev,
+      name: '',
+      provider: preset.provider,
+      model_id: preset.model_id || '',
+      api_base: preset.api_base || '',
+      routing_group: String(defaults.routing_group || 'default'),
+      model_family: preset.model_family || '',
+      channel_name: preset.channel_name || '',
+      routing_priority: presetNumberDefault(preset, nextCatalog, 'routing_priority', 100),
+      cooldown_seconds: presetNumberDefault(preset, nextCatalog, 'cooldown_seconds', 300),
+      temperature: presetNumberDefault(preset, nextCatalog, 'temperature', 0.3),
+      max_tokens: presetNumberDefault(preset, nextCatalog, 'max_tokens', 2000),
+      requests_per_minute: presetNumberDefault(preset, nextCatalog, 'requests_per_minute', 30),
+      description: preset.description || '',
+      enabled: true,
+      cost_per_1m_input: defaults.cost_per_1m_input !== undefined && defaults.cost_per_1m_input !== null ? String(defaults.cost_per_1m_input) : '',
+      cost_per_1m_input_cache_hit: defaults.cost_per_1m_input_cache_hit !== undefined && defaults.cost_per_1m_input_cache_hit !== null ? String(defaults.cost_per_1m_input_cache_hit) : '',
+      cost_per_1m_output: defaults.cost_per_1m_output !== undefined && defaults.cost_per_1m_output !== null ? String(defaults.cost_per_1m_output) : '',
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (isEdit) return;
+    let cancelled = false;
+    setLoadingCatalog(true);
+    modelsApi.presets()
+      .then((res) => {
+        if (cancelled) return;
+        setCatalog(res);
+        const nextKey = res.presets.some((item) => item.key === presetKey) ? presetKey : res.presets[0]?.key || 'custom';
+        applyPreset(nextKey, res);
+      })
+      .catch((e) => {
+        console.error('fetchModelPresets', e);
+        if (!cancelled) {
+          setForm((prev) => ({
+            ...prev,
+            provider: prev.provider || 'openai',
+            api_base: prev.api_base || PROVIDER_PRESETS.openai.baseUrl,
+            requests_per_minute: prev.requests_per_minute || 30,
+          }));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCatalog(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [applyPreset, isEdit]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
       const payload: Record<string, unknown> = { ...form };
+      if (!isEdit) payload.preset_key = presetKey;
       payload.cost_per_1m_input = parseOptionalNumber(form.cost_per_1m_input);
       payload.cost_per_1m_input_cache_hit = parseOptionalNumber(form.cost_per_1m_input_cache_hit);
       payload.cost_per_1m_output = parseOptionalNumber(form.cost_per_1m_output);
+      if (!payload.name) delete payload.name;
       if (!payload.api_key) delete payload.api_key;
       if (!payload.api_base) delete payload.api_base;
       if (!payload.model_family) delete payload.model_family;
@@ -593,106 +686,199 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
     }));
   };
 
-  const currentPreset = PROVIDER_PRESETS[form.provider] || PROVIDER_PRESETS.custom;
+  const saveDisabled = saving
+    || loadingCatalog
+    || (isEdit && (!form.name || !form.provider || !form.model_id))
+    || (!isEdit && (!form.provider || !form.model_id || (needsModelId && !form.model_id)));
 
   return (
     <Panel className="border-primary-border p-5 shadow-[0_12px_28px_rgba(255,107,53,0.08)]">
-      <div className="mb-4 flex items-center gap-2">
-        <Settings2 size={15} className="text-primary" strokeWidth={2.2} />
-        <h3 className="m-0 text-sm font-black text-gray-900">{isEdit ? '编辑模型' : '添加模型'}</h3>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="mb-1.5 flex items-center gap-2">
+            <Settings2 size={15} className="text-primary" strokeWidth={2.2} />
+            <h3 className="m-0 text-sm font-black text-gray-900">{isEdit ? '编辑模型' : '添加模型'}</h3>
+          </div>
+          <div className="text-xs leading-5 text-gray-500">
+            {isEdit ? '修改已有模型配置。API Key 留空时不会覆盖原密钥。' : '推荐先选预设，只填写 API Key；参数默认值已经内置。'}
+          </div>
+        </div>
+        {!isEdit && catalog?.help.beginner_tip && (
+          <div className="max-w-[420px] rounded-xs border border-teal-border bg-teal-light px-3 py-2 text-xs font-bold leading-5 text-teal">
+            {catalog.help.beginner_tip}
+          </div>
+        )}
       </div>
+
+      {!isEdit && (
+        <div className="mb-4">
+          {loadingCatalog ? (
+            <div className="flex min-h-[112px] items-center justify-center gap-2 rounded-sm border border-gray-200 bg-gray-50 text-sm font-bold text-gray-500">
+              <Loader2 size={15} className="animate-spin" />
+              正在加载模型预设
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {catalog?.presets.map((preset) => {
+                const active = preset.key === presetKey;
+                return (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    onClick={() => applyPreset(preset.key, catalog)}
+                    className={cx(
+                      'min-h-[126px] rounded-sm border bg-white p-3 text-left transition',
+                      active ? 'border-primary-border bg-primary-light' : 'border-gray-200 hover:border-primary-border',
+                    )}
+                  >
+                    <div className="mb-2 flex items-start justify-between gap-2">
+                      <div className={cx('text-sm font-black', active ? 'text-primary' : 'text-gray-900')}>{preset.label}</div>
+                      {active && <CheckCircle2 size={16} className="shrink-0 text-primary" />}
+                    </div>
+                    <div className="text-xs leading-5 text-gray-500">{preset.description}</div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {preset.recommended_for.slice(0, 3).map((item) => (
+                        <span key={item} className="rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-gray-500">
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <div>
-          <FieldLabel>显示名称 *</FieldLabel>
-          <TextInput value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="如 GLM-5.1" />
+          <FieldLabel>API Key {isEdit ? '(留空不修改)' : ''}</FieldLabel>
+          <TextInput type="password" value={form.api_key} onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))} placeholder="粘贴供应商 API Key" autoComplete="off" />
         </div>
         <div>
-          <FieldLabel>Provider *</FieldLabel>
-          <SelectInput value={form.provider} onChange={(e) => handleProviderChange(e.target.value)}>
-            {Object.entries(PROVIDER_PRESETS).map(([value, preset]) => (
-              <option key={value} value={value}>{preset.label}</option>
-            ))}
-          </SelectInput>
-          <div className="mt-1 text-[10px] leading-4 text-gray-400">这里填写 LiteLLM provider。OpenCode、智谱等 OpenAI-compatible 网关通常选 OpenAI，再配置 API Base。</div>
+          <FieldLabel>{isEdit ? '显示名称 *' : '显示名称'}</FieldLabel>
+          <TextInput value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder={selectedPreset?.defaults.name ? String(selectedPreset.defaults.name) : '不填则使用预设名称'} />
         </div>
-        <div>
-          <FieldLabel>Model ID *</FieldLabel>
-          <TextInput value={form.model_id} onChange={(e) => handleModelIdChange(e.target.value)} placeholder={`如 ${currentPreset.modelPlaceholder}`} />
-          <div className="mt-1 text-[10px] leading-4 text-gray-400">可填裸模型名，也可直接填完整 LiteLLM 路由，如 openai/deepseek-v4-flash-free。</div>
-        </div>
-        <div>
-          <FieldLabel>API Key {isEdit ? '(留空不修改)' : '*'}</FieldLabel>
-          <TextInput type="password" value={form.api_key} onChange={(e) => setForm((f) => ({ ...f, api_key: e.target.value }))} />
-        </div>
-        <div>
-          <FieldLabel>路由组</FieldLabel>
-          <TextInput value={form.routing_group} onChange={(e) => setForm((f) => ({ ...f, routing_group: e.target.value || 'default' }))} placeholder="default" />
-        </div>
-        <div>
-          <FieldLabel>路由优先级</FieldLabel>
-          <TextInput type="number" value={form.routing_priority} onChange={(e) => setForm((f) => ({ ...f, routing_priority: parseInt(e.target.value, 10) || 100 }))} />
-        </div>
-        <div>
-          <FieldLabel>模型家族</FieldLabel>
-          <TextInput value={form.model_family} onChange={(e) => setForm((f) => ({ ...f, model_family: e.target.value }))} placeholder="如 deepseek / qwen / glm" />
-        </div>
-        <div>
-          <FieldLabel>渠道名</FieldLabel>
-          <TextInput value={form.channel_name} onChange={(e) => setForm((f) => ({ ...f, channel_name: e.target.value }))} placeholder="如 official / opencode / openrouter" />
-        </div>
-        <div>
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <FieldLabel>API Base URL</FieldLabel>
-            {currentPreset.baseUrl && (
-              <button
-                type="button"
-                onClick={() => setForm((f) => ({ ...f, api_base: currentPreset.baseUrl }))}
-                className="rounded-full border border-primary-border bg-primary-light px-2 py-0.5 text-[10px] font-black text-primary"
-              >
-                使用内置
-              </button>
-            )}
+        {(needsModelId || showAdvanced) && (
+          <div>
+            <FieldLabel>Model ID {needsModelId ? '*' : ''}</FieldLabel>
+            <TextInput value={form.model_id} onChange={(e) => handleModelIdChange(e.target.value)} placeholder={selectedPreset?.model_id || selectedPreset?.model_id_placeholder || `如 ${currentPreset.modelPlaceholder}`} />
+            <div className="mt-1 text-[10px] leading-4 text-gray-400">可填裸模型名，也可直接填完整 LiteLLM 路由。</div>
           </div>
-          <TextInput value={form.api_base} onChange={(e) => setForm((f) => ({ ...f, api_base: e.target.value }))} placeholder="https://api.example.com/v1" />
-          {currentPreset.baseUrl && <div className="mt-1 text-[10px] leading-4 text-gray-400">内置默认：{currentPreset.baseUrl}</div>}
-          {!currentPreset.baseUrl && <div className="mt-1 text-[10px] leading-4 text-gray-400">OpenCode 示例：https://opencode.ai/zen/v1</div>}
-        </div>
+        )}
+        {(needsApiBase || showAdvanced) && (
+          <div>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <FieldLabel>API Base URL {needsApiBase ? '*' : ''}</FieldLabel>
+              {currentPreset.baseUrl && (
+                <button
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, api_base: currentPreset.baseUrl }))}
+                  className="rounded-full border border-primary-border bg-primary-light px-2 py-0.5 text-[10px] font-black text-primary"
+                >
+                  使用内置
+                </button>
+              )}
+            </div>
+            <TextInput value={form.api_base} onChange={(e) => setForm((f) => ({ ...f, api_base: e.target.value }))} placeholder={selectedPreset?.api_base_placeholder || 'https://api.example.com/v1'} />
+            {currentPreset.baseUrl && <div className="mt-1 text-[10px] leading-4 text-gray-400">内置默认：{currentPreset.baseUrl}</div>}
+            {!currentPreset.baseUrl && <div className="mt-1 text-[10px] leading-4 text-gray-400">OpenAI 兼容网关通常填写 /v1 结尾的地址。</div>}
+          </div>
+        )}
         <div>
           <FieldLabel>描述</FieldLabel>
           <TextInput value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="可选备注" />
         </div>
-        <div>
-          <FieldLabel>Temperature</FieldLabel>
-          <TextInput type="number" step="0.1" value={form.temperature} onChange={(e) => setForm((f) => ({ ...f, temperature: parseFloat(e.target.value) || 0.3 }))} />
-        </div>
-        <div>
-          <FieldLabel>Max Tokens</FieldLabel>
-          <TextInput type="number" value={form.max_tokens} onChange={(e) => setForm((f) => ({ ...f, max_tokens: parseInt(e.target.value, 10) || 2000 }))} />
-        </div>
-        <div>
-          <FieldLabel>失败冷却秒数</FieldLabel>
-          <TextInput type="number" value={form.cooldown_seconds} onChange={(e) => setForm((f) => ({ ...f, cooldown_seconds: parseInt(e.target.value, 10) || 300 }))} />
-        </div>
-        <div>
-          <FieldLabel>输入未命中单价 / 百万 Tokens</FieldLabel>
-          <TextInput type="number" step="0.001" value={form.cost_per_1m_input} onChange={(e) => setForm((f) => ({ ...f, cost_per_1m_input: e.target.value }))} placeholder="如 1" />
-        </div>
-        <div>
-          <FieldLabel>输出单价 / 百万 Tokens</FieldLabel>
-          <TextInput type="number" step="0.001" value={form.cost_per_1m_output} onChange={(e) => setForm((f) => ({ ...f, cost_per_1m_output: e.target.value }))} placeholder="如 2" />
-        </div>
-        <div>
-          <FieldLabel>输入缓存命中 / 百万 Tokens</FieldLabel>
-          <TextInput type="number" step="0.001" value={form.cost_per_1m_input_cache_hit} onChange={(e) => setForm((f) => ({ ...f, cost_per_1m_input_cache_hit: e.target.value }))} placeholder="如 0.02" />
-        </div>
-        <div className="flex items-end">
-          <div className={cx('w-full rounded-xs border px-2.5 py-2 text-[11px] leading-4', currentPreset.pricingNote ? 'border-teal-border bg-teal-light text-teal' : 'border-gray-200 bg-gray-50 text-gray-400')}>
-            {currentPreset.pricingNote || '费用估算按输入未命中价和输出价计算。'}
-          </div>
+        <div className="grid grid-cols-3 gap-2 rounded-xs border border-gray-200 bg-gray-50 p-2.5">
+          <InfoCell label="Temp" value={formatPresetValue(form.temperature)} />
+          <InfoCell label="Tokens" value={formatPresetValue(form.max_tokens)} />
+          <InfoCell label="RPM" value={formatPresetValue(form.requests_per_minute)} />
         </div>
       </div>
+
+      <div className="mt-3">
+        <button
+          type="button"
+          onClick={() => setShowAdvanced((value) => !value)}
+          className="inline-flex items-center gap-1.5 rounded-sm border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 transition hover:border-primary-border hover:text-primary"
+        >
+          <SlidersHorizontal size={14} />
+          {showAdvanced ? '收起高级参数' : '高级参数'}
+        </button>
+        {selectedPreset?.help && !showAdvanced && (
+          <span className="ml-2 align-middle text-xs font-bold text-gray-500">{selectedPreset.help}</span>
+        )}
+      </div>
+
+      {showAdvanced && (
+        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div>
+            <FieldLabel>Provider *</FieldLabel>
+            <SelectInput value={form.provider || 'openai'} onChange={(e) => handleProviderChange(e.target.value)}>
+              {Object.entries(PROVIDER_PRESETS).map(([value, preset]) => (
+                <option key={value} value={value}>{preset.label}</option>
+              ))}
+            </SelectInput>
+          </div>
+          <div>
+            <FieldLabel>路由组</FieldLabel>
+            <TextInput value={form.routing_group} onChange={(e) => setForm((f) => ({ ...f, routing_group: e.target.value || 'default' }))} placeholder="default" />
+          </div>
+          <div>
+            <FieldLabel>路由优先级</FieldLabel>
+            <TextInput type="number" value={form.routing_priority} onChange={(e) => setForm((f) => ({ ...f, routing_priority: parseInt(e.target.value, 10) || 100 }))} />
+          </div>
+          <div>
+            <FieldLabel>失败冷却秒数</FieldLabel>
+            <TextInput type="number" value={form.cooldown_seconds} onChange={(e) => setForm((f) => ({ ...f, cooldown_seconds: parseInt(e.target.value, 10) || 300 }))} />
+          </div>
+          <div>
+            <FieldLabel>模型家族</FieldLabel>
+            <TextInput value={form.model_family} onChange={(e) => setForm((f) => ({ ...f, model_family: e.target.value }))} placeholder="如 deepseek / qwen / glm" />
+          </div>
+          <div>
+            <FieldLabel>渠道名</FieldLabel>
+            <TextInput value={form.channel_name} onChange={(e) => setForm((f) => ({ ...f, channel_name: e.target.value }))} placeholder="如 official / opencode / openrouter" />
+          </div>
+          <div>
+            <FieldLabel>Temperature</FieldLabel>
+            <TextInput type="number" step="0.1" value={form.temperature} onChange={(e) => setForm((f) => ({ ...f, temperature: parseFloat(e.target.value) || 0.3 }))} />
+            <div className="mt-1 text-[10px] leading-4 text-gray-400">{catalog?.help.temperature_tip || '越低越稳定，分析和摘要通常用 0.2-0.4。'}</div>
+          </div>
+          <div>
+            <FieldLabel>Max Tokens</FieldLabel>
+            <TextInput type="number" value={form.max_tokens} onChange={(e) => setForm((f) => ({ ...f, max_tokens: parseInt(e.target.value, 10) || 2000 }))} />
+            <div className="mt-1 text-[10px] leading-4 text-gray-400">{catalog?.help.max_tokens_tip || '控制单次输出长度。'}</div>
+          </div>
+          <div>
+            <FieldLabel>RPM</FieldLabel>
+            <TextInput type="number" value={form.requests_per_minute} onChange={(e) => setForm((f) => ({ ...f, requests_per_minute: parseInt(e.target.value, 10) || 30 }))} />
+            <div className="mt-1 text-[10px] leading-4 text-gray-400">{catalog?.help.rpm_tip || '每分钟请求数。个人 Key 建议从 10-30 开始。'}</div>
+          </div>
+          <div>
+            <FieldLabel>输入未命中单价 / 百万 Tokens</FieldLabel>
+            <TextInput type="number" step="0.001" value={form.cost_per_1m_input} onChange={(e) => setForm((f) => ({ ...f, cost_per_1m_input: e.target.value }))} placeholder="如 1" />
+          </div>
+          <div>
+            <FieldLabel>输出单价 / 百万 Tokens</FieldLabel>
+            <TextInput type="number" step="0.001" value={form.cost_per_1m_output} onChange={(e) => setForm((f) => ({ ...f, cost_per_1m_output: e.target.value }))} placeholder="如 2" />
+          </div>
+          <div>
+            <FieldLabel>输入缓存命中 / 百万 Tokens</FieldLabel>
+            <TextInput type="number" step="0.001" value={form.cost_per_1m_input_cache_hit} onChange={(e) => setForm((f) => ({ ...f, cost_per_1m_input_cache_hit: e.target.value }))} placeholder="如 0.02" />
+          </div>
+          <div className="flex items-end">
+            <div className={cx('w-full rounded-xs border px-2.5 py-2 text-[11px] leading-4', currentPreset.pricingNote ? 'border-teal-border bg-teal-light text-teal' : 'border-gray-200 bg-gray-50 text-gray-400')}>
+              {currentPreset.pricingNote || '费用估算按输入未命中价和输出价计算。'}
+            </div>
+          </div>
+        </div>
+      )}
+
       <Toolbar className="mt-4">
-        <Button type="button" variant="primary" onClick={handleSave} disabled={saving || !form.name || !form.model_id}>
+        <Button type="button" variant="primary" onClick={handleSave} disabled={saveDisabled}>
+          {saving ? <Loader2 size={14} className="animate-spin" /> : null}
           {saving ? '保存中...' : '保存'}
         </Button>
         <Button type="button" variant="secondary" onClick={onClose}>取消</Button>

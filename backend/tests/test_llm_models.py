@@ -194,6 +194,7 @@ def test_model_presets_provide_beginner_defaults_and_help():
 
     assert catalog["defaults"]["temperature"] == 0.3
     assert catalog["defaults"]["max_tokens"] == 2000
+    assert catalog["defaults"]["requests_per_minute"] == 30
     assert catalog["help"]["beginner_tip"]
     assert {preset["key"] for preset in catalog["presets"]} >= {
         "openai_fast",
@@ -209,6 +210,14 @@ def test_model_presets_provide_beginner_defaults_and_help():
     assert payload["model_id"] == "deepseek-chat"
     assert payload["requests_per_minute"] == 20
     assert payload["api_key"] == "secret"
+
+
+def test_plain_model_request_uses_beginner_safe_defaults():
+    request = ModelCreateRequest(name="Manual Model", provider="openai", model_id="gpt-test")
+
+    assert request.temperature == 0.3
+    assert request.max_tokens == 2000
+    assert request.requests_per_minute == 30
 
 
 def test_missing_explicit_api_key_treats_blank_values_as_missing():

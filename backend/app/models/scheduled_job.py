@@ -48,7 +48,7 @@ class JobExecutionLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     job_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False,
-                                        comment="RUNNING / SUCCESS / FAILED / TIMEOUT")
+                                        comment="RUNNING / SUCCESS / FAILED / TIMEOUT / SKIPPED")
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="执行耗时(毫秒)")

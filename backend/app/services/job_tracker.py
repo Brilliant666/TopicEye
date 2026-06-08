@@ -22,6 +22,15 @@ from app.core.database import async_session
 from app.models.scheduled_job import JobExecutionLog, ScheduledJob
 
 logger = logging.getLogger(__name__)
+_job_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_job_lock(job_key: str) -> asyncio.Lock:
+    lock = _job_locks.get(job_key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _job_locks[job_key] = lock
+    return lock
 
 
 async def _upsert_job_config(job_key: str, name: str, description: str = "") -> None:
@@ -120,44 +129,58 @@ def track_job(job_key: str, name: str = "", timeout: int = 300,
             # Ensure job config exists in scheduled_jobs table
             await _upsert_job_config(job_key, _name, description)
 
-            log_id = await _create_log(job_key, trigger_type=trigger_type)
-            start = time.monotonic()
-            status = "SUCCESS"
-            result_summary = ""
-            error_message = ""
+            lock = _get_job_lock(job_key)
+            if lock.locked():
+                log_id = await _create_log(job_key, trigger_type=trigger_type)
+                await _finish_log(
+                    log_id,
+                    "SKIPPED",
+                    result_summary="同一任务仍在运行，本次触发已跳过",
+                    duration_ms=0,
+                )
+                await _update_job_last_run(job_key, "SKIPPED")
+                logger.info("Job %s skipped because another run is active", job_key)
+                return
 
-            try:
-                result = await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
-                if isinstance(result, str):
-                    result_summary = result[:2000]
-                elif isinstance(result, dict):
-                    import json
-                    result_summary = json.dumps(result, ensure_ascii=False)[:2000]
-                elif result is not None:
-                    result_summary = str(result)[:2000]
-            except asyncio.TimeoutError:
-                status = "TIMEOUT"
-                error_message = f"Job timed out after {timeout}s"
-                logger.error("Job %s timed out after %ds", job_key, timeout)
-            except Exception as e:
-                status = "FAILED"
-                error_message = f"{type(e).__name__}: {str(e)}"
-                logger.exception("Job %s failed", job_key)
-            finally:
-                duration_ms = int((time.monotonic() - start) * 1000)
+            async with lock:
+                log_id = await _create_log(job_key, trigger_type=trigger_type)
+                start = time.monotonic()
+                status = "SUCCESS"
+                result_summary = ""
+                error_message = ""
 
-            await _finish_log(
-                log_id, status,
-                result_summary=result_summary,
-                error_message=error_message,
-                duration_ms=duration_ms,
-            )
-            await _update_job_last_run(job_key, status)
+                try:
+                    result = await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
+                    if isinstance(result, str):
+                        result_summary = result[:2000]
+                    elif isinstance(result, dict):
+                        import json
+                        result_summary = json.dumps(result, ensure_ascii=False)[:2000]
+                    elif result is not None:
+                        result_summary = str(result)[:2000]
+                except asyncio.TimeoutError:
+                    status = "TIMEOUT"
+                    error_message = f"Job timed out after {timeout}s"
+                    logger.error("Job %s timed out after %ds", job_key, timeout)
+                except Exception as e:
+                    status = "FAILED"
+                    error_message = f"{type(e).__name__}: {str(e)}"
+                    logger.exception("Job %s failed", job_key)
+                finally:
+                    duration_ms = int((time.monotonic() - start) * 1000)
 
-            logger.info(
-                "Job %s %s in %dms",
-                job_key, status, duration_ms,
-            )
+                await _finish_log(
+                    log_id, status,
+                    result_summary=result_summary,
+                    error_message=error_message,
+                    duration_ms=duration_ms,
+                )
+                await _update_job_last_run(job_key, status)
+
+                logger.info(
+                    "Job %s %s in %dms",
+                    job_key, status, duration_ms,
+                )
 
         # Attach metadata for scheduler registration
         wrapper._job_key = job_key

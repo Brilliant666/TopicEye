@@ -65,6 +65,8 @@ CONFIG = {
 
     # ── User feedback signal ──
     "w_feedback": 0.15,                  # 15% weight for feedback_score
+    "feedback_score_min": -20.0,         # one effective negative vote should not dominate ranking
+    "feedback_score_max": 20.0,          # one effective positive vote should not dominate ranking
 }
 
 
@@ -124,6 +126,19 @@ class ScoreBreakdown:
 
 # ── Scoring functions ────────────────────────────────────────────────
 
+def _clamp(value: float | int | None, lower: float, upper: float, default: float) -> float:
+    """Clamp noisy scoring signals into their intended calibration range."""
+    if value is None:
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if math.isnan(parsed) or math.isinf(parsed):
+        return default
+    return max(lower, min(upper, parsed))
+
+
 def _compute_base_score(item: ScoringInput) -> tuple[float, dict]:
     """Compute weighted 6-dimension base score."""
     cfg = CONFIG
@@ -159,13 +174,22 @@ def _compute_base_score(item: ScoringInput) -> tuple[float, dict]:
         base = dim_sum
 
     # ── User feedback signal adjustment ──
-    feedback_adjustment = (item.feedback_score or 0) * cfg["w_feedback"]
+    feedback_score = _clamp(
+        item.feedback_score,
+        cfg["feedback_score_min"],
+        cfg["feedback_score_max"],
+        0,
+    )
+    feedback_adjustment = feedback_score * cfg["w_feedback"]
     base += feedback_adjustment
 
     # ── Source historical accuracy factor ──
     # accuracy_factor range: 0.8 (low accuracy) – 1.2 (high accuracy)
-    accuracy_factor = 0.8 + (item.source_accuracy or 0.5) * 0.4
+    source_accuracy = _clamp(item.source_accuracy, 0, 1, 0.5)
+    accuracy_factor = 0.8 + source_accuracy * 0.4
     base *= accuracy_factor
+    dimensions["feedback_adjustment"] = feedback_adjustment
+    dimensions["source_accuracy_factor"] = accuracy_factor
 
     return base, dimensions
 

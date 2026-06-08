@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from app.services.scoring_engine import ScoringInput, score_items
+from app.services.scoring_engine import CONFIG, ScoringInput, score_items
 
 
 _NOW = datetime(2026, 1, 1, 12, 0, 0)
@@ -96,3 +96,32 @@ def test_source_and_category_diversity_reduce_repeated_items():
     assert by_id[1].diversity_factor == 1.0
     assert by_id[4].diversity_factor < by_id[2].diversity_factor
     assert by_id[5].diversity_factor < by_id[4].diversity_factor
+
+
+def test_feedback_signal_is_clamped_before_scoring_adjustment():
+    baseline = _item(1, feedback_score=0)
+    normal_positive = _item(2, feedback_score=20)
+    extreme_positive = _item(3, feedback_score=999)
+
+    scored = score_items([baseline, normal_positive, extreme_positive])
+    by_id = {item.content_id: breakdown for breakdown, item in scored}
+
+    expected_adjustment = CONFIG["feedback_score_max"] * CONFIG["w_feedback"]
+    assert by_id[2].dimension_scores["feedback_adjustment"] == expected_adjustment
+    assert by_id[3].dimension_scores["feedback_adjustment"] == expected_adjustment
+    assert by_id[3].base_score == by_id[2].base_score
+    assert by_id[3].base_score > by_id[1].base_score
+
+
+def test_source_accuracy_signal_is_clamped_to_calibrated_factor_range():
+    low = _item(1, source_accuracy=-5)
+    normal = _item(2, source_accuracy=0.5)
+    high = _item(3, source_accuracy=5)
+
+    scored = score_items([low, normal, high])
+    by_id = {item.content_id: breakdown for breakdown, item in scored}
+
+    assert by_id[1].dimension_scores["source_accuracy_factor"] == 0.8
+    assert by_id[2].dimension_scores["source_accuracy_factor"] == 1.0
+    assert by_id[3].dimension_scores["source_accuracy_factor"] == 1.2
+    assert by_id[1].base_score < by_id[2].base_score < by_id[3].base_score

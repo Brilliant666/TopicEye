@@ -263,6 +263,120 @@ async def test_analysis_job_status_records_completion():
 
 
 @pytest.mark.asyncio
+async def test_background_analysis_releases_failed_claims(monkeypatch):
+    await reset_analysis_jobs()
+    engine, session_factory = await _session_factory()
+    monkeypatch.setattr(analyses_api, "async_session", session_factory)
+
+    async def fake_concurrent(content_ids, **_kwargs):
+        async with session_factory() as db:
+            content = await db.get(ContentItem, 1)
+            analysis_record = AiAnalysis(
+                content_id=1,
+                summary="后台已分析",
+                curation_score=60,
+            )
+            db.add(analysis_record)
+            content.status = ContentStatus.ANALYZED
+            await db.commit()
+        return [SimpleNamespace(content_id=1)]
+
+    monkeypatch.setattr(analyses_api, "analyze_batch_concurrent", fake_concurrent)
+
+    async with session_factory() as db:
+        db.add_all([
+            ContentItem(
+                id=1,
+                title="后台成功内容",
+                url="https://example.com/background-success",
+                status=ContentStatus.ANALYZING,
+                crawled_at=datetime.utcnow(),
+            ),
+            ContentItem(
+                id=2,
+                title="后台失败释放内容",
+                url="https://example.com/background-release-failed",
+                status=ContentStatus.ANALYZING,
+                crawled_at=datetime.utcnow(),
+            ),
+        ])
+        await db.commit()
+
+    job = await create_analysis_job([1, 2])
+    await analyses_api._run_batch_background(job.job_id, [1, 2])
+
+    async with session_factory() as db:
+        statuses = {
+            item.id: item.status
+            for item in (await db.execute(select(ContentItem))).scalars().all()
+        }
+    job_status = await get_analysis_job(job.job_id)
+
+    assert statuses == {
+        1: ContentStatus.ANALYZED,
+        2: ContentStatus.PENDING,
+    }
+    assert job_status["status"] == "PARTIAL"
+    assert job_status["analyzed_ids"] == [1]
+    assert job_status["failed_ids"] == [2]
+    await engine.dispose()
+    await reset_analysis_jobs()
+
+
+@pytest.mark.asyncio
+async def test_background_analysis_releases_claims_on_batch_exception(monkeypatch):
+    await reset_analysis_jobs()
+    engine, session_factory = await _session_factory()
+    monkeypatch.setattr(analyses_api, "async_session", session_factory)
+
+    async def failing_concurrent(*_args, **_kwargs):
+        raise RuntimeError("background worker crashed")
+
+    monkeypatch.setattr(analyses_api, "analyze_batch_concurrent", failing_concurrent)
+
+    async with session_factory() as db:
+        db.add_all([
+            ContentItem(
+                id=1,
+                title="后台异常释放一",
+                url="https://example.com/background-exception-release-1",
+                status=ContentStatus.ANALYZING,
+                crawled_at=datetime.utcnow(),
+            ),
+            ContentItem(
+                id=2,
+                title="后台异常释放二",
+                url="https://example.com/background-exception-release-2",
+                status=ContentStatus.ANALYZING,
+                crawled_at=datetime.utcnow(),
+            ),
+        ])
+        await db.commit()
+
+    job = await create_analysis_job([1, 2])
+
+    with pytest.raises(RuntimeError):
+        await analyses_api._run_batch_background(job.job_id, [1, 2])
+
+    async with session_factory() as db:
+        statuses = {
+            item.id: item.status
+            for item in (await db.execute(select(ContentItem))).scalars().all()
+        }
+    job_status = await get_analysis_job(job.job_id)
+
+    assert statuses == {
+        1: ContentStatus.PENDING,
+        2: ContentStatus.PENDING,
+    }
+    assert job_status["status"] == "FAILED"
+    assert job_status["failed_ids"] == [1, 2]
+    assert "background worker crashed" in job_status["error_message"]
+    await engine.dispose()
+    await reset_analysis_jobs()
+
+
+@pytest.mark.asyncio
 async def test_analysis_job_inflight_ttl_releases_stuck_ids(monkeypatch):
     await reset_analysis_jobs()
     monkeypatch.setattr(analysis_jobs.settings, "ANALYSIS_JOB_INFLIGHT_TTL_SECONDS", 60)

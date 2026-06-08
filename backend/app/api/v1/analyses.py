@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_user
+from app.core.database import async_session
 from app.core.dependencies import get_db
 from app.core.exceptions import NotFoundError
 from app.models.content import ContentStatus
@@ -204,7 +205,19 @@ async def _run_batch_background(job_id: str, content_ids: list[int]) -> None:
         results = await analyze_batch_concurrent(content_ids, assume_claimed=True)
         analyzed_ids = [item.content_id for item in results]
         failed_ids = [content_id for content_id in content_ids if content_id not in set(analyzed_ids)]
+        await _release_background_analysis_claims(failed_ids)
         await finish_analysis_job(job_id, analyzed_ids=analyzed_ids, failed_ids=failed_ids)
     except Exception as exc:
+        await _release_background_analysis_claims(content_ids)
         await finish_analysis_job(job_id, failed_ids=content_ids, error_message=str(exc))
         raise
+
+
+async def _release_background_analysis_claims(content_ids: list[int]) -> int:
+    """Release still-analyzing background claims so failed jobs can be retried."""
+    if not content_ids:
+        return 0
+    async with async_session() as db:
+        released = await ContentRepo(db).release_analyzing_to_pending(content_ids)
+        await db.commit()
+        return released

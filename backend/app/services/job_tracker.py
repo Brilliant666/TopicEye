@@ -18,7 +18,11 @@ import traceback
 from datetime import datetime
 from typing import Callable, Optional
 
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
 from app.core.database import async_session
+from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locked
 from app.models.scheduled_job import JobExecutionLog, ScheduledJob
 
 logger = logging.getLogger(__name__)
@@ -35,7 +39,6 @@ def _get_job_lock(job_key: str) -> asyncio.Lock:
 
 async def _upsert_job_config(job_key: str, name: str, description: str = "") -> None:
     """Ensure scheduled_jobs has a record for this job_key (idempotent)."""
-    from sqlalchemy import select
     async with async_session() as db:
         existing = await db.execute(
             select(ScheduledJob).where(ScheduledJob.job_key == job_key)
@@ -59,6 +62,67 @@ async def _upsert_job_config(job_key: str, name: str, description: str = "") -> 
         )
         db.add(job)
         await db.commit()
+
+
+async def _claim_job_run(job_key: str, name: str, description: str, timeout: int) -> bool:
+    """Acquire a cross-process lease for a scheduled job run."""
+    for attempt in range(3):
+        now = datetime.utcnow()
+        async with async_session() as db:
+            async def _claim() -> bool:
+                await begin_immediate_for_sqlite(db)
+                existing = await db.execute(
+                    select(ScheduledJob)
+                    .where(ScheduledJob.job_key == job_key)
+                    .with_for_update()
+                )
+                job = existing.scalar_one_or_none()
+                if job is None:
+                    job = ScheduledJob(
+                        job_key=job_key,
+                        name=name,
+                        job_type="cron",
+                        description=description or name,
+                        enabled=True,
+                        timeout_seconds=timeout,
+                        last_run_at=now,
+                        last_status="RUNNING",
+                    )
+                    db.add(job)
+                    await db.flush()
+                    return True
+
+                lease_seconds = max(int(timeout), 1)
+                stale_cutoff = now.timestamp() - lease_seconds
+                last_run_ts = job.last_run_at.timestamp() if job.last_run_at else 0
+                if job.last_status == "RUNNING" and last_run_ts > stale_cutoff:
+                    return False
+
+                job.name = name
+                job.description = description or job.description or name
+                job.timeout_seconds = timeout
+                job.last_run_at = now
+                job.last_status = "RUNNING"
+                job.updated_at = now
+                await db.flush()
+                return True
+
+            try:
+                claimed = await retry_sqlite_locked(_claim, on_retry=db.rollback)
+                await db.commit()
+                return claimed
+            except IntegrityError:
+                await db.rollback()
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(0.05 * (attempt + 1))
+
+    return False
+
+
+async def _release_job_run(job_key: str, status: str) -> None:
+    """Release the cross-process job lease with the final status."""
+    await _update_job_last_run(job_key, status)
 
 
 async def _create_log(job_key: str, trigger_type: str = "scheduler") -> int:
@@ -98,7 +162,6 @@ async def _finish_log(log_id: int, status: str, result_summary: str = "",
 
 async def _update_job_last_run(job_key: str, status: str) -> None:
     """Update scheduled_jobs.last_run_at and last_status."""
-    from sqlalchemy import select
     async with async_session() as db:
         existing = await db.execute(
             select(ScheduledJob).where(ScheduledJob.job_key == job_key)
@@ -108,6 +171,17 @@ async def _update_job_last_run(job_key: str, status: str) -> None:
             job.last_run_at = datetime.utcnow()
             job.last_status = status
             await db.commit()
+
+
+async def _record_skipped_job(job_key: str, trigger_type: str, summary: str) -> None:
+    """Record a skipped trigger consistently."""
+    log_id = await _create_log(job_key, trigger_type=trigger_type)
+    await _finish_log(
+        log_id,
+        "SKIPPED",
+        result_summary=summary,
+        duration_ms=0,
+    )
 
 
 def track_job(job_key: str, name: str = "", timeout: int = 300,
@@ -126,20 +200,17 @@ def track_job(job_key: str, name: str = "", timeout: int = 300,
 
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
-            # Ensure job config exists in scheduled_jobs table
-            await _upsert_job_config(job_key, _name, description)
-
             lock = _get_job_lock(job_key)
+            skip_summary = "同一任务仍在运行，本次触发已跳过"
             if lock.locked():
-                log_id = await _create_log(job_key, trigger_type=trigger_type)
-                await _finish_log(
-                    log_id,
-                    "SKIPPED",
-                    result_summary="同一任务仍在运行，本次触发已跳过",
-                    duration_ms=0,
-                )
-                await _update_job_last_run(job_key, "SKIPPED")
+                await _record_skipped_job(job_key, trigger_type, skip_summary)
                 logger.info("Job %s skipped because another run is active", job_key)
+                return
+
+            claimed = await _claim_job_run(job_key, _name, description, timeout)
+            if not claimed:
+                await _record_skipped_job(job_key, trigger_type, skip_summary)
+                logger.info("Job %s skipped because another process holds the lease", job_key)
                 return
 
             async with lock:
@@ -175,7 +246,7 @@ def track_job(job_key: str, name: str = "", timeout: int = 300,
                     error_message=error_message,
                     duration_ms=duration_ms,
                 )
-                await _update_job_last_run(job_key, status)
+                await _release_job_run(job_key, status)
 
                 logger.info(
                     "Job %s %s in %dms",

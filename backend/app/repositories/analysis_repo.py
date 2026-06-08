@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 
 from app.models.analysis import AiAnalysis
 from app.models.content import ContentItem
@@ -45,7 +45,7 @@ class AnalysisRepository(BaseRepository[AiAnalysis]):
                 AiAnalysis.id == latest_id,
                 or_(
                     AiAnalysis.enrichment_status.is_(None),
-                    AiAnalysis.enrichment_status != "completed",
+                    AiAnalysis.enrichment_status.in_(("pending", "error")),
                 ),
             )
             .order_by(AiAnalysis.curation_score.desc(), AiAnalysis.created_at.desc())
@@ -92,6 +92,31 @@ class AnalysisRepository(BaseRepository[AiAnalysis]):
             and breakdown.final_score >= min_score
             and item.content_id in candidate_ids
         ][:limit]
+
+    async def claim_pending_enrichment_ids(self, min_score: float, limit: int) -> list[int]:
+        """Claim unified-scored enrichment candidates so concurrent batches do not duplicate work."""
+        candidate_ids = await self.get_pending_enrichment_ids(min_score, limit)
+        if not candidate_ids:
+            return []
+
+        claimed_ids: list[int] = []
+        for content_id in candidate_ids:
+            latest_id = latest_analysis_id_for_content_id(content_id)
+            result = await self.db.execute(
+                update(AiAnalysis)
+                .where(AiAnalysis.id == latest_id)
+                .where(
+                    or_(
+                        AiAnalysis.enrichment_status.is_(None),
+                        AiAnalysis.enrichment_status.in_(("pending", "error")),
+                    )
+                )
+                .values(enrichment_status="processing")
+            )
+            if result.rowcount:
+                claimed_ids.append(int(content_id))
+        await self.db.flush()
+        return claimed_ids
 
     async def list_with_score_filter(
         self,

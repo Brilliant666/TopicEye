@@ -335,7 +335,11 @@ async def get_enrichment(
         raise HTTPException(404, "No analysis found for this content")
     if analysis.enrichment_status == "completed" and analysis.enrichment:
         return {"content_id": content_id, "status": "completed", "enrichment": analysis.enrichment}
+    if analysis.enrichment_status == "processing":
+        return {"content_id": content_id, "status": "processing", "enrichment": None}
     try:
+        analysis.enrichment_status = "processing"
+        await db.commit()
         data = await enrich_content(content_id, db)
         analysis.enrichment, analysis.enrichment_status = data, "completed"
         await db.flush()
@@ -357,7 +361,8 @@ async def enrich_top_items(
 ):
     """Batch-enrich top curated items (scheduler-friendly)."""
     from app.services.enricher import enrich_batch
-    ids = await AnalysisRepository(db).get_pending_enrichment_ids(min_score, limit)
+    ids = await AnalysisRepository(db).claim_pending_enrichment_ids(min_score, limit)
+    await db.commit()
     if not ids:
         return {"message": "No items need enrichment", "processed": []}
     return {"processed": await enrich_batch(ids, db)}

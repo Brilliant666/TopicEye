@@ -130,6 +130,54 @@ async def test_pending_enrichment_uses_unified_scorer_not_raw_curation_score():
 
 
 @pytest.mark.asyncio
+async def test_pending_enrichment_claim_marks_processing_and_skips_reclaim():
+    engine, session_factory = await _session_factory()
+    now = datetime.utcnow()
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="待增强认领",
+                url="https://example.com/enrichment-claim",
+                category="AI",
+                status=ContentStatus.ANALYZED,
+                crawled_at=now,
+            )
+        )
+        db.add(
+            AiAnalysis(
+                id=1,
+                content_id=1,
+                curation_score=75,
+                info_density=90,
+                actionability=90,
+                source_weight=70,
+                creator_score=90,
+                viral_score=80,
+                freshness_score=90,
+                quality_score=90,
+                hot_score=80,
+                risk_score=0,
+                enrichment_status="pending",
+                created_at=now,
+            )
+        )
+        await db.commit()
+
+        repo = AnalysisRepository(db)
+        claimed_ids = await repo.claim_pending_enrichment_ids(min_score=55, limit=10)
+        await db.commit()
+        second_claim = await repo.claim_pending_enrichment_ids(min_score=55, limit=10)
+        analysis = await db.get(AiAnalysis, 1)
+
+        assert claimed_ids == [1]
+        assert second_claim == []
+        assert analysis.enrichment_status == "processing"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_creation_plan_uses_latest_analysis_prompt_material(monkeypatch):
     captured_messages = []
 

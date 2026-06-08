@@ -1716,6 +1716,14 @@ export interface LlmModelPresetItem {
 
 export interface LlmModelPresetCatalog {
   defaults: Record<string, unknown>;
+  parameter_help?: Record<string, {
+    label: string;
+    default: unknown;
+    range?: number[];
+    unit?: string;
+    plain: string;
+    beginner?: string;
+  }>;
   presets: LlmModelPresetItem[];
   help: Record<string, string>;
 }

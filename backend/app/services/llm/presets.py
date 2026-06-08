@@ -15,6 +15,42 @@ DEFAULT_MODEL_PARAMETERS: dict[str, Any] = {
 }
 
 
+PARAMETER_HELP: dict[str, dict[str, Any]] = {
+    "temperature": {
+        "label": "稳定度",
+        "default": DEFAULT_MODEL_PARAMETERS["temperature"],
+        "range": [0, 2],
+        "unit": "",
+        "plain": "越低越稳定，越高越发散。选题分析建议保持 0.3。",
+        "beginner": "默认即可",
+    },
+    "max_tokens": {
+        "label": "输出长度",
+        "default": DEFAULT_MODEL_PARAMETERS["max_tokens"],
+        "range": [256, 16000],
+        "unit": "tokens",
+        "plain": "控制单次回答最长能写多少。创作方案和摘要建议先用 2000。",
+        "beginner": "不够长再调大",
+    },
+    "requests_per_minute": {
+        "label": "请求上限",
+        "default": DEFAULT_MODEL_PARAMETERS["requests_per_minute"],
+        "range": [1, 120],
+        "unit": "次/分钟",
+        "plain": "限制每分钟最多调用多少次，保护个人 Key 不被同步高峰打满。",
+        "beginner": "个人 Key 建议 10-30",
+    },
+    "cooldown_seconds": {
+        "label": "失败冷却",
+        "default": DEFAULT_MODEL_PARAMETERS["cooldown_seconds"],
+        "range": [0, 3600],
+        "unit": "秒",
+        "plain": "模型调用失败后暂停一段时间再重试，减少连续失败和限流。",
+        "beginner": "默认即可",
+    },
+}
+
+
 MODEL_PRESETS: tuple[dict[str, Any], ...] = (
     {
         "key": "openai_fast",
@@ -102,12 +138,15 @@ MODEL_PRESETS: tuple[dict[str, Any], ...] = (
 def list_model_presets() -> dict[str, Any]:
     return {
         "defaults": deepcopy(DEFAULT_MODEL_PARAMETERS),
+        "parameter_help": deepcopy(PARAMETER_HELP),
         "presets": [deepcopy(item) for item in MODEL_PRESETS],
         "help": {
-            "beginner_tip": "新用户优先选择推荐预设，只填写 API Key；稳定度、输出长度和请求上限已内置默认值。",
-            "rpm_tip": "请求上限表示每分钟最多调用多少次模型。个人 Key 建议先用 10-30，避免同步高峰触发供应商限流。",
-            "temperature_tip": "稳定度越低，输出越一致。选题分析和摘要建议保持默认 0.3。",
-            "max_tokens_tip": "输出长度控制单次回答能写多长。创作方案建议保持默认 2000，日报/月刊可按需调大。",
+            "beginner_tip": "新用户优先选择推荐预设，只填写 API Key；稳定度、输出长度、请求上限和失败冷却都会自动使用默认值。",
+            "advanced_tip": "高级参数只在你明确知道要调整模型行为时再改。留空表示沿用当前预设默认值。",
+            "rpm_tip": PARAMETER_HELP["requests_per_minute"]["plain"],
+            "temperature_tip": PARAMETER_HELP["temperature"]["plain"],
+            "max_tokens_tip": PARAMETER_HELP["max_tokens"]["plain"],
+            "cooldown_tip": PARAMETER_HELP["cooldown_seconds"]["plain"],
         },
     }
 

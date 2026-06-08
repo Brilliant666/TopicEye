@@ -195,8 +195,12 @@ def test_model_presets_provide_beginner_defaults_and_help():
     assert catalog["defaults"]["temperature"] == 0.3
     assert catalog["defaults"]["max_tokens"] == 2000
     assert catalog["defaults"]["requests_per_minute"] == 30
+    assert catalog["parameter_help"]["temperature"]["label"] == "稳定度"
+    assert catalog["parameter_help"]["temperature"]["range"] == [0, 2]
+    assert catalog["parameter_help"]["cooldown_seconds"]["beginner"] == "默认即可"
     assert catalog["help"]["beginner_tip"]
     assert "稳定度" in catalog["help"]["beginner_tip"]
+    assert catalog["help"]["advanced_tip"]
     assert "RPM" not in catalog["help"]["rpm_tip"]
     assert "Temperature" not in catalog["help"]["temperature_tip"]
     assert "Max Tokens" not in catalog["help"]["max_tokens_tip"]
@@ -222,6 +226,15 @@ def test_plain_model_request_uses_beginner_safe_defaults():
     assert request.temperature == 0.3
     assert request.max_tokens == 2000
     assert request.requests_per_minute == 30
+
+
+def test_model_request_rejects_unsafe_parameter_overrides():
+    with pytest.raises(ValueError):
+        ModelCreateRequest(name="Bad Model", provider="openai", model_id="gpt-test", temperature=3)
+    with pytest.raises(ValueError):
+        ModelCreateRequest(name="Bad Model", provider="openai", model_id="gpt-test", max_tokens=100)
+    with pytest.raises(ValueError):
+        ModelUpdateRequest(requests_per_minute=0)
 
 
 def test_missing_explicit_api_key_treats_blank_values_as_missing():

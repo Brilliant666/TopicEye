@@ -129,6 +129,7 @@ export default function ProfilePage() {
     temperature: '',
     max_tokens: '',
     requests_per_minute: '',
+    cooldown_seconds: '',
   });
 
   const installCommand = status?.install_command || DEFAULT_INSTALL_COMMAND;
@@ -142,27 +143,31 @@ export default function ProfilePage() {
   const aiConfigured = aiModels.some((item) => item.enabled);
   const needsModelId = presetRequires(selectedPreset, 'model_id');
   const needsApiBase = presetRequires(selectedPreset, 'api_base');
-  const canSaveAi = customAiAllowed && aiForm.api_key.trim().length >= 8 && (!needsModelId || aiForm.model_id.trim()) && !savingAi;
+  const canSaveAi = customAiAllowed
+    && aiForm.api_key.trim().length >= 8
+    && (!needsModelId || aiForm.model_id.trim())
+    && (!needsApiBase || aiForm.api_base.trim())
+    && !savingAi;
   const selectedPresetDefaults = useMemo(() => ([
     {
       label: '稳定度',
       value: presetDefaultValue(selectedPreset, aiCatalog, 'temperature'),
-      hint: '越低越稳定',
+      field: 'temperature',
     },
     {
       label: '输出长度',
       value: presetDefaultValue(selectedPreset, aiCatalog, 'max_tokens'),
-      hint: '单次回答上限',
+      field: 'max_tokens',
     },
     {
       label: '请求上限',
       value: presetDefaultValue(selectedPreset, aiCatalog, 'requests_per_minute'),
-      hint: '每分钟调用',
+      field: 'requests_per_minute',
     },
     {
       label: '失败冷却',
       value: presetDefaultValue(selectedPreset, aiCatalog, 'cooldown_seconds'),
-      hint: '失败后暂停',
+      field: 'cooldown_seconds',
     },
   ]), [aiCatalog, selectedPreset]);
 
@@ -293,6 +298,7 @@ export default function ProfilePage() {
       temperature: '',
       max_tokens: '',
       requests_per_minute: '',
+      cooldown_seconds: '',
     }));
   };
 
@@ -314,6 +320,7 @@ export default function ProfilePage() {
         if (aiForm.temperature.trim()) payload.temperature = Number(aiForm.temperature);
         if (aiForm.max_tokens.trim()) payload.max_tokens = Number(aiForm.max_tokens);
         if (aiForm.requests_per_minute.trim()) payload.requests_per_minute = Number(aiForm.requests_per_minute);
+        if (aiForm.cooldown_seconds.trim()) payload.cooldown_seconds = Number(aiForm.cooldown_seconds);
       }
       const result = await modelsApi.createMine(payload);
       setAiNotice(result.message);
@@ -554,7 +561,7 @@ export default function ProfilePage() {
                 <h2 className="text-lg font-black text-gray-900">个人 AI</h2>
               </div>
               <p className="text-sm leading-6 text-gray-500">
-                使用推荐预设时只需要填写 API Key。温度、输出长度、限流等参数已经内置默认值，后续需要时再展开微调。
+                使用推荐预设时只需要填写 API Key。系统会自动套用适合选题分析的默认参数，熟悉模型后再展开高级参数。
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -622,13 +629,16 @@ export default function ProfilePage() {
                     <div className="mb-1 text-xs font-black text-gray-500">当前预设</div>
                     <div className="truncate text-sm font-black text-gray-900">{selectedPreset.label}</div>
                     <div className="mt-1 text-xs leading-5 text-gray-500">{selectedPreset.help}</div>
+                    <div className="mt-2 text-[11px] font-bold text-teal">不填写高级参数时，将使用右侧默认值。</div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {selectedPresetDefaults.map((item) => (
                       <div key={item.label} className="rounded-xs border border-gray-200 bg-white px-2.5 py-2">
                         <div className="mb-1 text-[10px] font-black text-gray-400">{item.label}</div>
                         <div className="font-mono text-sm font-black text-gray-900">{formatPresetValue(item.value)}</div>
-                        <div className="mt-1 truncate text-[10px] text-gray-400">{item.hint}</div>
+                        <div className="mt-1 truncate text-[10px] text-gray-400">
+                          {aiCatalog?.parameter_help?.[item.field]?.beginner || '默认即可'}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -680,21 +690,29 @@ export default function ProfilePage() {
                       placeholder={selectedPreset?.api_base_placeholder || 'https://api.example.com/v1'}
                       disabled={!customAiAllowed}
                     />
+                    <div className="mt-1 text-[10px] leading-4 text-gray-400">
+                      OpenAI 兼容网关需要填写服务商给出的 /v1 地址。
+                    </div>
                   </label>
                 )}
               </div>
 
               <div>
-                <button
-                  type="button"
-                  onClick={() => setAiForm((prev) => ({ ...prev, showAdvanced: !prev.showAdvanced }))}
-                  className="inline-flex items-center gap-1.5 rounded-sm border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 transition hover:border-primary-border hover:text-primary"
-                >
-                  <Settings2 size={14} />
-                  {aiForm.showAdvanced ? '收起高级参数' : '高级参数'}
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAiForm((prev) => ({ ...prev, showAdvanced: !prev.showAdvanced }))}
+                    className="inline-flex items-center gap-1.5 rounded-sm border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 transition hover:border-primary-border hover:text-primary"
+                  >
+                    <Settings2 size={14} />
+                    {aiForm.showAdvanced ? '收起高级参数' : '高级参数'}
+                  </button>
+                  <span className="text-xs font-bold text-gray-500">
+                    {aiCatalog?.help.advanced_tip || '留空表示使用预设默认值。'}
+                  </span>
+                </div>
                 {aiForm.showAdvanced && (
-                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <div className="mt-3 grid gap-3 md:grid-cols-4">
                     <label className="block">
                       <span className="mb-1.5 block text-xs font-black text-gray-500">稳定度</span>
                       <input
@@ -707,7 +725,7 @@ export default function ProfilePage() {
                         disabled={!customAiAllowed}
                       />
                       <div className="mt-1 text-[10px] leading-4 text-gray-400">
-                        {aiCatalog?.help.temperature_tip || '选题分析和摘要建议保持默认。'}
+                        {aiCatalog?.parameter_help?.temperature?.plain || aiCatalog?.help.temperature_tip || '选题分析和摘要建议保持默认。'}
                       </div>
                     </label>
                     <label className="block">
@@ -721,7 +739,7 @@ export default function ProfilePage() {
                         disabled={!customAiAllowed}
                       />
                       <div className="mt-1 text-[10px] leading-4 text-gray-400">
-                        {aiCatalog?.help.max_tokens_tip || '控制单次输出长度。'}
+                        {aiCatalog?.parameter_help?.max_tokens?.plain || aiCatalog?.help.max_tokens_tip || '控制单次输出长度。'}
                       </div>
                     </label>
                     <label className="block">
@@ -735,9 +753,39 @@ export default function ProfilePage() {
                         disabled={!customAiAllowed}
                       />
                       <div className="mt-1 text-[10px] leading-4 text-gray-400">
-                        {aiCatalog?.help.rpm_tip || '个人 Key 建议从保守上限开始。'}
+                        {aiCatalog?.parameter_help?.requests_per_minute?.plain || aiCatalog?.help.rpm_tip || '个人 Key 建议从保守上限开始。'}
                       </div>
                     </label>
+                    <label className="block">
+                      <span className="mb-1.5 block text-xs font-black text-gray-500">失败冷却</span>
+                      <input
+                        value={aiForm.cooldown_seconds}
+                        onChange={(event) => setAiForm((prev) => ({ ...prev, cooldown_seconds: event.target.value }))}
+                        className="h-10 w-full rounded-sm border border-gray-200 bg-white px-3 text-sm outline-none transition focus:border-primary-border focus:ring-2 focus:ring-primary-light"
+                        placeholder={formatPresetValue(selectedPreset?.defaults.cooldown_seconds ?? aiCatalog?.defaults.cooldown_seconds)}
+                        type="number"
+                        disabled={!customAiAllowed}
+                      />
+                      <div className="mt-1 text-[10px] leading-4 text-gray-400">
+                        {aiCatalog?.parameter_help?.cooldown_seconds?.plain || aiCatalog?.help.cooldown_tip || '失败后暂停一段时间再重试。'}
+                      </div>
+                    </label>
+                    <div className="md:col-span-4">
+                      <button
+                        type="button"
+                        onClick={() => setAiForm((prev) => ({
+                          ...prev,
+                          temperature: '',
+                          max_tokens: '',
+                          requests_per_minute: '',
+                          cooldown_seconds: '',
+                        }))}
+                        className="inline-flex items-center gap-1.5 rounded-sm border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 transition hover:border-primary-border hover:text-primary"
+                      >
+                        <RefreshCw size={14} />
+                        恢复推荐默认
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

@@ -195,11 +195,11 @@ class ModelCreateRequest(BaseModel):
     routing_group: str = "default"
     model_family: Optional[str] = None
     channel_name: Optional[str] = None
-    routing_priority: int = 100
-    cooldown_seconds: int = 300
-    temperature: float = 0.3
-    max_tokens: int = 2000
-    requests_per_minute: int = 30
+    routing_priority: int = Field(100, ge=1, le=1000)
+    cooldown_seconds: int = Field(300, ge=0, le=3600)
+    temperature: float = Field(0.3, ge=0, le=2)
+    max_tokens: int = Field(2000, ge=256, le=16000)
+    requests_per_minute: int = Field(30, ge=1, le=120)
     description: Optional[str] = None
     cost_per_1k_input: Optional[float] = None
     cost_per_1k_output: Optional[float] = None
@@ -229,11 +229,11 @@ class ModelUpdateRequest(BaseModel):
     routing_group: Optional[str] = None
     model_family: Optional[str] = None
     channel_name: Optional[str] = None
-    routing_priority: Optional[int] = None
-    cooldown_seconds: Optional[int] = None
-    temperature: Optional[float] = None
-    max_tokens: Optional[int] = None
-    requests_per_minute: Optional[int] = None
+    routing_priority: Optional[int] = Field(None, ge=1, le=1000)
+    cooldown_seconds: Optional[int] = Field(None, ge=0, le=3600)
+    temperature: Optional[float] = Field(None, ge=0, le=2)
+    max_tokens: Optional[int] = Field(None, ge=256, le=16000)
+    requests_per_minute: Optional[int] = Field(None, ge=1, le=120)
     description: Optional[str] = None
     cost_per_1k_input: Optional[float] = None
     cost_per_1k_output: Optional[float] = None

@@ -65,6 +65,71 @@ async def test_analysis_repository_reads_and_filters_latest_rows_only():
 
 
 @pytest.mark.asyncio
+async def test_pending_enrichment_uses_unified_scorer_not_raw_curation_score():
+    engine, session_factory = await _session_factory()
+    now = datetime.utcnow()
+    async with session_factory() as db:
+        db.add_all([
+            ContentItem(
+                id=1,
+                title="原始高分但质量弱",
+                url="https://example.com/weak-enrich",
+                category="AI",
+                status=ContentStatus.ANALYZED,
+                crawled_at=now,
+            ),
+            ContentItem(
+                id=2,
+                title="统一评分高质量",
+                url="https://example.com/strong-enrich",
+                category="AI",
+                status=ContentStatus.ANALYZED,
+                crawled_at=now,
+            ),
+        ])
+        db.add_all([
+            AiAnalysis(
+                id=1,
+                content_id=1,
+                curation_score=95,
+                info_density=10,
+                actionability=10,
+                creator_score=10,
+                viral_score=10,
+                freshness_score=50,
+                quality_score=10,
+                hot_score=10,
+                risk_score=0,
+                enrichment_status="pending",
+                created_at=now,
+            ),
+            AiAnalysis(
+                id=2,
+                content_id=2,
+                curation_score=70,
+                info_density=90,
+                actionability=90,
+                source_weight=70,
+                creator_score=90,
+                viral_score=70,
+                freshness_score=80,
+                quality_score=90,
+                hot_score=70,
+                risk_score=0,
+                enrichment_status="pending",
+                created_at=now,
+            ),
+        ])
+        await db.commit()
+
+        pending_ids = await AnalysisRepository(db).get_pending_enrichment_ids(min_score=55, limit=10)
+
+        assert pending_ids == [2]
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_creation_plan_uses_latest_analysis_prompt_material(monkeypatch):
     captured_messages = []
 

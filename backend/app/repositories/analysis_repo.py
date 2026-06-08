@@ -9,8 +9,12 @@ from typing import Optional
 from sqlalchemy import func, or_, select
 
 from app.models.analysis import AiAnalysis
+from app.models.content import ContentItem
+from app.models.source import Source
 from app.repositories.analysis_queries import latest_analysis_id_for_content_id
 from app.repositories.base import BaseRepository
+from app.services.feedback_signal import get_feedback_scores
+from app.services.scoring_engine import ScoringInput, score_items
 
 
 class AnalysisRepository(BaseRepository[AiAnalysis]):
@@ -30,23 +34,64 @@ class AnalysisRepository(BaseRepository[AiAnalysis]):
         return result.scalar_one_or_none()
 
     async def get_pending_enrichment_ids(self, min_score: float, limit: int) -> list[int]:
-        """Return high-value analysis content IDs that still need enrichment."""
+        """Return unified-scored high-value content IDs that still need enrichment."""
         latest_id = latest_analysis_id_for_content_id(AiAnalysis.content_id)
         stmt = (
-            select(AiAnalysis.content_id)
+            select(AiAnalysis, ContentItem, Source.weight.label("source_weight_db"))
+            .select_from(AiAnalysis)
+            .join(ContentItem, ContentItem.id == AiAnalysis.content_id)
+            .outerjoin(Source, Source.id == ContentItem.source_id)
             .where(
                 AiAnalysis.id == latest_id,
-                AiAnalysis.curation_score >= min_score,
                 or_(
                     AiAnalysis.enrichment_status.is_(None),
                     AiAnalysis.enrichment_status != "completed",
                 ),
             )
             .order_by(AiAnalysis.curation_score.desc(), AiAnalysis.created_at.desc())
-            .limit(limit)
+            .limit(max(limit * 5, limit))
         )
         result = await self.db.execute(stmt)
-        return [int(content_id) for content_id in result.scalars().all()]
+        rows = result.all()
+        feedback_scores = await get_feedback_scores(
+            self.db,
+            [int(analysis.content_id) for analysis, _content, _source_weight in rows],
+        )
+        candidate_ids: set[int] = set()
+        scoring_inputs: list[ScoringInput] = []
+        for analysis, content, source_weight_db in rows:
+            candidate_ids.add(int(analysis.content_id))
+            scoring_inputs.append(
+                ScoringInput(
+                    content_id=int(analysis.content_id),
+                    title=content.title,
+                    category=content.category,
+                    source_id=content.source_id,
+                    source_name=content.source_name,
+                    published_at=content.published_at,
+                    crawled_at=content.crawled_at,
+                    curation_score=analysis.curation_score or 0,
+                    info_density=analysis.info_density or 50,
+                    actionability=analysis.actionability or 50,
+                    source_weight=analysis.source_weight or 50,
+                    creator_score=analysis.creator_score or 0,
+                    viral_score=analysis.viral_score or 0,
+                    freshness_score=analysis.freshness_score or 0,
+                    quality_score=analysis.quality_score or 0,
+                    hot_score=analysis.hot_score or 0,
+                    risk_score=analysis.risk_score or 0,
+                    source_weight_db=source_weight_db or 3,
+                    feedback_score=feedback_scores.get(int(analysis.content_id), 0),
+                )
+            )
+
+        return [
+            int(item.content_id)
+            for breakdown, item in score_items(scoring_inputs)
+            if breakdown.selected
+            and breakdown.final_score >= min_score
+            and item.content_id in candidate_ids
+        ][:limit]
 
     async def list_with_score_filter(
         self,

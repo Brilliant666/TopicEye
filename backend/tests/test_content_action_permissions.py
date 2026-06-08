@@ -62,6 +62,15 @@ async def test_content_read_is_public_but_mutations_require_login_or_admin(monke
                 content_id=2,
                 summary="批量摘要",
                 curation_score=92,
+                info_density=90,
+                actionability=90,
+                source_weight=70,
+                creator_score=90,
+                viral_score=80,
+                freshness_score=90,
+                quality_score=90,
+                hot_score=80,
+                risk_score=0,
                 enrichment_status="pending",
             )
         )

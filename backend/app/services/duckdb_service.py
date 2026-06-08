@@ -336,10 +336,16 @@ class DuckDBAnalytics:
         scored_items = self._query_stats_scored_items(days=days)
         return self._stats_threshold_from_scored(scored_items)
 
-    def _query_stats_scored_items(self, days: int = 7) -> List[Dict[str, Any]]:
+    def _query_stats_scored_items(
+        self,
+        days: int = 7,
+        *,
+        hours: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
         """Return latest analyzed stats candidates with unified scorer results."""
         conn = self._get_conn()
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        window = timedelta(hours=hours) if hours is not None else timedelta(days=days)
+        cutoff = (datetime.utcnow() - window).isoformat()
         rows = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},
             feedback_scores AS (
@@ -636,28 +642,29 @@ class DuckDBAnalytics:
         """Statistics for daily report generation."""
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(hours=48)).isoformat()
+        scored_items = self._query_stats_scored_items(hours=48)
 
         row = conn.execute(f"""
+            WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 COUNT(*) AS total_items,
-                COUNT(CASE WHEN a.curation_score >= 70 THEN 1 END) AS curated_count,
                 AVG(a.curation_score) AS avg_curation,
                 MAX(a.curation_score) AS max_curation,
                 COUNT(DISTINCT c.topic_id) AS topic_count,
                 COUNT(CASE WHEN c.duplicate_of IS NOT NULL THEN 1 END) AS dup_count
             FROM oltp_db.content_items c
-            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN latest_analysis a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
               AND a.risk_score <= 70
         """).fetchone()
 
         return {
             "total_items": row[0] or 0,
-            "curated_count": row[1] or 0,
-            "avg_curation": round(float(row[2] or 0), 1),
-            "max_curation": round(float(row[3] or 0), 1),
-            "topic_count": row[4] or 0,
-            "dup_count": row[5] or 0,
+            "curated_count": len(self._selected_stats_items(scored_items)),
+            "avg_curation": round(float(row[1] or 0), 1),
+            "max_curation": round(float(row[2] or 0), 1),
+            "topic_count": row[3] or 0,
+            "dup_count": row[4] or 0,
         }
 
     def query_dashboard_stats(self, days: int = 7) -> Dict[str, Any]:

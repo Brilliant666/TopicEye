@@ -580,3 +580,88 @@ def test_daily_report_content_query_uses_latest_analysis_only(monkeypatch):
     assert rows[1]["recommended_reason"] == "新理由"
 
     conn.close()
+
+
+def test_daily_stats_uses_latest_analysis_and_unified_curated_count(monkeypatch):
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE SCHEMA oltp_db")
+    conn.execute("""
+        CREATE TABLE oltp_db.content_items (
+            id INTEGER,
+            source_id INTEGER,
+            source_name VARCHAR,
+            category VARCHAR,
+            crawled_at TIMESTAMP,
+            duplicate_of INTEGER,
+            topic_id INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.sources (
+            id INTEGER,
+            name VARCHAR,
+            source_type VARCHAR,
+            weight INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.ai_analyses (
+            id INTEGER,
+            content_id INTEGER,
+            curation_score DOUBLE,
+            info_density DOUBLE,
+            actionability DOUBLE,
+            source_weight DOUBLE,
+            creator_score DOUBLE,
+            viral_score DOUBLE,
+            freshness_score DOUBLE,
+            quality_score DOUBLE,
+            hot_score DOUBLE,
+            risk_score DOUBLE,
+            created_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.user_feedback (
+            id INTEGER,
+            content_id INTEGER,
+            user_id INTEGER,
+            score_delta DOUBLE
+        )
+    """)
+
+    now = datetime.utcnow()
+    conn.execute("INSERT INTO oltp_db.sources VALUES (1, '测试信源', 'RSS', 3)")
+    conn.execute("INSERT INTO oltp_db.content_items VALUES (1, 1, '测试信源', 'AI', ?, NULL, 10)", [now])
+    conn.execute("INSERT INTO oltp_db.content_items VALUES (2, 1, '测试信源', 'AI', ?, NULL, 20)", [now])
+    conn.execute("INSERT INTO oltp_db.content_items VALUES (3, 1, '测试信源', 'AI', ?, 1, 20)", [now])
+    conn.execute(
+        "INSERT INTO oltp_db.ai_analyses VALUES (1, 1, 20, 90, 90, 80, 90, 90, 90, 90, 90, 0, ?)",
+        [now - timedelta(hours=2)],
+    )
+    conn.execute(
+        "INSERT INTO oltp_db.ai_analyses VALUES (2, 1, 95, 10, 10, 50, 10, 10, 50, 10, 10, 0, ?)",
+        [now - timedelta(hours=1)],
+    )
+    conn.execute(
+        "INSERT INTO oltp_db.ai_analyses VALUES (3, 2, 70, 90, 90, 70, 90, 70, 80, 90, 70, 0, ?)",
+        [now],
+    )
+    conn.execute(
+        "INSERT INTO oltp_db.ai_analyses VALUES (4, 3, 88, 90, 90, 70, 90, 70, 80, 90, 70, 0, ?)",
+        [now],
+    )
+
+    analytics = duckdb_service.DuckDBAnalytics()
+    monkeypatch.setattr(analytics, "_get_conn", lambda: conn)
+
+    stats = analytics.query_daily_stats()
+
+    assert stats["total_items"] == 3
+    assert stats["curated_count"] == 1
+    assert stats["avg_curation"] == 84.3
+    assert stats["max_curation"] == 95.0
+    assert stats["topic_count"] == 2
+    assert stats["dup_count"] == 1
+
+    conn.close()

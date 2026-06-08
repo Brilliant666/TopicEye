@@ -13,6 +13,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import database_profile
+from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locked
 from app.models.monthly_digest import MonthlyDigest
 from app.services.digest_fallback import build_digest_fallback
 from app.services.digest_context import (
@@ -70,41 +72,58 @@ async def generate_monthly_digest(
     month_key, month_label, month_start, month_end = _get_month_range(target_date)
     now = _utc_now()
 
-    existing = await db.execute(
-        select(MonthlyDigest).where(MonthlyDigest.month_key == month_key)
-    )
-    digest = existing.scalar_one_or_none()
-    if digest and digest.status == "DONE":
-        return digest
-    if digest and _is_active_generating(digest, now):
-        return digest
+    async def _claim_generation() -> tuple[MonthlyDigest, bool]:
+        if database_profile.is_sqlite:
+            await begin_immediate_for_sqlite(db)
 
-    if not digest:
-        digest = MonthlyDigest(
-            month_key=month_key,
-            month_label=month_label,
-            month_start=month_start,
-            month_end=month_end,
-            status="GENERATING",
-        )
-        db.add(digest)
-        try:
-            await db.flush()
-        except IntegrityError:
-            await db.rollback()
-            existing = await db.execute(
-                select(MonthlyDigest).where(MonthlyDigest.month_key == month_key)
+        existing_stmt = select(MonthlyDigest).where(MonthlyDigest.month_key == month_key)
+        if database_profile.is_postgresql:
+            existing_stmt = existing_stmt.with_for_update()
+
+        existing = await db.execute(existing_stmt)
+        digest = existing.scalar_one_or_none()
+        if digest and digest.status == "DONE":
+            return digest, False
+        if digest and _is_active_generating(digest, now):
+            return digest, False
+
+        if not digest:
+            digest = MonthlyDigest(
+                month_key=month_key,
+                month_label=month_label,
+                month_start=month_start,
+                month_end=month_end,
+                status="GENERATING",
             )
-            digest = existing.scalar_one()
-            if digest.status == "DONE":
-                return digest
-            if _is_active_generating(digest, _utc_now()):
-                return digest
+            db.add(digest)
+            try:
+                await db.flush()
+            except IntegrityError:
+                await db.rollback()
+                existing = await db.execute(
+                    existing_stmt.with_for_update() if database_profile.is_postgresql else existing_stmt
+                )
+                digest = existing.scalar_one()
+                if digest.status == "DONE":
+                    return digest, False
+                if _is_active_generating(digest, _utc_now()):
+                    return digest, False
+                digest.status = "GENERATING"
+                await db.flush()
+        else:
             digest.status = "GENERATING"
             await db.flush()
-    else:
-        digest.status = "GENERATING"
-        await db.flush()
+
+        return digest, True
+
+    digest, claimed = await retry_sqlite_locked(
+        _claim_generation,
+        attempts=4,
+        base_delay=0.1,
+        on_retry=db.rollback,
+    )
+    if not claimed:
+        return digest
 
     await db.commit()
 

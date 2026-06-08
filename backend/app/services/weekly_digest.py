@@ -12,6 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import database_profile
+from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locked
 from app.models.weekly_digest import WeeklyDigest
 from app.services.digest_fallback import build_digest_fallback
 from app.services.llm import call_llm_json
@@ -92,43 +94,58 @@ async def generate_weekly_digest(
     week_key, week_label, week_start, week_end = _get_week_range(last_week_date)
     now = _utc_now()
 
-    # Check if digest already exists and is done
-    existing = await db.execute(
-        select(WeeklyDigest).where(WeeklyDigest.week_key == week_key)
-    )
-    digest = existing.scalar_one_or_none()
+    async def _claim_generation() -> tuple[WeeklyDigest, bool]:
+        if database_profile.is_sqlite:
+            await begin_immediate_for_sqlite(db)
 
-    if digest and digest.status == "DONE":
-        return digest
-    if digest and _is_active_generating(digest, now):
-        return digest
+        existing_stmt = select(WeeklyDigest).where(WeeklyDigest.week_key == week_key)
+        if database_profile.is_postgresql:
+            existing_stmt = existing_stmt.with_for_update()
 
-    if not digest:
-        digest = WeeklyDigest(
-            week_key=week_key,
-            week_label=week_label,
-            week_start=week_start,
-            week_end=week_end,
-            status="GENERATING",
-        )
-        db.add(digest)
-        try:
-            await db.flush()
-        except IntegrityError:
-            await db.rollback()
-            existing = await db.execute(
-                select(WeeklyDigest).where(WeeklyDigest.week_key == week_key)
+        existing = await db.execute(existing_stmt)
+        digest = existing.scalar_one_or_none()
+        if digest and digest.status == "DONE":
+            return digest, False
+        if digest and _is_active_generating(digest, now):
+            return digest, False
+
+        if not digest:
+            digest = WeeklyDigest(
+                week_key=week_key,
+                week_label=week_label,
+                week_start=week_start,
+                week_end=week_end,
+                status="GENERATING",
             )
-            digest = existing.scalar_one()
-            if digest.status == "DONE":
-                return digest
-            if _is_active_generating(digest, _utc_now()):
-                return digest
+            db.add(digest)
+            try:
+                await db.flush()
+            except IntegrityError:
+                await db.rollback()
+                existing = await db.execute(
+                    existing_stmt.with_for_update() if database_profile.is_postgresql else existing_stmt
+                )
+                digest = existing.scalar_one()
+                if digest.status == "DONE":
+                    return digest, False
+                if _is_active_generating(digest, _utc_now()):
+                    return digest, False
+                digest.status = "GENERATING"
+                await db.flush()
+        else:
             digest.status = "GENERATING"
             await db.flush()
-    else:
-        digest.status = "GENERATING"
-        await db.flush()
+
+        return digest, True
+
+    digest, claimed = await retry_sqlite_locked(
+        _claim_generation,
+        attempts=4,
+        base_delay=0.1,
+        on_retry=db.rollback,
+    )
+    if not claimed:
+        return digest
 
     await db.commit()
 

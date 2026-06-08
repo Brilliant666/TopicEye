@@ -161,3 +161,34 @@ def test_build_items_text_prefers_adjusted_score_for_digest_prompt():
     )
 
     assert "精选:73" in text
+
+
+def test_digest_row_to_scoring_input_preserves_full_duckdb_signals():
+    scoring_input = digest_context._row_to_scoring_input({
+        "id": 7,
+        "title": "完整 DuckDB scorer 输入",
+        "category": "AI",
+        "source_name": "权重信源",
+        "crawled_at": "2026-06-06T00:00:00",
+        "curation_score": 82,
+        "info_density": 79,
+        "actionability": 77,
+        "source_weight": 71,
+        "creator_score": 80,
+        "viral_score": 70,
+        "freshness_score": 88,
+        "quality_score": 76,
+        "hot_score": 69,
+        "risk_score": 12,
+        "source_weight_db": 5,
+        "feedback_score": 20,
+    })
+
+    assert scoring_input.content_id == 7
+    assert scoring_input.info_density == 79
+    assert scoring_input.actionability == 77
+    assert scoring_input.source_weight == 71
+    assert scoring_input.freshness_score == 88
+    assert scoring_input.hot_score == 69
+    assert scoring_input.source_weight_db == 5
+    assert scoring_input.feedback_score == 20

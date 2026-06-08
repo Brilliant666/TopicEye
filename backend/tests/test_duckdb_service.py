@@ -674,6 +674,7 @@ def test_digest_content_query_uses_latest_analysis_and_feedback_order(monkeypatc
     conn.execute("""
         CREATE TABLE oltp_db.content_items (
             id INTEGER,
+            source_id INTEGER,
             title VARCHAR,
             category VARCHAR,
             source_name VARCHAR,
@@ -689,12 +690,23 @@ def test_digest_content_query_uses_latest_analysis_and_feedback_order(monkeypatc
             creator_score DOUBLE,
             viral_score DOUBLE,
             quality_score DOUBLE,
+            hot_score DOUBLE,
+            freshness_score DOUBLE,
             risk_score DOUBLE,
             curation_score DOUBLE,
+            info_density DOUBLE,
+            actionability DOUBLE,
+            source_weight DOUBLE,
             tags VARCHAR,
             recommendation VARCHAR,
             recommended_reason VARCHAR,
             created_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.sources (
+            id INTEGER,
+            weight INTEGER
         )
     """)
     conn.execute("""
@@ -709,24 +721,25 @@ def test_digest_content_query_uses_latest_analysis_and_feedback_order(monkeypatc
     create_ignored_items_table(conn)
 
     now = datetime.utcnow()
+    conn.execute("INSERT INTO oltp_db.sources VALUES (10, 4)")
     conn.execute(
-        "INSERT INTO oltp_db.content_items VALUES (1, '反馈后的最新分析', 'AI', '测试信源', 'rss', ?)",
+        "INSERT INTO oltp_db.content_items VALUES (1, 10, '反馈后的最新分析', 'AI', '测试信源', 'rss', ?)",
         [now],
     )
     conn.execute(
-        "INSERT INTO oltp_db.content_items VALUES (2, '无反馈样本', 'AI', '测试信源', 'rss', ?)",
+        "INSERT INTO oltp_db.content_items VALUES (2, NULL, '无反馈样本', 'AI', '测试信源', 'rss', ?)",
         [now],
     )
     conn.execute(
-        "INSERT INTO oltp_db.ai_analyses VALUES (1, 1, '旧摘要', 95, 95, 95, 10, 99, '[\"旧\"]', '旧推荐', '旧理由', ?)",
+        "INSERT INTO oltp_db.ai_analyses VALUES (1, 1, '旧摘要', 95, 95, 95, 95, 95, 10, 99, 95, 95, 95, '[\"旧\"]', '旧推荐', '旧理由', ?)",
         [now - timedelta(hours=2)],
     )
     conn.execute(
-        "INSERT INTO oltp_db.ai_analyses VALUES (2, 1, '新摘要', 70, 70, 70, 10, 70, '[\"新\"]', '新推荐', '新理由', ?)",
+        "INSERT INTO oltp_db.ai_analyses VALUES (2, 1, '新摘要', 70, 70, 70, 65, 80, 10, 70, 82, 81, 72, '[\"新\"]', '新推荐', '新理由', ?)",
         [now - timedelta(hours=1)],
     )
     conn.execute(
-        "INSERT INTO oltp_db.ai_analyses VALUES (3, 2, '无反馈摘要', 72, 72, 72, 10, 72, '[\"AI\"]', '推荐', '理由', ?)",
+        "INSERT INTO oltp_db.ai_analyses VALUES (3, 2, '无反馈摘要', 72, 72, 72, 60, 75, 10, 72, 74, 73, 50, '[\"AI\"]', '推荐', '理由', ?)",
         [now],
     )
     conn.execute("INSERT INTO oltp_db.user_feedback VALUES (1, 1, 1, 20.0, ?)", [now])
@@ -742,6 +755,12 @@ def test_digest_content_query_uses_latest_analysis_and_feedback_order(monkeypatc
     assert [row["id"] for row in rows] == [1, 2]
     assert rows[0]["summary"] == "新摘要"
     assert rows[0]["curation_score"] == 70.0
+    assert rows[0]["info_density"] == 82.0
+    assert rows[0]["actionability"] == 81.0
+    assert rows[0]["source_weight"] == 72.0
+    assert rows[0]["hot_score"] == 65.0
+    assert rows[0]["freshness_score"] == 80.0
+    assert rows[0]["source_weight_db"] == 4
     assert rows[0]["feedback_score"] == 20.0
     assert rows[0]["adjusted_score"] == 73.0
     assert rows[0]["recommendation"] == "新推荐"
@@ -821,6 +840,7 @@ def test_digest_content_queries_exclude_ignored_content(monkeypatch):
     conn.execute("""
         CREATE TABLE oltp_db.content_items (
             id INTEGER,
+            source_id INTEGER,
             title VARCHAR,
             url VARCHAR,
             category VARCHAR,
@@ -837,12 +857,23 @@ def test_digest_content_queries_exclude_ignored_content(monkeypatch):
             creator_score DOUBLE,
             viral_score DOUBLE,
             quality_score DOUBLE,
+            hot_score DOUBLE,
+            freshness_score DOUBLE,
             risk_score DOUBLE,
             curation_score DOUBLE,
+            info_density DOUBLE,
+            actionability DOUBLE,
+            source_weight DOUBLE,
             tags VARCHAR,
             recommendation VARCHAR,
             recommended_reason VARCHAR,
             created_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.sources (
+            id INTEGER,
+            weight INTEGER
         )
     """)
     conn.execute("""
@@ -859,13 +890,13 @@ def test_digest_content_queries_exclude_ignored_content(monkeypatch):
     now = datetime.utcnow()
     for content_id, title in ((1, "已忽略素材"), (2, "保留素材")):
         conn.execute(
-            "INSERT INTO oltp_db.content_items VALUES (?, ?, ?, 'AI', '测试信源', 'rss', ?)",
+            "INSERT INTO oltp_db.content_items VALUES (?, NULL, ?, ?, 'AI', '测试信源', 'rss', ?)",
             [content_id, title, f"https://example.com/{content_id}", now],
         )
         conn.execute(
             """
             INSERT INTO oltp_db.ai_analyses VALUES (
-                ?, ?, '摘要', 90, 90, 90, 10, 90, '["AI"]', '推荐', '理由', ?
+                ?, ?, '摘要', 90, 90, 90, 90, 90, 10, 90, 90, 90, 90, '["AI"]', '推荐', '理由', ?
             )
             """,
             [content_id, content_id, now],

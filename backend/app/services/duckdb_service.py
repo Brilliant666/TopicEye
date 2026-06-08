@@ -870,15 +870,20 @@ class DuckDBAnalytics:
             {LATEST_FEEDBACK_SCORES_CTE},
             {IGNORED_CONTENT_CTE}
             SELECT c.id, c.title, c.category, c.source_name, c.platform,
+                   c.crawled_at,
                    a.summary, a.creator_score, a.viral_score, a.quality_score,
-                   a.risk_score, a.curation_score, a.tags, a.recommendation,
+                   a.hot_score, a.freshness_score, a.risk_score,
+                   a.curation_score, a.info_density, a.actionability,
+                   a.source_weight, a.tags, a.recommendation,
                    a.recommended_reason,
+                   COALESCE(s.weight, 3) AS source_weight_db,
                    COALESCE(f.feedback_score, 0) AS feedback_score,
                    COALESCE(a.curation_score, 0)
                        + LEAST({feedback_max}, GREATEST({feedback_min}, COALESCE(f.feedback_score, 0))) * {feedback_weight}
                        AS adjusted_score
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
+            LEFT JOIN oltp_db.sources s ON s.id = c.source_id
             LEFT JOIN feedback_scores f ON f.content_id = c.id
             LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE CAST(c.crawled_at AS DATE) >= DATE '{start_date}'
@@ -895,17 +900,24 @@ class DuckDBAnalytics:
                 "category": row[2] or "未分类",
                 "source_name": row[3] or "",
                 "platform": row[4] or "",
-                "summary": row[5] or "",
-                "creator_score": float(row[6]) if row[6] else 0,
-                "viral_score": float(row[7]) if row[7] else 0,
-                "quality_score": float(row[8]) if row[8] else 0,
-                "risk_score": float(row[9]) if row[9] else 0,
-                "curation_score": float(row[10]) if row[10] else 0,
-                "tags": row[11] or [],
-                "recommendation": row[12] or "",
-                "recommended_reason": row[13] or "",
-                "feedback_score": float(row[14]) if row[14] else 0,
-                "adjusted_score": round(float(row[15] or 0), 1),
+                "crawled_at": row[5].isoformat() if hasattr(row[5], "isoformat") else row[5],
+                "summary": row[6] or "",
+                "creator_score": float(row[7]) if row[7] else 0,
+                "viral_score": float(row[8]) if row[8] else 0,
+                "quality_score": float(row[9]) if row[9] else 0,
+                "hot_score": float(row[10]) if row[10] else 0,
+                "freshness_score": float(row[11]) if row[11] else 0,
+                "risk_score": float(row[12]) if row[12] else 0,
+                "curation_score": float(row[13]) if row[13] else 0,
+                "info_density": float(row[14]) if row[14] else 50,
+                "actionability": float(row[15]) if row[15] else 50,
+                "source_weight": float(row[16]) if row[16] else 50,
+                "tags": row[17] or [],
+                "recommendation": row[18] or "",
+                "recommended_reason": row[19] or "",
+                "source_weight_db": int(row[20]) if row[20] else 3,
+                "feedback_score": float(row[21]) if row[21] else 0,
+                "adjusted_score": round(float(row[22] or 0), 1),
             }
             for row in results
         ]

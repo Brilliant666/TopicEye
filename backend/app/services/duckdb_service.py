@@ -764,11 +764,12 @@ class DuckDBAnalytics:
         cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
 
         results = conn.execute(f"""
+            WITH {LATEST_ANALYSIS_CTE}
             SELECT c.id, c.title, c.url, c.category, c.source_name, a.summary,
                    a.creator_score, a.viral_score, a.quality_score, a.risk_score,
                    a.recommended_reason
             FROM oltp_db.content_items c
-            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN latest_analysis a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
               AND a.curation_score IS NOT NULL
             ORDER BY (COALESCE(a.creator_score, 0) + COALESCE(a.viral_score, 0)) DESC

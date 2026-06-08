@@ -517,3 +517,66 @@ def test_digest_content_query_uses_latest_analysis_and_feedback_order(monkeypatc
     assert rows[1]["adjusted_score"] == 72.0
 
     conn.close()
+
+
+def test_daily_report_content_query_uses_latest_analysis_only(monkeypatch):
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE SCHEMA oltp_db")
+    conn.execute("""
+        CREATE TABLE oltp_db.content_items (
+            id INTEGER,
+            title VARCHAR,
+            url VARCHAR,
+            category VARCHAR,
+            source_name VARCHAR,
+            crawled_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.ai_analyses (
+            id INTEGER,
+            content_id INTEGER,
+            summary VARCHAR,
+            creator_score DOUBLE,
+            viral_score DOUBLE,
+            quality_score DOUBLE,
+            risk_score DOUBLE,
+            curation_score DOUBLE,
+            recommended_reason VARCHAR,
+            created_at TIMESTAMP
+        )
+    """)
+
+    now = datetime.utcnow()
+    conn.execute(
+        "INSERT INTO oltp_db.content_items VALUES (1, '多次分析样本', 'https://example.com/1', 'AI', '测试信源', ?)",
+        [now],
+    )
+    conn.execute(
+        "INSERT INTO oltp_db.content_items VALUES (2, '普通样本', 'https://example.com/2', 'AI', '测试信源', ?)",
+        [now],
+    )
+    conn.execute(
+        "INSERT INTO oltp_db.ai_analyses VALUES (1, 1, '旧日报摘要', 99, 99, 99, 10, 99, '旧理由', ?)",
+        [now - timedelta(hours=2)],
+    )
+    conn.execute(
+        "INSERT INTO oltp_db.ai_analyses VALUES (2, 1, '新日报摘要', 50, 50, 50, 10, 50, '新理由', ?)",
+        [now - timedelta(hours=1)],
+    )
+    conn.execute(
+        "INSERT INTO oltp_db.ai_analyses VALUES (3, 2, '普通摘要', 80, 80, 80, 10, 80, '普通理由', ?)",
+        [now],
+    )
+
+    analytics = duckdb_service.DuckDBAnalytics()
+    monkeypatch.setattr(analytics, "_get_conn", lambda: conn)
+
+    rows = analytics.query_content_for_report(hours=48)
+
+    assert [row["id"] for row in rows] == [2, 1]
+    assert rows[1]["summary"] == "新日报摘要"
+    assert rows[1]["creator_score"] == 50.0
+    assert rows[1]["recommended_reason"] == "新理由"
+
+    conn.close()

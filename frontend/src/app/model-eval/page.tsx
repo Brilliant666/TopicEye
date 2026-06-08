@@ -482,9 +482,9 @@ function ModelsTab({ models, onRefresh }: { models: LlmModelItem[]; onRefresh: (
             </div>
 
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <InfoCell label="Temp" value={m.temperature} />
-              <InfoCell label="Tokens" value={m.max_tokens} />
-              <InfoCell label="RPM" value={m.requests_per_minute} />
+              <InfoCell label="稳定度" value={m.temperature} />
+              <InfoCell label="输出长度" value={m.max_tokens} />
+              <InfoCell label="请求/分" value={m.requests_per_minute} />
               <InfoCell label="冷却" value={`${m.cooldown_seconds}s`} />
             </div>
 
@@ -791,9 +791,9 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
           <TextInput value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} placeholder="可选备注" />
         </div>
         <div className="grid grid-cols-3 gap-2 rounded-xs border border-gray-200 bg-gray-50 p-2.5">
-          <InfoCell label="Temp" value={formatPresetValue(form.temperature)} />
-          <InfoCell label="Tokens" value={formatPresetValue(form.max_tokens)} />
-          <InfoCell label="RPM" value={formatPresetValue(form.requests_per_minute)} />
+          <InfoCell label="稳定度" value={formatPresetValue(form.temperature)} />
+          <InfoCell label="输出长度" value={formatPresetValue(form.max_tokens)} />
+          <InfoCell label="请求/分" value={formatPresetValue(form.requests_per_minute)} />
         </div>
       </div>
 
@@ -842,17 +842,17 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
             <TextInput value={form.channel_name} onChange={(e) => setForm((f) => ({ ...f, channel_name: e.target.value }))} placeholder="如 official / opencode / openrouter" />
           </div>
           <div>
-            <FieldLabel>Temperature</FieldLabel>
+            <FieldLabel>稳定度</FieldLabel>
             <TextInput type="number" step="0.1" value={form.temperature} onChange={(e) => setForm((f) => ({ ...f, temperature: parseFloat(e.target.value) || 0.3 }))} />
             <div className="mt-1 text-[10px] leading-4 text-gray-400">{catalog?.help.temperature_tip || '越低越稳定，分析和摘要通常用 0.2-0.4。'}</div>
           </div>
           <div>
-            <FieldLabel>Max Tokens</FieldLabel>
+            <FieldLabel>输出长度</FieldLabel>
             <TextInput type="number" value={form.max_tokens} onChange={(e) => setForm((f) => ({ ...f, max_tokens: parseInt(e.target.value, 10) || 2000 }))} />
             <div className="mt-1 text-[10px] leading-4 text-gray-400">{catalog?.help.max_tokens_tip || '控制单次输出长度。'}</div>
           </div>
           <div>
-            <FieldLabel>RPM</FieldLabel>
+            <FieldLabel>每分钟请求数</FieldLabel>
             <TextInput type="number" value={form.requests_per_minute} onChange={(e) => setForm((f) => ({ ...f, requests_per_minute: parseInt(e.target.value, 10) || 30 }))} />
             <div className="mt-1 text-[10px] leading-4 text-gray-400">{catalog?.help.rpm_tip || '每分钟请求数。个人 Key 建议从 10-30 开始。'}</div>
           </div>

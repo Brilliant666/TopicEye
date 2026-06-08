@@ -47,7 +47,7 @@ MODEL_PRESETS: tuple[dict[str, Any], ...] = (
         "description": "适合高频内容处理和个人工作流，成本敏感时优先选它。",
         "recommended_for": ["高频生成", "内容分析", "日常工作流"],
         "requires": ["api_key"],
-        "help": "填写 DeepSeek API Key 即可。RPM 默认较保守，避免个人 Key 被高并发打满。",
+        "help": "填写 DeepSeek API Key 即可。请求上限默认较保守，避免个人 Key 被同步高峰打满。",
         "defaults": {
             **DEFAULT_MODEL_PARAMETERS,
             "name": "DeepSeek 性价比模型",
@@ -104,10 +104,10 @@ def list_model_presets() -> dict[str, Any]:
         "defaults": deepcopy(DEFAULT_MODEL_PARAMETERS),
         "presets": [deepcopy(item) for item in MODEL_PRESETS],
         "help": {
-            "beginner_tip": "新用户优先选择推荐预设，只填写 API Key；模型参数后续再微调。",
-            "rpm_tip": "RPM 是每分钟请求数。个人 Key 建议先用 10-30，避免同步高峰触发供应商限流。",
-            "temperature_tip": "Temperature 越低越稳定。选题分析和摘要建议 0.2-0.4。",
-            "max_tokens_tip": "Max Tokens 控制单次输出长度。创作方案建议 2000 起步。",
+            "beginner_tip": "新用户优先选择推荐预设，只填写 API Key；稳定度、输出长度和请求上限已内置默认值。",
+            "rpm_tip": "请求上限表示每分钟最多调用多少次模型。个人 Key 建议先用 10-30，避免同步高峰触发供应商限流。",
+            "temperature_tip": "稳定度越低，输出越一致。选题分析和摘要建议保持默认 0.3。",
+            "max_tokens_tip": "输出长度控制单次回答能写多长。创作方案建议保持默认 2000，日报/月刊可按需调大。",
         },
     }
 

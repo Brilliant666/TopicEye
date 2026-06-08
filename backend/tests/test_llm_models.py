@@ -196,6 +196,10 @@ def test_model_presets_provide_beginner_defaults_and_help():
     assert catalog["defaults"]["max_tokens"] == 2000
     assert catalog["defaults"]["requests_per_minute"] == 30
     assert catalog["help"]["beginner_tip"]
+    assert "稳定度" in catalog["help"]["beginner_tip"]
+    assert "RPM" not in catalog["help"]["rpm_tip"]
+    assert "Temperature" not in catalog["help"]["temperature_tip"]
+    assert "Max Tokens" not in catalog["help"]["max_tokens_tip"]
     assert {preset["key"] for preset in catalog["presets"]} >= {
         "openai_fast",
         "deepseek_balanced",

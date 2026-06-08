@@ -643,7 +643,7 @@ export default function ProfilePage() {
                 {aiForm.showAdvanced && (
                   <div className="mt-3 grid gap-3 md:grid-cols-3">
                     <label className="block">
-                      <span className="mb-1.5 block text-xs font-black text-gray-500">Temperature</span>
+                      <span className="mb-1.5 block text-xs font-black text-gray-500">稳定度</span>
                       <input
                         value={aiForm.temperature}
                         onChange={(event) => setAiForm((prev) => ({ ...prev, temperature: event.target.value }))}
@@ -655,7 +655,7 @@ export default function ProfilePage() {
                       />
                     </label>
                     <label className="block">
-                      <span className="mb-1.5 block text-xs font-black text-gray-500">Max Tokens</span>
+                      <span className="mb-1.5 block text-xs font-black text-gray-500">输出长度</span>
                       <input
                         value={aiForm.max_tokens}
                         onChange={(event) => setAiForm((prev) => ({ ...prev, max_tokens: event.target.value }))}
@@ -666,7 +666,7 @@ export default function ProfilePage() {
                       />
                     </label>
                     <label className="block">
-                      <span className="mb-1.5 block text-xs font-black text-gray-500">RPM</span>
+                      <span className="mb-1.5 block text-xs font-black text-gray-500">每分钟请求数</span>
                       <input
                         value={aiForm.requests_per_minute}
                         onChange={(event) => setAiForm((prev) => ({ ...prev, requests_per_minute: event.target.value }))}
@@ -721,9 +721,9 @@ export default function ProfilePage() {
                       <Badge tone={model.enabled ? 'teal' : 'neutral'}>{model.enabled ? '启用' : '停用'}</Badge>
                     </div>
                     <div className="mt-2 grid grid-cols-3 gap-2 text-[11px]">
-                      <div className="rounded-xs bg-gray-50 px-2 py-1 text-gray-500">温度 {formatPresetValue(model.temperature)}</div>
-                      <div className="rounded-xs bg-gray-50 px-2 py-1 text-gray-500">Token {formatPresetValue(model.max_tokens)}</div>
-                      <div className="rounded-xs bg-gray-50 px-2 py-1 text-gray-500">RPM {formatPresetValue(model.requests_per_minute)}</div>
+                      <div className="rounded-xs bg-gray-50 px-2 py-1 text-gray-500">稳定度 {formatPresetValue(model.temperature)}</div>
+                      <div className="rounded-xs bg-gray-50 px-2 py-1 text-gray-500">长度 {formatPresetValue(model.max_tokens)}</div>
+                      <div className="rounded-xs bg-gray-50 px-2 py-1 text-gray-500">请求 {formatPresetValue(model.requests_per_minute)}/分</div>
                     </div>
                     <div className="mt-2 flex justify-end">
                       <Button type="button" variant="danger" onClick={() => handleDeleteAi(model)} disabled={!customAiAllowed || deletingAiId === model.id}>

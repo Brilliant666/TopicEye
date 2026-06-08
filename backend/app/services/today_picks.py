@@ -8,6 +8,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.duckdb_service import query_today_picks, query_topics
+from app.services.scoring_engine import CONFIG as SCORING_CONFIG
 
 TODAY_PICKS_THRESHOLD = 55
 
@@ -121,7 +122,13 @@ def _decode_json_value(value):
 def _score_breakdown(row: dict) -> dict:
     adjusted = float(row.get("adjusted_curation_score") or row.get("curation_score") or 0)
     curation = float(row.get("curation_score") or 0)
-    source_bonus = round(adjusted - curation, 2)
+    feedback_score = float(row.get("feedback_score") or 0)
+    clamped_feedback = max(
+        float(SCORING_CONFIG["feedback_score_min"]),
+        min(float(SCORING_CONFIG["feedback_score_max"]), feedback_score),
+    )
+    feedback_adjustment = round(clamped_feedback * float(SCORING_CONFIG["w_feedback"]), 2)
+    source_bonus = round(adjusted - curation - feedback_adjustment, 2)
     return {
         "content_id": row["id"],
         "base_score": round(curation, 2),
@@ -138,7 +145,9 @@ def _score_breakdown(row: dict) -> dict:
             "viral_potential": row.get("viral_score") or 0,
             "source_authority": row.get("source_weight") or 0,
             "freshness": row.get("freshness_score") or 0,
+            "feedback_adjustment": feedback_adjustment,
         },
+        "feedback_score": feedback_score,
         "selected": True,
         "threshold_used": TODAY_PICKS_THRESHOLD,
     }

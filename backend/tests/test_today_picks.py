@@ -70,7 +70,8 @@ def _duckdb_rows():
             "enrichment_status": "pending",
             "enrichment": '{"why_matters":"测试"}',
             "source_weight": 5,
-            "adjusted_curation_score": 104.0,
+            "feedback_score": 20.0,
+            "adjusted_curation_score": 107.0,
         },
         {
             "id": 2,
@@ -127,8 +128,11 @@ async def test_build_today_picks_uses_duckdb_payload_without_orm(monkeypatch):
     assert item["analysis"]["id"] == 101
     assert item["analysis"]["tags"] == ["AI", "产品"]
     assert item["analysis"]["enrichment"] == {"why_matters": "测试"}
-    assert item["analysis"]["adjusted_curation_score"] == 104.0
-    assert item["analysis"]["score_breakdown"]["final_score"] == 104.0
+    assert item["analysis"]["adjusted_curation_score"] == 107.0
+    assert item["analysis"]["score_breakdown"]["final_score"] == 107.0
+    assert item["analysis"]["score_breakdown"]["feedback_score"] == 20.0
+    assert item["analysis"]["score_breakdown"]["dimension_scores"]["feedback_adjustment"] == 3.0
+    assert item["analysis"]["score_breakdown"]["source_bonus"] == 16.0
 
 
 @pytest.mark.asyncio

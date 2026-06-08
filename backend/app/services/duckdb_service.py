@@ -32,6 +32,7 @@ from app.core.db_backend import (
     duckdb_extension_name,
     redact_database_secrets,
 )
+from app.services.scoring_engine import CONFIG as SCORING_CONFIG
 
 logger = logging.getLogger(__name__)
 STATS_CURATION_FALLBACK_THRESHOLD = 83.0
@@ -163,6 +164,9 @@ class DuckDBAnalytics:
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
         params: List[Any] = [cutoff]
+        feedback_min = float(SCORING_CONFIG["feedback_score_min"])
+        feedback_max = float(SCORING_CONFIG["feedback_score_max"])
+        feedback_weight = float(SCORING_CONFIG["w_feedback"])
         category_clause = ""
         if category:
             category_clause = " AND c.category = ?"
@@ -170,7 +174,14 @@ class DuckDBAnalytics:
         _ = limit
 
         results = conn.execute(f"""
-            WITH {LATEST_ANALYSIS_CTE}
+            WITH {LATEST_ANALYSIS_CTE},
+            feedback_scores AS (
+                SELECT
+                    content_id,
+                    SUM(score_delta) AS feedback_score
+                FROM oltp_db.user_feedback
+                GROUP BY content_id
+            )
             SELECT
                 c.id, c.title, c.url, c.source_id, c.source_name, c.source_type,
                 c.platform, c.author,
@@ -187,15 +198,19 @@ class DuckDBAnalytics:
                 a.summary AS ai_summary, a.tags AS ai_tags,
                 a.enrichment_status, a.enrichment,
                 COALESCE(s.weight, 3) AS source_weight,
+                COALESCE(f.feedback_score, 0) AS feedback_score,
                 CASE
                     WHEN a.curation_score > 0
                         THEN a.curation_score + (COALESCE(s.weight, 3) - 3) * {weight_bonus}
+                             + LEAST({feedback_max}, GREATEST({feedback_min}, COALESCE(f.feedback_score, 0))) * {feedback_weight}
                     ELSE (COALESCE(a.creator_score, 0) + COALESCE(a.viral_score, 0)) / 2.0
                          + (COALESCE(s.weight, 3) - 3) * {weight_bonus}
+                         + LEAST({feedback_max}, GREATEST({feedback_min}, COALESCE(f.feedback_score, 0))) * {feedback_weight}
                 END AS adjusted_curation_score
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
             LEFT JOIN oltp_db.sources s ON s.id = c.source_id
+            LEFT JOIN feedback_scores f ON f.content_id = c.id
             WHERE c.crawled_at >= ?
               AND a.risk_score <= {risk_threshold}
               AND a.curation_score IS NOT NULL
@@ -217,6 +232,7 @@ class DuckDBAnalytics:
             'recommended_reason', 'recommendation',
             'ai_summary', 'ai_tags',
             'enrichment_status', 'enrichment', 'source_weight',
+            'feedback_score',
             'adjusted_curation_score',
         ]
 
@@ -236,6 +252,7 @@ class DuckDBAnalytics:
                 'quality_score', 'hot_score', 'freshness_score',
                 'creator_score', 'viral_score', 'risk_score',
                 'curation_score', 'info_density', 'actionability',
+                'feedback_score',
                 'similarity_score',
             ):
                 val = item.get(score_field)

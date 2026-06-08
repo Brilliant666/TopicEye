@@ -234,6 +234,14 @@ def test_today_picks_query_uses_latest_analysis_only(monkeypatch):
             created_at TIMESTAMP
         )
     """)
+    conn.execute("""
+        CREATE TABLE oltp_db.user_feedback (
+            id INTEGER,
+            content_id INTEGER,
+            user_id INTEGER,
+            score_delta DOUBLE
+        )
+    """)
 
     now = datetime.utcnow()
     conn.execute("INSERT INTO oltp_db.sources VALUES (1, 5)")
@@ -276,5 +284,113 @@ def test_today_picks_query_uses_latest_analysis_only(monkeypatch):
     assert rows[0]["curation_score"] == 90.0
     assert rows[0]["recommended_reason"] == "新理由"
     assert rows[0]["adjusted_curation_score"] == 106.0
+
+    conn.close()
+
+
+def test_today_picks_query_applies_aggregated_feedback(monkeypatch):
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE SCHEMA oltp_db")
+    conn.execute("""
+        CREATE TABLE oltp_db.content_items (
+            id INTEGER,
+            title VARCHAR,
+            url VARCHAR,
+            source_id INTEGER,
+            source_name VARCHAR,
+            source_type VARCHAR,
+            platform VARCHAR,
+            author VARCHAR,
+            published_at TIMESTAMP,
+            crawled_at TIMESTAMP,
+            content_hash VARCHAR,
+            summary VARCHAR,
+            raw_content VARCHAR,
+            cover_url VARCHAR,
+            category VARCHAR,
+            tags VARCHAR,
+            language VARCHAR,
+            status VARCHAR,
+            is_favorited BOOLEAN,
+            topic_id INTEGER,
+            duplicate_of INTEGER,
+            similarity_score DOUBLE,
+            created_at TIMESTAMP,
+            updated_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.sources (
+            id INTEGER,
+            weight INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.ai_analyses (
+            id INTEGER,
+            content_id INTEGER,
+            quality_score DOUBLE,
+            hot_score DOUBLE,
+            freshness_score DOUBLE,
+            creator_score DOUBLE,
+            viral_score DOUBLE,
+            risk_score DOUBLE,
+            curation_score DOUBLE,
+            info_density DOUBLE,
+            actionability DOUBLE,
+            recommended_reason VARCHAR,
+            recommendation VARCHAR,
+            summary VARCHAR,
+            tags VARCHAR,
+            enrichment_status VARCHAR,
+            enrichment VARCHAR,
+            created_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.user_feedback (
+            id INTEGER,
+            content_id INTEGER,
+            user_id INTEGER,
+            score_delta DOUBLE
+        )
+    """)
+
+    now = datetime.utcnow()
+    conn.execute("INSERT INTO oltp_db.sources VALUES (1, 3)")
+    for content_id, title in ((1, "反馈提升样本"), (2, "无反馈样本")):
+        conn.execute(
+            """
+            INSERT INTO oltp_db.content_items VALUES (
+                ?, ?, ?, 1, '测试信源', 'RSS',
+                'rss', NULL, NULL, ?, NULL, '摘要', NULL, NULL, 'AI', '["AI"]',
+                'zh', 'analyzed', false, NULL, NULL, 0.0, ?, ?
+            )
+            """,
+            [content_id, title, f"https://example.com/{content_id}", now, now, now],
+        )
+        conn.execute(
+            """
+            INSERT INTO oltp_db.ai_analyses VALUES (
+                ?, ?, 80, 80, 80, 80, 80, 10, 80, 80, 80,
+                '理由', '推荐', '摘要', '["AI"]', 'pending', NULL, ?
+            )
+            """,
+            [content_id, content_id, now],
+        )
+
+    conn.execute("INSERT INTO oltp_db.user_feedback VALUES (1, 1, 1, 20.0)")
+    conn.execute("INSERT INTO oltp_db.user_feedback VALUES (2, 1, 2, 999.0)")
+
+    analytics = duckdb_service.DuckDBAnalytics()
+    monkeypatch.setattr(analytics, "_get_conn", lambda: conn)
+
+    rows = analytics.query_today_picks(hours=48, curation_threshold=0)
+
+    assert [row["id"] for row in rows] == [1, 2]
+    assert rows[0]["feedback_score"] == 1019.0
+    assert rows[0]["adjusted_curation_score"] == 83.0
+    assert rows[1]["feedback_score"] == 0.0
+    assert rows[1]["adjusted_curation_score"] == 80.0
 
     conn.close()

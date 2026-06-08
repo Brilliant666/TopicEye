@@ -1,9 +1,21 @@
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+import app.main  # noqa: F401 - import all models for Base.metadata
+from app.core.database import Base
+from app.models.llm_model import LlmCallLog
 from app.services import llm_usage
-from app.services.llm_usage import calculate_cost, extract_usage, pricing_from_model, record_llm_call_in_new_session
+from app.services.llm_usage import (
+    TokenUsage,
+    calculate_cost,
+    extract_usage,
+    pricing_from_model,
+    record_llm_call,
+    record_llm_call_in_new_session,
+)
 
 
 def test_extract_usage_reads_openai_cache_tokens():
@@ -110,6 +122,46 @@ def test_pricing_from_model_zeroes_deepseek_v4_flash_free():
 
 
 @pytest.mark.asyncio
+async def test_record_llm_call_updates_existing_request_id():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        first = await record_llm_call(
+            db,
+            model=None,
+            request_model="openai/test-model",
+            scene="analysis",
+            status="FAILED",
+            duration_ms=120,
+            error_message="temporary failure",
+            request_id="same-request",
+        )
+        second = await record_llm_call(
+            db,
+            model=None,
+            request_model="openai/test-model",
+            scene="analysis",
+            status="DONE",
+            duration_ms=240,
+            usage=TokenUsage(input_tokens=100, output_tokens=40),
+            request_id="same-request",
+        )
+        result = await db.execute(select(LlmCallLog))
+        rows = result.scalars().all()
+
+    assert first.id == second.id
+    assert len(rows) == 1
+    assert rows[0].status == "DONE"
+    assert rows[0].error_message is None
+    assert rows[0].input_tokens == 100
+    assert rows[0].output_tokens == 40
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_record_llm_call_in_new_session_uses_extended_sqlite_lock_retry(monkeypatch):
     calls = {}
 
@@ -125,6 +177,10 @@ async def test_record_llm_call_in_new_session_uses_extended_sqlite_lock_retry(mo
 
         async def rollback(self):
             calls["rolled_back"] = calls.get("rolled_back", 0) + 1
+
+        async def scalar(self, _stmt):
+            calls["scalar_checked"] = calls.get("scalar_checked", 0) + 1
+            return None
 
         def add(self, _log):
             calls["added"] = True
@@ -159,6 +215,7 @@ async def test_record_llm_call_in_new_session_uses_extended_sqlite_lock_retry(mo
     assert calls["attempts"] == llm_usage.LLM_USAGE_LOG_RETRY_ATTEMPTS
     assert calls["base_delay"] == llm_usage.LLM_USAGE_LOG_RETRY_BASE_DELAY
     assert calls["on_retry"].__name__ == "rollback"
+    assert calls["scalar_checked"] == 1
     assert calls["begin_immediate"] is True
     assert calls["added"] is True
     assert calls["flushed"] is True

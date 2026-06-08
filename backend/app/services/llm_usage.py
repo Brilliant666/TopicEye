@@ -5,6 +5,8 @@ import logging
 from dataclasses import dataclass
 from typing import Optional, Any
 
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.llm_model import LlmCallLog, LlmModel
@@ -201,6 +203,7 @@ async def record_llm_call(
     request_id: Optional[str] = None,
 ) -> LlmCallLog:
     usage = usage or TokenUsage()
+    resolved_request_id = request_id or f"llm_{uuid.uuid4().hex}"
     pricing = pricing_from_model(model)
     costs = calculate_cost(
         usage,
@@ -208,35 +211,52 @@ async def record_llm_call(
         provider=model.provider if model else None,
         request_model=request_model,
     )
-    log = LlmCallLog(
-        request_id=request_id or f"llm_{uuid.uuid4().hex}",
-        model_id=model.id if model else None,
-        model_name=model.name if model else None,
-        provider=model.provider if model else None,
-        request_model=request_model,
-        actual_model=usage.actual_model or request_model,
-        scene=scene,
-        status=status,
-        error_message=error_message[:2000] if error_message else None,
-        duration_ms=duration_ms,
-        input_tokens=usage.input_tokens,
-        output_tokens=usage.output_tokens,
-        cache_read_tokens=usage.cache_read_tokens,
-        cache_creation_tokens=usage.cache_creation_tokens,
-        billable_input_tokens=costs.billable_input_tokens,
-        input_cost=costs.input_cost,
-        output_cost=costs.output_cost,
-        cache_read_cost=costs.cache_read_cost,
-        cache_creation_cost=costs.cache_creation_cost,
-        total_cost=costs.total_cost,
-        cost_per_1m_input=costs.cost_per_1m_input,
-        cost_per_1m_output=costs.cost_per_1m_output,
-        cost_per_1m_input_cache_hit=costs.cost_per_1m_input_cache_hit,
-        cost_per_1m_input_cache_create=costs.cost_per_1m_input_cache_create,
-    )
+    payload = {
+        "model_id": model.id if model else None,
+        "model_name": model.name if model else None,
+        "provider": model.provider if model else None,
+        "request_model": request_model,
+        "actual_model": usage.actual_model or request_model,
+        "scene": scene,
+        "status": status,
+        "error_message": error_message[:2000] if error_message else None,
+        "duration_ms": duration_ms,
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "cache_read_tokens": usage.cache_read_tokens,
+        "cache_creation_tokens": usage.cache_creation_tokens,
+        "billable_input_tokens": costs.billable_input_tokens,
+        "input_cost": costs.input_cost,
+        "output_cost": costs.output_cost,
+        "cache_read_cost": costs.cache_read_cost,
+        "cache_creation_cost": costs.cache_creation_cost,
+        "total_cost": costs.total_cost,
+        "cost_per_1m_input": costs.cost_per_1m_input,
+        "cost_per_1m_output": costs.cost_per_1m_output,
+        "cost_per_1m_input_cache_hit": costs.cost_per_1m_input_cache_hit,
+        "cost_per_1m_input_cache_create": costs.cost_per_1m_input_cache_create,
+    }
+    existing = await db.scalar(select(LlmCallLog).where(LlmCallLog.request_id == resolved_request_id))
+    if existing is not None:
+        for key, value in payload.items():
+            setattr(existing, key, value)
+        await db.flush()
+        return existing
+
+    log = LlmCallLog(request_id=resolved_request_id, **payload)
     db.add(log)
-    await db.flush()
-    return log
+    try:
+        await db.flush()
+        return log
+    except IntegrityError:
+        await db.rollback()
+        existing = await db.scalar(select(LlmCallLog).where(LlmCallLog.request_id == resolved_request_id))
+        if existing is None:
+            raise
+        for key, value in payload.items():
+            setattr(existing, key, value)
+        await db.flush()
+        return existing
 
 
 async def record_llm_call_in_new_session(

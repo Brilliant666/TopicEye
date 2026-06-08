@@ -174,6 +174,7 @@ async def sync_zhihu(
     current_user: User = Depends(get_current_admin_user),
 ):
     """触发知乎全量同步（后台运行）。"""
-    from app.services.zhihu_service import sync_zhihu_ranks
-    background_tasks.add_task(sync_zhihu_ranks)
+    from app.scheduler import _sync_zhihu
+
+    background_tasks.add_task(_sync_zhihu)
     return {'status': 'syncing', 'message': '知乎榜单后台同步已启动'}

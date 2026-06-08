@@ -185,6 +185,36 @@ async def test_webnovel_sync_apis_still_require_admin(admin_api_client, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_webnovel_sync_jobs_skip_when_lease_is_active(monkeypatch):
+    from app import scheduler as scheduler_module
+    from app.services import job_tracker, qimao_service, zhihu_service
+
+    skipped_jobs = []
+
+    async def fake_claim_job_run(job_key: str, name: str, description: str, timeout: int):
+        return False
+
+    async def fake_record_skipped_job(job_key: str, trigger_type: str, summary: str):
+        skipped_jobs.append(job_key)
+
+    async def fail_qimao_sync():
+        raise AssertionError("qimao sync should be skipped while a lease is active")
+
+    async def fail_zhihu_sync():
+        raise AssertionError("zhihu sync should be skipped while a lease is active")
+
+    monkeypatch.setattr(job_tracker, "_claim_job_run", fake_claim_job_run)
+    monkeypatch.setattr(job_tracker, "_record_skipped_job", fake_record_skipped_job)
+    monkeypatch.setattr(qimao_service, "sync_qimao_ranks", fail_qimao_sync)
+    monkeypatch.setattr(zhihu_service, "sync_zhihu_ranks", fail_zhihu_sync)
+
+    await scheduler_module._sync_qimao()
+    await scheduler_module._sync_zhihu()
+
+    assert skipped_jobs == ["sync_qimao", "sync_zhihu"]
+
+
+@pytest.mark.asyncio
 async def test_topic_reads_are_public_but_clustering_requires_admin(admin_api_client):
     client, user_token, admin_token = admin_api_client
 

@@ -146,8 +146,7 @@ async def sync_qimao(
     current_user: User = Depends(get_current_admin_user),
 ):
     """后台触发七猫全量同步（耗时约 30s）。"""
-    async def _run():
-        from app.services.qimao_service import sync_qimao_ranks
-        await sync_qimao_ranks()
-    background_tasks.add_task(_run)
+    from app.scheduler import _sync_qimao
+
+    background_tasks.add_task(_sync_qimao)
     return {"status": "started", "message": "七猫同步已在后台启动，预计 30s 内完成"}

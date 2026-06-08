@@ -1,7 +1,9 @@
 from datetime import date, datetime, timedelta
 
 import pytest
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.sql.selectable import Select
 
 from app.core.database import Base
 from app.models.daily_report import DailyReport
@@ -128,4 +130,97 @@ async def test_generate_daily_report_reclaims_stale_generating(monkeypatch):
     assert report.id == existing.id
     assert report.status == "ERROR"
     assert "暂无分析数据" in report.overview
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_generate_daily_report_retries_sqlite_claim_lock(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    now = datetime(2026, 5, 27, 12, 0, 0)
+    calls = {"begin": 0}
+    monkeypatch.setattr(daily_report, "_local_now", lambda: now)
+
+    async def flaky_begin_immediate(_db):
+        calls["begin"] += 1
+        if calls["begin"] == 1:
+            raise OperationalError("BEGIN IMMEDIATE", {}, Exception("database is locked"))
+
+    async def fake_fetch_inputs(*_args, **_kwargs):
+        return [], []
+
+    monkeypatch.setattr(daily_report, "begin_immediate_for_sqlite", flaky_begin_immediate)
+    monkeypatch.setattr(daily_report, "_fetch_report_inputs", fake_fetch_inputs)
+
+    async with session_factory() as db:
+        report = await daily_report.generate_daily_report(
+            db,
+            target_date=date(2026, 5, 27),
+            edition="noon",
+            cutoff_at=now,
+            force=False,
+        )
+
+    assert calls["begin"] == 2
+    assert report.status == "ERROR"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_generate_daily_report_locks_existing_row_for_postgresql(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    now = datetime(2026, 5, 27, 12, 0, 0)
+    calls = {"for_update": 0}
+    monkeypatch.setattr(daily_report, "_local_now", lambda: now)
+
+    class FakeProfile:
+        is_sqlite = False
+        is_postgresql = True
+
+    monkeypatch.setattr(daily_report, "database_profile", FakeProfile())
+    original_with_for_update = Select.with_for_update
+
+    def with_for_update_spy(self, *args, **kwargs):
+        calls["for_update"] += 1
+        return original_with_for_update(self, *args, **kwargs)
+
+    async def fake_fetch_inputs(*_args, **_kwargs):
+        return [], []
+
+    monkeypatch.setattr(Select, "with_for_update", with_for_update_spy)
+    monkeypatch.setattr(daily_report, "_fetch_report_inputs", fake_fetch_inputs)
+
+    start, end = _day_window(date(2026, 5, 27), now, "noon")
+    async with session_factory() as db:
+        db.add(
+            DailyReport(
+                report_date="2026-05-27",
+                weekday="周三",
+                edition="noon",
+                generated_at=now - GENERATING_STALE_AFTER - timedelta(seconds=1),
+                window_start=start,
+                window_end=end,
+                cutoff_at=end,
+                status="GENERATING",
+            )
+        )
+        await db.commit()
+
+        report = await daily_report.generate_daily_report(
+            db,
+            target_date=date(2026, 5, 27),
+            edition="noon",
+            cutoff_at=now,
+            force=False,
+        )
+
+    assert calls["for_update"] == 1
+    assert report.status == "ERROR"
     await engine.dispose()

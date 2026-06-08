@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -196,8 +196,12 @@ async def category_books(
 
 
 @router.post("/sync")
-async def trigger_sync(current_user: User = Depends(get_current_admin_user)):
-    """手动触发全量同步。"""
-    from app.services.fanqie_service import full_sync
-    result = await full_sync()
-    return result
+async def trigger_sync(
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_admin_user),
+):
+    """后台触发番茄全量同步。"""
+    from app.scheduler import _sync_fanqie
+
+    background_tasks.add_task(_sync_fanqie)
+    return {"status": "started", "message": "番茄同步已在后台启动"}

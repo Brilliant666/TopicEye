@@ -1721,8 +1721,10 @@ export interface LlmModelPresetCatalog {
     default: unknown;
     range?: number[];
     unit?: string;
+    recommended?: string;
     plain: string;
     beginner?: string;
+    when_to_change?: string[];
   }>;
   presets: LlmModelPresetItem[];
   help: Record<string, string>;

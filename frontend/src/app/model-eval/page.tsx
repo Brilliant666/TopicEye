@@ -154,6 +154,20 @@ function presetNumberDefault(preset: LlmModelPresetItem | undefined, catalog: Ll
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+function parameterMeta(catalog: LlmModelPresetCatalog | null, field: string): string {
+  const help = catalog?.parameter_help?.[field];
+  const defaultValue = help?.default ?? catalog?.defaults[field];
+  const parts = [`默认 ${formatPresetValue(defaultValue)}`];
+  if (help?.recommended) {
+    parts.push(help.recommended);
+  } else if (help?.range?.length === 2) {
+    parts.push(`范围 ${help.range[0]}-${help.range[1]}${help.unit ? ` ${help.unit}` : ''}`);
+  } else if (help?.unit) {
+    parts.push(help.unit);
+  }
+  return parts.join(' · ');
+}
+
 function parseOptionalNumber(value: string): number | null {
   if (value.trim() === '') return null;
   const parsed = Number(value);
@@ -576,6 +590,28 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
   const currentPreset = PROVIDER_PRESETS[form.provider] || PROVIDER_PRESETS.custom;
   const needsModelId = isEdit || presetRequires(selectedPreset, 'model_id') || presetKey === 'custom';
   const needsApiBase = presetRequires(selectedPreset, 'api_base') || presetKey === 'openai_compatible';
+  const presetDefaultRows = useMemo(() => ([
+    {
+      label: '稳定度',
+      field: 'temperature',
+      value: selectedPreset?.defaults.temperature ?? catalog?.defaults.temperature ?? form.temperature,
+    },
+    {
+      label: '输出长度',
+      field: 'max_tokens',
+      value: selectedPreset?.defaults.max_tokens ?? catalog?.defaults.max_tokens ?? form.max_tokens,
+    },
+    {
+      label: '请求上限',
+      field: 'requests_per_minute',
+      value: selectedPreset?.defaults.requests_per_minute ?? catalog?.defaults.requests_per_minute ?? form.requests_per_minute,
+    },
+    {
+      label: '失败冷却',
+      field: 'cooldown_seconds',
+      value: selectedPreset?.defaults.cooldown_seconds ?? catalog?.defaults.cooldown_seconds ?? form.cooldown_seconds,
+    },
+  ]), [catalog, form.cooldown_seconds, form.max_tokens, form.requests_per_minute, form.temperature, selectedPreset]);
 
   const applyPreset = useCallback((nextKey: string, nextCatalog: LlmModelPresetCatalog | null) => {
     const preset = nextCatalog?.presets.find((item) => item.key === nextKey);
@@ -603,6 +639,17 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
       cost_per_1m_output: defaults.cost_per_1m_output !== undefined && defaults.cost_per_1m_output !== null ? String(defaults.cost_per_1m_output) : '',
     }));
   }, []);
+
+  const restoreRecommendedDefaults = useCallback(() => {
+    setForm((prev) => ({
+      ...prev,
+      routing_priority: presetNumberDefault(selectedPreset, catalog, 'routing_priority', 100),
+      cooldown_seconds: presetNumberDefault(selectedPreset, catalog, 'cooldown_seconds', 300),
+      temperature: presetNumberDefault(selectedPreset, catalog, 'temperature', 0.3),
+      max_tokens: presetNumberDefault(selectedPreset, catalog, 'max_tokens', 2000),
+      requests_per_minute: presetNumberDefault(selectedPreset, catalog, 'requests_per_minute', 30),
+    }));
+  }, [catalog, selectedPreset]);
 
   useEffect(() => {
     if (isEdit) return;
@@ -736,6 +783,13 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
                       {active && <CheckCircle2 size={16} className="shrink-0 text-primary" />}
                     </div>
                     <div className="text-xs leading-5 text-gray-500">{preset.description}</div>
+                    <div className="mt-2 grid grid-cols-2 gap-1.5">
+                      {['temperature', 'max_tokens'].map((field) => (
+                        <span key={field} className="rounded-xs bg-white px-2 py-1 text-[10px] font-black text-gray-500">
+                          {catalog?.parameter_help?.[field]?.label || field} {formatPresetValue(preset.defaults[field] ?? catalog?.defaults[field])}
+                        </span>
+                      ))}
+                    </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       {preset.recommended_for.slice(0, 3).map((item) => (
                         <span key={item} className="rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-gray-500">
@@ -748,6 +802,29 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {selectedPreset && (
+        <div className="mb-4 grid gap-3 rounded-sm border border-gray-200 bg-gray-50 p-3 md:grid-cols-[minmax(0,1.15fr)_minmax(0,2fr)]">
+          <div className="min-w-0">
+            <div className="mb-1 text-xs font-black text-gray-500">推荐配置</div>
+            <div className="truncate text-sm font-black text-gray-900">{selectedPreset.label}</div>
+            <div className="mt-1 text-xs leading-5 text-gray-500">
+              {catalog?.help.defaults_tip || '不理解参数时先保持默认，系统会自动使用推荐值。'}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {presetDefaultRows.map((item) => (
+              <div key={item.field} className="rounded-xs border border-gray-200 bg-white px-2.5 py-2">
+                <div className="mb-1 text-[10px] font-black text-gray-400">{item.label}</div>
+                <div className="font-mono text-sm font-black text-gray-900">{formatPresetValue(item.value)}</div>
+                <div className="mt-1 truncate text-[10px] text-gray-400">
+                  {catalog?.parameter_help?.[item.field]?.beginner || '默认即可'}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -806,6 +883,14 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
           <SlidersHorizontal size={14} />
           {showAdvanced ? '收起高级参数' : '高级参数'}
         </button>
+        <button
+          type="button"
+          onClick={restoreRecommendedDefaults}
+          className="inline-flex items-center gap-1.5 rounded-sm border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 transition hover:border-primary-border hover:text-primary"
+        >
+          <RefreshCw size={14} />
+          恢复推荐默认
+        </button>
         {selectedPreset?.help && !showAdvanced && (
           <span className="ml-2 align-middle text-xs font-bold text-gray-500">{selectedPreset.help}</span>
         )}
@@ -844,17 +929,29 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
           <div>
             <FieldLabel>稳定度</FieldLabel>
             <TextInput type="number" step="0.1" value={form.temperature} onChange={(e) => setForm((f) => ({ ...f, temperature: parseFloat(e.target.value) || 0.3 }))} />
-            <div className="mt-1 text-[10px] leading-4 text-gray-400">{catalog?.help.temperature_tip || '越低越稳定，分析和摘要通常用 0.2-0.4。'}</div>
+            <div className="mt-1 text-[10px] leading-4 text-gray-400">
+              <span className="font-bold text-gray-500">{parameterMeta(catalog, 'temperature')}</span>
+              <br />
+              {catalog?.parameter_help?.temperature?.plain || catalog?.help.temperature_tip || '越低越稳定，分析和摘要通常用 0.2-0.4。'}
+            </div>
           </div>
           <div>
             <FieldLabel>输出长度</FieldLabel>
             <TextInput type="number" value={form.max_tokens} onChange={(e) => setForm((f) => ({ ...f, max_tokens: parseInt(e.target.value, 10) || 2000 }))} />
-            <div className="mt-1 text-[10px] leading-4 text-gray-400">{catalog?.help.max_tokens_tip || '控制单次输出长度。'}</div>
+            <div className="mt-1 text-[10px] leading-4 text-gray-400">
+              <span className="font-bold text-gray-500">{parameterMeta(catalog, 'max_tokens')}</span>
+              <br />
+              {catalog?.parameter_help?.max_tokens?.plain || catalog?.help.max_tokens_tip || '控制单次输出长度。'}
+            </div>
           </div>
           <div>
             <FieldLabel>每分钟请求数</FieldLabel>
             <TextInput type="number" value={form.requests_per_minute} onChange={(e) => setForm((f) => ({ ...f, requests_per_minute: parseInt(e.target.value, 10) || 30 }))} />
-            <div className="mt-1 text-[10px] leading-4 text-gray-400">{catalog?.help.rpm_tip || '每分钟请求数。个人 Key 建议从 10-30 开始。'}</div>
+            <div className="mt-1 text-[10px] leading-4 text-gray-400">
+              <span className="font-bold text-gray-500">{parameterMeta(catalog, 'requests_per_minute')}</span>
+              <br />
+              {catalog?.parameter_help?.requests_per_minute?.plain || catalog?.help.rpm_tip || '每分钟请求数。个人 Key 建议从 10-30 开始。'}
+            </div>
           </div>
           <div>
             <FieldLabel>输入未命中单价 / 百万 Tokens</FieldLabel>

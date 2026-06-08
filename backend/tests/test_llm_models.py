@@ -197,12 +197,15 @@ def test_model_presets_provide_beginner_defaults_and_help():
     assert catalog["defaults"]["requests_per_minute"] == 30
     assert catalog["parameter_help"]["temperature"]["label"] == "稳定度"
     assert catalog["parameter_help"]["temperature"]["range"] == [0, 2]
+    assert catalog["parameter_help"]["temperature"]["recommended"] == "选题分析推荐 0.3"
+    assert catalog["parameter_help"]["temperature"]["when_to_change"]
     assert catalog["parameter_help"]["max_tokens"]["unit"] == "tokens"
     assert catalog["parameter_help"]["requests_per_minute"]["range"] == [1, 120]
     assert catalog["parameter_help"]["cooldown_seconds"]["default"] == 300
     assert catalog["parameter_help"]["cooldown_seconds"]["beginner"] == "默认即可"
     assert catalog["help"]["beginner_tip"]
     assert "稳定度" in catalog["help"]["beginner_tip"]
+    assert catalog["help"]["defaults_tip"]
     assert catalog["help"]["advanced_tip"]
     assert "RPM" not in catalog["help"]["rpm_tip"]
     assert "Temperature" not in catalog["help"]["temperature_tip"]

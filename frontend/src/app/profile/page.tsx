@@ -103,7 +103,9 @@ function parameterMeta(catalog: LlmModelPresetCatalog | null, field: string) {
   const help = catalog?.parameter_help?.[field];
   const defaultValue = help?.default ?? catalog?.defaults[field];
   const parts = [`默认 ${formatPresetValue(defaultValue)}`];
-  if (help?.range?.length === 2) {
+  if (help?.recommended) {
+    parts.push(help.recommended);
+  } else if (help?.range?.length === 2) {
     parts.push(`建议 ${help.range[0]}-${help.range[1]}${help.unit ? ` ${help.unit}` : ''}`);
   } else if (help?.unit) {
     parts.push(help.unit);

@@ -181,7 +181,7 @@ class DuckDBAnalytics:
         hours: int = 48,
         curation_threshold: float = 55,
         weight_bonus: int = 8,
-        risk_threshold: float = 70,
+        risk_threshold: Optional[float] = None,
         category: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
@@ -197,6 +197,7 @@ class DuckDBAnalytics:
         feedback_min = float(SCORING_CONFIG["feedback_score_min"])
         feedback_max = float(SCORING_CONFIG["feedback_score_max"])
         feedback_weight = float(SCORING_CONFIG["w_feedback"])
+        risk_threshold = float(SCORING_CONFIG["risk_threshold"] if risk_threshold is None else risk_threshold)
         category_clause = ""
         if category:
             category_clause = " AND c.category = ?"

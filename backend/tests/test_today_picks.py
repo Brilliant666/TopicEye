@@ -125,6 +125,20 @@ def _duckdb_rows_with_weak_candidate():
     return [weak, *rows]
 
 
+def _duckdb_rows_with_mid_risk_candidate():
+    rows = _duckdb_rows()
+    candidate = dict(rows[0])
+    candidate.update({
+        "id": 4,
+        "title": "统一风险门候选",
+        "url": "https://example.com/mid-risk",
+        "risk_score": 80.0,
+        "topic_id": 12,
+        "duplicate_of": None,
+    })
+    return [candidate, *rows]
+
+
 def _expected_breakdown_for_first_row():
     row = _duckdb_rows()[0]
     return score_items([
@@ -209,6 +223,26 @@ async def test_build_today_picks_filters_prescreened_items_with_unified_scorer(m
         "query_today_picks",
         fake_query_today_picks,
     )
+    monkeypatch.setattr(today_picks, "query_topics", lambda: [])
+
+    payload = await today_picks.build_today_picks(FailingSession(), hours=48)
+
+    assert query_args[0]["curation_threshold"] == 0
+    assert [item["id"] for item in payload["items"]] == [1]
+    assert payload["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_build_today_picks_lets_unified_scorer_decide_mid_risk_candidates(monkeypatch):
+    query_args = []
+
+    def fake_query_today_picks(hours=48, category=None, limit=None, curation_threshold=55):
+        query_args.append({
+            "curation_threshold": curation_threshold,
+        })
+        return _duckdb_rows_with_mid_risk_candidate()
+
+    monkeypatch.setattr(today_picks, "query_today_picks", fake_query_today_picks)
     monkeypatch.setattr(today_picks, "query_topics", lambda: [])
 
     payload = await today_picks.build_today_picks(FailingSession(), hours=48)

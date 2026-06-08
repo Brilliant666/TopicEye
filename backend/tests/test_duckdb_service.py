@@ -564,6 +564,110 @@ def test_today_picks_query_applies_aggregated_feedback(monkeypatch):
     conn.close()
 
 
+def test_today_picks_query_uses_unified_risk_threshold_for_candidates(monkeypatch):
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE SCHEMA oltp_db")
+    conn.execute("""
+        CREATE TABLE oltp_db.content_items (
+            id INTEGER,
+            title VARCHAR,
+            url VARCHAR,
+            source_id INTEGER,
+            source_name VARCHAR,
+            source_type VARCHAR,
+            platform VARCHAR,
+            author VARCHAR,
+            published_at TIMESTAMP,
+            crawled_at TIMESTAMP,
+            content_hash VARCHAR,
+            summary VARCHAR,
+            raw_content VARCHAR,
+            cover_url VARCHAR,
+            category VARCHAR,
+            tags VARCHAR,
+            language VARCHAR,
+            status VARCHAR,
+            is_favorited BOOLEAN,
+            topic_id INTEGER,
+            duplicate_of INTEGER,
+            similarity_score DOUBLE,
+            created_at TIMESTAMP,
+            updated_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.sources (
+            id INTEGER,
+            weight INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.ai_analyses (
+            id INTEGER,
+            content_id INTEGER,
+            quality_score DOUBLE,
+            hot_score DOUBLE,
+            freshness_score DOUBLE,
+            creator_score DOUBLE,
+            viral_score DOUBLE,
+            risk_score DOUBLE,
+            curation_score DOUBLE,
+            info_density DOUBLE,
+            actionability DOUBLE,
+            recommended_reason VARCHAR,
+            recommendation VARCHAR,
+            summary VARCHAR,
+            tags VARCHAR,
+            enrichment_status VARCHAR,
+            enrichment VARCHAR,
+            created_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.user_feedback (
+            id INTEGER,
+            content_id INTEGER,
+            user_id INTEGER,
+            score_delta DOUBLE,
+            created_at TIMESTAMP
+        )
+    """)
+    create_ignored_items_table(conn)
+
+    now = datetime.utcnow()
+    conn.execute("INSERT INTO oltp_db.sources VALUES (1, 3)")
+    for content_id, risk_score in ((1, 80), (2, 83)):
+        conn.execute(
+            """
+            INSERT INTO oltp_db.content_items VALUES (
+                ?, ?, ?, 1, '测试信源', 'RSS',
+                'rss', NULL, NULL, ?, NULL, '摘要', NULL, NULL, 'AI', '["AI"]',
+                'zh', 'analyzed', false, NULL, NULL, 0.0, ?, ?
+            )
+            """,
+            [content_id, f"风险候选 {content_id}", f"https://example.com/risk-{content_id}", now, now, now],
+        )
+        conn.execute(
+            """
+            INSERT INTO oltp_db.ai_analyses VALUES (
+                ?, ?, 90, 90, 90, 90, 90, ?, 90, 90, 90,
+                '理由', '推荐', '摘要', '["AI"]', 'pending', NULL, ?
+            )
+            """,
+            [content_id, content_id, risk_score, now],
+        )
+
+    analytics = duckdb_service.DuckDBAnalytics()
+    monkeypatch.setattr(analytics, "_get_conn", lambda: conn)
+
+    rows = analytics.query_today_picks(hours=48, curation_threshold=0)
+
+    assert [row["id"] for row in rows] == [1]
+    assert rows[0]["risk_score"] == 80.0
+
+    conn.close()
+
+
 def test_today_picks_query_excludes_ignored_content(monkeypatch):
     conn = duckdb.connect(":memory:")
     conn.execute("CREATE SCHEMA oltp_db")

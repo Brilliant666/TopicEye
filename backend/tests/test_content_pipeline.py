@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.database import Base
+from app.models.category import Category
 from app.models.content import ContentItem
 from app.models.source import Source, SourceStatus, SourceType
 from app.services import content_pipeline
@@ -52,14 +55,16 @@ async def test_ingest_from_source_reuses_category_names_per_source(monkeypatch):
 
     category_loads = 0
     classified_with = []
+    auto_create_flags = []
 
     async def fake_get_active_category_names(db):
         nonlocal category_loads
         category_loads += 1
         return ["AI", "产品"]
 
-    async def fake_classify_async(title, summary, db, category_names=None):
+    async def fake_classify_async(title, summary, db, category_names=None, auto_create_new_category=True):
         classified_with.append(category_names)
+        auto_create_flags.append(auto_create_new_category)
         return {"category": "AI", "tags": ["ai"], "is_new_category": False, "confidence": 0.8}
 
     monkeypatch.setattr(content_pipeline, "get_scraper_cls", lambda source_type: FakeScraper)
@@ -91,6 +96,127 @@ async def test_ingest_from_source_reuses_category_names_per_source(monkeypatch):
         assert stats == {"fetched": 2, "new": 2, "duplicates": 0}
         assert category_loads == 1
         assert classified_with == [["AI", "产品"], ["AI", "产品"]]
+        assert auto_create_flags == [False, False]
         assert [row.category for row in rows] == ["AI", "AI"]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_ingest_from_source_classifies_new_entries_with_bounded_concurrency(monkeypatch):
+    class FakeScraper:
+        def __init__(self, source_url, source_config):
+            self.source_url = source_url
+            self.source_config = source_config
+
+        async def fetch(self, client):
+            return [
+                {"title": f"item {index}", "url": f"https://example.com/item-{index}", "summary": "one"}
+                for index in range(4)
+            ]
+
+    active = 0
+    max_active = 0
+    lock = asyncio.Lock()
+
+    async def fake_get_active_category_names(db):
+        return ["AI", "产品"]
+
+    async def fake_classify_async(title, summary, db, category_names=None, auto_create_new_category=True):
+        nonlocal active, max_active
+        assert auto_create_new_category is False
+        async with lock:
+            active += 1
+            max_active = max(max_active, active)
+        await asyncio.sleep(0.03)
+        async with lock:
+            active -= 1
+        return {"category": "AI", "tags": [title], "is_new_category": False, "confidence": 0.8}
+
+    monkeypatch.setattr(content_pipeline.settings, "CLASSIFICATION_WORKER_CONCURRENCY", 2)
+    monkeypatch.setattr(content_pipeline, "get_scraper_cls", lambda source_type: FakeScraper)
+    monkeypatch.setattr(content_pipeline, "_get_active_category_names", fake_get_active_category_names)
+    monkeypatch.setattr(content_pipeline, "classify_async", fake_classify_async)
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    try:
+        async with session_factory() as db:
+            source = Source(
+                id=1,
+                name="Concurrent Example",
+                url="https://example.com/feed",
+                source_type=SourceType.RSS,
+                enabled=True,
+            )
+            db.add(source)
+            await db.commit()
+
+            stats = await content_pipeline.ingest_from_source(source, db)
+            await db.commit()
+
+            rows = (await db.execute(select(ContentItem).order_by(ContentItem.id))).scalars().all()
+
+        assert stats == {"fetched": 4, "new": 4, "duplicates": 0}
+        assert max_active == 2
+        assert [row.title for row in rows] == ["item 0", "item 1", "item 2", "item 3"]
+        assert [row.tags for row in rows] == [["item 0"], ["item 1"], ["item 2"], ["item 3"]]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_ingest_from_source_registers_new_categories_after_parallel_classification(monkeypatch):
+    class FakeScraper:
+        def __init__(self, source_url, source_config):
+            self.source_url = source_url
+            self.source_config = source_config
+
+        async def fetch(self, client):
+            return [
+                {"title": "new category item", "url": "https://example.com/new-category", "summary": "one"},
+            ]
+
+    async def fake_get_active_category_names(db):
+        return ["AI"]
+
+    async def fake_classify_entry_readonly(title, summary, *, category_names):
+        return {"category": "新赛道", "tags": ["new"], "is_new_category": True, "confidence": 0.8}
+
+    monkeypatch.setattr(content_pipeline, "get_scraper_cls", lambda source_type: FakeScraper)
+    monkeypatch.setattr(content_pipeline, "_get_active_category_names", fake_get_active_category_names)
+    monkeypatch.setattr(content_pipeline, "classify_entry_readonly", fake_classify_entry_readonly)
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    try:
+        async with session_factory() as db:
+            source = Source(
+                id=1,
+                name="New Category Example",
+                url="https://example.com/feed",
+                source_type=SourceType.RSS,
+                enabled=True,
+            )
+            db.add(source)
+            await db.commit()
+
+            stats = await content_pipeline.ingest_from_source(source, db)
+            await db.commit()
+
+            item = await db.scalar(select(ContentItem))
+            category = await db.scalar(select(Category).where(Category.name == "新赛道"))
+
+        assert stats == {"fetched": 1, "new": 1, "duplicates": 0}
+        assert item is not None
+        assert item.category == "新赛道"
+        assert category is not None
+        assert category.is_auto_created is True
     finally:
         await engine.dispose()

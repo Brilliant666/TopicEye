@@ -144,8 +144,9 @@ def extract_tags(text: str, max_tags: int = 5) -> list[str]:
 async def classify_async(
     title: str,
     summary: str,
-    db: AsyncSession,
+    db: Optional[AsyncSession],
     category_names: Optional[list[str]] = None,
+    auto_create_new_category: bool = True,
 ) -> dict[str, Any]:
     """
     Classify content using LLM with dynamic category discovery.
@@ -169,11 +170,15 @@ async def classify_async(
         CLASSIFICATION_PROMPT,
     )
 
-    cat_repo = CategoryRepository(db)
-
     # Get current category list for the prompt. Ingestion can pass a per-source
     # snapshot to avoid one DB query per new item.
-    category_names = category_names if category_names is not None else await cat_repo.get_active_names()
+    cat_repo: Optional[CategoryRepository] = None
+    if category_names is None:
+        if db is None:
+            category_names = CATEGORIES.copy()
+        else:
+            cat_repo = CategoryRepository(db)
+            category_names = await cat_repo.get_active_names()
 
     # If no categories in DB yet, use the hardcoded list as seed
     if not category_names:
@@ -231,8 +236,12 @@ async def classify_async(
             raise ValueError(f"Unknown category from LLM: {category}")
 
         # Auto-register new category
-        if is_new:
+        if is_new and auto_create_new_category:
             try:
+                if cat_repo is None:
+                    if db is None:
+                        raise RuntimeError("db session required to auto-create category")
+                    cat_repo = CategoryRepository(db)
                 await cat_repo.get_or_create(
                     name=category,
                     description=f"LLM自动发现的分类",

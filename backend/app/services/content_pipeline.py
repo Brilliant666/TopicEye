@@ -146,22 +146,30 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
 
         # ── Step 4+5: Classify, tag and persist ──────────────────────
         category_names = await _get_active_category_names(db)
-        new_items: list[ContentItem] = []
-        category_counts: dict[str, int] = {}
-        classify_elapsed_ms = 0
+        candidate_entries: list[dict[str, Any]] = []
         for entry in entries:
             ch = entry["_content_hash"]
             if ch in existing_hashes:
                 duplicate_count += 1
                 continue
+            candidate_entries.append(entry)
+            existing_hashes.add(ch)
 
+        classify_started_at = time.perf_counter()
+        classified_entries = await _classify_entries_concurrently(
+            candidate_entries,
+            category_names=category_names,
+        )
+        classify_elapsed_ms = int((time.perf_counter() - classify_started_at) * 1000)
+
+        await _register_new_categories(db, [class_result for _, class_result in classified_entries])
+
+        new_items: list[ContentItem] = []
+        category_counts: dict[str, int] = {}
+        for entry, class_result in classified_entries:
             title = entry.get("title", "")
             summary = entry.get("summary", "")
 
-            # LLM-driven classification with keyword fallback
-            classify_started_at = time.perf_counter()
-            class_result = await classify_async(title, summary, db, category_names=category_names)
-            classify_elapsed_ms += int((time.perf_counter() - classify_started_at) * 1000)
             category = class_result["category"]
             tags = class_result["tags"]
 
@@ -186,7 +194,6 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
             if category:
                 category_counts[category] = category_counts.get(category, 0) + 1
             new_count += 1
-            existing_hashes.add(ch)
 
             # ── Persist platform-specific metrics (Reddit, etc.) ──
             _maybe_save_metrics(entry, item, db)
@@ -226,6 +233,80 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
         await db.flush()
 
     return {"fetched": fetched_count, "new": new_count, "duplicates": duplicate_count}
+
+
+async def _classify_entries_concurrently(
+    entries: list[dict[str, Any]],
+    *,
+    category_names: list[str],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """Classify fetched entries with bounded concurrency while preserving order."""
+    if not entries:
+        return []
+
+    concurrency = _normalize_classification_concurrency()
+    semaphore = asyncio.Semaphore(concurrency)
+
+    async def classify_one(entry: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        async with semaphore:
+            class_result = await classify_entry_readonly(
+                entry.get("title", ""),
+                entry.get("summary", ""),
+                category_names=category_names,
+            )
+            return entry, class_result
+
+    return await asyncio.gather(*(classify_one(entry) for entry in entries))
+
+
+def _normalize_classification_concurrency() -> int:
+    try:
+        parsed = int(settings.CLASSIFICATION_WORKER_CONCURRENCY)
+    except (TypeError, ValueError):
+        parsed = 1
+    return max(1, min(parsed, 10))
+
+
+async def classify_entry_readonly(
+    title: str,
+    summary: str,
+    *,
+    category_names: list[str],
+) -> dict[str, Any]:
+    """Classify one entry without using the ingestion DB session concurrently."""
+    return await classify_async(
+        title,
+        summary,
+        None,
+        category_names=category_names,
+        auto_create_new_category=False,
+    )
+
+
+async def _register_new_categories(
+    db: AsyncSession,
+    classification_results: list[dict[str, Any]],
+) -> None:
+    """Create newly discovered categories serially in the ingestion transaction."""
+    new_categories: list[str] = []
+    for result in classification_results:
+        category = str(result.get("category") or "").strip()
+        if not category or not result.get("is_new_category") or category in new_categories:
+            continue
+        new_categories.append(category)
+
+    if not new_categories:
+        return
+
+    from app.repositories.category_repo import CategoryRepository
+
+    category_repo = CategoryRepository(db)
+    for category in new_categories:
+        await category_repo.get_or_create(
+            name=category,
+            description="LLM自动发现的分类",
+            is_auto_created=True,
+        )
 
 
 def _update_source_status(source: Source, status: SourceStatus) -> None:

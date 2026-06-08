@@ -21,13 +21,29 @@ import { useAppContext } from '@/components/ClientLayout';
 import Header from '@/components/Header';
 import CategoryChip from '@/components/CategoryChip';
 import { Badge, Button, Panel, Toolbar, cx } from '@/components/ui';
-import { contentsApi, feedbackApi } from '@/lib/api';
+import { contentCategoriesApi, contentsApi, feedbackApi } from '@/lib/api';
 import type { FeedbackType } from '@/lib/api';
 import { useContentFavoriteStates } from '@/hooks/useContentFavoriteStates';
 import type { ContentItem, ContentAnalysis, RecommendLevel } from '@/types';
 import { explainRecommendation, getRecommendationReason } from '@/lib/recommendation';
 import ContentAnalysisPanel from '@/components/ContentAnalysisPanel';
 import { startContentWorkflow } from '@/lib/workflow';
+
+const TIME_RANGE_HOURS: Record<string, number | undefined> = {
+  '24h': 24,
+  '48h': 48,
+  '7d': 168,
+  '全部': undefined,
+};
+
+const RECOMMEND_FILTERS: Array<RecommendLevel | '全部'> = [
+  '全部',
+  '强烈建议写',
+  '值得观察',
+  '适合深挖',
+  '适合蹭热点',
+  '信号不足',
+];
 
 // ── Helpers ──
 
@@ -84,6 +100,29 @@ function getContentTime(item: ContentItem): string {
   return item.published_at || item.crawled_at || item.created_at || '';
 }
 
+function normalizeTags(rawTags: unknown): string[] {
+  if (Array.isArray(rawTags)) {
+    return rawTags
+      .map((tag) => String(tag).trim())
+      .filter(Boolean);
+  }
+  if (typeof rawTags === 'string' && rawTags.trim()) {
+    return rawTags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function getItemTags(item: ContentItem): string[] {
+  return Array.from(new Set([
+    ...normalizeTags(item.tags),
+    ...normalizeTags(item.analysis?.tags),
+    ...normalizeTags(item.analyses?.[0]?.tags),
+  ]));
+}
+
 function formatTimelineDate(dateStr: string): string {
   try {
     const d = parseUTC(dateStr);
@@ -118,14 +157,41 @@ export default function HomePage() {
   const router = useRouter();
   const { currentUser, toggleFavorite, refreshCounts } = useAppContext();
   const [items, setItems] = useState<ContentItem[]>([]);
+  const [totalAvailable, setTotalAvailable] = useState(0);
+  const [categoryOptions, setCategoryOptions] = useState<string[]>(['全部']);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState('全部');
+  const [activeRecommendLevel, setActiveRecommendLevel] = useState<RecommendLevel | '全部'>('全部');
+  const [activeTag, setActiveTag] = useState('全部');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTimeRange, setActiveTimeRange] = useState('48h');
   const [activeSourceType, setActiveSourceType] = useState('全部');
   const [selectedAnalysis, setSelectedAnalysis] = useState<ContentAnalysis | null>(null);
   const [workflowPendingId, setWorkflowPendingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await contentCategoriesApi.list();
+        if (!cancelled) {
+          const names = (res.categories || [])
+            .map((category) => category.name)
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b, 'zh-CN'));
+          setCategoryOptions(['全部', ...names]);
+        }
+      } catch (err) {
+        console.warn('Load categories failed:', err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Fetch data
   useEffect(() => {
@@ -136,13 +202,24 @@ export default function HomePage() {
         setLoading(true);
         setError(null);
         const res = await contentsApi.list({
-          page_size: 50,
-          hours: activeTimeRange === '全部' ? undefined : parseInt(activeTimeRange),
+          page_size: 100,
+          hours: TIME_RANGE_HOURS[activeTimeRange],
           source_type: activeSourceType === '全部' ? undefined : activeSourceType,
+          category: activeCategory === '全部' ? undefined : activeCategory,
+          keyword: searchQuery.trim() || undefined,
           include_trend_sources: false,
         });
         if (!cancelled) {
           setItems(res.items || []);
+          setTotalAvailable(res.total ?? (res.items || []).length);
+          setCategoryOptions((prev) => {
+            const merged = new Set(prev);
+            merged.add('全部');
+            (res.items || []).forEach((item) => {
+              if (item.category) merged.add(item.category);
+            });
+            return ['全部', ...Array.from(merged).filter((name) => name !== '全部').sort((a, b) => a.localeCompare(b, 'zh-CN'))];
+          });
         }
       } catch (err: unknown) {
         if (!cancelled) {
@@ -156,7 +233,7 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTimeRange, activeSourceType]);
+  }, [activeTimeRange, activeSourceType, activeCategory, searchQuery]);
 
   const handleIgnore = useCallback(async (id: number) => {
     if (!currentUser) {
@@ -172,21 +249,28 @@ export default function HomePage() {
     }
   }, [currentUser, refreshCounts, router]);
 
-  // Dynamic categories derived from data
-  const categories = useMemo(() => {
-    const set = new Set<string>();
+  const tagOptions = useMemo(() => {
+    const counts = new Map<string, number>();
     items.forEach((item) => {
-      if (item.category) set.add(item.category);
+      getItemTags(item).forEach((tag) => {
+        counts.set(tag, (counts.get(tag) || 0) + 1);
+      });
     });
-    return ['全部', ...Array.from(set).sort()];
+    return [
+      '全部',
+      ...Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-CN'))
+        .slice(0, 16)
+        .map(([tag]) => tag),
+    ];
   }, [items]);
 
   // Filtered + sorted list
   const filtered = useMemo(() => {
     const result = items.filter((item) => {
-      // Category filter
       if (activeCategory !== '全部' && item.category !== activeCategory) return false;
-      // Search filter
+      if (activeRecommendLevel !== '全部' && explainRecommendation(item.analysis).level !== activeRecommendLevel) return false;
+      if (activeTag !== '全部' && !getItemTags(item).includes(activeTag)) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.trim().toLowerCase();
         if (!item.title.toLowerCase().includes(q)) return false;
@@ -200,7 +284,7 @@ export default function HomePage() {
       return tb - ta;
     });
     return result;
-  }, [items, activeCategory, searchQuery]);
+  }, [items, activeCategory, activeRecommendLevel, activeTag, searchQuery]);
 
   const timelineGroups = useMemo(() => {
     const groups = new Map<string, Array<{ item: ContentItem; level: RecommendLevel }>>();
@@ -255,8 +339,10 @@ export default function HomePage() {
   }, [filtered]);
 
   // Stats
-  const totalCount = items.length;
+  const totalCount = totalAvailable || items.length;
   const todayCount = useMemo(() => items.filter((i) => isToday(getContentTime(i))).length, [items]);
+  const clientOnlyFilterActive = activeRecommendLevel !== '全部' || activeTag !== '全部';
+  const displayedTotalCount = clientOnlyFilterActive ? filtered.length : totalCount;
 
   // Today's date
   const dateStr = formatShanghaiToday();
@@ -268,7 +354,7 @@ export default function HomePage() {
         title="今日选题"
         date={dateStr}
         stats={[
-          { label: '总内容', value: totalCount, color: '#FF6B35' },
+          { label: '总内容', value: displayedTotalCount, color: '#FF6B35' },
           { label: '今日新增', value: todayCount, color: '#00C9A7' },
         ]}
       />
@@ -331,17 +417,67 @@ export default function HomePage() {
       </div>
 
       {/* Filters - Category */}
-      <div className="mb-7 max-w-[820px]">
+      <div className="mb-3 max-w-[820px]">
         <div className="flex flex-wrap items-center gap-2">
-          {categories.map((c) => (
+          <span className="mr-1 text-xs font-medium text-gray-500">分类</span>
+          {categoryOptions.map((c) => (
             <CategoryChip
               key={c}
               name={c}
               active={activeCategory === c}
-              onClick={() => setActiveCategory(c)}
+              onClick={() => {
+                setActiveCategory(c);
+                setActiveTag('全部');
+              }}
             />
           ))}
         </div>
+      </div>
+
+      <div className="mb-3 max-w-[820px]">
+        <Toolbar className="gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-medium text-gray-500">推荐</span>
+            {RECOMMEND_FILTERS.map((level) => (
+              <button
+                key={level}
+                type="button"
+                onClick={() => setActiveRecommendLevel(level)}
+                className={cx(
+                  'rounded-xs px-2.5 py-1 text-xs transition',
+                  activeRecommendLevel === level
+                    ? 'bg-primary-light font-semibold text-primary'
+                    : 'bg-gray-50 font-normal text-gray-500 hover:bg-gray-100',
+                )}
+              >
+                {level === '全部' ? '全部' : level}
+              </button>
+            ))}
+          </div>
+        </Toolbar>
+      </div>
+
+      <div className="mb-7 max-w-[820px]">
+        <Toolbar className="gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-medium text-gray-500">标签</span>
+            {tagOptions.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                onClick={() => setActiveTag(tag)}
+                className={cx(
+                  'rounded-xs px-2.5 py-1 text-xs transition',
+                  activeTag === tag
+                    ? 'bg-teal-light font-semibold text-teal'
+                    : 'bg-gray-50 font-normal text-gray-500 hover:bg-gray-100',
+                )}
+              >
+                {tag === '全部' ? '全部' : `#${tag}`}
+              </button>
+            ))}
+          </div>
+        </Toolbar>
       </div>
 
       {/* Error state */}
@@ -381,7 +517,11 @@ export default function HomePage() {
               </div>
             )}
           </div>
-          <TimelineSummary groups={levelSummary} total={filtered.length} />
+          <TimelineSummary
+            groups={levelSummary}
+            total={filtered.length}
+            availableTotal={clientOnlyFilterActive ? undefined : totalCount}
+          />
         </div>
       )}
 
@@ -478,17 +618,21 @@ function ContentTimeline({
 function TimelineSummary({
   groups,
   total,
+  availableTotal,
 }: {
   groups: Array<{ level: RecommendLevel; title: string; items: ContentItem[] }>;
   total: number;
+  availableTotal?: number;
 }) {
+  const totalLabel = availableTotal && availableTotal !== total ? `${total}/${availableTotal}` : String(total);
+
   return (
     <aside className="sticky top-6 hidden xl:block">
       <Panel className="p-[18px] shadow-sm">
         <div className="mb-3.5 flex items-center gap-2">
           <Clock3 size={15} className="text-primary" strokeWidth={2.2} />
           <span className="text-sm font-extrabold text-gray-900">内容时间流</span>
-          <span className="ml-auto font-mono text-[11px] text-gray-400">{total}</span>
+          <span className="ml-auto font-mono text-[11px] text-gray-400">{totalLabel}</span>
         </div>
         <div className="flex flex-col gap-2.5">
           {groups.map((group) => (
@@ -566,6 +710,7 @@ function EditorialItem({
   }, [item.analysis, item.url, onShowAnalysis]);
 
   const recommendation = getRecommendationReason(item.analysis, item.summary);
+  const itemTags = getItemTags(item);
 
   return (
       <Panel
@@ -620,8 +765,8 @@ function EditorialItem({
                 <RecommendBadge level={explainRecommendation(item.analysis).level} />
               </React.Fragment>
             )}
-            {item.tags && item.tags.length > 0
-              ? item.tags.slice(0, 5).map((tag) => (
+            {itemTags.length > 0
+              ? itemTags.slice(0, 5).map((tag) => (
                   <span key={tag} className="rounded bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
                     #{tag}
                   </span>

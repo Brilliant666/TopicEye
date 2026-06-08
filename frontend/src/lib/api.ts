@@ -432,6 +432,21 @@ export const contentsApi = {
   },
 };
 
+export interface ContentCategoryItem {
+  id: number;
+  name: string;
+  description?: string | null;
+  keywords: string[];
+  is_auto_created: boolean;
+  content_count: number;
+}
+
+export const contentCategoriesApi = {
+  list(): Promise<{ categories: ContentCategoryItem[] }> {
+    return request('/categories');
+  },
+};
+
 // ─── Favorites API ───
 
 export const favoritesApi = {

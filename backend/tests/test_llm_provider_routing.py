@@ -29,7 +29,7 @@ async def test_call_llm_fails_over_across_ordered_model_chain(monkeypatch):
     models = [_model(1, "first", 10), _model(2, "second", 20)]
     calls = []
 
-    async def route_models(group="default"):
+    async def route_models(group="default", user_id=None):
         return models
 
     async def fake_call(messages, model, api_key, api_base, temperature, max_tokens, response_format, model_config, scene):
@@ -53,7 +53,7 @@ async def test_call_llm_skips_cooling_down_candidate(monkeypatch):
     models = [_model(1, "first", 10), _model(2, "second", 20)]
     calls = []
 
-    async def route_models(group="default"):
+    async def route_models(group="default", user_id=None):
         return models
 
     async def fake_call(messages, model, api_key, api_base, temperature, max_tokens, response_format, model_config, scene):
@@ -74,13 +74,36 @@ async def test_call_llm_skips_cooling_down_candidate(monkeypatch):
 async def test_call_llm_requires_enabled_db_route_models(monkeypatch):
     provider._failover.reset()
 
-    async def route_models(group="default"):
+    async def route_models(group="default", user_id=None):
         return []
 
     monkeypatch.setattr(provider._model_cache, "get_route_models", route_models)
 
     with pytest.raises(RuntimeError, match="No enabled LLM route models configured"):
         await provider.call_llm([{"role": "user", "content": "hello"}])
+
+
+@pytest.mark.asyncio
+async def test_call_llm_passes_user_id_to_route_model_cache(monkeypatch):
+    provider._failover.reset()
+    models = [_model(1, "personal", 10)]
+    observed = {}
+
+    async def route_models(group="default", user_id=None):
+        observed["group"] = group
+        observed["user_id"] = user_id
+        return models
+
+    async def fake_call(messages, model, api_key, api_base, temperature, max_tokens, response_format, model_config, scene):
+        return f"ok from {model}"
+
+    monkeypatch.setattr(provider._model_cache, "get_route_models", route_models)
+    monkeypatch.setattr(provider, "_call_with_retry", fake_call)
+
+    result = await provider.call_llm([{"role": "user", "content": "hello"}], user_id=42)
+
+    assert result == "ok from openai/personal"
+    assert observed == {"group": "default", "user_id": 42}
 
 
 @pytest.mark.asyncio

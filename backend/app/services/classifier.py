@@ -145,6 +145,7 @@ async def classify_async(
     title: str,
     summary: str,
     db: AsyncSession,
+    category_names: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     """
     Classify content using LLM with dynamic category discovery.
@@ -170,12 +171,14 @@ async def classify_async(
 
     cat_repo = CategoryRepository(db)
 
-    # Get current category list for the prompt
-    category_names = await cat_repo.get_active_names()
+    # Get current category list for the prompt. Ingestion can pass a per-source
+    # snapshot to avoid one DB query per new item.
+    category_names = category_names if category_names is not None else await cat_repo.get_active_names()
 
     # If no categories in DB yet, use the hardcoded list as seed
     if not category_names:
         category_names = CATEGORIES.copy()
+    allowed_categories = {name.strip() for name in category_names if name and name.strip()}
 
     text_input = f"{title} {summary}".strip()
 
@@ -217,13 +220,15 @@ async def classify_async(
             scene="classification",
         )
 
-        category = result.get("category", "").strip()
-        tags = result.get("tags", [])
-        is_new = result.get("is_new_category", False)
-        confidence = result.get("confidence", 0.5)
+        category = _normalize_category_name(result.get("category"))
+        tags = _normalize_llm_tags(result.get("tags"))
+        is_new = bool(result.get("is_new_category", False))
+        confidence = _clamp_confidence(result.get("confidence", 0.5))
 
         if not category:
             raise ValueError("Empty category from LLM")
+        if category not in allowed_categories and not is_new:
+            raise ValueError(f"Unknown category from LLM: {category}")
 
         # Auto-register new category
         if is_new:
@@ -238,7 +243,7 @@ async def classify_async(
 
         return {
             "category": category,
-            "tags": tags if isinstance(tags, list) else [],
+            "tags": tags,
             "is_new_category": is_new,
             "confidence": confidence,
         }
@@ -255,6 +260,39 @@ async def classify_async(
             "is_new_category": False,
             "confidence": 0.3,
         }
+
+
+def _normalize_category_name(value: Any) -> str:
+    category = str(value or "").strip()
+    return category[:100]
+
+
+def _normalize_llm_tags(value: Any, *, max_tags: int = 5) -> list[str]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            value = [value]
+    if not isinstance(value, list):
+        return []
+
+    tags: list[str] = []
+    for raw in value:
+        tag = str(raw or "").strip()
+        if not tag or tag in tags:
+            continue
+        tags.append(tag[:40])
+        if len(tags) >= max_tags:
+            break
+    return tags
+
+
+def _clamp_confidence(value: Any) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return 0.5
+    return max(0.0, min(1.0, confidence))
 
 
 async def seed_categories(db: AsyncSession) -> int:

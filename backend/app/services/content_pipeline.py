@@ -145,6 +145,7 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
         existing_hashes = {row[0] for row in result.all()}
 
         # ── Step 4+5: Classify, tag and persist ──────────────────────
+        category_names = await _get_active_category_names(db)
         new_items: list[ContentItem] = []
         category_counts: dict[str, int] = {}
         classify_elapsed_ms = 0
@@ -159,7 +160,7 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
 
             # LLM-driven classification with keyword fallback
             classify_started_at = time.perf_counter()
-            class_result = await classify_async(title, summary, db)
+            class_result = await classify_async(title, summary, db, category_names=category_names)
             classify_elapsed_ms += int((time.perf_counter() - classify_started_at) * 1000)
             category = class_result["category"]
             tags = class_result["tags"]
@@ -280,6 +281,19 @@ def _build_http_client_kwargs(source_url: str) -> dict[str, Any]:
 def _is_loopback_url(source_url: str) -> bool:
     host = (urlparse(source_url).hostname or "").lower()
     return host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or host.startswith("127.")
+
+
+async def _get_active_category_names(db: AsyncSession) -> list[str]:
+    from app.repositories.category_repo import CategoryRepository
+
+    names = await CategoryRepository(db).get_active_names()
+    return names or classify_default_categories()
+
+
+def classify_default_categories() -> list[str]:
+    from app.services.classifier import CATEGORIES
+
+    return CATEGORIES.copy()
 
 
 async def _increment_category_counts(db: AsyncSession, counts: dict[str, int]) -> None:

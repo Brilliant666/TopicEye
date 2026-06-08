@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.duckdb_service import query_content_for_weekly
+from app.services.scoring_engine import ScoringInput, score_items
 
 
 async def fetch_analyzed_content(
@@ -15,9 +16,9 @@ async def fetch_analyzed_content(
     start_date: str,
     end_date: str,
 ) -> list[dict]:
-    """Fetch analyzed content through the fixed DuckDB analytical layer."""
+    """Fetch analyzed content and apply the unified scoring gate for digests."""
     _ = db
-    return query_content_for_weekly(start_date=start_date, end_date=end_date)
+    return _score_digest_rows(query_content_for_weekly(start_date=start_date, end_date=end_date))
 
 
 async def fetch_analyzed_content_with_expanded_window(
@@ -33,6 +34,47 @@ async def fetch_analyzed_content_with_expanded_window(
 
     expanded_start = (date.fromisoformat(end_date) - timedelta(days=expanded_days - 1)).isoformat()
     return await fetch_analyzed_content(db, expanded_start, end_date)
+
+
+def _score_digest_rows(rows: list[dict]) -> list[dict]:
+    """Re-score DuckDB digest candidates through the shared curation engine."""
+    if not rows:
+        return []
+
+    row_map = {int(row["id"]): row for row in rows}
+    scoring_inputs = [_row_to_scoring_input(row) for row in rows]
+    scored = score_items(scoring_inputs)
+    digest_rows: list[dict] = []
+    for breakdown, scoring_input in scored:
+        if not breakdown.selected:
+            continue
+        row = dict(row_map[scoring_input.content_id])
+        row["adjusted_score"] = breakdown.final_score
+        row["score_breakdown"] = breakdown.to_dict()
+        digest_rows.append(row)
+    return digest_rows
+
+
+def _row_to_scoring_input(row: dict) -> ScoringInput:
+    return ScoringInput(
+        content_id=int(row["id"]),
+        title=row.get("title") or "",
+        category=row.get("category"),
+        source_name=row.get("source_name"),
+        crawled_at=row.get("crawled_at"),
+        curation_score=row.get("curation_score") or 0,
+        info_density=row.get("info_density") or 50,
+        actionability=row.get("actionability") or 50,
+        source_weight=row.get("source_weight") or 50,
+        creator_score=row.get("creator_score") or 0,
+        viral_score=row.get("viral_score") or 0,
+        freshness_score=row.get("freshness_score") or 50,
+        quality_score=row.get("quality_score") or 0,
+        hot_score=row.get("hot_score") or 0,
+        risk_score=row.get("risk_score") or 0,
+        source_weight_db=row.get("source_weight_db") or 3,
+        feedback_score=row.get("feedback_score") or 0,
+    )
 
 
 def build_category_stats(items: list[dict]) -> dict[str, dict]:

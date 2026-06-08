@@ -92,6 +92,7 @@ class ContentScoringResult(BaseModel):
 
 # ── 路由 ─────────────────────────────────────────────────────────────
 
+@router.get("", response_model=list[MotherTopicOut], include_in_schema=False)
 @router.get("/", response_model=list[MotherTopicOut])
 async def list_mother_topics(
     active_only: bool = False,
@@ -109,6 +110,7 @@ async def list_mother_topics(
     return [MotherTopicOut.from_orm_model(t) for t in topics]
 
 
+@router.post("", response_model=MotherTopicOut, include_in_schema=False)
 @router.post("/", response_model=MotherTopicOut)
 async def create_mother_topic(
     topic_in: MotherTopicCreate,

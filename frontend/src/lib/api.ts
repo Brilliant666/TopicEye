@@ -1219,7 +1219,7 @@ export interface ContentScoringResult {
 export const motherTopicsApi = {
   /** 列出所有母题 */
   list(active_only = false): Promise<MotherTopic[]> {
-    return request(`/mother-topics/?active_only=${active_only}`);
+    return request(`/mother-topics?active_only=${active_only}`);
   },
 
   /** 创建母题 */
@@ -1233,7 +1233,7 @@ export const motherTopicsApi = {
     is_active?: boolean;
     display_order?: number;
   }): Promise<MotherTopic> {
-    return request('/mother-topics/', {
+    return request('/mother-topics', {
       method: 'POST',
       body: JSON.stringify(data),
     });

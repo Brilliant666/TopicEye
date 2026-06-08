@@ -50,24 +50,24 @@ async def test_mother_topics_user_and_admin_boundaries():
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        anonymous = await client.get("/mother-topics/?active_only=true")
+        anonymous = await client.get("/mother-topics?active_only=true")
         assert anonymous.status_code == 401
 
         user_active = await client.get(
-            "/mother-topics/?active_only=true",
+            "/mother-topics?active_only=true",
             headers={"Authorization": f"Bearer {user_token}"},
         )
         assert user_active.status_code == 200
         assert [item["name"] for item in user_active.json()] == ["AI 工具"]
 
         user_full = await client.get(
-            "/mother-topics/?active_only=false",
+            "/mother-topics?active_only=false",
             headers={"Authorization": f"Bearer {user_token}"},
         )
         assert user_full.status_code == 403
 
         admin_full = await client.get(
-            "/mother-topics/?active_only=false",
+            "/mother-topics?active_only=false",
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert admin_full.status_code == 200
@@ -82,14 +82,14 @@ async def test_mother_topics_user_and_admin_boundaries():
         assert user_score.json()["results"][0]["top_topic"] == "AI 工具"
 
         user_create = await client.post(
-            "/mother-topics/",
+            "/mother-topics",
             headers={"Authorization": f"Bearer {user_token}"},
             json={"name": "用户不可创建", "keywords": ["test"]},
         )
         assert user_create.status_code == 403
 
         admin_create = await client.post(
-            "/mother-topics/",
+            "/mother-topics",
             headers={"Authorization": f"Bearer {admin_token}"},
             json={"name": "管理员创建", "keywords": ["admin"], "display_order": 3},
         )

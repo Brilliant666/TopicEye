@@ -6,10 +6,11 @@ from __future__ import annotations
 import json
 import logging
 from calendar import monthrange
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.monthly_digest import MonthlyDigest
@@ -24,6 +25,11 @@ from app.services.llm import call_llm_json
 from app.services.llm.prompts.monthly_digest import MONTHLY_DIGEST_PROMPT
 
 logger = logging.getLogger(__name__)
+DIGEST_GENERATING_STALE_AFTER = timedelta(minutes=10)
+
+
+def _utc_now() -> datetime:
+    return datetime.utcnow()
 
 
 def _get_month_range(reference_date: Optional[date] = None) -> tuple[str, str, str, str]:
@@ -43,6 +49,13 @@ def _previous_month(reference_date: Optional[date] = None) -> date:
     return date(current.year, current.month - 1, 1)
 
 
+def _is_active_generating(digest: MonthlyDigest, now: datetime) -> bool:
+    if digest.status != "GENERATING":
+        return False
+    generated_at = digest.updated_at or digest.created_at or now
+    return now - generated_at < DIGEST_GENERATING_STALE_AFTER
+
+
 async def generate_monthly_digest(
     db: AsyncSession,
     reference_date: Optional[date] = None,
@@ -55,6 +68,7 @@ async def generate_monthly_digest(
     """
     target_date = _previous_month(reference_date) if use_previous_month else (reference_date or date.today())
     month_key, month_label, month_start, month_end = _get_month_range(target_date)
+    now = _utc_now()
 
     existing = await db.execute(
         select(MonthlyDigest).where(MonthlyDigest.month_key == month_key)
@@ -62,6 +76,37 @@ async def generate_monthly_digest(
     digest = existing.scalar_one_or_none()
     if digest and digest.status == "DONE":
         return digest
+    if digest and _is_active_generating(digest, now):
+        return digest
+
+    if not digest:
+        digest = MonthlyDigest(
+            month_key=month_key,
+            month_label=month_label,
+            month_start=month_start,
+            month_end=month_end,
+            status="GENERATING",
+        )
+        db.add(digest)
+        try:
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            existing = await db.execute(
+                select(MonthlyDigest).where(MonthlyDigest.month_key == month_key)
+            )
+            digest = existing.scalar_one()
+            if digest.status == "DONE":
+                return digest
+            if _is_active_generating(digest, _utc_now()):
+                return digest
+            digest.status = "GENERATING"
+            await db.flush()
+    else:
+        digest.status = "GENERATING"
+        await db.flush()
+
+    await db.commit()
 
     items_data = await fetch_analyzed_content_with_expanded_window(
         db,
@@ -71,19 +116,9 @@ async def generate_monthly_digest(
     )
 
     if not items_data:
-        if not digest:
-            digest = MonthlyDigest(
-                month_key=month_key,
-                month_label=month_label,
-                month_start=month_start,
-                month_end=month_end,
-                status="ERROR",
-                overview="本月暂无分析数据，请先同步信源并等待 AI 分析完成。",
-            )
-            db.add(digest)
-            await db.flush()
-            await db.commit()
-            return digest
+        digest.status = "ERROR"
+        digest.overview = "本月暂无分析数据，请先同步信源并等待 AI 分析完成。"
+        await db.commit()
         return digest
 
     category_stats = build_category_stats(items_data)
@@ -100,22 +135,9 @@ async def generate_monthly_digest(
         "category_count": len(category_stats),
     }
 
-    if not digest:
-        digest = MonthlyDigest(
-            month_key=month_key,
-            month_label=month_label,
-            month_start=month_start,
-            month_end=month_end,
-            status="GENERATING",
-            **content_stats,
-        )
-        db.add(digest)
-        await db.flush()
-    else:
-        digest.status = "GENERATING"
-        for key, value in content_stats.items():
-            setattr(digest, key, value)
-        await db.flush()
+    for key, value in content_stats.items():
+        setattr(digest, key, value)
+    await db.flush()
 
     try:
         result = await call_llm_json(
@@ -141,7 +163,7 @@ async def generate_monthly_digest(
         digest.topic_clusters = json.dumps(result.get("topic_clusters", []), ensure_ascii=False)
         digest.action_items = json.dumps(result.get("action_items", []), ensure_ascii=False)
         digest.status = "DONE"
-        digest.updated_at = datetime.utcnow()
+        digest.updated_at = _utc_now()
         await db.commit()
         logger.info("Monthly digest generated: %s (%s)", month_key, month_label)
         try:

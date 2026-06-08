@@ -462,6 +462,38 @@ async def test_analyze_single_commits_analyzing_status_before_llm_call(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_analyze_single_failure_sets_error_cooldown_timestamp(monkeypatch):
+    async def failing_analyze_content(content, db):
+        raise RuntimeError("temporary single analysis failure")
+
+    monkeypatch.setattr(analyses_api, "analyze_content", failing_analyze_content)
+    engine, session_factory = await _session_factory()
+    old_timestamp = datetime.utcnow() - timedelta(days=1)
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="单条临时失败内容",
+                url="https://example.com/single-temporary-failure",
+                status=ContentStatus.PENDING,
+                updated_at=old_timestamp,
+                raw_content="用于验证单条分析接口失败后不会被后台队列立即忙等重试。",
+            )
+        )
+        await db.commit()
+
+        with pytest.raises(Exception):
+            await analyses_api.analyze_single(1, db=db)
+
+        stored_content = await db.get(ContentItem, 1)
+
+    assert stored_content.status == ContentStatus.ERROR
+    assert stored_content.updated_at > old_timestamp
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_analyze_batch_skips_sqlite_locked_item_without_crashing(monkeypatch):
     async def locked_write(*args, **kwargs):
         raise OperationalError("UPDATE content_items", {}, Exception("database is locked"))

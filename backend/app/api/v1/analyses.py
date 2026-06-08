@@ -3,6 +3,7 @@ AI Analysis API endpoints.
 """
 
 from __future__ import annotations
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
@@ -51,6 +52,7 @@ async def analyze_single(
         try:
             content = await content_repo.get_by_id_or_raise(content_id, "Content")
             content.status = ContentStatus.ERROR
+            content.updated_at = datetime.utcnow()
             await db.commit()
         except Exception:
             await db.rollback()

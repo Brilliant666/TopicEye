@@ -550,6 +550,7 @@ async def test_sqlite_upgrade_schema_runs_helpers_for_sqlite(monkeypatch):
     monkeypatch.setattr(app_main, "ensure_favorite_items_schema", helper("favorite_items"))
     monkeypatch.setattr(app_main, "ensure_user_auth_schema", helper("user_auth"))
     monkeypatch.setattr(app_main, "ensure_user_integrations_schema", helper("user_integrations"))
+    monkeypatch.setattr(app_main, "ensure_product_feedback_schema", helper("product_feedback"))
 
     await app_main.ensure_sqlite_upgrade_schema(object())
 
@@ -563,4 +564,5 @@ async def test_sqlite_upgrade_schema_runs_helpers_for_sqlite(monkeypatch):
         "favorite_items",
         "user_auth",
         "user_integrations",
+        "product_feedback",
     ]

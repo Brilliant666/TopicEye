@@ -32,6 +32,7 @@ import app.models.llm_model  # noqa: F401
 import app.models.favorite  # noqa: F401
 import app.models.user  # noqa: F401
 import app.models.user_integration  # noqa: F401
+import app.models.product_feedback  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -575,6 +576,69 @@ async def ensure_user_integrations_schema(conn) -> None:
     ))
 
 
+async def ensure_product_feedback_schema(conn) -> None:
+    """Ensure product issue feedback and update-log tables exist on upgraded SQLite installs."""
+    if not database_profile.is_sqlite:
+        return
+
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS issue_feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            title VARCHAR(200) NOT NULL,
+            description TEXT NOT NULL,
+            area VARCHAR(80) NOT NULL DEFAULT 'general',
+            severity VARCHAR(8) NOT NULL DEFAULT 'medium',
+            status VARCHAR(11) NOT NULL DEFAULT 'open',
+            resolution_note TEXT,
+            fixed_at DATETIME,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """))
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS product_updates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title VARCHAR(200) NOT NULL,
+            description TEXT NOT NULL,
+            kind VARCHAR(11) NOT NULL DEFAULT 'roadmap',
+            status VARCHAR(11) NOT NULL DEFAULT 'planned',
+            version VARCHAR(50),
+            target_date DATE,
+            shipped_at DATETIME,
+            created_by_id INTEGER,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(created_by_id) REFERENCES users(id) ON DELETE SET NULL
+        )
+    """))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_issue_feedback_user_created "
+        "ON issue_feedback(user_id, created_at)"
+    ))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_issue_feedback_status_created "
+        "ON issue_feedback(status, created_at)"
+    ))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_issue_feedback_severity_created "
+        "ON issue_feedback(severity, created_at)"
+    ))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_product_updates_kind_status "
+        "ON product_updates(kind, status)"
+    ))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_product_updates_status_created "
+        "ON product_updates(status, created_at)"
+    ))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_product_updates_shipped_at "
+        "ON product_updates(shipped_at)"
+    ))
+
+
 async def ensure_sqlite_upgrade_schema(conn) -> None:
     """Run SQLite-only schema upgrade helpers for existing local installs."""
     if not database_profile.is_sqlite:
@@ -589,6 +653,7 @@ async def ensure_sqlite_upgrade_schema(conn) -> None:
     await ensure_favorite_items_schema(conn)
     await ensure_user_auth_schema(conn)
     await ensure_user_integrations_schema(conn)
+    await ensure_product_feedback_schema(conn)
 
 
 

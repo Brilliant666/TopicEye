@@ -610,7 +610,7 @@ function EditorialItem({
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-1.5 opacity-0 transition group-hover:opacity-100">
+          <div className="flex flex-wrap items-center gap-1.5">
             {item.analysis && (
               <React.Fragment>
                 <CurationScoreBadge score={item.analysis.adjusted_curation_score ?? item.analysis.curation_score} />

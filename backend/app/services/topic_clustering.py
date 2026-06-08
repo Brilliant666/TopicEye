@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import asyncio
 from collections import defaultdict
 from typing import Optional
 
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 # ── Thresholds ──────────────────────────────────────────────────────────
 CLUSTER_TAG_OVERLAP = 1    # min shared tags to be in same cluster
 MIN_CLUSTER_SIZE = 2       # min items to form a topic group
+CLUSTER_LLM_CONCURRENCY = 3
 
 
 # ── Tag-based clustering ────────────────────────────────────────────────
@@ -107,8 +109,9 @@ async def _name_clusters(
     clusters: list[list[dict]],
 ) -> list[dict]:
     """Call LLM to name each cluster. Returns list of cluster metadata."""
-    results = []
-    for cluster in clusters:
+    semaphore = asyncio.Semaphore(CLUSTER_LLM_CONCURRENCY)
+
+    async def _name_one_cluster(cluster: list[dict]) -> dict:
         titles = [item["title"] for item in cluster[:10]]
         tags_union: set[str] = set()
         for item in cluster:
@@ -139,16 +142,35 @@ async def _name_clusters(
             summary = ""
 
         best = max(cluster, key=lambda x: x.get("curation_score", 0))
-        results.append({
+        return {
             "name": name,
             "summary": summary,
             "keywords": top_tags,
             "item_ids": [item["id"] for item in cluster],
             "best_score": best.get("curation_score", 0),
             "content_count": len(cluster),
-        })
+        }
 
-    return results
+    async def _bounded_name(cluster: list[dict]) -> dict:
+        async with semaphore:
+            return await _name_one_cluster(cluster)
+
+    return await asyncio.gather(*(_bounded_name(cluster) for cluster in clusters))
+
+
+async def _dedup_candidate_clusters(cluster_items: list[list[dict]]) -> dict[int, int]:
+    """Run semantic dedup on candidate clusters with bounded concurrency."""
+    semaphore = asyncio.Semaphore(CLUSTER_LLM_CONCURRENCY)
+
+    async def _dedup_one(cluster_item_list: list[dict]) -> dict[int, int]:
+        async with semaphore:
+            return await semantic_dedup(cluster_item_list)
+
+    dedup_results = await asyncio.gather(*(_dedup_one(cluster) for cluster in cluster_items))
+    dup_map: dict[int, int] = {}
+    for cluster_dups in dedup_results:
+        dup_map.update(cluster_dups)
+    return dup_map
 
 
 # ── Main entry point ────────────────────────────────────────────────────
@@ -195,12 +217,12 @@ async def cluster_and_dedup(db: AsyncSession) -> dict:
 
     # 4. AI semantic dedup within candidate clusters
     #    Only small clusters (2-15 items) are candidates — same-event duplicates share tags
-    dup_map: dict[int, int] = {}
+    dedup_candidates = []
     for idx, cluster_item_list in cluster_items_map.items():
         if len(cluster_item_list) < 2 or len(cluster_item_list) > 15:
             continue
-        cluster_dups = await semantic_dedup(cluster_item_list)
-        dup_map.update(cluster_dups)
+        dedup_candidates.append(cluster_item_list)
+    dup_map = await _dedup_candidate_clusters(dedup_candidates) if dedup_candidates else {}
     dup_count = len(dup_map)
 
     # 5. Non-duplicate items for clustering

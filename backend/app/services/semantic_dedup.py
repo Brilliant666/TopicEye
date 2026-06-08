@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import asyncio
 from typing import Any, Optional
 
 from app.services.llm import call_llm_json
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Max items per LLM dedup batch — keeps token cost predictable
 BATCH_SIZE = 20
+SEMANTIC_DEDUP_CONCURRENCY = 3
 
 # Fields included in the prompt per item
 ITEM_FIELDS = ("id", "title", "summary", "tags", "source_name", "curation_score")
@@ -95,6 +97,7 @@ async def _dedup_one_batch(items: list[dict]) -> dict[int, int]:
             return {}
 
         result: dict[int, int] = {}
+        valid_ids = {int(item["id"]) for item in items}
         scored = {item["id"]: item.get("curation_score", 0) for item in items}
 
         for pair in raw:
@@ -107,6 +110,13 @@ async def _dedup_one_batch(items: list[dict]) -> dict[int, int]:
                 continue
 
             if can_id == dup_id:
+                continue
+            if can_id not in valid_ids or dup_id not in valid_ids:
+                logger.warning(
+                    "semantic_dedup: ignored duplicate pair outside batch ids: %s -> %s",
+                    dup_id,
+                    can_id,
+                )
                 continue
             # Ensure canonical has the higher score
             if scored.get(dup_id, 0) > scored.get(can_id, 0):
@@ -138,9 +148,14 @@ async def semantic_dedup(items: list[dict]) -> dict[int, int]:
     all_dups: dict[int, int] = {}
     n = len(items)
 
-    for start in range(0, n, BATCH_SIZE):
-        batch = items[start : start + BATCH_SIZE]
-        dups = await _dedup_one_batch(batch)
+    batches = [items[start : start + BATCH_SIZE] for start in range(0, n, BATCH_SIZE)]
+    semaphore = asyncio.Semaphore(SEMANTIC_DEDUP_CONCURRENCY)
+
+    async def _run_batch(batch: list[dict]) -> dict[int, int]:
+        async with semaphore:
+            return await _dedup_one_batch(batch)
+
+    for dups in await asyncio.gather(*(_run_batch(batch) for batch in batches)):
         all_dups.update(dups)
 
     logger.info("semantic_dedup total: %d items → %d duplicate pairs", n, len(all_dups))

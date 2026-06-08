@@ -73,12 +73,28 @@ async def test_list_pending_for_analysis_filters_recent_pending_items():
                 crawled_at=now - timedelta(minutes=20),
                 updated_at=now,
             ),
+            ContentItem(
+                id=6,
+                title="可重试失败内容",
+                url="https://example.com/retry-error",
+                status=ContentStatus.ERROR,
+                crawled_at=now - timedelta(minutes=10),
+                updated_at=now - timedelta(minutes=ANALYSIS_STALE_MINUTES + 5),
+            ),
+            ContentItem(
+                id=7,
+                title="刚失败内容",
+                url="https://example.com/fresh-error",
+                status=ContentStatus.ERROR,
+                crawled_at=now - timedelta(minutes=5),
+                updated_at=now,
+            ),
         ])
         await db.commit()
 
         pending = await ContentRepo(db).list_pending_for_analysis(limit=10, hours=24)
 
-    assert [item.id for item in pending] == [4, 2]
+    assert [item.id for item in pending] == [6, 4, 2]
     await engine.dispose()
 
 
@@ -245,6 +261,73 @@ async def test_analyze_batch_retries_stale_analyzing_content(monkeypatch):
     assert [item.content_id for item in results] == [1]
     assert stored_analysis is not None
     assert stored_content.status == ContentStatus.ANALYZED
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_analyze_batch_retries_stale_error_content(monkeypatch):
+    async def empty_llm_response(*args, **kwargs):
+        return {"raw_response": ""}
+
+    monkeypatch.setattr(analysis, "call_llm_json", empty_llm_response)
+    engine, session_factory = await _session_factory()
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="失败后可恢复内容",
+                url="https://example.com/stale-error-analysis-task",
+                source_name="测试信源",
+                source_type="RSS",
+                platform="rsshub",
+                status=ContentStatus.ERROR,
+                updated_at=datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES + 5),
+                raw_content="这是一条之前分析失败的内容，冷却后应当重新进入算法分析流程。",
+            )
+        )
+        await db.commit()
+
+        results = await analysis.analyze_batch([1], db)
+
+        stored_analysis = await db.scalar(select(AiAnalysis).where(AiAnalysis.content_id == 1))
+        stored_content = await db.get(ContentItem, 1)
+
+    assert [item.content_id for item in results] == [1]
+    assert stored_analysis is not None
+    assert stored_content.status == ContentStatus.ANALYZED
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_analysis_failure_sets_error_cooldown_timestamp(monkeypatch):
+    async def failing_llm(*args, **kwargs):
+        raise RuntimeError("temporary provider failure")
+
+    monkeypatch.setattr(analysis, "call_llm_json", failing_llm)
+    engine, session_factory = await _session_factory()
+    old_timestamp = datetime.utcnow() - timedelta(days=1)
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="临时失败内容",
+                url="https://example.com/temporary-provider-failure",
+                status=ContentStatus.PENDING,
+                updated_at=old_timestamp,
+                raw_content="用于验证失败后不会被立即忙等重试。",
+            )
+        )
+        await db.commit()
+
+        results = await analysis.analyze_batch([1], db)
+
+        stored_content = await db.get(ContentItem, 1)
+
+    assert results == []
+    assert stored_content.status == ContentStatus.ERROR
+    assert stored_content.updated_at > old_timestamp
     await engine.dispose()
 
 

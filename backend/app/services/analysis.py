@@ -137,6 +137,21 @@ def _local_analysis_result(content: ContentItem, *, lang: str) -> dict[str, Any]
     }
 
 
+def _analysis_retryable_status_filter(stale_cutoff: datetime):
+    """Return the status predicate for content eligible to enter analysis."""
+    return (
+        (ContentItem.status == ContentStatus.PENDING)
+        | (
+            (ContentItem.status == ContentStatus.ANALYZING)
+            & (ContentItem.updated_at <= stale_cutoff)
+        )
+        | (
+            (ContentItem.status == ContentStatus.ERROR)
+            & (ContentItem.updated_at <= stale_cutoff)
+        )
+    )
+
+
 # ── Core analysis function ───────────────────────────────────────
 
 async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
@@ -251,13 +266,7 @@ async def analyze_batch(
     result = await db.execute(
         select(ContentItem).where(
             ContentItem.id.in_(content_ids),
-            (
-                (ContentItem.status == ContentStatus.PENDING)
-                | (
-                    (ContentItem.status == ContentStatus.ANALYZING)
-                    & (ContentItem.updated_at <= stale_cutoff)
-                )
-            ),
+            _analysis_retryable_status_filter(stale_cutoff),
         )
     )
     items = result.scalars().all()
@@ -304,13 +313,7 @@ async def analyze_one_claimed(content_id: int, db: AsyncSession) -> Optional[AiA
             result = await db.execute(
                 update(ContentItem)
                 .where(ContentItem.id == content_id)
-                .where(
-                    (ContentItem.status == ContentStatus.PENDING)
-                    | (
-                        (ContentItem.status == ContentStatus.ANALYZING)
-                        & (ContentItem.updated_at <= stale_cutoff)
-                    )
-                )
+                .where(_analysis_retryable_status_filter(stale_cutoff))
                 .values(status=ContentStatus.ANALYZING, updated_at=datetime.utcnow())
             )
             await db.commit()
@@ -344,6 +347,7 @@ async def analyze_one_claimed(content_id: int, db: AsyncSession) -> Optional[AiA
             content = await db.get(ContentItem, content_id)
             if content is not None:
                 content.status = ContentStatus.ERROR
+                content.updated_at = datetime.utcnow()
                 await db.commit()
         except Exception as status_error:
             await db.rollback()

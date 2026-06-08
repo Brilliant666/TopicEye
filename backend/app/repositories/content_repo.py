@@ -127,6 +127,10 @@ class ContentRepo(BaseRepository[ContentItem]):
                     (self.model.status == ContentStatus.ANALYZING)
                     & (self.model.updated_at <= stale_cutoff)
                 )
+                | (
+                    (self.model.status == ContentStatus.ERROR)
+                    & (self.model.updated_at <= stale_cutoff)
+                )
             )
             .order_by(self.model.crawled_at.desc(), self.model.created_at.desc())
             .limit(limit)

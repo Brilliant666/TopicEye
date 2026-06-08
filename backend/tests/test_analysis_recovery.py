@@ -944,6 +944,39 @@ async def test_analyze_single_commits_analyzing_status_before_llm_call(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_analyze_single_rejects_fresh_analyzing_claim(monkeypatch):
+    engine, session_factory = await _session_factory()
+
+    async def fail_analyze_content(content, db):
+        raise AssertionError("fresh analyzing content should not start another LLM call")
+
+    monkeypatch.setattr(analyses_api, "analyze_content", fail_analyze_content)
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="正在分析的单条内容",
+                url="https://example.com/single-fresh-analyzing",
+                status=ContentStatus.ANALYZING,
+                updated_at=datetime.utcnow(),
+                raw_content="用于验证单条分析接口不会绕过分析租约重复启动。",
+            )
+        )
+        await db.commit()
+
+        with pytest.raises(Exception) as exc_info:
+            await analyses_api.analyze_single(1, db=db)
+
+        stored_content = await db.get(ContentItem, 1)
+
+    assert getattr(exc_info.value, "status_code", None) == 409
+    assert str(exc_info.value.detail) == "Content is already being analyzed"
+    assert stored_content.status == ContentStatus.ANALYZING
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_analyze_single_invalidates_scoring_cache_after_commit(monkeypatch):
     engine, session_factory = await _session_factory()
     invalidate_scoring_flow_cache()

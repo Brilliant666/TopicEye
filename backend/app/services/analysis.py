@@ -12,7 +12,7 @@ import logging
 import re
 import asyncio
 from datetime import datetime, timedelta
-from typing import Any, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -393,6 +393,8 @@ async def analyze_one_claimed(
     db: AsyncSession,
     *,
     assume_claimed: bool = False,
+    analyzer: Optional[Callable[[ContentItem, AsyncSession], Awaitable[AiAnalysis]]] = None,
+    raise_on_failure: bool = False,
 ) -> Optional[AiAnalysis]:
     """Claim and analyze one pending or stale analyzing item."""
     stale_cutoff = datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES)
@@ -422,7 +424,8 @@ async def analyze_one_claimed(
         if content is None:
             return None
 
-        analysis = await analyze_content(content, db)
+        analyze = analyzer or analyze_content
+        analysis = await analyze(content, db)
         await db.commit()
         invalidate_content_read_caches()
         return analysis
@@ -430,6 +433,8 @@ async def analyze_one_claimed(
         await db.rollback()
         if is_sqlite_locked(e):
             logger.warning("Skipped analysis for content id=%d: database is locked", content_id)
+            if raise_on_failure:
+                raise
             return None
 
         logger.error("Failed to analyze content id=%d: %s", content_id, e)
@@ -446,6 +451,8 @@ async def analyze_one_claimed(
                 content_id,
                 status_error,
             )
+        if raise_on_failure:
+            raise
         return None
 
 

@@ -3,7 +3,6 @@ AI Analysis API endpoints.
 """
 
 from __future__ import annotations
-from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
@@ -13,12 +12,10 @@ from app.api.v1.auth import get_current_user
 from app.core.database import async_session
 from app.core.dependencies import get_db
 from app.core.exceptions import NotFoundError
-from app.models.content import ContentStatus
 from app.schemas.analysis import AiAnalysisResponse
 from app.repositories.content_repo import ContentRepo
 from app.repositories.analysis_repo import AnalysisRepository
-from app.services.content_read_cache import invalidate_content_read_caches
-from app.services.analysis import analyze_content, analyze_batch, analyze_batch_concurrent
+from app.services.analysis import analyze_content, analyze_batch, analyze_batch_concurrent, analyze_one_claimed
 from app.services.analysis_jobs import (
     create_analysis_job,
     finish_analysis_job,
@@ -49,22 +46,21 @@ async def analyze_single(
         return existing
 
     try:
-        content.status = ContentStatus.ANALYZING
-        await db.commit()
-        content = await content_repo.get_by_id_or_raise(content_id, "Content")
-        analysis = await analyze_content(content, db)
-        await db.commit()
-        invalidate_content_read_caches()
+        analysis = await analyze_one_claimed(
+            content_id,
+            db,
+            analyzer=analyze_content,
+            raise_on_failure=True,
+        )
+        if analysis is None:
+            existing = await analysis_repo.get_by_content_id(content_id)
+            if existing:
+                return existing
+            raise HTTPException(status_code=409, detail="Content is already being analyzed")
         return analysis
+    except HTTPException:
+        raise
     except Exception as e:
-        await db.rollback()
-        try:
-            content = await content_repo.get_by_id_or_raise(content_id, "Content")
-            content.status = ContentStatus.ERROR
-            content.updated_at = datetime.utcnow()
-            await db.commit()
-        except Exception:
-            await db.rollback()
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 

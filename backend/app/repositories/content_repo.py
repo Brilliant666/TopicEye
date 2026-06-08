@@ -140,6 +140,42 @@ class ContentRepo(BaseRepository[ContentItem]):
         result = await self.db.execute(stmt)
         return result.scalars().all()
 
+    async def claim_pending_analysis_ids(
+        self,
+        *,
+        limit: int = 20,
+        hours: Optional[int] = None,
+    ) -> list[int]:
+        """Claim pending or stale analysis candidates and return claimed IDs in queue order."""
+        pending = await self.list_pending_for_analysis(limit=limit, hours=hours)
+        if not pending:
+            return []
+
+        stale_cutoff = datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES)
+        claimed_at = datetime.utcnow()
+        claimed_ids: list[int] = []
+        for item in pending:
+            result = await self.db.execute(
+                update(self.model)
+                .where(self.model.id == item.id)
+                .where(
+                    (self.model.status == ContentStatus.PENDING)
+                    | (
+                        (self.model.status == ContentStatus.ANALYZING)
+                        & (self.model.updated_at <= stale_cutoff)
+                    )
+                    | (
+                        (self.model.status == ContentStatus.ERROR)
+                        & (self.model.updated_at <= stale_cutoff)
+                    )
+                )
+                .values(status=ContentStatus.ANALYZING, updated_at=claimed_at)
+            )
+            if result.rowcount:
+                claimed_ids.append(int(item.id))
+        await self.db.flush()
+        return claimed_ids
+
     async def update_status(self, id: int, status: ContentStatus) -> ContentItem:
         """Transition a single item to a new status."""
         return await self.update(id, status=status)

@@ -113,6 +113,35 @@ async def test_list_pending_for_analysis_filters_recent_pending_items():
 
 
 @pytest.mark.asyncio
+async def test_claim_pending_analysis_ids_marks_items_analyzing_before_workers_run():
+    engine, session_factory = await _session_factory()
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="待认领内容",
+                url="https://example.com/claim-pending",
+                status=ContentStatus.PENDING,
+                crawled_at=datetime.utcnow(),
+            )
+        )
+        await db.commit()
+
+        claimed_ids = await ContentRepo(db).claim_pending_analysis_ids(limit=10, hours=24)
+        await db.commit()
+
+    async with session_factory() as db:
+        second_claim = await ContentRepo(db).claim_pending_analysis_ids(limit=10, hours=24)
+        content = await db.get(ContentItem, 1)
+
+    assert claimed_ids == [1]
+    assert second_claim == []
+    assert content.status == ContentStatus.ANALYZING
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_analyze_pending_defaults_to_background_queue(monkeypatch):
     await reset_analysis_jobs()
 
@@ -154,6 +183,10 @@ async def test_analyze_pending_defaults_to_background_queue(monkeypatch):
     assert job["status"] == "QUEUED"
     assert job["queued_ids"] == [1]
     assert job["pending_ids"] == [1]
+
+    async with session_factory() as db:
+        content = await db.get(ContentItem, 1)
+    assert content.status == ContentStatus.ANALYZING
 
     await engine.dispose()
     await reset_analysis_jobs()
@@ -202,8 +235,8 @@ async def test_analyze_pending_deduplicates_inflight_background_jobs(monkeypatch
     assert first["job_id"]
     assert len(first_tasks.tasks) == 1
     assert second["queued_ids"] == []
-    assert second["skipped_inflight_ids"] == [1]
-    assert second["job_id"]
+    assert second["skipped_inflight_ids"] == []
+    assert second["job_id"] is None
     assert len(second_tasks.tasks) == 0
 
     await engine.dispose()
@@ -252,7 +285,7 @@ async def test_analysis_job_inflight_ttl_releases_stuck_ids(monkeypatch):
 async def test_analyze_pending_sync_uses_concurrent_analysis(monkeypatch):
     called = {}
 
-    async def fake_concurrent(content_ids):
+    async def fake_concurrent(content_ids, **_kwargs):
         called["ids"] = content_ids
         return [
             AiAnalysis(
@@ -893,7 +926,7 @@ async def test_post_sync_drain_processes_backlog_and_stale_analyzing(monkeypatch
 
     monkeypatch.setattr(scheduler_module, "async_session", session_factory)
 
-    async def fake_analyze_batch(content_ids):
+    async def fake_analyze_batch(content_ids, **_kwargs):
         results = []
         async with session_factory() as db:
             for content_id in content_ids:
@@ -978,7 +1011,7 @@ async def test_post_sync_drain_releases_claims_after_batch_timeout(monkeypatch):
     engine, session_factory = await _session_factory()
     monkeypatch.setattr(scheduler_module, "async_session", session_factory)
 
-    async def fake_analyze_batch(content_ids):
+    async def fake_analyze_batch(content_ids, **_kwargs):
         async with session_factory() as db:
             for content_id in content_ids:
                 content = await db.get(ContentItem, content_id)

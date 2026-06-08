@@ -366,6 +366,7 @@ async def analyze_batch_concurrent(
     *,
     concurrency: Optional[int] = None,
     session_factory: Callable[[], Any] = async_session,
+    assume_claimed: bool = False,
 ) -> list[AiAnalysis]:
     """Analyze multiple content items with bounded concurrency.
 
@@ -381,35 +382,41 @@ async def analyze_batch_concurrent(
     async def _run_one(content_id: int) -> Optional[AiAnalysis]:
         async with semaphore:
             async with session_factory() as db:
-                return await analyze_one_claimed(content_id, db)
+                return await analyze_one_claimed(content_id, db, assume_claimed=assume_claimed)
 
     analyses = await asyncio.gather(*(_run_one(content_id) for content_id in content_ids))
     return [item for item in analyses if item is not None]
 
 
-async def analyze_one_claimed(content_id: int, db: AsyncSession) -> Optional[AiAnalysis]:
+async def analyze_one_claimed(
+    content_id: int,
+    db: AsyncSession,
+    *,
+    assume_claimed: bool = False,
+) -> Optional[AiAnalysis]:
     """Claim and analyze one pending or stale analyzing item."""
     stale_cutoff = datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES)
     try:
-        async def _mark_analyzing() -> bool:
-            result = await db.execute(
-                update(ContentItem)
-                .where(ContentItem.id == content_id)
-                .where(_analysis_retryable_status_filter(stale_cutoff))
-                .values(status=ContentStatus.ANALYZING, updated_at=datetime.utcnow())
-            )
-            await db.commit()
-            return result.rowcount > 0
+        if not assume_claimed:
+            async def _mark_analyzing() -> bool:
+                result = await db.execute(
+                    update(ContentItem)
+                    .where(ContentItem.id == content_id)
+                    .where(_analysis_retryable_status_filter(stale_cutoff))
+                    .values(status=ContentStatus.ANALYZING, updated_at=datetime.utcnow())
+                )
+                await db.commit()
+                return result.rowcount > 0
 
-        claimed = await retry_sqlite_locked(
-            _mark_analyzing,
-            attempts=3,
-            base_delay=0.1,
-            on_retry=db.rollback,
-        )
-        if not claimed:
-            logger.info("Skipped analysis for content id=%d: already claimed or no longer stale", content_id)
-            return None
+            claimed = await retry_sqlite_locked(
+                _mark_analyzing,
+                attempts=3,
+                base_delay=0.1,
+                on_retry=db.rollback,
+            )
+            if not claimed:
+                logger.info("Skipped analysis for content id=%d: already claimed or no longer stale", content_id)
+                return None
 
         content = await db.get(ContentItem, content_id)
         if content is None:

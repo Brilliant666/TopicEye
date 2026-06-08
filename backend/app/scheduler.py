@@ -306,8 +306,8 @@ async def _drain_pending_analysis(
 
         async with async_session() as db:
             content_repo = ContentRepo(db)
-            pending = await content_repo.list_pending_for_analysis(limit=batch_size)
-            pending_ids = [item.id for item in pending]
+            pending_ids = await content_repo.claim_pending_analysis_ids(limit=batch_size)
+            await db.commit()
 
         if not pending_ids:
             stop_reason = "no_pending"
@@ -317,7 +317,7 @@ async def _drain_pending_analysis(
         batches += 1
         try:
             results = await asyncio.wait_for(
-                analyze_batch_concurrent(pending_ids),
+                analyze_batch_concurrent(pending_ids, assume_claimed=True),
                 timeout=max(1, remaining_seconds - 10),
             )
         except asyncio.TimeoutError:

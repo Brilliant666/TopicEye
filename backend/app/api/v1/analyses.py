@@ -90,8 +90,8 @@ async def analyze_all_pending(
 ):
     """Trigger analysis for pending content items, optionally scoped to a recent window."""
     content_repo = ContentRepo(db)
-    pending = await content_repo.list_pending_for_analysis(limit=limit, hours=hours)
-    ids = [item.id for item in pending]
+    ids = await content_repo.claim_pending_analysis_ids(limit=limit, hours=hours)
+    await db.commit()
 
     if not ids:
         return {
@@ -135,7 +135,7 @@ async def analyze_all_pending(
             "mode": "background",
         }
 
-    results = await analyze_batch_concurrent(ids)
+    results = await analyze_batch_concurrent(ids, assume_claimed=True)
     return {"message": f"Analysis complete for {len(results)} items",
             "count": len(results),
             "ids": ids,
@@ -201,7 +201,7 @@ async def _run_batch_background(job_id: str, content_ids: list[int]) -> None:
     """Run batch analysis in background."""
     await mark_analysis_job_running(job_id)
     try:
-        results = await analyze_batch_concurrent(content_ids)
+        results = await analyze_batch_concurrent(content_ids, assume_claimed=True)
         analyzed_ids = [item.content_id for item in results]
         failed_ids = [content_id for content_id in content_ids if content_id not in set(analyzed_ids)]
         await finish_analysis_job(job_id, analyzed_ids=analyzed_ids, failed_ids=failed_ids)

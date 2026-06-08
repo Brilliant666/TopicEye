@@ -63,7 +63,7 @@ async def test_analysis_and_notifications_require_login(monkeypatch):
 
     monkeypatch.setattr(notification_service, "async_session", session_factory)
 
-    async def fake_analyze_batch_concurrent(content_ids: list[int]):
+    async def fake_analyze_batch_concurrent(content_ids: list[int], **_kwargs):
         return []
 
     monkeypatch.setattr(analyses_api, "analyze_batch_concurrent", fake_analyze_batch_concurrent)

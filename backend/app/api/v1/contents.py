@@ -28,7 +28,7 @@ from app.services.content_list_cache import (
     set_cached_content_list,
 )
 from app.services.content_read_cache import invalidate_content_read_caches
-from app.services.content_serialization import content_with_latest_analysis
+from app.services.content_serialization import content_with_latest_analysis, latest_analysis_from_item
 from app.services.favorite_cache import invalidate_favorite_cache
 from app.services.json_cache import get_cached_json, invalidate_json_cache, set_cached_json
 from app.services.scoring_flow import (
@@ -374,8 +374,8 @@ async def get_content(content_id: int, db: AsyncSession = Depends(get_db)):
     if not content:
         raise HTTPException(404, "Content not found")
     d = ContentResponse.model_validate(content).model_dump()
-    if content.analyses:
-        a = content.analyses[-1]
+    a = latest_analysis_from_item(content)
+    if a:
         a_dict = AiAnalysisResponse.model_validate(a).model_dump()
         # Include curation detail fields
         a_dict["info_density"] = a.info_density

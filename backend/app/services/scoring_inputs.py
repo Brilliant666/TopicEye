@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services.content_serialization import latest_analysis_from_item
 from app.services.feedback_signal import get_feedback_scores
 from app.services.scoring_engine import ScoringInput
 
@@ -19,7 +20,7 @@ async def build_scoring_inputs(
     item_map: dict[int, Any] = {}
 
     for item in items:
-        if not item.analyses:
+        if latest_analysis_from_item(item) is None:
             continue
         scoring_input = build_scoring_input(item, feedback_scores.get(item.id, 0))
         scoring_inputs.append(scoring_input)
@@ -30,7 +31,9 @@ async def build_scoring_inputs(
 
 def build_scoring_input(item: Any, feedback_score: float = 0) -> ScoringInput:
     """Convert a content ORM row into a ScoringInput."""
-    analysis = item.analyses[-1]
+    analysis = latest_analysis_from_item(item)
+    if analysis is None:
+        raise ValueError("Content item has no loaded analyses")
     source_weight = item.source.weight if item.source else 3
     return ScoringInput(
         content_id=item.id,

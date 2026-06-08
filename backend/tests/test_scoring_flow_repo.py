@@ -9,6 +9,7 @@ from app.models.analysis import AiAnalysis
 from app.models.content import ContentItem, ContentStatus
 from app.models.source import Source, SourceStatus, SourceType
 from app.repositories.content_repo import ContentRepo
+from app.services.content_serialization import content_with_latest_analysis
 from app.services.scoring_flow import build_scoring_flow_payload, invalidate_scoring_flow_cache
 
 
@@ -196,6 +197,29 @@ async def test_content_analyses_relationship_orders_latest_last():
         assert item.analyses[-1].summary == "较新的分析"
 
     await engine.dispose()
+
+
+def test_content_serialization_uses_explicit_latest_analysis_ordering():
+    now = datetime.utcnow()
+    item = ContentItem(
+        id=1,
+        title="乱序分析内容",
+        url="https://example.com/shuffled-analyses",
+        status=ContentStatus.ANALYZED,
+        crawled_at=now,
+        is_favorited=False,
+        created_at=now,
+        updated_at=now,
+    )
+    item.analyses = [
+        AiAnalysis(id=9, content_id=1, summary="旧分析高 ID", created_at=now),
+        AiAnalysis(id=2, content_id=1, summary="新分析", created_at=now + timedelta(minutes=1)),
+        AiAnalysis(id=1, content_id=1, summary="旧分析低 ID", created_at=now - timedelta(minutes=1)),
+    ]
+
+    payload = content_with_latest_analysis(item)
+
+    assert payload["analysis"]["summary"] == "新分析"
 
 
 @pytest.mark.asyncio

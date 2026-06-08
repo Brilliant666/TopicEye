@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.daily_report import DailyReport
 from app.repositories.content_repo import ContentRepo
+from app.services.content_serialization import latest_analysis_from_item
 from app.services.llm import call_llm_json
 from app.services.digest_fallback import build_digest_fallback
 from app.services.scoring_engine import score_items
@@ -151,9 +152,11 @@ async def _fetch_report_inputs(
     curated: list[dict] = []
     for breakdown, si in scored:
         item = item_map.get(si.content_id)
-        if not item or not item.analyses:
+        if not item:
             continue
-        analysis = item.analyses[-1]
+        analysis = latest_analysis_from_item(item)
+        if analysis is None:
+            continue
         record = _item_to_report_dict(item, analysis, breakdown.final_score)
         if breakdown.selected:
             curated.append(record)
@@ -161,9 +164,9 @@ async def _fetch_report_inputs(
     # If the window is sparse, still provide a few high-quality analyzed items as context,
     # but top_picks will be instructed to use only selected curated items.
     background = [
-        _item_to_report_dict(item, item.analyses[-1], item.analyses[-1].curation_score or 0)
+        _item_to_report_dict(item, analysis, analysis.curation_score or 0)
         for item in items
-        if item.analyses
+        if (analysis := latest_analysis_from_item(item)) is not None
     ]
     background.sort(key=lambda x: (x["curation_score"], x["creator_score"]), reverse=True)
     curated.sort(key=lambda x: (x["adjusted_score"], x["curation_score"]), reverse=True)

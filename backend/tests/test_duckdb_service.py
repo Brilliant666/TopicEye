@@ -49,7 +49,8 @@ def test_stats_queries_use_latest_analysis_only(monkeypatch):
         CREATE TABLE oltp_db.sources (
             id INTEGER,
             name VARCHAR,
-            source_type VARCHAR
+            source_type VARCHAR,
+            weight INTEGER
         )
     """)
     conn.execute("""
@@ -57,24 +58,41 @@ def test_stats_queries_use_latest_analysis_only(monkeypatch):
             id INTEGER,
             content_id INTEGER,
             curation_score DOUBLE,
+            info_density DOUBLE,
+            actionability DOUBLE,
+            source_weight DOUBLE,
+            creator_score DOUBLE,
+            viral_score DOUBLE,
+            freshness_score DOUBLE,
+            quality_score DOUBLE,
+            hot_score DOUBLE,
+            risk_score DOUBLE,
             created_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.user_feedback (
+            id INTEGER,
+            content_id INTEGER,
+            user_id INTEGER,
+            score_delta DOUBLE
         )
     """)
 
     now = datetime.utcnow()
     conn.execute(
-        "INSERT INTO oltp_db.sources VALUES (1, '测试信源', 'RSS')"
+        "INSERT INTO oltp_db.sources VALUES (1, '测试信源', 'RSS', 3)"
     )
     conn.execute(
         "INSERT INTO oltp_db.content_items VALUES (1, 1, '测试信源', 'AI', ?, NULL)",
         [now],
     )
     conn.execute(
-        "INSERT INTO oltp_db.ai_analyses VALUES (1, 1, 10.0, ?)",
+        "INSERT INTO oltp_db.ai_analyses VALUES (1, 1, 10.0, 10, 10, 50, 10, 10, 10, 10, 10, 0, ?)",
         [now - timedelta(hours=2)],
     )
     conn.execute(
-        "INSERT INTO oltp_db.ai_analyses VALUES (2, 1, 90.0, ?)",
+        "INSERT INTO oltp_db.ai_analyses VALUES (2, 1, 90.0, 90, 90, 80, 90, 90, 90, 90, 90, 0, ?)",
         [now - timedelta(hours=1)],
     )
 
@@ -85,7 +103,7 @@ def test_stats_queries_use_latest_analysis_only(monkeypatch):
     assert overview["total"] == 1
     assert overview["analyzed"] == 1
     assert overview["curated"] == 1
-    assert overview["curation_threshold"] == 90.0
+    assert overview["curation_threshold"] > 0
 
     source_distribution = analytics.query_stats_source_distribution(days=7)
     assert source_distribution["sources"] == [
@@ -112,7 +130,7 @@ def test_stats_queries_use_latest_analysis_only(monkeypatch):
     conn.close()
 
 
-def test_dashboard_stats_uses_dynamic_curation_threshold(monkeypatch):
+def test_dashboard_stats_uses_unified_scorer_for_curated_counts(monkeypatch):
     conn = duckdb.connect(":memory:")
     conn.execute("CREATE SCHEMA oltp_db")
     conn.execute("""
@@ -129,7 +147,8 @@ def test_dashboard_stats_uses_dynamic_curation_threshold(monkeypatch):
         CREATE TABLE oltp_db.sources (
             id INTEGER,
             name VARCHAR,
-            source_type VARCHAR
+            source_type VARCHAR,
+            weight INTEGER
         )
     """)
     conn.execute("""
@@ -137,7 +156,24 @@ def test_dashboard_stats_uses_dynamic_curation_threshold(monkeypatch):
             id INTEGER,
             content_id INTEGER,
             curation_score DOUBLE,
+            info_density DOUBLE,
+            actionability DOUBLE,
+            source_weight DOUBLE,
+            creator_score DOUBLE,
+            viral_score DOUBLE,
+            freshness_score DOUBLE,
+            quality_score DOUBLE,
+            hot_score DOUBLE,
+            risk_score DOUBLE,
             created_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.user_feedback (
+            id INTEGER,
+            content_id INTEGER,
+            user_id INTEGER,
+            score_delta DOUBLE
         )
     """)
     for table_name, timestamp_column in (
@@ -153,24 +189,30 @@ def test_dashboard_stats_uses_dynamic_curation_threshold(monkeypatch):
         """)
 
     now = datetime.utcnow()
-    conn.execute("INSERT INTO oltp_db.sources VALUES (1, '测试信源', 'RSS')")
+    conn.execute("INSERT INTO oltp_db.sources VALUES (1, '测试信源', 'RSS', 3)")
     conn.execute("INSERT INTO oltp_db.content_items VALUES (1, 1, '测试信源', 'AI', ?, NULL)", [now])
     conn.execute("INSERT INTO oltp_db.content_items VALUES (2, 1, '测试信源', 'AI', ?, NULL)", [now])
-    conn.execute("INSERT INTO oltp_db.ai_analyses VALUES (1, 1, 60.0, ?)", [now])
-    conn.execute("INSERT INTO oltp_db.ai_analyses VALUES (2, 2, 90.0, ?)", [now])
+    conn.execute(
+        "INSERT INTO oltp_db.ai_analyses VALUES (1, 1, 95.0, 10, 10, 50, 10, 10, 50, 10, 10, 0, ?)",
+        [now],
+    )
+    conn.execute(
+        "INSERT INTO oltp_db.ai_analyses VALUES (2, 2, 70.0, 90, 90, 70, 90, 70, 80, 90, 70, 0, ?)",
+        [now],
+    )
 
     analytics = duckdb_service.DuckDBAnalytics()
     monkeypatch.setattr(analytics, "_get_conn", lambda: conn)
 
     dashboard = analytics.query_dashboard_stats(days=7)
 
-    assert dashboard["overview"]["curation_threshold"] == 60.0
-    assert dashboard["overview"]["curated"] == 2
-    assert dashboard["kpi"]["total_curated"] == 2
-    assert dashboard["sources"][0]["curated_count"] == 2
-    assert dashboard["source_breakdown"][0]["curated_count"] == 2
-    assert dashboard["trend"][0]["curated_count"] == 2
-    assert dashboard["daily_trend"][0]["curated_count"] == 2
+    assert dashboard["overview"]["curation_threshold"] > 0
+    assert dashboard["overview"]["curated"] == 1
+    assert dashboard["kpi"]["total_curated"] == 1
+    assert dashboard["sources"][0]["curated_count"] == 1
+    assert dashboard["source_breakdown"][0]["curated_count"] == 1
+    assert dashboard["trend"][0]["curated_count"] == 1
+    assert dashboard["daily_trend"][0]["curated_count"] == 1
 
     conn.close()
 

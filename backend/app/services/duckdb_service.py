@@ -32,7 +32,7 @@ from app.core.db_backend import (
     duckdb_extension_name,
     redact_database_secrets,
 )
-from app.services.scoring_engine import CONFIG as SCORING_CONFIG
+from app.services.scoring_engine import CONFIG as SCORING_CONFIG, ScoringInput, score_items
 
 logger = logging.getLogger(__name__)
 STATS_CURATION_FALLBACK_THRESHOLD = 83.0
@@ -332,37 +332,146 @@ class DuckDBAnalytics:
         ]
 
     def query_stats_curation_threshold(self, days: int = 7) -> float:
-        """P70 curation threshold for the stats surfaces."""
+        """Unified scorer threshold for the stats surfaces."""
+        scored_items = self._query_stats_scored_items(days=days)
+        return self._stats_threshold_from_scored(scored_items)
+
+    def _query_stats_scored_items(self, days: int = 7) -> List[Dict[str, Any]]:
+        """Return latest analyzed stats candidates with unified scorer results."""
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
         rows = conn.execute(f"""
-            WITH {LATEST_ANALYSIS_CTE}
-            SELECT a.curation_score
+            WITH {LATEST_ANALYSIS_CTE},
+            feedback_scores AS (
+                SELECT
+                    content_id,
+                    SUM(score_delta) AS feedback_score
+                FROM oltp_db.user_feedback
+                GROUP BY content_id
+            )
+            SELECT
+                c.id,
+                c.source_id,
+                COALESCE(s.name, c.source_name, '未知') AS source_name,
+                LOWER(COALESCE(CAST(s.source_type AS VARCHAR), 'unknown')) AS source_type,
+                COALESCE(c.category, '未分类') AS category,
+                c.crawled_at,
+                a.curation_score,
+                a.info_density,
+                a.actionability,
+                a.source_weight AS analysis_source_weight,
+                a.creator_score,
+                a.viral_score,
+                a.freshness_score,
+                a.quality_score,
+                a.hot_score,
+                a.risk_score,
+                COALESCE(s.weight, 3) AS source_weight_db,
+                COALESCE(f.feedback_score, 0) AS feedback_score
             FROM latest_analysis a
             JOIN oltp_db.content_items c ON c.id = a.content_id
-            WHERE c.crawled_at >= '{cutoff}'
+            LEFT JOIN oltp_db.sources s ON s.id = c.source_id
+            LEFT JOIN feedback_scores f ON f.content_id = c.id
+            WHERE c.crawled_at >= ?
               AND c.duplicate_of IS NULL
-              AND a.curation_score > 0
-            ORDER BY a.curation_score ASC
-        """).fetchall()
-        if not rows:
-            return STATS_CURATION_FALLBACK_THRESHOLD
-        index = max(0, int(0.70 * len(rows) - 1))
-        return float(rows[index][0])
+              AND a.curation_score IS NOT NULL
+        """, [cutoff]).fetchall()
 
-    def query_stats_overview(self, days: int = 7) -> Dict[str, Any]:
+        columns = [
+            "id", "source_id", "source_name", "source_type", "category", "crawled_at",
+            "curation_score", "info_density", "actionability", "analysis_source_weight",
+            "creator_score", "viral_score", "freshness_score", "quality_score",
+            "hot_score", "risk_score", "source_weight_db", "feedback_score",
+        ]
+        item_rows = [dict(zip(columns, row)) for row in rows]
+        row_map = {row["id"]: row for row in item_rows}
+        scored = score_items([self._stats_row_to_scoring_input(row) for row in item_rows])
+        scored_items: List[Dict[str, Any]] = []
+        for breakdown, item in scored:
+            row = dict(row_map[item.content_id])
+            row["final_score"] = breakdown.final_score
+            row["threshold_used"] = breakdown.threshold_used
+            row["selected"] = breakdown.selected
+            scored_items.append(row)
+        return scored_items
+
+    @staticmethod
+    def _stats_row_to_scoring_input(row: Dict[str, Any]) -> ScoringInput:
+        return ScoringInput(
+            content_id=row["id"],
+            title="",
+            category=row.get("category"),
+            source_id=row.get("source_id"),
+            source_name=row.get("source_name"),
+            crawled_at=row.get("crawled_at"),
+            curation_score=row.get("curation_score") or 0,
+            info_density=row.get("info_density") or 50,
+            actionability=row.get("actionability") or 50,
+            source_weight=row.get("analysis_source_weight") or 50,
+            creator_score=row.get("creator_score") or 0,
+            viral_score=row.get("viral_score") or 0,
+            freshness_score=row.get("freshness_score") or 0,
+            quality_score=row.get("quality_score") or 0,
+            hot_score=row.get("hot_score") or 0,
+            risk_score=row.get("risk_score") or 0,
+            source_weight_db=row.get("source_weight_db") or 3,
+            feedback_score=row.get("feedback_score") or 0,
+        )
+
+    @staticmethod
+    def _stats_threshold_from_scored(scored_items: List[Dict[str, Any]]) -> float:
+        for item in scored_items:
+            threshold = item.get("threshold_used")
+            if threshold is not None:
+                return round(float(threshold), 1)
+        return STATS_CURATION_FALLBACK_THRESHOLD
+
+    @staticmethod
+    def _selected_stats_items(scored_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [item for item in scored_items if item.get("selected")]
+
+    @staticmethod
+    def _stats_date_key(value: Any) -> str:
+        if hasattr(value, "date"):
+            return value.date().isoformat()
+        return str(value).split(" ")[0]
+
+    @staticmethod
+    def _stats_source_key(item: Dict[str, Any]) -> tuple[str, str]:
+        return (item.get("source_name") or "未知", item.get("source_type") or "unknown")
+
+    def _stats_selected_counts_by_source(self, scored_items: List[Dict[str, Any]]) -> Dict[tuple[str, str], int]:
+        counts: Dict[tuple[str, str], int] = {}
+        for item in self._selected_stats_items(scored_items):
+            key = self._stats_source_key(item)
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    def _stats_selected_counts_by_date(self, scored_items: List[Dict[str, Any]]) -> Dict[str, int]:
+        counts: Dict[str, int] = {}
+        for item in self._selected_stats_items(scored_items):
+            key = self._stats_date_key(item.get("crawled_at"))
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    def query_stats_overview(
+        self,
+        days: int = 7,
+        scored_items: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """Content overview KPI cards, computed in DuckDB."""
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-        threshold = self.query_stats_curation_threshold(days=days)
+        if scored_items is None:
+            scored_items = self._query_stats_scored_items(days=days)
+        threshold = self._stats_threshold_from_scored(scored_items)
 
         row = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 COUNT(c.id) AS total,
-                COUNT(CASE WHEN a.curation_score IS NOT NULL THEN c.id END) AS analyzed,
-                COUNT(CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated
+                COUNT(CASE WHEN a.curation_score IS NOT NULL THEN c.id END) AS analyzed
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
@@ -378,23 +487,30 @@ class DuckDBAnalytics:
         return {
             "total": row[0] or 0,
             "analyzed": row[1] or 0,
-            "curated": row[2] or 0,
+            "curated": len(self._selected_stats_items(scored_items)),
             "curation_threshold": round(threshold, 1),
             "today_new": today_row[0] or 0,
         }
 
-    def query_stats_source_distribution(self, days: int = 7) -> Dict[str, Any]:
+    def query_stats_source_distribution(
+        self,
+        days: int = 7,
+        scored_items: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """Source distribution, computed in DuckDB."""
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
-        threshold = self.query_stats_curation_threshold(days=days)
+        if scored_items is None:
+            scored_items = self._query_stats_scored_items(days=days)
+        selected_counts = self._stats_selected_counts_by_source(
+            scored_items
+        )
         rows = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 COALESCE(s.name, '未知') AS source_name,
                 LOWER(COALESCE(CAST(s.source_type AS VARCHAR), 'unknown')) AS source_type,
-                COUNT(c.id) AS content_count,
-                COUNT(CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated_count
+                COUNT(c.id) AS content_count
             FROM oltp_db.content_items c
             LEFT JOIN oltp_db.sources s ON s.id = c.source_id
             LEFT JOIN latest_analysis a ON a.content_id = c.id
@@ -408,7 +524,7 @@ class DuckDBAnalytics:
         sources = []
         for row in rows:
             content_count = row[2] or 0
-            curated_count = row[3] or 0
+            curated_count = selected_counts.get((row[0], row[1]), 0)
             sources.append({
                 "source_name": row[0],
                 "source_type": row[1],
@@ -446,17 +562,24 @@ class DuckDBAnalytics:
             ]
         }
 
-    def query_stats_daily_trend(self, days: int = 7) -> Dict[str, Any]:
+    def query_stats_daily_trend(
+        self,
+        days: int = 7,
+        scored_items: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """Daily volume trend, computed in DuckDB."""
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
-        threshold = self.query_stats_curation_threshold(days=days)
+        if scored_items is None:
+            scored_items = self._query_stats_scored_items(days=days)
+        selected_counts = self._stats_selected_counts_by_date(
+            scored_items
+        )
         rows = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 CAST(c.crawled_at AS DATE) AS crawl_date,
                 COUNT(c.id) AS content_count,
-                COUNT(CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated_count,
                 COUNT(CASE WHEN a.id IS NOT NULL THEN c.id END) AS analyzed_count
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
@@ -470,8 +593,11 @@ class DuckDBAnalytics:
                 {
                     "date": row[0].isoformat() if hasattr(row[0], "isoformat") else str(row[0]),
                     "content_count": row[1] or 0,
-                    "curated_count": row[2] or 0,
-                    "analyzed_count": row[3] or 0,
+                    "curated_count": selected_counts.get(
+                        row[0].isoformat() if hasattr(row[0], "isoformat") else str(row[0]),
+                        0,
+                    ),
+                    "analyzed_count": row[2] or 0,
                 }
                 for row in rows
             ]
@@ -536,12 +662,15 @@ class DuckDBAnalytics:
 
     def query_dashboard_stats(self, days: int = 7) -> Dict[str, Any]:
         """Full stats workspace payload, with legacy dashboard fields preserved."""
-        overview = self.query_stats_overview(days=days)
-        source_distribution = self.query_stats_source_distribution(days=days)
+        scored_items = self._query_stats_scored_items(days=days)
+        selected_items = self._selected_stats_items(scored_items)
+        selected_by_source = self._stats_selected_counts_by_source(scored_items)
+        selected_by_date = self._stats_selected_counts_by_date(scored_items)
+        overview = self.query_stats_overview(days=days, scored_items=scored_items)
+        source_distribution = self.query_stats_source_distribution(days=days, scored_items=scored_items)
         category_distribution = self.query_stats_category_distribution(days=days)
-        daily_trend = self.query_stats_daily_trend(days=days)
+        daily_trend = self.query_stats_daily_trend(days=days, scored_items=scored_items)
         novel_platforms = self.query_stats_novel_platforms()
-        threshold = float(overview.get("curation_threshold", STATS_CURATION_FALLBACK_THRESHOLD))
 
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
@@ -551,7 +680,6 @@ class DuckDBAnalytics:
             WITH {LATEST_ANALYSIS_CTE}
             SELECT
                 COUNT(DISTINCT c.id) AS total_crawled,
-                COUNT(DISTINCT CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS total_curated,
                 ROUND(AVG(a.curation_score), 1) AS avg_curation,
                 COUNT(DISTINCT c.source_id) AS active_sources
             FROM oltp_db.content_items c
@@ -566,7 +694,6 @@ class DuckDBAnalytics:
                 s.name,
                 s.source_type,
                 COUNT(DISTINCT c.id) AS content_count,
-                COUNT(DISTINCT CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_score
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
@@ -584,7 +711,6 @@ class DuckDBAnalytics:
             SELECT
                 CAST(c.crawled_at AS DATE) AS crawl_date,
                 COUNT(DISTINCT c.id) AS content_count,
-                COUNT(DISTINCT CASE WHEN a.curation_score >= {threshold:.1f} THEN c.id END) AS curated_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_curation
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
@@ -601,17 +727,20 @@ class DuckDBAnalytics:
             "platforms": novel_platforms["platforms"],
             "kpi": {
                 "total_crawled": kpi_row[0] or 0,
-                "total_curated": kpi_row[1] or 0,
-                "avg_curation": round(float(kpi_row[2] or 0), 1),
-                "active_sources": kpi_row[3] or 0,
+                "total_curated": len(selected_items),
+                "avg_curation": round(float(kpi_row[1] or 0), 1),
+                "active_sources": kpi_row[2] or 0,
             },
             "source_breakdown": [
                 {
                     "source_name": row[0] or "未知",
                     "source_type": row[1] or "rss",
                     "content_count": row[2] or 0,
-                    "curated_count": row[3] or 0,
-                    "avg_score": round(float(row[4] or 0), 1),
+                    "curated_count": selected_by_source.get(
+                        (row[0] or "未知", (row[1] or "rss").lower()),
+                        0,
+                    ),
+                    "avg_score": round(float(row[3] or 0), 1),
                 }
                 for row in source_rows
             ],
@@ -619,8 +748,11 @@ class DuckDBAnalytics:
                 {
                     "date": row[0].isoformat() if hasattr(row[0], 'isoformat') else str(row[0]),
                     "content_count": row[1] or 0,
-                    "curated_count": row[2] or 0,
-                    "avg_curation": round(float(row[3] or 0), 1),
+                    "curated_count": selected_by_date.get(
+                        row[0].isoformat() if hasattr(row[0], 'isoformat') else str(row[0]),
+                        0,
+                    ),
+                    "avg_curation": round(float(row[2] or 0), 1),
                 }
                 for row in trend_rows
             ],

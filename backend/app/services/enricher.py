@@ -26,6 +26,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.content import ContentItem
 from app.models.analysis import AiAnalysis
 from app.models.topic import TopicGroup
+from app.repositories.analysis_queries import (
+    latest_analysis_id_for_content_id,
+    latest_analysis_id_subquery,
+)
 from app.services.content_read_cache import invalidate_content_read_caches
 from app.services.llm import call_llm_json
 
@@ -90,13 +94,14 @@ async def enrich_content(
     Returns the enrichment dict to store in `ai_analyses.enrichment`.
     """
     # Load content + analysis + topic
+    latest_analysis_id = latest_analysis_id_for_content_id(content_id)
     result = await db.execute(
         select(AiAnalysis, ContentItem, TopicGroup).join(
             ContentItem, AiAnalysis.content_id == ContentItem.id
         ).outerjoin(
             TopicGroup, ContentItem.topic_id == TopicGroup.id
         ).where(
-            AiAnalysis.content_id == content_id
+            AiAnalysis.id == latest_analysis_id
         )
     )
     row = result.first()
@@ -108,9 +113,10 @@ async def enrich_content(
     # Fetch related items from same topic group
     related_items: list[dict] = []
     if content.topic_id:
+        related_latest_analysis_id = latest_analysis_id_subquery(ContentItem, AiAnalysis)
         rel_result = await db.execute(
             select(ContentItem, AiAnalysis).join(
-                AiAnalysis, AiAnalysis.content_id == ContentItem.id
+                AiAnalysis, AiAnalysis.id == related_latest_analysis_id
             ).where(
                 and_(
                     ContentItem.topic_id == content.topic_id,
@@ -184,7 +190,7 @@ async def enrich_batch(
             data = await enrich_content(cid, db)
             # Update DB record
             result = await db.execute(
-                select(AiAnalysis).where(AiAnalysis.content_id == cid)
+                select(AiAnalysis).where(AiAnalysis.id == latest_analysis_id_for_content_id(cid))
             )
             record = result.scalar_one_or_none()
             if record:
@@ -197,7 +203,7 @@ async def enrich_batch(
             logger.error("Enrich batch item %d failed: %s", cid, e)
             # Mark as error
             result = await db.execute(
-                select(AiAnalysis).where(AiAnalysis.content_id == cid)
+                select(AiAnalysis).where(AiAnalysis.id == latest_analysis_id_for_content_id(cid))
             )
             record = result.scalar_one_or_none()
             if record:

@@ -19,6 +19,7 @@ from app.models.trend import TopicTrend
 from app.models.topic import TopicGroup
 from app.models.content import ContentItem
 from app.models.analysis import AiAnalysis
+from app.repositories.analysis_queries import latest_analysis_id_subquery
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ async def snapshot_daily_trends(db: AsyncSession, target_date: Optional[date] = 
     # Get content items grouped by topic_id for the target date
     start_dt = datetime.combine(target_date, datetime.min.time())
     end_dt = datetime.combine(target_date + timedelta(days=1), datetime.min.time())
+    latest_analysis_id = latest_analysis_id_subquery(ContentItem, AiAnalysis)
 
     topic_rows = await db.execute(
         select(
@@ -56,7 +58,8 @@ async def snapshot_daily_trends(db: AsyncSession, target_date: Optional[date] = 
                 )
             ).label("pick_count"),
         )
-        .join(AiAnalysis, AiAnalysis.content_id == ContentItem.id)
+        .select_from(ContentItem)
+        .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
         .where(
             and_(
                 ContentItem.topic_id.isnot(None),
@@ -77,7 +80,8 @@ async def snapshot_daily_trends(db: AsyncSession, target_date: Optional[date] = 
         # Get top 3 items for this topic
         top_q = await db.execute(
             select(ContentItem.title, ContentItem.url, AiAnalysis.curation_score)
-            .join(AiAnalysis, AiAnalysis.content_id == ContentItem.id)
+            .select_from(ContentItem)
+            .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
             .where(
                 and_(
                     ContentItem.topic_id == topic_id,
@@ -110,7 +114,8 @@ async def snapshot_daily_trends(db: AsyncSession, target_date: Optional[date] = 
     # Extract from tags JSON, count frequency
     keyword_rows = await db.execute(
         select(AiAnalysis.tags)
-        .join(ContentItem, ContentItem.id == AiAnalysis.content_id)
+        .select_from(ContentItem)
+        .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
         .where(
             and_(
                 AiAnalysis.tags.isnot(None),

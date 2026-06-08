@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.content import ContentItem
 from app.models.analysis import AiAnalysis
+from app.repositories.analysis_queries import latest_analysis_id_subquery
 from app.services.llm import call_llm_json  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -118,9 +119,10 @@ async def generate_creation_plan(
     """
     # 1. Fetch content + analysis
     from sqlalchemy import select
+    latest_analysis_id = latest_analysis_id_subquery(ContentItem, AiAnalysis)
     result = await db.execute(
         select(ContentItem, AiAnalysis)
-        .join(AiAnalysis, AiAnalysis.content_id == ContentItem.id)
+        .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
         .where(ContentItem.id == content_id)
     )
     row = result.first()

@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.content import ContentItem, ContentStatus
 from app.models.analysis import AiAnalysis
 from app.models.topic import TopicGroup
+from app.repositories.analysis_queries import latest_analysis_id_subquery
 from app.services.llm import call_llm_json
 from app.services.semantic_dedup import semantic_dedup
 
@@ -179,9 +180,10 @@ async def cluster_and_dedup(db: AsyncSession) -> dict:
     """Run dedup + clustering on all analyzed content. Returns stats."""
 
     # 1. Fetch all analyzed items with their analysis
+    latest_analysis_id = latest_analysis_id_subquery(ContentItem, AiAnalysis)
     result = await db.execute(
         select(ContentItem, AiAnalysis)
-        .join(AiAnalysis, ContentItem.id == AiAnalysis.content_id)
+        .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
         .where(ContentItem.status == ContentStatus.ANALYZED)
         .order_by(ContentItem.id)
     )

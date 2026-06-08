@@ -6,9 +6,10 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 from app.models.analysis import AiAnalysis
+from app.repositories.analysis_queries import latest_analysis_id_for_content_id
 from app.repositories.base import BaseRepository
 
 
@@ -18,16 +19,23 @@ class AnalysisRepository(BaseRepository[AiAnalysis]):
     model = AiAnalysis
 
     async def get_by_content_id(self, content_id: int) -> Optional[AiAnalysis]:
-        """Fetch the analysis record for a given content item."""
-        stmt = select(AiAnalysis).where(AiAnalysis.content_id == content_id)
+        """Fetch the latest analysis record for a given content item."""
+        stmt = (
+            select(AiAnalysis)
+            .where(AiAnalysis.content_id == content_id)
+            .order_by(AiAnalysis.created_at.desc(), AiAnalysis.id.desc())
+            .limit(1)
+        )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_pending_enrichment_ids(self, min_score: float, limit: int) -> list[int]:
         """Return high-value analysis content IDs that still need enrichment."""
+        latest_id = latest_analysis_id_for_content_id(AiAnalysis.content_id)
         stmt = (
             select(AiAnalysis.content_id)
             .where(
+                AiAnalysis.id == latest_id,
                 AiAnalysis.curation_score >= min_score,
                 or_(
                     AiAnalysis.enrichment_status.is_(None),
@@ -56,8 +64,9 @@ class AnalysisRepository(BaseRepository[AiAnalysis]):
         if min_viral_score is not None:
             filters["min_viral_score"] = min_viral_score
 
-        stmt = select(AiAnalysis)
-        count_stmt = select(func.count()).select_from(AiAnalysis)
+        latest_id = latest_analysis_id_for_content_id(AiAnalysis.content_id)
+        stmt = select(AiAnalysis).where(AiAnalysis.id == latest_id)
+        count_stmt = select(func.count()).select_from(AiAnalysis).where(AiAnalysis.id == latest_id)
 
         if min_creator_score is not None:
             stmt = stmt.where(AiAnalysis.creator_score >= min_creator_score)

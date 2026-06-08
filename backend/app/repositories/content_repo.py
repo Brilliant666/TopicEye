@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.content import ContentItem, ContentStatus
+from app.repositories.analysis_queries import latest_analysis_id_subquery
 from app.repositories.base import BaseRepository
 
 logger = logging.getLogger(__name__)
@@ -541,6 +542,7 @@ class ContentRepo(BaseRepository[ContentItem]):
                 AiAnalysis.hot_score,
                 AiAnalysis.risk_score,
             )
+            .select_from(self.model)
             .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
             .outerjoin(Source, Source.id == self.model.source_id)
         )
@@ -558,14 +560,7 @@ class ContentRepo(BaseRepository[ContentItem]):
 
     def _latest_analysis_id_subquery(self, analysis_model):
         """Return a correlated subquery for the latest analysis row per content item."""
-        return (
-            select(analysis_model.id)
-            .where(analysis_model.content_id == self.model.id)
-            .order_by(analysis_model.created_at.desc(), analysis_model.id.desc())
-            .limit(1)
-            .correlate(self.model)
-            .scalar_subquery()
-        )
+        return latest_analysis_id_subquery(self.model, analysis_model)
 
     # ── Recent items ───────────────────────────────────────────────
 

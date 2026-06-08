@@ -667,18 +667,34 @@ class DuckDBAnalytics:
         for weekly digest generation (tags, recommendation, curation_score).
         """
         conn = self._get_conn()
+        feedback_min = float(SCORING_CONFIG["feedback_score_min"])
+        feedback_max = float(SCORING_CONFIG["feedback_score_max"])
+        feedback_weight = float(SCORING_CONFIG["w_feedback"])
 
         results = conn.execute(f"""
+            WITH {LATEST_ANALYSIS_CTE},
+            feedback_scores AS (
+                SELECT
+                    content_id,
+                    SUM(score_delta) AS feedback_score
+                FROM oltp_db.user_feedback
+                GROUP BY content_id
+            )
             SELECT c.id, c.title, c.category, c.source_name, c.platform,
                    a.summary, a.creator_score, a.viral_score, a.quality_score,
                    a.risk_score, a.curation_score, a.tags, a.recommendation,
-                   a.recommended_reason
+                   a.recommended_reason,
+                   COALESCE(f.feedback_score, 0) AS feedback_score,
+                   COALESCE(a.curation_score, 0)
+                       + LEAST({feedback_max}, GREATEST({feedback_min}, COALESCE(f.feedback_score, 0))) * {feedback_weight}
+                       AS adjusted_score
             FROM oltp_db.content_items c
-            LEFT JOIN oltp_db.ai_analyses a ON a.content_id = c.id
+            LEFT JOIN latest_analysis a ON a.content_id = c.id
+            LEFT JOIN feedback_scores f ON f.content_id = c.id
             WHERE CAST(c.crawled_at AS DATE) >= DATE '{start_date}'
               AND CAST(c.crawled_at AS DATE) <= DATE '{end_date}'
               AND a.curation_score IS NOT NULL
-            ORDER BY COALESCE(a.curation_score, 0) DESC, COALESCE(a.creator_score, 0) DESC
+            ORDER BY adjusted_score DESC, COALESCE(a.creator_score, 0) DESC
         """).fetchall()
 
         return [
@@ -697,6 +713,8 @@ class DuckDBAnalytics:
                 "tags": row[11] or [],
                 "recommendation": row[12] or "",
                 "recommended_reason": row[13] or "",
+                "feedback_score": float(row[14]) if row[14] else 0,
+                "adjusted_score": round(float(row[15] or 0), 1),
             }
             for row in results
         ]

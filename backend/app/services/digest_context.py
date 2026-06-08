@@ -52,11 +52,12 @@ def build_items_text(items: list[dict], limit: int = 25) -> str:
     """Build compact ranked item text for digest prompts."""
     lines = []
     for index, item in enumerate(items[:limit], 1):
+        curation_score = item.get("adjusted_score", item.get("curation_score", 0))
         block = [
             f"{index}. [{item['category']}] {item['title']}",
             (
                 f"   来源: {item['source_name']} | "
-                f"精选:{item['curation_score']:.0f} 创作:{item['creator_score']:.0f} "
+                f"精选:{curation_score:.0f} 创作:{item['creator_score']:.0f} "
                 f"爆文:{item['viral_score']:.0f} 质量:{item['quality_score']:.0f} "
                 f"风险:{item['risk_score']:.0f}"
             ),

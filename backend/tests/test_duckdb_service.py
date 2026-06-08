@@ -394,3 +394,84 @@ def test_today_picks_query_applies_aggregated_feedback(monkeypatch):
     assert rows[1]["adjusted_curation_score"] == 80.0
 
     conn.close()
+
+
+def test_digest_content_query_uses_latest_analysis_and_feedback_order(monkeypatch):
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE SCHEMA oltp_db")
+    conn.execute("""
+        CREATE TABLE oltp_db.content_items (
+            id INTEGER,
+            title VARCHAR,
+            category VARCHAR,
+            source_name VARCHAR,
+            platform VARCHAR,
+            crawled_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.ai_analyses (
+            id INTEGER,
+            content_id INTEGER,
+            summary VARCHAR,
+            creator_score DOUBLE,
+            viral_score DOUBLE,
+            quality_score DOUBLE,
+            risk_score DOUBLE,
+            curation_score DOUBLE,
+            tags VARCHAR,
+            recommendation VARCHAR,
+            recommended_reason VARCHAR,
+            created_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.user_feedback (
+            id INTEGER,
+            content_id INTEGER,
+            user_id INTEGER,
+            score_delta DOUBLE
+        )
+    """)
+
+    now = datetime.utcnow()
+    conn.execute(
+        "INSERT INTO oltp_db.content_items VALUES (1, '反馈后的最新分析', 'AI', '测试信源', 'rss', ?)",
+        [now],
+    )
+    conn.execute(
+        "INSERT INTO oltp_db.content_items VALUES (2, '无反馈样本', 'AI', '测试信源', 'rss', ?)",
+        [now],
+    )
+    conn.execute(
+        "INSERT INTO oltp_db.ai_analyses VALUES (1, 1, '旧摘要', 95, 95, 95, 10, 99, '[\"旧\"]', '旧推荐', '旧理由', ?)",
+        [now - timedelta(hours=2)],
+    )
+    conn.execute(
+        "INSERT INTO oltp_db.ai_analyses VALUES (2, 1, '新摘要', 70, 70, 70, 10, 70, '[\"新\"]', '新推荐', '新理由', ?)",
+        [now - timedelta(hours=1)],
+    )
+    conn.execute(
+        "INSERT INTO oltp_db.ai_analyses VALUES (3, 2, '无反馈摘要', 72, 72, 72, 10, 72, '[\"AI\"]', '推荐', '理由', ?)",
+        [now],
+    )
+    conn.execute("INSERT INTO oltp_db.user_feedback VALUES (1, 1, 1, 20.0)")
+
+    analytics = duckdb_service.DuckDBAnalytics()
+    monkeypatch.setattr(analytics, "_get_conn", lambda: conn)
+
+    rows = analytics.query_content_for_weekly(
+        (now - timedelta(days=1)).date().isoformat(),
+        now.date().isoformat(),
+    )
+
+    assert [row["id"] for row in rows] == [1, 2]
+    assert rows[0]["summary"] == "新摘要"
+    assert rows[0]["curation_score"] == 70.0
+    assert rows[0]["feedback_score"] == 20.0
+    assert rows[0]["adjusted_score"] == 73.0
+    assert rows[0]["recommendation"] == "新推荐"
+    assert rows[1]["curation_score"] == 72.0
+    assert rows[1]["adjusted_score"] == 72.0
+
+    conn.close()

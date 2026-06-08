@@ -75,3 +75,23 @@ async def test_fetch_analyzed_content_expands_window_without_db_fallback(monkeyp
         ("2026-06-01", "2026-06-30"),
         (expanded_start, "2026-06-30"),
     ]
+
+
+def test_build_items_text_prefers_adjusted_score_for_digest_prompt():
+    text = digest_context.build_items_text(
+        [
+            {
+                "title": "反馈提升后的选题",
+                "category": "AI",
+                "source_name": "测试信源",
+                "curation_score": 70,
+                "adjusted_score": 73,
+                "creator_score": 68,
+                "viral_score": 66,
+                "quality_score": 72,
+                "risk_score": 10,
+            }
+        ]
+    )
+
+    assert "精选:73" in text

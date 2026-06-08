@@ -107,6 +107,39 @@ PLATFORM_PROMPTS = {
 }
 
 
+def _normalize_string_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _validate_creation_plan(plan, platform: str) -> dict:
+    if not isinstance(plan, dict):
+        return {"error": "创作方案生成失败：模型返回格式不是 JSON 对象"}
+    if plan.get("error"):
+        return plan
+
+    titles = _normalize_string_list(plan.get("titles"))
+    if not titles:
+        return {"error": "创作方案生成失败：模型未返回可用标题"}
+    plan["titles"] = titles
+
+    if platform == "xiaohongshu":
+        structure = plan.get("structure")
+        if not isinstance(structure, dict) or not _normalize_string_list(structure.get("points")):
+            return {"error": "创作方案生成失败：小红书方案缺少正文结构"}
+    elif platform == "short_video":
+        scenes = plan.get("scenes")
+        if not isinstance(scenes, list) or not scenes:
+            return {"error": "创作方案生成失败：短视频方案缺少镜头脚本"}
+    elif platform == "wechat":
+        outline = plan.get("outline")
+        if not isinstance(outline, list) or not outline:
+            return {"error": "创作方案生成失败：公众号方案缺少文章大纲"}
+
+    return plan
+
+
 async def generate_creation_plan(
     db: AsyncSession,
     content_id: int,
@@ -168,6 +201,7 @@ async def generate_creation_plan(
             call_llm_json(messages, scene="creation_plan", user_id=user_id),
             timeout=settings.CREATION_PLAN_TIMEOUT_SECONDS,
         )
+        plan = _validate_creation_plan(plan, platform)
         if isinstance(plan, dict) and "error" not in plan:
             plan["_meta"] = {
                 "content_id": content_id,

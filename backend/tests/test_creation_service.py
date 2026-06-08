@@ -40,7 +40,7 @@ async def _session_with_analyzed_content():
 
 @pytest.mark.asyncio
 async def test_generate_creation_plan_attaches_meta(monkeypatch):
-    async def fake_call_llm_json(messages, scene):
+    async def fake_call_llm_json(messages, scene, **_kwargs):
         return {
             "titles": ["MCP 让视频工具变了", "Runway 新动作"],
             "cover_slogan": "视频创作新入口",
@@ -64,7 +64,7 @@ async def test_generate_creation_plan_attaches_meta(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_generate_creation_plan_returns_timeout_error(monkeypatch):
-    async def slow_call_llm_json(messages, scene):
+    async def slow_call_llm_json(messages, scene, **_kwargs):
         await asyncio.sleep(1)
         return {"titles": ["too late"]}
 
@@ -77,4 +77,20 @@ async def test_generate_creation_plan_returns_timeout_error(monkeypatch):
 
     assert "error" in plan
     assert "超时" in plan["error"]
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_generate_creation_plan_rejects_incomplete_llm_payload(monkeypatch):
+    async def incomplete_call_llm_json(messages, scene, **_kwargs):
+        return {"titles": ["缺结构"]}
+
+    monkeypatch.setattr(creation, "call_llm_json", incomplete_call_llm_json)
+    engine, session_factory = await _session_with_analyzed_content()
+
+    async with session_factory() as db:
+        plan = await creation.generate_creation_plan(db, 1, "xiaohongshu")
+
+    assert "error" in plan
+    assert "正文结构" in plan["error"]
     await engine.dispose()

@@ -183,7 +183,10 @@ async def test_creation_plan_uses_latest_analysis_prompt_material(monkeypatch):
 
     async def fake_call_llm_json(messages, scene, **_kwargs):
         captured_messages.extend(messages)
-        return {"titles": ["新分析选题"]}
+        return {
+            "titles": ["新分析选题"],
+            "structure": {"hook": "新 hook", "points": ["新观点"], "cta": "互动"},
+        }
 
     monkeypatch.setattr(creation, "call_llm_json", fake_call_llm_json)
     engine, session_factory = await _session_factory()

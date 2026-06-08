@@ -19,6 +19,7 @@ from sqlalchemy import select, update, func, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.database import database_profile
 from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locked
 from app.models.content import ContentItem, ContentStatus
 from app.repositories.analysis_queries import latest_analysis_id_subquery
@@ -149,35 +150,64 @@ class ContentRepo(BaseRepository[ContentItem]):
     ) -> list[int]:
         """Claim pending or stale analysis candidates and return claimed IDs in queue order."""
         async def _claim() -> list[int]:
-            await begin_immediate_for_sqlite(self.db)
-            pending = await self.list_pending_for_analysis(limit=limit, hours=hours)
-            if not pending:
-                return []
+            if database_profile.is_sqlite:
+                await begin_immediate_for_sqlite(self.db)
 
             stale_cutoff = datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES)
             claimed_at = datetime.utcnow()
-            claimed_ids: list[int] = []
-            for item in pending:
-                result = await self.db.execute(
-                    update(self.model)
-                    .where(self.model.id == item.id)
-                    .where(
-                        (self.model.status == ContentStatus.PENDING)
-                        | (
-                            (self.model.status == ContentStatus.ANALYZING)
-                            & (self.model.updated_at <= stale_cutoff)
-                        )
-                        | (
-                            (self.model.status == ContentStatus.ERROR)
-                            & (self.model.updated_at <= stale_cutoff)
-                        )
+            stmt = (
+                select(self.model.id)
+                .where(
+                    (self.model.status == ContentStatus.PENDING)
+                    | (
+                        (self.model.status == ContentStatus.ANALYZING)
+                        & (self.model.updated_at <= stale_cutoff)
                     )
-                    .values(status=ContentStatus.ANALYZING, updated_at=claimed_at)
+                    | (
+                        (self.model.status == ContentStatus.ERROR)
+                        & (self.model.updated_at <= stale_cutoff)
+                    )
                 )
-                if result.rowcount:
-                    claimed_ids.append(int(item.id))
+                .order_by(self.model.crawled_at.desc(), self.model.created_at.desc())
+                .limit(limit)
+            )
+            if hours is not None:
+                stmt = stmt.where(self.model.crawled_at >= datetime.utcnow() - timedelta(hours=hours))
+            if database_profile.is_postgresql:
+                stmt = stmt.with_for_update(skip_locked=True)
+
+            result = await self.db.execute(stmt)
+            pending_ids = [int(row[0]) for row in result.all()]
+            if not pending_ids:
+                return []
+
+            update_result = await self.db.execute(
+                update(self.model)
+                .where(self.model.id.in_(pending_ids))
+                .where(
+                    (self.model.status == ContentStatus.PENDING)
+                    | (
+                        (self.model.status == ContentStatus.ANALYZING)
+                        & (self.model.updated_at <= stale_cutoff)
+                    )
+                    | (
+                        (self.model.status == ContentStatus.ERROR)
+                        & (self.model.updated_at <= stale_cutoff)
+                    )
+                )
+                .values(status=ContentStatus.ANALYZING, updated_at=claimed_at)
+            )
             await self.db.flush()
-            return claimed_ids
+            if update_result.rowcount == len(pending_ids):
+                return pending_ids
+
+            refreshed = await self.db.execute(
+                select(self.model.id)
+                .where(self.model.id.in_(pending_ids))
+                .where(self.model.status == ContentStatus.ANALYZING)
+            )
+            refreshed_ids = {int(row[0]) for row in refreshed.all()}
+            return [content_id for content_id in pending_ids if content_id in refreshed_ids]
 
         return await retry_sqlite_locked(
             _claim,

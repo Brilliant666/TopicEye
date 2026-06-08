@@ -7,6 +7,7 @@ from fastapi import BackgroundTasks
 from sqlalchemy.exc import OperationalError
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.sql.selectable import Select
 
 from app.api.v1 import analyses as analyses_api
 from app.core.database import Base
@@ -174,6 +175,53 @@ async def test_claim_pending_analysis_ids_retries_sqlite_write_lock(monkeypatch)
     assert calls["begin"] == 2
     assert claimed_ids == [1]
     assert content.status == ContentStatus.ANALYZING
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_claim_pending_analysis_ids_uses_skip_locked_for_postgresql(monkeypatch):
+    engine, session_factory = await _session_factory()
+    calls = {"skip_locked": 0}
+
+    class FakeProfile:
+        is_sqlite = False
+        is_postgresql = True
+
+    monkeypatch.setattr("app.repositories.content_repo.database_profile", FakeProfile())
+    original_with_for_update = Select.with_for_update
+
+    def with_for_update_spy(self, *args, **kwargs):
+        if kwargs.get("skip_locked") is True:
+            calls["skip_locked"] += 1
+        return original_with_for_update(self, *args, **kwargs)
+
+    monkeypatch.setattr(Select, "with_for_update", with_for_update_spy)
+
+    async with session_factory() as db:
+        db.add_all([
+            ContentItem(
+                id=1,
+                title="Postgres 并发认领一",
+                url="https://example.com/postgres-claim-1",
+                status=ContentStatus.PENDING,
+                crawled_at=datetime.utcnow(),
+            ),
+            ContentItem(
+                id=2,
+                title="Postgres 并发认领二",
+                url="https://example.com/postgres-claim-2",
+                status=ContentStatus.PENDING,
+                crawled_at=datetime.utcnow() - timedelta(minutes=1),
+            ),
+        ])
+        await db.commit()
+
+        repo = ContentRepo(db)
+        claimed_ids = await repo.claim_pending_analysis_ids(limit=10, hours=24)
+        await db.commit()
+
+    assert calls["skip_locked"] == 1
+    assert claimed_ids == [1, 2]
     await engine.dispose()
 
 

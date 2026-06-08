@@ -99,6 +99,18 @@ function presetDefaultValue(
   return preset?.defaults[field] ?? catalog?.defaults[field];
 }
 
+function parameterMeta(catalog: LlmModelPresetCatalog | null, field: string) {
+  const help = catalog?.parameter_help?.[field];
+  const defaultValue = help?.default ?? catalog?.defaults[field];
+  const parts = [`默认 ${formatPresetValue(defaultValue)}`];
+  if (help?.range?.length === 2) {
+    parts.push(`建议 ${help.range[0]}-${help.range[1]}${help.unit ? ` ${help.unit}` : ''}`);
+  } else if (help?.unit) {
+    parts.push(help.unit);
+  }
+  return parts.join(' · ');
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const { currentUser, authLoading, refreshCounts } = useAppContext();
@@ -725,6 +737,8 @@ export default function ProfilePage() {
                         disabled={!customAiAllowed}
                       />
                       <div className="mt-1 text-[10px] leading-4 text-gray-400">
+                        <span className="font-bold text-gray-500">{parameterMeta(aiCatalog, 'temperature')}</span>
+                        <br />
                         {aiCatalog?.parameter_help?.temperature?.plain || aiCatalog?.help.temperature_tip || '选题分析和摘要建议保持默认。'}
                       </div>
                     </label>
@@ -739,6 +753,8 @@ export default function ProfilePage() {
                         disabled={!customAiAllowed}
                       />
                       <div className="mt-1 text-[10px] leading-4 text-gray-400">
+                        <span className="font-bold text-gray-500">{parameterMeta(aiCatalog, 'max_tokens')}</span>
+                        <br />
                         {aiCatalog?.parameter_help?.max_tokens?.plain || aiCatalog?.help.max_tokens_tip || '控制单次输出长度。'}
                       </div>
                     </label>
@@ -753,6 +769,8 @@ export default function ProfilePage() {
                         disabled={!customAiAllowed}
                       />
                       <div className="mt-1 text-[10px] leading-4 text-gray-400">
+                        <span className="font-bold text-gray-500">{parameterMeta(aiCatalog, 'requests_per_minute')}</span>
+                        <br />
                         {aiCatalog?.parameter_help?.requests_per_minute?.plain || aiCatalog?.help.rpm_tip || '个人 Key 建议从保守上限开始。'}
                       </div>
                     </label>
@@ -767,6 +785,8 @@ export default function ProfilePage() {
                         disabled={!customAiAllowed}
                       />
                       <div className="mt-1 text-[10px] leading-4 text-gray-400">
+                        <span className="font-bold text-gray-500">{parameterMeta(aiCatalog, 'cooldown_seconds')}</span>
+                        <br />
                         {aiCatalog?.parameter_help?.cooldown_seconds?.plain || aiCatalog?.help.cooldown_tip || '失败后暂停一段时间再重试。'}
                       </div>
                     </label>

@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import asyncio
 
 import pytest
 
@@ -80,3 +81,57 @@ async def test_call_llm_requires_enabled_db_route_models(monkeypatch):
 
     with pytest.raises(RuntimeError, match="No enabled LLM route models configured"):
         await provider.call_llm([{"role": "user", "content": "hello"}])
+
+
+@pytest.mark.asyncio
+async def test_llm_completion_calls_are_globally_bounded(monkeypatch):
+    provider.reset_completion_semaphore()
+    active = 0
+    max_active = 0
+    lock = asyncio.Lock()
+
+    class FakeMessage:
+        content = "{}"
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeResponse:
+        choices = [FakeChoice()]
+
+    async def fake_to_thread(func, **kwargs):
+        nonlocal active, max_active
+        async with lock:
+            active += 1
+            max_active = max(max_active, active)
+        await asyncio.sleep(0.03)
+        async with lock:
+            active -= 1
+        return FakeResponse()
+
+    async def fake_record_llm_call_in_new_session(**kwargs):
+        return None
+
+    monkeypatch.setattr(provider.settings, "LLM_WORKER_CONCURRENCY", 2)
+    monkeypatch.setattr(provider.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(provider, "record_llm_call_in_new_session", fake_record_llm_call_in_new_session)
+
+    try:
+        await asyncio.gather(*[
+            provider._call_llm_single(
+                [{"role": "user", "content": f"hello {index}"}],
+                "openai/test",
+                "test-key",
+                "https://example.test/v1",
+                0.2,
+                100,
+                None,
+                None,
+                "test",
+            )
+            for index in range(5)
+        ])
+
+        assert max_active == 2
+    finally:
+        provider.reset_completion_semaphore()

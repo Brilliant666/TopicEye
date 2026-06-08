@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     # ── Rate limiting ──
     LLM_REQUESTS_PER_MINUTE: int = 60
     LLM_TOKENS_PER_MINUTE: int = 100000
+    LLM_WORKER_CONCURRENCY: int = 4
     ANALYSIS_WORKER_CONCURRENCY: int = 3
     CLASSIFICATION_WORKER_CONCURRENCY: int = 3
 

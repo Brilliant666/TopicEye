@@ -222,6 +222,29 @@ _rate_limiter = RateLimiter(
     max_requests=settings.LLM_REQUESTS_PER_MINUTE,
     window_seconds=60,
 )
+_completion_semaphore: Optional[asyncio.Semaphore] = None
+
+
+def _normalize_llm_concurrency(value: Any = None) -> int:
+    try:
+        parsed = int(value if value is not None else settings.LLM_WORKER_CONCURRENCY)
+    except (TypeError, ValueError):
+        parsed = 1
+    return max(1, min(parsed, 20))
+
+
+def _get_completion_semaphore() -> asyncio.Semaphore:
+    global _completion_semaphore
+    limit = _normalize_llm_concurrency()
+    if _completion_semaphore is None:
+        _completion_semaphore = asyncio.Semaphore(limit)
+    return _completion_semaphore
+
+
+def reset_completion_semaphore() -> None:
+    """Reset the global LLM completion concurrency gate after config changes/tests."""
+    global _completion_semaphore
+    _completion_semaphore = None
 
 
 # ── LLM call wrapper ──────────────────────────────────────────────────
@@ -291,7 +314,8 @@ async def _call_llm_single(
 
     start = time.monotonic()
     try:
-        response = await asyncio.to_thread(completion, **kwargs)
+        async with _get_completion_semaphore():
+            response = await asyncio.to_thread(completion, **kwargs)
         duration_ms = int((time.monotonic() - start) * 1000)
         content = response.choices[0].message.content
         await record_llm_call_in_new_session(

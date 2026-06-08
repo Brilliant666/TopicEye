@@ -8,6 +8,7 @@ from app.core.database import Base
 from app.models.content import ContentItem, ContentStatus
 from app.models.feedback import UserFeedback
 from app.schemas.feedback import FeedbackCreate
+from app.services.duckdb_service import LATEST_FEEDBACK_SCORES_CTE
 from app.services.feedback_signal import get_feedback_scores
 
 
@@ -20,6 +21,46 @@ def feedback_content(content_id: int = 1) -> ContentItem:
         source_type="RSS",
         status=ContentStatus.ANALYZED,
     )
+
+
+def test_duckdb_feedback_scores_use_latest_per_user_votes():
+    assert "PARTITION BY f.content_id, f.user_id" in LATEST_FEEDBACK_SCORES_CTE
+    assert "ORDER BY f.created_at DESC, f.id DESC" in LATEST_FEEDBACK_SCORES_CTE
+    assert "WHERE feedback_rank = 1" in LATEST_FEEDBACK_SCORES_CTE
+
+
+def test_duckdb_feedback_scores_cte_executes_latest_per_user_votes():
+    import duckdb
+
+    conn = duckdb.connect(":memory:")
+    try:
+        conn.execute("CREATE SCHEMA oltp_db")
+        conn.execute("""
+            CREATE TABLE oltp_db.user_feedback (
+                id INTEGER,
+                content_id INTEGER,
+                user_id INTEGER,
+                score_delta DOUBLE,
+                created_at TIMESTAMP
+            )
+        """)
+        conn.execute("""
+            INSERT INTO oltp_db.user_feedback VALUES
+                (1, 1, 1, 20.0, '2026-01-01 00:00:00'),
+                (2, 1, 1, -20.0, '2026-01-02 00:00:00'),
+                (3, 1, 2, 10.0, '2026-01-01 00:00:00')
+        """)
+
+        score = conn.execute(f"""
+            WITH {LATEST_FEEDBACK_SCORES_CTE}
+            SELECT feedback_score
+            FROM feedback_scores
+            WHERE content_id = 1
+        """).fetchone()[0]
+    finally:
+        conn.close()
+
+    assert score == -10.0
 
 
 @pytest.mark.asyncio

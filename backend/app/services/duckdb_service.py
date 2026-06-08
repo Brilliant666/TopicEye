@@ -53,6 +53,29 @@ latest_analysis AS (
 )
 """
 
+LATEST_FEEDBACK_SCORES_CTE = """
+latest_user_feedback AS (
+    SELECT *
+    FROM (
+        SELECT
+            f.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY f.content_id, f.user_id
+                ORDER BY f.created_at DESC, f.id DESC
+            ) AS feedback_rank
+        FROM oltp_db.user_feedback f
+    )
+    WHERE feedback_rank = 1
+),
+feedback_scores AS (
+    SELECT
+        content_id,
+        SUM(score_delta) AS feedback_score
+    FROM latest_user_feedback
+    GROUP BY content_id
+)
+"""
+
 # ── DuckDB Analytics singleton ─────────────────────────────────────────
 
 class DuckDBAnalytics:
@@ -175,13 +198,7 @@ class DuckDBAnalytics:
 
         results = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},
-            feedback_scores AS (
-                SELECT
-                    content_id,
-                    SUM(score_delta) AS feedback_score
-                FROM oltp_db.user_feedback
-                GROUP BY content_id
-            )
+            {LATEST_FEEDBACK_SCORES_CTE}
             SELECT
                 c.id, c.title, c.url, c.source_id, c.source_name, c.source_type,
                 c.platform, c.author,
@@ -348,13 +365,7 @@ class DuckDBAnalytics:
         cutoff = (datetime.utcnow() - window).isoformat()
         rows = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},
-            feedback_scores AS (
-                SELECT
-                    content_id,
-                    SUM(score_delta) AS feedback_score
-                FROM oltp_db.user_feedback
-                GROUP BY content_id
-            )
+            {LATEST_FEEDBACK_SCORES_CTE}
             SELECT
                 c.id,
                 c.source_id,
@@ -813,13 +824,7 @@ class DuckDBAnalytics:
 
         results = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},
-            feedback_scores AS (
-                SELECT
-                    content_id,
-                    SUM(score_delta) AS feedback_score
-                FROM oltp_db.user_feedback
-                GROUP BY content_id
-            )
+            {LATEST_FEEDBACK_SCORES_CTE}
             SELECT c.id, c.title, c.category, c.source_name, c.platform,
                    a.summary, a.creator_score, a.viral_score, a.quality_score,
                    a.risk_score, a.curation_score, a.tags, a.recommendation,

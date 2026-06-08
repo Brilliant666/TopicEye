@@ -471,6 +471,11 @@ async def test_weread_sync_imports_materials_and_deduplicates(monkeypatch):
 
     monkeypatch.setattr(settings, "WEREAD_SKILL_API_URL", "http://127.0.0.1:9999/weread")
     monkeypatch.setattr(weread_materials, "fetch_weread_materials", fake_fetch)
+    post_sync_requests = []
+    monkeypatch.setattr(
+        "app.scheduler._request_post_sync_pipeline",
+        lambda stats: post_sync_requests.append(stats) or True,
+    )
     invalidate_source_list_cache()
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -498,6 +503,7 @@ async def test_weread_sync_imports_materials_and_deduplicates(monkeypatch):
         assert first.new == 2
         assert first.duplicates == 0
         assert first.source_name == "微信读书素材"
+        assert post_sync_requests == [{"new": 2}]
         assert get_cached_source_list(source_cache_params, ttl_seconds=settings.READ_CACHE_TTL_SECONDS) is None
 
         source = await db.scalar(select(Source).where(Source.name == "微信读书素材"))
@@ -520,6 +526,7 @@ async def test_weread_sync_imports_materials_and_deduplicates(monkeypatch):
         assert second.fetched == 2
         assert second.new == 0
         assert second.duplicates == 2
+        assert post_sync_requests == [{"new": 2}]
 
         status = await get_weread_integration(user, db)
         assert status["last_sync_status"] == "success"

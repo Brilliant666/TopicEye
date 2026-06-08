@@ -200,6 +200,8 @@ async def sync_weread_materials(
         invalidate_source_read_caches()
         if new:
             invalidate_content_read_caches()
+            from app.scheduler import _request_post_sync_pipeline
+            _request_post_sync_pipeline({"new": new})
         return {
             "fetched": fetched,
             "new": new,

@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_admin_user, get_current_user
 from app.core.config import settings
-from app.core.database import get_db
+from app.core.database import async_session, database_profile, get_db
 from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locked
 from app.models.llm_model import LlmCallLog, LlmModel, ModelEvaluation
 from app.models.user import User
@@ -95,6 +95,14 @@ def _resolve_litellm_model(model: LlmModel) -> str:
 def _missing_explicit_api_key(model: LlmModel) -> bool:
     """OpenAI-compatible custom endpoints need an explicit key in this app."""
     return bool(model.api_base) and not bool(model.api_key)
+
+
+def _normalize_evaluation_concurrency(value: Optional[int] = None) -> int:
+    try:
+        parsed = int(value if value is not None else settings.LLM_WORKER_CONCURRENCY)
+    except (TypeError, ValueError):
+        parsed = 1
+    return max(1, min(parsed, 8))
 
 
 def _normalize_optional_config_value(value):
@@ -270,7 +278,8 @@ class ScoreRequest(BaseModel):
 
 async def _retry_write(db: AsyncSession, operation):
     async def _wrapped():
-        await begin_immediate_for_sqlite(db)
+        if database_profile.is_sqlite and not db.in_transaction():
+            await begin_immediate_for_sqlite(db)
         return await operation()
 
     return await retry_sqlite_locked(_wrapped, on_retry=db.rollback)
@@ -862,11 +871,107 @@ EVAL_PROMPTS = {
 }
 
 
+async def _run_one_evaluation(
+    *,
+    model,
+    eval_id: int,
+    prompt_type: str,
+    prompt_text: str,
+    write_lock: Optional[asyncio.Lock] = None,
+) -> None:
+    from litellm import completion
+
+    async def _run_db_write(operation):
+        if write_lock is None:
+            return await operation()
+        async with write_lock:
+            return await operation()
+
+    if _missing_explicit_api_key(model):
+        async def _write_missing_key():
+            async with async_session() as eval_db:
+                async def _mark_missing_key():
+                    result = await eval_db.execute(select(ModelEvaluation).where(ModelEvaluation.id == eval_id))
+                    current = result.scalar_one()
+                    current.status = "FAILED"
+                    current.error_message = "模型配置缺少 API Key，请在模型配置中补充后再测评。"
+                    await eval_db.flush()
+
+                await _retry_write(eval_db, _mark_missing_key)
+                await eval_db.commit()
+        await _run_db_write(_write_missing_key)
+        return
+
+    resolved_model = _resolve_litellm_model(model)
+    kwargs = _completion_kwargs(
+        model,
+        resolved_model,
+        [{"role": "user", "content": prompt_text}],
+        temperature=model.temperature,
+        max_tokens=model.max_tokens,
+    )
+
+    start = time.monotonic()
+    try:
+        response = await asyncio.to_thread(completion, **kwargs)
+        duration_ms = int((time.monotonic() - start) * 1000)
+        content = response.choices[0].message.content or ""
+        usage = extract_usage(response)
+
+        async def _write_done():
+            async with async_session() as eval_db:
+                async def _mark_done():
+                    result = await eval_db.execute(select(ModelEvaluation).where(ModelEvaluation.id == eval_id))
+                    current = result.scalar_one()
+                    current.status = "DONE"
+                    current.response_text = content
+                    current.duration_ms = duration_ms
+                    current.tokens_input = usage.input_tokens
+                    current.tokens_output = usage.output_tokens
+                    current.auto_score = _auto_score_response(content)
+                    await eval_db.flush()
+
+                await _retry_write(eval_db, _mark_done)
+                await eval_db.commit()
+        await _run_db_write(_write_done)
+        await record_llm_call_in_new_session(
+            model=model,
+            request_model=resolved_model,
+            scene=f"evaluation:{prompt_type}",
+            status="DONE",
+            duration_ms=duration_ms,
+            usage=usage,
+        )
+    except Exception as e:
+        duration_ms = int((time.monotonic() - start) * 1000)
+        error_message = str(e)
+
+        async def _write_failed():
+            async with async_session() as eval_db:
+                async def _mark_failed():
+                    result = await eval_db.execute(select(ModelEvaluation).where(ModelEvaluation.id == eval_id))
+                    current = result.scalar_one()
+                    current.status = "FAILED"
+                    current.error_message = error_message[:2000]
+                    current.duration_ms = duration_ms
+                    await eval_db.flush()
+
+                await _retry_write(eval_db, _mark_failed)
+                await eval_db.commit()
+        await _run_db_write(_write_failed)
+        await record_llm_call_in_new_session(
+            model=model,
+            request_model=resolved_model,
+            scene=f"evaluation:{prompt_type}",
+            status="FAILED",
+            duration_ms=duration_ms,
+            error_message=error_message,
+        )
+
+
 @router.post("/evaluations/run", dependencies=[Depends(get_current_admin_user)])
 async def run_evaluation(req: EvalRunRequest, db: AsyncSession = Depends(get_db)):
     """Run an A/B evaluation across selected models with the same prompt."""
-    from litellm import completion
-
     # Fetch models
     result = await db.execute(
         select(LlmModel).where(
@@ -911,94 +1016,31 @@ async def run_evaluation(req: EvalRunRequest, db: AsyncSession = Depends(get_db)
     await _retry_write(db, _create_records)
     await db.commit()
 
-    # Run each model sequentially (avoid rate limits)
-    for model, eval_record in evaluations:
-        async def _mark_running():
+    async def _mark_all_running():
+        for _model, eval_record in evaluations:
             result = await db.execute(select(ModelEvaluation).where(ModelEvaluation.id == eval_record.id))
             current = result.scalar_one()
             current.status = "RUNNING"
-            await db.flush()
+        await db.flush()
 
-        await _retry_write(db, _mark_running)
-        await db.commit()
+    await _retry_write(db, _mark_all_running)
+    await db.commit()
 
-        if _missing_explicit_api_key(model):
-            async def _mark_missing_key():
-                result = await db.execute(select(ModelEvaluation).where(ModelEvaluation.id == eval_record.id))
-                current = result.scalar_one()
-                current.status = "FAILED"
-                current.error_message = "模型配置缺少 API Key，请在模型配置中补充后再测评。"
-                await db.flush()
+    concurrency = min(_normalize_evaluation_concurrency(), len(evaluations))
+    semaphore = asyncio.Semaphore(concurrency)
+    write_lock = asyncio.Lock()
 
-            await _retry_write(db, _mark_missing_key)
-            await db.commit()
-            await asyncio.sleep(0.1)
-            continue
-
-        resolved_model = _resolve_litellm_model(model)
-
-        kwargs = _completion_kwargs(
-            model,
-            resolved_model,
-            [{"role": "user", "content": prompt_text}],
-            temperature=model.temperature,
-            max_tokens=model.max_tokens,
-        )
-
-        start = time.monotonic()
-        try:
-            response = await asyncio.to_thread(completion, **kwargs)
-            duration_ms = int((time.monotonic() - start) * 1000)
-            content = response.choices[0].message.content or ""
-            usage = extract_usage(response)
-
-            async def _mark_done():
-                result = await db.execute(select(ModelEvaluation).where(ModelEvaluation.id == eval_record.id))
-                current = result.scalar_one()
-                current.status = "DONE"
-                current.response_text = content
-                current.duration_ms = duration_ms
-                current.tokens_input = usage.input_tokens
-                current.tokens_output = usage.output_tokens
-                current.auto_score = _auto_score_response(content)
-                await db.flush()
-
-            await _retry_write(db, _mark_done)
-            await db.commit()
-            await record_llm_call_in_new_session(
+    async def _run_with_limit(model, eval_record):
+        async with semaphore:
+            await _run_one_evaluation(
                 model=model,
-                request_model=resolved_model,
-                scene=f"evaluation:{req.prompt_type}",
-                status="DONE",
-                duration_ms=duration_ms,
-                usage=usage,
+                eval_id=eval_record.id,
+                prompt_type=req.prompt_type,
+                prompt_text=prompt_text,
+                write_lock=write_lock,
             )
 
-        except Exception as e:
-            duration_ms = int((time.monotonic() - start) * 1000)
-            error_message = str(e)
-
-            async def _mark_failed():
-                result = await db.execute(select(ModelEvaluation).where(ModelEvaluation.id == eval_record.id))
-                current = result.scalar_one()
-                current.status = "FAILED"
-                current.error_message = error_message[:2000]
-                current.duration_ms = duration_ms
-                await db.flush()
-
-            await _retry_write(db, _mark_failed)
-            await db.commit()
-            await record_llm_call_in_new_session(
-                model=model,
-                request_model=resolved_model,
-                scene=f"evaluation:{req.prompt_type}",
-                status="FAILED",
-                duration_ms=duration_ms,
-                error_message=error_message,
-            )
-
-        # Rate limit between models
-        await asyncio.sleep(1.5)
+    await asyncio.gather(*(_run_with_limit(model, eval_record) for model, eval_record in evaluations))
 
     return {
         "eval_run_id": eval_run_id,

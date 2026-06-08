@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from typing import AsyncGenerator
+import threading
 
 import httpx
 import pytest
@@ -22,7 +23,7 @@ from app.api.v1.llm_models import (
 from app.api.v1 import auth as auth_api
 from app.api.v1 import llm_models as llm_models_api
 from app.core.database import Base
-from app.models.llm_model import LlmModel
+from app.models.llm_model import LlmModel, ModelEvaluation
 from app.services.auth_service import create_session, create_user
 from app.services.llm.provider import ModelConfigCache
 from app.services.llm.presets import apply_model_preset, list_model_presets
@@ -365,3 +366,66 @@ async def test_model_config_cache_prefers_user_models_then_system_fallback(llm_m
     models = await cache.get_route_models(user_id=user_id)
 
     assert [model.name for model in models] == ["User Model", "System Model"]
+
+
+@pytest.mark.asyncio
+async def test_evaluation_run_executes_models_with_bounded_concurrency(llm_model_client, monkeypatch):
+    client, _free_token, _pro_token, admin_token, session_factory = llm_model_client
+    monkeypatch.setattr(llm_models_api, "async_session", session_factory)
+    monkeypatch.setattr(llm_models_api.settings, "LLM_WORKER_CONCURRENCY", 2)
+
+    async with session_factory() as db:
+        db.add(
+            LlmModel(
+                name="Second System Model",
+                provider="openai",
+                model_id="gpt-test-2",
+                api_key="system-key-2",
+                enabled=True,
+            )
+        )
+        await db.commit()
+        result = await db.execute(select(LlmModel.id).where(LlmModel.owner_user_id.is_(None)).order_by(LlmModel.id))
+        model_ids = [row[0] for row in result.all()]
+
+    active = 0
+    max_active = 0
+    lock = threading.Lock()
+    both_started = threading.Event()
+    release = threading.Event()
+
+    def fake_completion(**_kwargs):
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+            if active >= 2:
+                both_started.set()
+        assert both_started.wait(2)
+        release.set()
+        with lock:
+            active -= 1
+        return SimpleNamespace(
+            model="fake-model",
+            choices=[SimpleNamespace(message=SimpleNamespace(content='{"summary":"ok","tags":["a"]}'))],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+
+    monkeypatch.setattr("litellm.completion", fake_completion)
+
+    response = await client.post(
+        "/models/evaluations/run",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"model_ids": model_ids, "prompt_type": "analysis"},
+    )
+
+    assert response.status_code == 200
+    assert max_active == 2
+    assert release.is_set()
+
+    async with session_factory() as db:
+        result = await db.execute(select(ModelEvaluation).order_by(ModelEvaluation.model_id))
+        rows = result.scalars().all()
+
+    assert [row.status for row in rows] == ["DONE", "DONE"]
+    assert all(row.response_text for row in rows)

@@ -813,20 +813,52 @@ async def test_post_sync_pipeline_request_only_when_new_content(monkeypatch):
     created = []
 
     async def fake_pipeline():
-        return None
+        await asyncio.Event().wait()
 
     class FakeLoop:
         def create_task(self, coroutine):
-            created.append(coroutine)
-            coroutine.close()
+            task = asyncio.create_task(coroutine)
+            created.append(task)
+            return task
 
+    scheduler_module._post_sync_task = None
+    scheduler_module._post_sync_rerun_requested = False
     monkeypatch.setattr(scheduler_module, "_run_post_sync_pipeline", fake_pipeline)
     monkeypatch.setattr(scheduler_module.asyncio, "get_running_loop", lambda: FakeLoop())
 
     assert scheduler_module._request_post_sync_pipeline({"new": 0}) is False
     assert scheduler_module._request_post_sync_pipeline({"new": "bad"}) is False
     assert scheduler_module._request_post_sync_pipeline({"new": 2}) is True
+    assert scheduler_module._request_post_sync_pipeline({"new": 3}) is True
     assert len(created) == 1
+    assert scheduler_module._post_sync_rerun_requested is True
+
+    created[0].cancel()
+    await asyncio.gather(created[0], return_exceptions=True)
+    scheduler_module._post_sync_task = None
+    scheduler_module._post_sync_rerun_requested = False
+
+
+@pytest.mark.asyncio
+async def test_post_sync_pipeline_task_reference_clears_when_done(monkeypatch):
+    async def fake_pipeline():
+        return None
+
+    class FakeLoop:
+        def create_task(self, coroutine):
+            return asyncio.create_task(coroutine)
+
+    scheduler_module._post_sync_task = None
+    scheduler_module._post_sync_rerun_requested = False
+    monkeypatch.setattr(scheduler_module, "_run_post_sync_pipeline", fake_pipeline)
+    monkeypatch.setattr(scheduler_module.asyncio, "get_running_loop", lambda: FakeLoop())
+
+    assert scheduler_module._request_post_sync_pipeline({"new": 1}) is True
+    assert scheduler_module._post_sync_task is not None
+    await scheduler_module._post_sync_task
+    await asyncio.sleep(0)
+
+    assert scheduler_module._post_sync_task is None
 
 
 @pytest.mark.asyncio

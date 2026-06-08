@@ -42,6 +42,7 @@ POST_SYNC_ANALYSIS_TIME_BUDGET_SECONDS = 520
 POST_SYNC_MIN_REMAINING_SECONDS = 90
 _sync_semaphore: Optional[asyncio.Semaphore] = None
 _post_sync_lock: Optional[asyncio.Lock] = None
+_post_sync_task: Optional[asyncio.Task] = None
 _post_sync_rerun_requested = False
 
 
@@ -180,6 +181,8 @@ async def _sync_single_source(source_id: int) -> None:
 
 def _request_post_sync_pipeline(stats: Optional[dict] = None) -> bool:
     """Request shared post-sync work after a source sync produced new content."""
+    global _post_sync_task, _post_sync_rerun_requested
+
     try:
         if not stats or int(stats.get("new", 0) or 0) <= 0:
             return False
@@ -192,9 +195,33 @@ def _request_post_sync_pipeline(stats: Optional[dict] = None) -> bool:
         logger.warning("Scheduler: could not request post-sync pipeline (no running loop)")
         return False
 
-    loop.create_task(_run_post_sync_pipeline())
+    lock = _get_post_sync_lock()
+    if (_post_sync_task is not None and not _post_sync_task.done()) or lock.locked():
+        _post_sync_rerun_requested = True
+        logger.info(
+            "Scheduler: post-sync pipeline already active; coalesced request for %d new items",
+            int(stats.get("new", 0) or 0),
+        )
+        return True
+
+    _post_sync_task = loop.create_task(_run_post_sync_pipeline())
+    _post_sync_task.add_done_callback(_clear_post_sync_task)
     logger.info("Scheduler: requested post-sync pipeline for %d new items", int(stats.get("new", 0) or 0))
     return True
+
+
+def _clear_post_sync_task(task: asyncio.Task) -> None:
+    """Clear the ad-hoc post-sync task reference and surface unexpected failures."""
+    global _post_sync_task
+    if _post_sync_task is task:
+        _post_sync_task = None
+    if task.cancelled():
+        logger.warning("Scheduler: ad-hoc post-sync pipeline task was cancelled")
+        return
+    try:
+        task.result()
+    except Exception:
+        logger.exception("Scheduler: ad-hoc post-sync pipeline task failed")
 
 
 @track_job("post_sync_pipeline", name="同步后分析聚合", timeout=600,

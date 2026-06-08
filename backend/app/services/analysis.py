@@ -10,12 +10,15 @@ from __future__ import annotations
 import json
 import logging
 import re
+import asyncio
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.database import async_session
 from app.core.sqlite_retry import is_sqlite_locked, retry_sqlite_locked
 from app.models.content import ContentItem, ContentStatus
 from app.models.analysis import AiAnalysis
@@ -260,59 +263,101 @@ async def analyze_batch(
     items = result.scalars().all()
 
     for item in items:
-        content_id = item.id
-        try:
-            async def _mark_analyzing() -> bool:
-                result = await db.execute(
-                    update(ContentItem)
-                    .where(ContentItem.id == content_id)
-                    .where(
-                        (ContentItem.status == ContentStatus.PENDING)
-                        | (
-                            (ContentItem.status == ContentStatus.ANALYZING)
-                            & (ContentItem.updated_at <= stale_cutoff)
-                        )
-                    )
-                    .values(status=ContentStatus.ANALYZING, updated_at=datetime.utcnow())
-                )
-                await db.commit()
-                return result.rowcount > 0
-
-            claimed = await retry_sqlite_locked(
-                _mark_analyzing,
-                attempts=3,
-                base_delay=0.1,
-                on_retry=db.rollback,
-            )
-            if not claimed:
-                logger.info("Skipped analysis for content id=%d: already claimed or no longer stale", content_id)
-                continue
-
-            content = await db.get(ContentItem, content_id)
-            if content is None:
-                continue
-
-            analysis = await analyze_content(content, db)
+        analysis = await analyze_one_claimed(item.id, db)
+        if analysis is not None:
             results.append(analysis)
-            await db.commit()
-        except Exception as e:
-            await db.rollback()
-            if is_sqlite_locked(e):
-                logger.warning("Skipped analysis for content id=%d: database is locked", content_id)
-                continue
-
-            logger.error("Failed to analyze content id=%d: %s", content_id, e)
-            try:
-                content = await db.get(ContentItem, content_id)
-                if content is not None:
-                    content.status = ContentStatus.ERROR
-                    await db.commit()
-            except Exception as status_error:
-                await db.rollback()
-                logger.warning(
-                    "Failed to mark content id=%d as error after analysis failure: %s",
-                    content_id,
-                    status_error,
-                )
 
     return results
+
+
+async def analyze_batch_concurrent(
+    content_ids: list[int],
+    *,
+    concurrency: Optional[int] = None,
+    session_factory: Callable[[], Any] = async_session,
+) -> list[AiAnalysis]:
+    """Analyze multiple content items with bounded concurrency.
+
+    Each worker owns its own database session. This keeps SQLAlchemy sessions
+    out of shared concurrent use while LLM calls can overlap.
+    """
+    if not content_ids:
+        return []
+
+    limit = _normalize_analysis_concurrency(concurrency)
+    semaphore = asyncio.Semaphore(limit)
+
+    async def _run_one(content_id: int) -> Optional[AiAnalysis]:
+        async with semaphore:
+            async with session_factory() as db:
+                return await analyze_one_claimed(content_id, db)
+
+    analyses = await asyncio.gather(*(_run_one(content_id) for content_id in content_ids))
+    return [item for item in analyses if item is not None]
+
+
+async def analyze_one_claimed(content_id: int, db: AsyncSession) -> Optional[AiAnalysis]:
+    """Claim and analyze one pending or stale analyzing item."""
+    stale_cutoff = datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES)
+    try:
+        async def _mark_analyzing() -> bool:
+            result = await db.execute(
+                update(ContentItem)
+                .where(ContentItem.id == content_id)
+                .where(
+                    (ContentItem.status == ContentStatus.PENDING)
+                    | (
+                        (ContentItem.status == ContentStatus.ANALYZING)
+                        & (ContentItem.updated_at <= stale_cutoff)
+                    )
+                )
+                .values(status=ContentStatus.ANALYZING, updated_at=datetime.utcnow())
+            )
+            await db.commit()
+            return result.rowcount > 0
+
+        claimed = await retry_sqlite_locked(
+            _mark_analyzing,
+            attempts=3,
+            base_delay=0.1,
+            on_retry=db.rollback,
+        )
+        if not claimed:
+            logger.info("Skipped analysis for content id=%d: already claimed or no longer stale", content_id)
+            return None
+
+        content = await db.get(ContentItem, content_id)
+        if content is None:
+            return None
+
+        analysis = await analyze_content(content, db)
+        await db.commit()
+        return analysis
+    except Exception as e:
+        await db.rollback()
+        if is_sqlite_locked(e):
+            logger.warning("Skipped analysis for content id=%d: database is locked", content_id)
+            return None
+
+        logger.error("Failed to analyze content id=%d: %s", content_id, e)
+        try:
+            content = await db.get(ContentItem, content_id)
+            if content is not None:
+                content.status = ContentStatus.ERROR
+                await db.commit()
+        except Exception as status_error:
+            await db.rollback()
+            logger.warning(
+                "Failed to mark content id=%d as error after analysis failure: %s",
+                content_id,
+                status_error,
+            )
+        return None
+
+
+def _normalize_analysis_concurrency(value: Optional[int]) -> int:
+    try:
+        parsed = int(value if value is not None else settings.ANALYSIS_WORKER_CONCURRENCY)
+    except (TypeError, ValueError):
+        parsed = 1
+    return max(1, min(parsed, 10))

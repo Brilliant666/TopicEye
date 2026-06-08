@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from types import SimpleNamespace
+import asyncio
 
 import pytest
 from fastapi import BackgroundTasks
@@ -17,6 +18,7 @@ from app.models.source import Source  # noqa: F401
 from app.models.topic import TopicGroup  # noqa: F401
 from app.repositories.content_repo import ANALYSIS_STALE_MINUTES, ContentRepo
 from app.services import analysis
+from app import scheduler as scheduler_module
 
 
 async def _session_factory():
@@ -343,6 +345,163 @@ async def test_analyze_batch_skips_sqlite_locked_item_without_crashing(monkeypat
 
     assert results == []
     assert stored_content.status == ContentStatus.PENDING
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_analyze_batch_concurrent_runs_items_in_parallel(monkeypatch):
+    engine, session_factory = await _session_factory()
+    active = 0
+    max_active = 0
+    lock = asyncio.Lock()
+
+    async def fake_analyze_content(content, db):
+        nonlocal active, max_active
+        async with lock:
+            active += 1
+            max_active = max(max_active, active)
+        await asyncio.sleep(0.05)
+        async with lock:
+            active -= 1
+
+        analysis_record = AiAnalysis(
+            content_id=content.id,
+            summary="已分析",
+            curation_score=60,
+            quality_score=60,
+            hot_score=60,
+            freshness_score=60,
+            creator_score=60,
+            viral_score=60,
+            risk_score=20,
+        )
+        db.add(analysis_record)
+        content.status = ContentStatus.ANALYZED
+        await db.flush()
+        return analysis_record
+
+    monkeypatch.setattr(analysis, "analyze_content", fake_analyze_content)
+
+    async with session_factory() as db:
+        db.add_all([
+            ContentItem(
+                id=item_id,
+                title=f"并发分析内容 {item_id}",
+                url=f"https://example.com/concurrent-{item_id}",
+                status=ContentStatus.PENDING,
+                raw_content="用于验证并发分析 worker 不共享 session，且 LLM 调用可以重叠执行。",
+            )
+            for item_id in range(1, 5)
+        ])
+        await db.commit()
+
+    results = await analysis.analyze_batch_concurrent(
+        [1, 2, 3, 4],
+        concurrency=2,
+        session_factory=session_factory,
+    )
+
+    async with session_factory() as db:
+        statuses = {
+            item.id: item.status
+            for item in (await db.execute(select(ContentItem))).scalars().all()
+        }
+
+    assert [item.content_id for item in results] == [1, 2, 3, 4]
+    assert max_active == 2
+    assert statuses == {
+        1: ContentStatus.ANALYZED,
+        2: ContentStatus.ANALYZED,
+        3: ContentStatus.ANALYZED,
+        4: ContentStatus.ANALYZED,
+    }
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_post_sync_drain_processes_backlog_and_stale_analyzing(monkeypatch):
+    engine, session_factory = await _session_factory()
+    now = datetime.utcnow()
+
+    monkeypatch.setattr(scheduler_module, "async_session", session_factory)
+
+    async def fake_analyze_batch(content_ids):
+        results = []
+        async with session_factory() as db:
+            for content_id in content_ids:
+                content = await db.get(ContentItem, content_id)
+                if content is None:
+                    continue
+                analysis_record = AiAnalysis(
+                    content_id=content.id,
+                    summary="已分析",
+                    curation_score=60,
+                    quality_score=60,
+                    hot_score=60,
+                    freshness_score=60,
+                    creator_score=60,
+                    viral_score=60,
+                    risk_score=20,
+                )
+                db.add(analysis_record)
+                content.status = ContentStatus.ANALYZED
+                await db.flush()
+                results.append(analysis_record)
+            await db.commit()
+        return results
+
+    monkeypatch.setattr(scheduler_module, "analyze_batch_concurrent", fake_analyze_batch)
+
+    async with session_factory() as db:
+        db.add_all([
+            ContentItem(
+                id=1,
+                title="最新待分析一",
+                url="https://example.com/pending-1",
+                status=ContentStatus.PENDING,
+                crawled_at=now,
+            ),
+            ContentItem(
+                id=2,
+                title="最新待分析二",
+                url="https://example.com/pending-2",
+                status=ContentStatus.PENDING,
+                crawled_at=now - timedelta(minutes=1),
+            ),
+            ContentItem(
+                id=3,
+                title="超时分析中内容",
+                url="https://example.com/stale-analyzing",
+                status=ContentStatus.ANALYZING,
+                crawled_at=now - timedelta(minutes=2),
+                updated_at=now - timedelta(minutes=ANALYSIS_STALE_MINUTES + 1),
+            ),
+        ])
+        await db.commit()
+
+    stats = await scheduler_module._drain_pending_analysis(
+        batch_size=2,
+        time_budget_seconds=120,
+    )
+
+    async with session_factory() as db:
+        statuses = {
+            item.id: item.status
+            for item in (await db.execute(select(ContentItem))).scalars().all()
+        }
+
+    assert stats == {
+        "attempted": 3,
+        "analyzed": 3,
+        "batches": 2,
+        "remaining": False,
+        "stop_reason": "no_pending",
+    }
+    assert statuses == {
+        1: ContentStatus.ANALYZED,
+        2: ContentStatus.ANALYZED,
+        3: ContentStatus.ANALYZED,
+    }
     await engine.dispose()
 
 

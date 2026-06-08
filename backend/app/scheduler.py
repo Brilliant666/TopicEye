@@ -27,17 +27,19 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 
 from app.core.database import async_session
-from app.models.content import ContentStatus
 from app.repositories.source_repo import SourceRepository
 from app.repositories.content_repo import ContentRepo
 from app.services.content_pipeline import ingest_from_source
-from app.services.analysis import analyze_batch
+from app.services.analysis import analyze_batch_concurrent
 from app.services.job_tracker import track_job
 
 logger = logging.getLogger(__name__)
 
 # Semaphore to limit concurrent DB write tasks — SQLite single-writer constraint.
 _MAX_CONCURRENT_SYNCS = 3
+POST_SYNC_ANALYSIS_BATCH_SIZE = 10
+POST_SYNC_ANALYSIS_TIME_BUDGET_SECONDS = 520
+POST_SYNC_MIN_REMAINING_SECONDS = 90
 _sync_semaphore: Optional[asyncio.Semaphore] = None
 _post_sync_lock: Optional[asyncio.Lock] = None
 _post_sync_rerun_requested = False
@@ -87,23 +89,18 @@ async def sync_and_analyze() -> None:
     logger.info("Scheduler: sync finished (%d sources)", len(sources))
 
     # ── Phase 2: Auto-analyze pending content ──
-    BATCH_SIZE = 20
-    async with async_session() as db:
-        content_repo = ContentRepo(db)
-        pending = await content_repo.get_by_status(ContentStatus.PENDING, limit=BATCH_SIZE)
-        pending_ids = [item.id for item in pending]
+    analysis_stats = await _drain_pending_analysis()
 
-    if not pending_ids:
+    if analysis_stats["attempted"] == 0:
         logger.info("Scheduler: no pending content to analyze")
         return
 
-    logger.info("Scheduler: auto-analyzing %d pending items", len(pending_ids))
-    try:
-        async with async_session() as db:
-            await analyze_batch(pending_ids, db)
-        logger.info("Scheduler: auto-analysis complete for %d items", len(pending_ids))
-    except Exception:
-        logger.exception("Scheduler: auto-analysis failed")
+    if analysis_stats["remaining"]:
+        logger.info(
+            "Scheduler: pending backlog remains after analysis drain — %s; clustering deferred",
+            analysis_stats,
+        )
+        return
 
     # ── Phase 3: Cluster + dedup ──
     try:
@@ -203,26 +200,22 @@ async def _run_post_sync_pipeline() -> None:
 
 async def _run_post_sync_pipeline_once() -> None:
     """Analyze pending, cluster, and snapshot trends once."""
-    BATCH_SIZE = 20
-    async with async_session() as db:
-        content_repo = ContentRepo(db)
-        pending = await content_repo.get_by_status(ContentStatus.PENDING, limit=BATCH_SIZE)
-        pending_ids = [item.id for item in pending]
-    if not pending_ids:
+    analysis_stats = await _drain_pending_analysis()
+    if analysis_stats["attempted"] == 0:
         logger.info("Scheduler: post-sync pipeline skipped — no pending content")
         return
 
-    analyzed = False
-    if pending_ids:
-        try:
-            async with async_session() as db:
-                await analyze_batch(pending_ids, db)
-            logger.info("Scheduler: auto-analysis complete for %d items", len(pending_ids))
-            analyzed = True
-        except Exception:
-            logger.exception("Scheduler: auto-analysis failed")
-    if not analyzed:
+    if analysis_stats["analyzed"] == 0:
+        logger.info("Scheduler: post-sync pipeline analyzed no items — %s", analysis_stats)
         return
+
+    if analysis_stats["remaining"]:
+        logger.info(
+            "Scheduler: post-sync pipeline deferred clustering while analysis backlog remains — %s",
+            analysis_stats,
+        )
+        return
+
     try:
         async with async_session() as db:
             from app.services.topic_clustering import cluster_and_dedup
@@ -238,6 +231,80 @@ async def _run_post_sync_pipeline_once() -> None:
         logger.info("Scheduler: trend snapshot done — %s", stats)
     except Exception:
         logger.exception("Scheduler: trend snapshot failed")
+
+
+async def _drain_pending_analysis(
+    *,
+    batch_size: int = POST_SYNC_ANALYSIS_BATCH_SIZE,
+    time_budget_seconds: int = POST_SYNC_ANALYSIS_TIME_BUDGET_SECONDS,
+) -> dict[str, int | bool | str]:
+    """Analyze pending and stale in-flight content until the time budget is nearly spent.
+
+    The scheduler wrapper has a hard timeout. This helper exits before that
+    boundary so the job can finish cleanly instead of being cancelled mid-call
+    and leaving more items in ``analyzing``.
+    """
+    started_at = asyncio.get_running_loop().time()
+    attempted = 0
+    analyzed = 0
+    batches = 0
+    stop_reason = "no_pending"
+
+    while True:
+        elapsed = asyncio.get_running_loop().time() - started_at
+        remaining_seconds = time_budget_seconds - elapsed
+        if remaining_seconds < POST_SYNC_MIN_REMAINING_SECONDS:
+            stop_reason = "time_budget"
+            break
+
+        async with async_session() as db:
+            content_repo = ContentRepo(db)
+            pending = await content_repo.list_pending_for_analysis(limit=batch_size)
+            pending_ids = [item.id for item in pending]
+
+        if not pending_ids:
+            stop_reason = "no_pending"
+            break
+
+        attempted += len(pending_ids)
+        batches += 1
+        try:
+            results = await asyncio.wait_for(
+                analyze_batch_concurrent(pending_ids),
+                timeout=max(1, remaining_seconds - 10),
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Scheduler: auto-analysis batch timed out for ids=%s", pending_ids)
+            stop_reason = "batch_timeout"
+            break
+        except Exception:
+            logger.exception("Scheduler: auto-analysis batch failed for ids=%s", pending_ids)
+            stop_reason = "batch_failed"
+            break
+
+        analyzed += len(results)
+        logger.info(
+            "Scheduler: auto-analysis batch complete attempted=%d analyzed=%d ids=%s",
+            len(pending_ids),
+            len(results),
+            pending_ids,
+        )
+
+        if not results:
+            stop_reason = "no_progress"
+            break
+
+    async with async_session() as db:
+        content_repo = ContentRepo(db)
+        remaining = await content_repo.list_pending_for_analysis(limit=1)
+
+    return {
+        "attempted": attempted,
+        "analyzed": analyzed,
+        "batches": batches,
+        "remaining": bool(remaining),
+        "stop_reason": stop_reason,
+    }
 
 
 async def _rescan_sources() -> None:
@@ -480,7 +547,7 @@ def start_scheduler() -> None:
     # per-source jobs to keep source fetch intervals reliable on SQLite.
     scheduler.add_job(
         _run_post_sync_pipeline,
-        trigger=IntervalTrigger(minutes=15),
+        trigger=IntervalTrigger(minutes=5),
         id="post_sync_pipeline",
         name="Process pending analysis after source sync",
         replace_existing=True,
@@ -577,7 +644,7 @@ def start_scheduler() -> None:
         logger.warning("Scheduler: could not schedule initial rescan (no event loop)")
 
     logger.info(
-        "Scheduler started: per-source sync + 10min rescan + 15min post-sync + cleanup + "
+        "Scheduler started: per-source sync + 10min rescan + 5min post-sync + cleanup + "
         "daily_report(12:00/20:00 + final 00:30) + weekly_digest(Mon 09:00)"
     )
 

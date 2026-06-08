@@ -8,6 +8,8 @@ from typing import Optional
 
 from sqlalchemy import func, or_, select, update
 
+from app.core.database import database_profile
+from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locked
 from app.models.analysis import AiAnalysis
 from app.models.content import ContentItem
 from app.models.source import Source
@@ -95,16 +97,50 @@ class AnalysisRepository(BaseRepository[AiAnalysis]):
 
     async def claim_pending_enrichment_ids(self, min_score: float, limit: int) -> list[int]:
         """Claim unified-scored enrichment candidates so concurrent batches do not duplicate work."""
-        candidate_ids = await self.get_pending_enrichment_ids(min_score, limit)
-        if not candidate_ids:
-            return []
+        async def _claim() -> list[int]:
+            if database_profile.is_sqlite:
+                await begin_immediate_for_sqlite(self.db)
 
-        claimed_ids: list[int] = []
-        for content_id in candidate_ids:
-            latest_id = latest_analysis_id_for_content_id(content_id)
-            result = await self.db.execute(
-                update(AiAnalysis)
+            candidate_ids = await self.get_pending_enrichment_ids(min_score, limit)
+            if not candidate_ids:
+                return []
+
+            latest_id = latest_analysis_id_for_content_id(AiAnalysis.content_id)
+            lock_stmt = (
+                select(AiAnalysis.id, AiAnalysis.content_id)
                 .where(AiAnalysis.id == latest_id)
+                .where(AiAnalysis.content_id.in_(candidate_ids))
+                .where(
+                    or_(
+                        AiAnalysis.enrichment_status.is_(None),
+                        AiAnalysis.enrichment_status.in_(("pending", "error")),
+                    )
+                )
+            )
+            if database_profile.is_postgresql:
+                lock_stmt = lock_stmt.with_for_update(skip_locked=True)
+
+            result = await self.db.execute(lock_stmt)
+            locked_rows = result.all()
+            if not locked_rows:
+                return []
+
+            analysis_ids_by_content = {
+                int(content_id): int(analysis_id)
+                for analysis_id, content_id in locked_rows
+            }
+            ordered_content_ids = [
+                int(content_id)
+                for content_id in candidate_ids
+                if int(content_id) in analysis_ids_by_content
+            ][:limit]
+            analysis_ids = [analysis_ids_by_content[content_id] for content_id in ordered_content_ids]
+            if not analysis_ids:
+                return []
+
+            update_result = await self.db.execute(
+                update(AiAnalysis)
+                .where(AiAnalysis.id.in_(analysis_ids))
                 .where(
                     or_(
                         AiAnalysis.enrichment_status.is_(None),
@@ -113,10 +149,24 @@ class AnalysisRepository(BaseRepository[AiAnalysis]):
                 )
                 .values(enrichment_status="processing")
             )
-            if result.rowcount:
-                claimed_ids.append(int(content_id))
-        await self.db.flush()
-        return claimed_ids
+            await self.db.flush()
+            if update_result.rowcount == len(analysis_ids):
+                return ordered_content_ids
+
+            refreshed = await self.db.execute(
+                select(AiAnalysis.content_id)
+                .where(AiAnalysis.id.in_(analysis_ids))
+                .where(AiAnalysis.enrichment_status == "processing")
+            )
+            refreshed_content_ids = {int(row[0]) for row in refreshed.all()}
+            return [content_id for content_id in ordered_content_ids if content_id in refreshed_content_ids]
+
+        return await retry_sqlite_locked(
+            _claim,
+            attempts=4,
+            base_delay=0.1,
+            on_retry=self.db.rollback,
+        )
 
     async def list_with_score_filter(
         self,

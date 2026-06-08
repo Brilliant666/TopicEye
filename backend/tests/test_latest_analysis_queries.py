@@ -2,7 +2,9 @@ from datetime import date, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.sql.selectable import Select
 
 from app.core.database import Base
 from app.models.analysis import AiAnalysis
@@ -174,6 +176,144 @@ async def test_pending_enrichment_claim_marks_processing_and_skips_reclaim():
         assert second_claim == []
         assert analysis.enrichment_status == "processing"
 
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_pending_enrichment_claim_retries_sqlite_write_lock(monkeypatch):
+    engine, session_factory = await _session_factory()
+    now = datetime.utcnow()
+    calls = {"begin": 0}
+
+    async def flaky_begin_immediate(_db):
+        calls["begin"] += 1
+        if calls["begin"] == 1:
+            raise OperationalError("BEGIN IMMEDIATE", {}, Exception("database is locked"))
+
+    monkeypatch.setattr("app.repositories.analysis_repo.begin_immediate_for_sqlite", flaky_begin_immediate)
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="增强锁重试",
+                url="https://example.com/enrichment-lock-retry",
+                category="AI",
+                status=ContentStatus.ANALYZED,
+                crawled_at=now,
+            )
+        )
+        db.add(
+            AiAnalysis(
+                id=1,
+                content_id=1,
+                curation_score=75,
+                info_density=90,
+                actionability=90,
+                source_weight=70,
+                creator_score=90,
+                viral_score=80,
+                freshness_score=90,
+                quality_score=90,
+                hot_score=80,
+                risk_score=0,
+                enrichment_status="pending",
+                created_at=now,
+            )
+        )
+        await db.commit()
+
+        claimed_ids = await AnalysisRepository(db).claim_pending_enrichment_ids(min_score=55, limit=10)
+        await db.commit()
+        analysis = await db.get(AiAnalysis, 1)
+
+        assert calls["begin"] == 2
+        assert claimed_ids == [1]
+        assert analysis.enrichment_status == "processing"
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_pending_enrichment_claim_uses_skip_locked_for_postgresql(monkeypatch):
+    engine, session_factory = await _session_factory()
+    now = datetime.utcnow()
+    calls = {"skip_locked": 0}
+
+    class FakeProfile:
+        is_sqlite = False
+        is_postgresql = True
+
+    monkeypatch.setattr("app.repositories.analysis_repo.database_profile", FakeProfile())
+    original_with_for_update = Select.with_for_update
+
+    def with_for_update_spy(self, *args, **kwargs):
+        if kwargs.get("skip_locked") is True:
+            calls["skip_locked"] += 1
+        return original_with_for_update(self, *args, **kwargs)
+
+    monkeypatch.setattr(Select, "with_for_update", with_for_update_spy)
+
+    async with session_factory() as db:
+        db.add_all([
+            ContentItem(
+                id=1,
+                title="增强并发认领一",
+                url="https://example.com/enrichment-pg-1",
+                category="AI",
+                status=ContentStatus.ANALYZED,
+                crawled_at=now,
+            ),
+            ContentItem(
+                id=2,
+                title="增强并发认领二",
+                url="https://example.com/enrichment-pg-2",
+                category="AI",
+                status=ContentStatus.ANALYZED,
+                crawled_at=now - timedelta(minutes=1),
+            ),
+        ])
+        db.add_all([
+            AiAnalysis(
+                id=1,
+                content_id=1,
+                curation_score=75,
+                info_density=90,
+                actionability=90,
+                source_weight=70,
+                creator_score=90,
+                viral_score=80,
+                freshness_score=90,
+                quality_score=90,
+                hot_score=80,
+                risk_score=0,
+                enrichment_status="pending",
+                created_at=now,
+            ),
+            AiAnalysis(
+                id=2,
+                content_id=2,
+                curation_score=74,
+                info_density=90,
+                actionability=90,
+                source_weight=70,
+                creator_score=90,
+                viral_score=80,
+                freshness_score=90,
+                quality_score=90,
+                hot_score=80,
+                risk_score=0,
+                enrichment_status="pending",
+                created_at=now,
+            ),
+        ])
+        await db.commit()
+
+        claimed_ids = await AnalysisRepository(db).claim_pending_enrichment_ids(min_score=55, limit=10)
+        await db.commit()
+
+    assert calls["skip_locked"] == 1
+    assert claimed_ids == [1]
     await engine.dispose()
 
 

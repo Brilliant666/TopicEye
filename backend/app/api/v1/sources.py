@@ -24,6 +24,7 @@ from app.schemas.source import (
 )
 from app.repositories.source_repo import SourceRepository
 from app.services.content_pipeline import ingest_from_source
+from app.scheduler import _request_post_sync_pipeline
 from app.services.source_cache import (
     SourceListCacheParams,
     get_cached_source_list,
@@ -555,6 +556,7 @@ async def sync_source(source_id: int, db: AsyncSession = Depends(get_db)):
     if source.status == SourceStatus.ERROR or source.sync_error:
         await db.commit()
         raise HTTPException(status_code=502, detail=source.sync_error or "信源同步失败")
+    _request_post_sync_pipeline(stats)
     return SyncResultResponse(
         fetched=stats["fetched"], new=stats["new"], duplicates=stats["duplicates"],
         source_info=SourceResponse.model_validate(source),

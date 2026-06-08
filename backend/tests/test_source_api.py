@@ -694,6 +694,43 @@ async def test_sync_source_error_state_persists_over_http(
     assert persisted.json()["sync_error"] == "API endpoint unavailable"
 
 
+@pytest.mark.asyncio
+async def test_sync_source_requests_post_sync_pipeline_for_new_content(
+    sources_http_client: httpx.AsyncClient,
+    monkeypatch,
+):
+    async def fake_ingest_from_source(source: Source, db: AsyncSession):
+        source.status = SourceStatus.ACTIVE
+        source.sync_error = None
+        await db.flush()
+        return {"fetched": 3, "new": 2, "duplicates": 1}
+
+    post_sync_requests = []
+    monkeypatch.setattr(sources_api, "ingest_from_source", fake_ingest_from_source)
+    monkeypatch.setattr(
+        sources_api,
+        "_request_post_sync_pipeline",
+        lambda stats: post_sync_requests.append(stats) or True,
+    )
+
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "Manual Sync API",
+            "url": "https://example.com/manual-sync-api",
+            "source_type": "API",
+        },
+    )
+    assert created.status_code == 201
+    source_id = created.json()["id"]
+
+    synced = await sources_http_client.post(f"/sources/{source_id}/sync")
+
+    assert synced.status_code == 200
+    assert synced.json()["new"] == 2
+    assert post_sync_requests == [{"fetched": 3, "new": 2, "duplicates": 1}]
+
+
 def test_redact_source_sync_error_removes_credentials(monkeypatch):
     monkeypatch.setenv("APIFY_TOKEN", "apify_secret_123456")
     message = (

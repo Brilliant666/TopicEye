@@ -291,3 +291,148 @@ async def test_report_window_uses_latest_analysis_for_risk_gate():
         assert [row.risk_score for row in scoring_rows] == [95]
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_report_window_uses_unified_risk_threshold():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    now = datetime.utcnow()
+    async with session_factory() as db:
+        db.add(
+            Source(
+                id=1,
+                name="测试信源",
+                source_type=SourceType.RSS,
+                url="https://example.com/rss.xml",
+                category="AI",
+                status=SourceStatus.ACTIVE,
+                enabled=True,
+                weight=3,
+            )
+        )
+        db.add_all([
+            ContentItem(
+                id=1,
+                title="统一风险门内",
+                url="https://example.com/risk-80",
+                source_id=1,
+                source_name="测试信源",
+                source_type="RSS",
+                category="AI",
+                status=ContentStatus.ANALYZED,
+                crawled_at=now,
+            ),
+            ContentItem(
+                id=2,
+                title="统一风险门外",
+                url="https://example.com/risk-83",
+                source_id=1,
+                source_name="测试信源",
+                source_type="RSS",
+                category="AI",
+                status=ContentStatus.ANALYZED,
+                crawled_at=now,
+            ),
+        ])
+        db.add_all([
+            AiAnalysis(
+                id=1,
+                content_id=1,
+                curation_score=90,
+                risk_score=80,
+                created_at=now,
+            ),
+            AiAnalysis(
+                id=2,
+                content_id=2,
+                curation_score=90,
+                risk_score=83,
+                created_at=now,
+            ),
+        ])
+        await db.commit()
+
+        repo = ContentRepo(db)
+        report_items = await repo.list_for_report_window(
+            window_start=now - timedelta(hours=1),
+            window_end=now + timedelta(hours=1),
+        )
+
+        assert [item.id for item in report_items] == [1]
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_today_picks_fallback_uses_unified_risk_threshold():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    now = datetime.utcnow()
+    async with session_factory() as db:
+        db.add(
+            Source(
+                id=1,
+                name="测试信源",
+                source_type=SourceType.RSS,
+                url="https://example.com/rss.xml",
+                category="AI",
+                status=SourceStatus.ACTIVE,
+                enabled=True,
+                weight=3,
+            )
+        )
+        db.add_all([
+            ContentItem(
+                id=1,
+                title="今日推荐风险门内",
+                url="https://example.com/today-risk-80",
+                source_id=1,
+                source_name="测试信源",
+                source_type="RSS",
+                category="AI",
+                status=ContentStatus.ANALYZED,
+                crawled_at=now,
+            ),
+            ContentItem(
+                id=2,
+                title="今日推荐风险门外",
+                url="https://example.com/today-risk-83",
+                source_id=1,
+                source_name="测试信源",
+                source_type="RSS",
+                category="AI",
+                status=ContentStatus.ANALYZED,
+                crawled_at=now,
+            ),
+        ])
+        db.add_all([
+            AiAnalysis(
+                id=1,
+                content_id=1,
+                curation_score=90,
+                risk_score=80,
+                created_at=now,
+            ),
+            AiAnalysis(
+                id=2,
+                content_id=2,
+                curation_score=90,
+                risk_score=83,
+                created_at=now,
+            ),
+        ])
+        await db.commit()
+
+        repo = ContentRepo(db)
+        items = await repo.list_for_today_picks(hours=24)
+
+        assert [item.id for item in items] == [1]
+
+    await engine.dispose()

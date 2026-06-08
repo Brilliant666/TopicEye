@@ -402,9 +402,11 @@ class ContentRepo(BaseRepository[ContentItem]):
     ) -> Sequence[ContentItem]:
         """Fetch items with analyses + source for today-picks scoring."""
         from app.models.analysis import AiAnalysis
+        from app.services.scoring_engine import CONFIG as SCORING_CONFIG
         from datetime import datetime as dt, timedelta
 
         cutoff = dt.utcnow() - timedelta(hours=hours)
+        risk_threshold = float(SCORING_CONFIG["risk_threshold"])
         latest_analysis_id = self._latest_analysis_id_subquery(AiAnalysis)
         stmt = (
             select(self.model)
@@ -414,7 +416,7 @@ class ContentRepo(BaseRepository[ContentItem]):
             )
             .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
             .where(self.model.crawled_at >= cutoff)
-            .where(AiAnalysis.risk_score <= 70)
+            .where(AiAnalysis.risk_score <= risk_threshold)
         )
         if category:
             stmt = stmt.where(self.model.category == category)
@@ -430,7 +432,9 @@ class ContentRepo(BaseRepository[ContentItem]):
     ) -> Sequence[ContentItem]:
         """Fetch analyzed items in a precise report window for daily report snapshots."""
         from app.models.analysis import AiAnalysis
+        from app.services.scoring_engine import CONFIG as SCORING_CONFIG
 
+        risk_threshold = float(SCORING_CONFIG["risk_threshold"])
         latest_analysis_id = self._latest_analysis_id_subquery(AiAnalysis)
         stmt = (
             select(self.model)
@@ -441,7 +445,7 @@ class ContentRepo(BaseRepository[ContentItem]):
             .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
             .where(self.model.crawled_at >= window_start)
             .where(self.model.crawled_at <= window_end)
-            .where(AiAnalysis.risk_score <= 70)
+            .where(AiAnalysis.risk_score <= risk_threshold)
             .where(AiAnalysis.curation_score.isnot(None))
         )
         if category:

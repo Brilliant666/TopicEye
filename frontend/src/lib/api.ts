@@ -1644,6 +1644,8 @@ export const zhihuApi = {
 
 export interface LlmModelItem {
   id: number;
+  owner_user_id?: number | null;
+  scope?: string;
   name: string;
   provider: string;
   model_id: string;
@@ -1668,6 +1670,27 @@ export interface LlmModelItem {
   extra_params: Record<string, unknown> | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface LlmModelPresetItem {
+  key: string;
+  label: string;
+  provider: string;
+  model_id: string;
+  api_base?: string | null;
+  model_family?: string | null;
+  channel_name?: string | null;
+  description: string;
+  recommended_for: string[];
+  requires: string[];
+  help: string;
+  defaults: Record<string, unknown>;
+}
+
+export interface LlmModelPresetCatalog {
+  defaults: Record<string, unknown>;
+  presets: LlmModelPresetItem[];
+  help: Record<string, string>;
 }
 
 export interface EvalRun {
@@ -1738,6 +1761,9 @@ export interface ModelUsageSummary {
 export const modelsApi = {
   list(): Promise<{ models: LlmModelItem[]; total: number }> {
     return request('/models');
+  },
+  presets(): Promise<LlmModelPresetCatalog> {
+    return request('/models/presets');
   },
   usageSummary(days = 30): Promise<ModelUsageSummary> {
     return request(`/models/usage/summary?days=${days}`);

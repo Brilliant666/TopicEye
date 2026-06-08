@@ -46,6 +46,7 @@ from app.services.llm.model_list_cache import (
 from app.services.llm.provider import invalidate_model_cache
 from app.services.llm.model_resolver import resolve_litellm_model
 from app.services.llm.model_pricing import is_free_model, normalized_model_pricing
+from app.services.llm.presets import apply_model_preset, list_model_presets
 from app.services.llm_usage import extract_usage, record_llm_call_in_new_session
 from app.services.plan_catalog import plan_allows_custom_ai
 
@@ -184,9 +185,10 @@ def _auto_score_response(content: str) -> float:
 # ── Pydantic schemas ──────────────────────────────────────────────────
 
 class ModelCreateRequest(BaseModel):
-    name: str = Field(..., description="显示名称")
-    provider: str = Field(..., description="litellm provider")
-    model_id: str = Field(..., description="litellm model string")
+    preset_key: Optional[str] = None
+    name: Optional[str] = Field(None, description="显示名称")
+    provider: Optional[str] = Field(None, description="litellm provider")
+    model_id: Optional[str] = Field(None, description="litellm model string")
     api_key: Optional[str] = None
     api_base: Optional[str] = None
     enabled: bool = True
@@ -206,7 +208,7 @@ class ModelCreateRequest(BaseModel):
     cost_per_1m_output: Optional[float] = None
     extra_params: Optional[dict] = None
 
-    @field_validator("api_key", "api_base", "model_family", "channel_name", mode="before")
+    @field_validator("preset_key", "api_key", "api_base", "model_family", "channel_name", mode="before")
     @classmethod
     def normalize_optional_secret(cls, value):
         return _normalize_optional_config_value(value)
@@ -351,9 +353,22 @@ def _ensure_custom_ai_allowed(user: User) -> None:
         raise HTTPException(status_code=403, detail="自定义 AI 配置仅对付费用户开放")
 
 
+def _materialize_create_request(req: ModelCreateRequest) -> ModelCreateRequest:
+    payload = req.model_dump(exclude_unset=True)
+    preset_key = payload.pop("preset_key", req.preset_key)
+    payload = apply_model_preset(payload, preset_key)
+    missing = [field for field in ("name", "provider", "model_id") if not payload.get(field)]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"模型配置缺少必填项：{', '.join(missing)}。请选择预设或补齐字段。",
+        )
+    return ModelCreateRequest(**payload)
+
+
 def _apply_model_request(model: LlmModel, req: ModelCreateRequest | ModelUpdateRequest) -> None:
     update_data = req.model_dump(exclude_unset=True)
-    for api_only_key in ("cost_per_1m_input", "cost_per_1m_input_cache_hit", "cost_per_1m_output"):
+    for api_only_key in ("preset_key", "cost_per_1m_input", "cost_per_1m_input_cache_hit", "cost_per_1m_output"):
         update_data.pop(api_only_key, None)
     if "cost_per_1m_input" in req.model_fields_set:
         update_data["cost_per_1k_input"] = _per_1m_to_1k(req.cost_per_1m_input)
@@ -379,6 +394,7 @@ def _new_model_from_request(
     owner_user_id: int | None = None,
     scope: str = "system",
 ) -> LlmModel:
+    req = _materialize_create_request(req)
     cost_per_1k_input = _model_cost_input(req)
     cost_per_1k_output = _model_cost_output(req)
     cache_hit_price = req.cost_per_1m_input_cache_hit
@@ -487,6 +503,11 @@ async def create_my_model(
         return {"id": model.id, "name": model.name, "message": "自定义 AI 配置创建成功"}
 
     return await _retry_write_and_invalidate_models(db, _create)
+
+
+@router.get("/presets")
+async def get_model_presets(_current_user: User = Depends(get_current_user)):
+    return list_model_presets()
 
 
 @router.put("/me/{model_id}")

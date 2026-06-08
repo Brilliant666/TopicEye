@@ -25,6 +25,7 @@ from app.core.database import Base
 from app.models.llm_model import LlmModel
 from app.services.auth_service import create_session, create_user
 from app.services.llm.provider import ModelConfigCache
+from app.services.llm.presets import apply_model_preset, list_model_presets
 from app.services.llm.model_resolver import resolve_litellm_model
 
 
@@ -188,6 +189,28 @@ def test_model_config_normalizes_blank_api_key_and_endpoint():
     assert updated.api_base is None
 
 
+def test_model_presets_provide_beginner_defaults_and_help():
+    catalog = list_model_presets()
+
+    assert catalog["defaults"]["temperature"] == 0.3
+    assert catalog["defaults"]["max_tokens"] == 2000
+    assert catalog["help"]["beginner_tip"]
+    assert {preset["key"] for preset in catalog["presets"]} >= {
+        "openai_fast",
+        "deepseek_balanced",
+        "openai_compatible",
+        "custom",
+    }
+
+    payload = apply_model_preset({"api_key": "secret"}, "deepseek_balanced")
+
+    assert payload["name"] == "DeepSeek 性价比模型"
+    assert payload["provider"] == "deepseek"
+    assert payload["model_id"] == "deepseek-chat"
+    assert payload["requests_per_minute"] == 20
+    assert payload["api_key"] == "secret"
+
+
 def test_missing_explicit_api_key_treats_blank_values_as_missing():
     request = ModelCreateRequest(
         name="OpenCode",
@@ -253,6 +276,34 @@ async def test_user_custom_models_require_paid_plan_and_are_owner_scoped(llm_mod
         model = result.scalar_one()
         assert model.owner_user_id is not None
         assert model.scope == "user"
+
+
+@pytest.mark.asyncio
+async def test_paid_user_can_create_custom_model_from_preset_defaults(llm_model_client):
+    client, _free_token, pro_token, _admin_token, session_factory = llm_model_client
+
+    presets = await client.get("/models/presets", headers={"Authorization": f"Bearer {pro_token}"})
+    assert presets.status_code == 200
+    assert presets.json()["help"]["rpm_tip"]
+
+    created = await client.post(
+        "/models/me",
+        headers={"Authorization": f"Bearer {pro_token}"},
+        json={"preset_key": "deepseek_balanced", "api_key": "user-key"},
+    )
+    assert created.status_code == 200
+    model_id = created.json()["id"]
+
+    async with session_factory() as db:
+        model = await db.get(LlmModel, model_id)
+
+    assert model.name == "DeepSeek 性价比模型"
+    assert model.provider == "deepseek"
+    assert model.model_id == "deepseek-chat"
+    assert model.requests_per_minute == 20
+    assert model.temperature == 0.3
+    assert model.max_tokens == 2000
+    assert model.scope == "user"
 
 
 @pytest.mark.asyncio

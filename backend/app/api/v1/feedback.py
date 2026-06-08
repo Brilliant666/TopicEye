@@ -12,6 +12,7 @@ from app.models.feedback import (
     FEEDBACK_SCORE_DELTAS,
 )
 from app.models.content import ContentItem
+from app.models.user import User
 from app.schemas.feedback import (
     FeedbackCreate,
     FeedbackResponse,
@@ -19,13 +20,14 @@ from app.schemas.feedback import (
 )
 from app.services.content_read_cache import invalidate_content_read_caches
 
-router = APIRouter(prefix="/feedback", tags=["feedback"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 
 @router.post("", response_model=FeedbackResponse, status_code=201)
 async def submit_feedback(
     data: FeedbackCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Submit feedback for a content item.
 
@@ -48,6 +50,7 @@ async def submit_feedback(
     existing_result = await db.execute(
         select(UserFeedback)
         .where(UserFeedback.content_id == data.content_id)
+        .where(UserFeedback.user_id == current_user.id)
         .order_by(UserFeedback.created_at.desc(), UserFeedback.id.desc())
     )
     score_delta = FEEDBACK_SCORE_DELTAS[fb_type]
@@ -66,6 +69,7 @@ async def submit_feedback(
         return existing
 
     feedback = UserFeedback(
+        user_id=current_user.id,
         content_id=data.content_id,
         feedback_type=fb_type,
         score_delta=score_delta,
@@ -82,11 +86,13 @@ async def submit_feedback(
 async def get_content_feedback(
     content_id: int,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Get all feedback for a specific content item."""
+    """Get the current user's feedback for a specific content item."""
     result = await db.execute(
         select(UserFeedback)
         .where(UserFeedback.content_id == content_id)
+        .where(UserFeedback.user_id == current_user.id)
         .order_by(UserFeedback.created_at.desc())
     )
     return list(result.scalars().all())
@@ -95,6 +101,7 @@ async def get_content_feedback(
 @router.get("/stats", response_model=FeedbackStatsResponse)
 async def get_feedback_stats(
     db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
 ):
     """Get aggregated feedback statistics."""
     # Total count

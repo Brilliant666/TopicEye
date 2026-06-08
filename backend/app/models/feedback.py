@@ -2,8 +2,8 @@ from __future__ import annotations
 from typing import Optional
 import enum
 from datetime import datetime
-from sqlalchemy import Integer, Float, Text, DateTime, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Integer, Float, Text, DateTime, ForeignKey, Index
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 from app.models.enum_types import value_enum
 
@@ -32,6 +32,9 @@ class UserFeedback(Base):
     __tablename__ = "user_feedback"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     content_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("content_items.id", ondelete="CASCADE"), nullable=False
     )
@@ -42,4 +45,11 @@ class UserFeedback(Base):
     comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow
+    )
+
+    user = relationship("User")
+
+    __table_args__ = (
+        Index("ix_user_feedback_content_user", "content_id", "user_id"),
+        Index("ix_user_feedback_user_created", "user_id", "created_at"),
     )

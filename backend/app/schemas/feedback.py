@@ -12,6 +12,7 @@ class FeedbackCreate(BaseModel):
 
 class FeedbackResponse(BaseModel):
     id: int
+    user_id: int
     content_id: int
     feedback_type: str
     score_delta: float

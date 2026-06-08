@@ -5,7 +5,7 @@ import asyncio
 import pytest
 from fastapi import BackgroundTasks
 from sqlalchemy.exc import OperationalError
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.api.v1 import analyses as analyses_api
@@ -909,6 +909,7 @@ async def test_sqlite_upgrade_schema_runs_helpers_for_sqlite(monkeypatch):
     monkeypatch.setattr(app_main, "ensure_favorite_items_schema", helper("favorite_items"))
     monkeypatch.setattr(app_main, "ensure_user_auth_schema", helper("user_auth"))
     monkeypatch.setattr(app_main, "ensure_user_integrations_schema", helper("user_integrations"))
+    monkeypatch.setattr(app_main, "ensure_user_feedback_schema", helper("user_feedback"))
     monkeypatch.setattr(app_main, "ensure_product_feedback_schema", helper("product_feedback"))
 
     await app_main.ensure_sqlite_upgrade_schema(object())
@@ -923,5 +924,42 @@ async def test_sqlite_upgrade_schema_runs_helpers_for_sqlite(monkeypatch):
         "favorite_items",
         "user_auth",
         "user_integrations",
+        "user_feedback",
         "product_feedback",
     ]
+
+
+@pytest.mark.asyncio
+async def test_user_feedback_schema_upgrade_adds_user_scope(monkeypatch):
+    monkeypatch.setattr(app_main, "database_profile", SimpleNamespace(is_sqlite=True))
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE user_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content_id INTEGER NOT NULL,
+                feedback_type VARCHAR(12) NOT NULL,
+                score_delta FLOAT NOT NULL,
+                comment TEXT,
+                created_at DATETIME NOT NULL
+            )
+        """))
+
+        await app_main.ensure_user_feedback_schema(conn)
+
+        columns = {
+            row[1]: row
+            for row in (await conn.execute(text("PRAGMA table_info(user_feedback)"))).fetchall()
+        }
+        indexes = {
+            row[1]
+            for row in (await conn.execute(text("PRAGMA index_list(user_feedback)"))).fetchall()
+        }
+
+    assert "user_id" in columns
+    assert columns["user_id"][3] == 1
+    assert columns["user_id"][4] == "1"
+    assert "ix_user_feedback_content_user" in indexes
+    assert "ix_user_feedback_user_created" in indexes
+    await engine.dispose()

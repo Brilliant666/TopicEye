@@ -576,6 +576,32 @@ async def ensure_user_integrations_schema(conn) -> None:
     ))
 
 
+async def ensure_user_feedback_schema(conn) -> None:
+    """SQLite create_all does not add user-scoped feedback columns to existing tables."""
+    if not database_profile.is_sqlite:
+        return
+
+    table_exists = await conn.execute(text(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='user_feedback'"
+    ))
+    if table_exists.scalar_one_or_none() is None:
+        return
+
+    result = await conn.execute(text("PRAGMA table_info(user_feedback)"))
+    columns = {row[1] for row in result.fetchall()}
+    if "user_id" not in columns:
+        await conn.execute(text("ALTER TABLE user_feedback ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1"))
+
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_user_feedback_content_user "
+        "ON user_feedback(content_id, user_id)"
+    ))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_user_feedback_user_created "
+        "ON user_feedback(user_id, created_at)"
+    ))
+
+
 async def ensure_product_feedback_schema(conn) -> None:
     """Ensure product issue feedback and update-log tables exist on upgraded SQLite installs."""
     if not database_profile.is_sqlite:
@@ -653,6 +679,7 @@ async def ensure_sqlite_upgrade_schema(conn) -> None:
     await ensure_favorite_items_schema(conn)
     await ensure_user_auth_schema(conn)
     await ensure_user_integrations_schema(conn)
+    await ensure_user_feedback_schema(conn)
     await ensure_product_feedback_schema(conn)
 
 

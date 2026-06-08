@@ -25,7 +25,9 @@ async def test_feedback_and_creation_mutation_apis_require_login(monkeypatch):
 
     async with session_factory() as db:
         user = await create_user(db, email="workflow-user@example.com", password="Password123", role="user")
+        second_user = await create_user(db, email="workflow-user-2@example.com", password="Password123", role="user")
         token, _session = await create_session(db, user)
+        second_token, _second_session = await create_session(db, second_user)
         db.add(
             ContentItem(
                 id=1,
@@ -80,13 +82,30 @@ async def test_feedback_and_creation_mutation_apis_require_login(monkeypatch):
             json={"content_id": 1, "feedback_type": "great_pick"},
         )
         assert authorized_feedback.status_code == 201
+        assert authorized_feedback.json()["user_id"] == user.id
+
+        second_feedback = await client.post(
+            "/feedback",
+            headers={"Authorization": f"Bearer {second_token}"},
+            json={"content_id": 1, "feedback_type": "like"},
+        )
+        assert second_feedback.status_code == 201
+        assert second_feedback.json()["user_id"] == second_user.id
+        assert second_feedback.json()["id"] != authorized_feedback.json()["id"]
+
+        own_feedback = await client.get(
+            "/feedback/content/1",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert own_feedback.status_code == 200
+        assert [item["user_id"] for item in own_feedback.json()] == [user.id]
 
         anonymous_stats = await client.get("/feedback/stats")
         assert anonymous_stats.status_code == 401
 
         authorized_stats = await client.get("/feedback/stats", headers={"Authorization": f"Bearer {token}"})
         assert authorized_stats.status_code == 200
-        assert authorized_stats.json()["total"] == 1
+        assert authorized_stats.json()["total"] == 2
 
         anonymous_plan = await client.post(
             "/creation/plan",

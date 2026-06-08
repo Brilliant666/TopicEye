@@ -20,9 +20,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import ContentItem, ContentStatus
 from app.models.analysis import AiAnalysis
+from app.models.source import Source
 from app.models.topic import TopicGroup
 from app.repositories.analysis_queries import latest_analysis_id_subquery
+from app.services.feedback_signal import get_feedback_scores
 from app.services.llm import call_llm_json
+from app.services.scoring_engine import ScoringInput, score_items
 from app.services.semantic_dedup import semantic_dedup
 
 logger = logging.getLogger(__name__)
@@ -142,13 +145,13 @@ async def _name_clusters(
             name = "、".join(top_tags[:2]) if top_tags else "未命名话题"
             summary = ""
 
-        best = max(cluster, key=lambda x: x.get("curation_score", 0))
+        best = max(cluster, key=lambda x: x.get("adjusted_score", x.get("curation_score", 0)))
         return {
             "name": name,
             "summary": summary,
             "keywords": top_tags,
             "item_ids": [item["id"] for item in cluster],
-            "best_score": best.get("curation_score", 0),
+            "best_score": best.get("adjusted_score", best.get("curation_score", 0)),
             "content_count": len(cluster),
         }
 
@@ -179,11 +182,13 @@ async def _dedup_candidate_clusters(cluster_items: list[list[dict]]) -> dict[int
 async def cluster_and_dedup(db: AsyncSession) -> dict:
     """Run dedup + clustering on all analyzed content. Returns stats."""
 
-    # 1. Fetch all analyzed items with their analysis
+    # 1. Fetch all analyzed items with their latest analysis
     latest_analysis_id = latest_analysis_id_subquery(ContentItem, AiAnalysis)
     result = await db.execute(
-        select(ContentItem, AiAnalysis)
+        select(ContentItem, AiAnalysis, Source.weight.label("source_weight_db"))
+        .select_from(ContentItem)
         .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
+        .outerjoin(Source, Source.id == ContentItem.source_id)
         .where(ContentItem.status == ContentStatus.ANALYZED)
         .order_by(ContentItem.id)
     )
@@ -192,16 +197,50 @@ async def cluster_and_dedup(db: AsyncSession) -> dict:
     if not rows:
         return {"clusters": 0, "duplicates": 0, "standalone": 0}
 
+    content_ids = [content.id for content, _analysis, _source_weight in rows]
+    feedback_scores = await get_feedback_scores(db, content_ids)
     items = []
-    for content, analysis in rows:
+    scoring_inputs = []
+    for content, analysis, source_weight_db in rows:
         items.append({
             "id": content.id,
             "title": content.title,
             "summary": analysis.summary or "",
             "tags": analysis.tags,
             "curation_score": analysis.curation_score or 0,
+            "adjusted_score": analysis.curation_score or 0,
             "source_name": content.source_name,
         })
+        scoring_inputs.append(
+            ScoringInput(
+                content_id=content.id,
+                title=content.title,
+                category=content.category,
+                source_id=content.source_id,
+                source_name=content.source_name,
+                published_at=content.published_at,
+                crawled_at=content.crawled_at,
+                curation_score=analysis.curation_score or 0,
+                info_density=analysis.info_density or 50,
+                actionability=analysis.actionability or 50,
+                source_weight=analysis.source_weight or 50,
+                creator_score=analysis.creator_score or 0,
+                viral_score=analysis.viral_score or 0,
+                freshness_score=analysis.freshness_score or 0,
+                quality_score=analysis.quality_score or 0,
+                hot_score=analysis.hot_score or 0,
+                risk_score=analysis.risk_score or 0,
+                source_weight_db=source_weight_db or 3,
+                feedback_score=feedback_scores.get(content.id, 0),
+            )
+        )
+
+    adjusted_scores = {
+        item.content_id: breakdown.final_score
+        for breakdown, item in score_items(scoring_inputs)
+    }
+    for item in items:
+        item["adjusted_score"] = adjusted_scores.get(item["id"], item["curation_score"])
 
     # 2. Clear old topic assignments
     from sqlalchemy import text

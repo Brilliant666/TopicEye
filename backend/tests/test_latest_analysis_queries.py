@@ -241,6 +241,83 @@ async def test_clustering_uses_one_latest_analysis_per_content(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_clustering_topic_best_score_uses_unified_scorer(monkeypatch):
+    async def fake_call_llm_json(_prompt, **_kwargs):
+        return {"name": "统一评分", "summary": "看最终分"}
+
+    async def fake_dedup_candidate_clusters(clusters):
+        return {}
+
+    monkeypatch.setattr(topic_clustering, "call_llm_json", fake_call_llm_json)
+    monkeypatch.setattr(topic_clustering, "_dedup_candidate_clusters", fake_dedup_candidate_clusters)
+    engine, session_factory = await _session_factory()
+    now = datetime.utcnow()
+    async with session_factory() as db:
+        db.add_all([
+            ContentItem(
+                id=1,
+                title="原始高分质量弱",
+                url="https://example.com/raw-high-topic",
+                status=ContentStatus.ANALYZED,
+                category="AI",
+                crawled_at=now,
+            ),
+            ContentItem(
+                id=2,
+                title="统一评分更强",
+                url="https://example.com/unified-topic",
+                status=ContentStatus.ANALYZED,
+                category="AI",
+                crawled_at=now,
+            ),
+        ])
+        db.add_all([
+            AiAnalysis(
+                id=1,
+                content_id=1,
+                tags=["统一话题"],
+                curation_score=95,
+                info_density=10,
+                actionability=10,
+                creator_score=10,
+                viral_score=10,
+                freshness_score=50,
+                quality_score=10,
+                hot_score=10,
+                risk_score=0,
+                created_at=now,
+            ),
+            AiAnalysis(
+                id=2,
+                content_id=2,
+                tags=["统一话题"],
+                curation_score=70,
+                info_density=90,
+                actionability=90,
+                source_weight=70,
+                creator_score=90,
+                viral_score=70,
+                freshness_score=80,
+                quality_score=90,
+                hot_score=70,
+                risk_score=0,
+                created_at=now,
+            ),
+        ])
+        await db.commit()
+
+        stats = await topic_clustering.cluster_and_dedup(db)
+        topics = (await db.execute(select(TopicGroup))).scalars().all()
+
+        assert stats["clusters"] == 1
+        assert len(topics) == 1
+        assert topics[0].best_score != 95
+        assert topics[0].best_score > 70
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_trend_snapshot_counts_latest_analysis_once():
     engine, session_factory = await _session_factory()
     target = date(2026, 6, 8)

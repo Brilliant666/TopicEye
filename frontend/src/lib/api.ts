@@ -1677,7 +1677,9 @@ export interface LlmModelPresetItem {
   label: string;
   provider: string;
   model_id: string;
+  model_id_placeholder?: string | null;
   api_base?: string | null;
+  api_base_placeholder?: string | null;
   model_family?: string | null;
   channel_name?: string | null;
   description: string;
@@ -1692,6 +1694,20 @@ export interface LlmModelPresetCatalog {
   presets: LlmModelPresetItem[];
   help: Record<string, string>;
 }
+
+export interface MyLlmModelsResponse {
+  models: LlmModelItem[];
+  total: number;
+  custom_ai_allowed: boolean;
+}
+
+export type LlmModelCreatePayload = Partial<LlmModelItem> & {
+  api_key?: string;
+  preset_key?: string;
+  cost_per_1m_input?: number | null;
+  cost_per_1m_input_cache_hit?: number | null;
+  cost_per_1m_output?: number | null;
+};
 
 export interface EvalRun {
   eval_run_id: string;
@@ -1762,13 +1778,16 @@ export const modelsApi = {
   list(): Promise<{ models: LlmModelItem[]; total: number }> {
     return request('/models');
   },
+  mine(): Promise<MyLlmModelsResponse> {
+    return request('/models/me');
+  },
   presets(): Promise<LlmModelPresetCatalog> {
     return request('/models/presets');
   },
   usageSummary(days = 30): Promise<ModelUsageSummary> {
     return request(`/models/usage/summary?days=${days}`);
   },
-  create(data: Partial<LlmModelItem> & { api_key?: string }): Promise<{ id: number; name: string; message: string }> {
+  create(data: LlmModelCreatePayload): Promise<{ id: number; name: string; message: string }> {
     return request('/models', { method: 'POST', body: JSON.stringify(data) });
   },
   update(id: number, data: Partial<LlmModelItem> & { api_key?: string }): Promise<{ message: string }> {
@@ -1776,6 +1795,15 @@ export const modelsApi = {
   },
   delete(id: number): Promise<{ message: string }> {
     return request(`/models/${id}`, { method: 'DELETE' });
+  },
+  createMine(data: LlmModelCreatePayload): Promise<{ id: number; name: string; message: string }> {
+    return request('/models/me', { method: 'POST', body: JSON.stringify(data) });
+  },
+  updateMine(id: number, data: Partial<LlmModelItem> & { api_key?: string }): Promise<{ message: string }> {
+    return request(`/models/me/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  },
+  deleteMine(id: number): Promise<{ message: string }> {
+    return request(`/models/me/${id}`, { method: 'DELETE' });
   },
   test(id: number): Promise<{ status: string; model_name: string; response?: string; error?: string; duration_ms: number; tokens_input?: number; tokens_output?: number; cache_read_tokens?: number; cache_creation_tokens?: number }> {
     return request(`/models/${id}/test`, { method: 'POST' });

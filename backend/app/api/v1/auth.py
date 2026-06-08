@@ -41,6 +41,19 @@ async def get_current_user(
     return user
 
 
+async def get_optional_current_user(
+    authorization: Optional[str] = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    if not authorization:
+        return None
+    try:
+        token = _extract_bearer_token(authorization)
+    except HTTPException:
+        return None
+    return await get_user_for_token(db, token)
+
+
 async def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin privileges required")

@@ -985,7 +985,7 @@ export type ProductUpdateStatus = 'planned' | 'in_progress' | 'shipped';
 
 export interface IssueFeedbackItem {
   id: number;
-  user_id: number;
+  user_id: number | null;
   title: string;
   description: string;
   area: string;

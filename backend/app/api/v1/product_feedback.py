@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_admin_user, get_current_user
+from app.api.v1.auth import get_current_admin_user, get_current_user, get_optional_current_user
 from app.core.dependencies import get_db
 from app.models.product_feedback import (
     IssueFeedback,
@@ -27,6 +27,7 @@ from app.schemas.product_feedback import (
     ProductUpdatePatch,
     ProductUpdateResponse,
 )
+from app.services.product_updates import list_builtin_product_updates
 
 router = APIRouter(prefix="/product-feedback", tags=["product-feedback"])
 
@@ -77,10 +78,10 @@ async def _issue_counts(db: AsyncSession, user_id: int | None = None) -> tuple[i
 async def create_issue_feedback(
     data: IssueFeedbackCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     issue = IssueFeedback(
-        user_id=current_user.id,
+        user_id=current_user.id if current_user else None,
         title=data.title,
         description=data.description,
         area=data.area,
@@ -144,7 +145,7 @@ async def list_all_issue_feedback(
     total = await db.scalar(select(func.count(IssueFeedback.id)).where(*filters))
     result = await db.execute(
         select(IssueFeedback, User)
-        .join(User, User.id == IssueFeedback.user_id)
+        .outerjoin(User, User.id == IssueFeedback.user_id)
         .where(*filters)
         .order_by(IssueFeedback.created_at.desc(), IssueFeedback.id.desc())
         .limit(limit)
@@ -169,7 +170,7 @@ async def update_issue_feedback(
 ):
     result = await db.execute(
         select(IssueFeedback, User)
-        .join(User, User.id == IssueFeedback.user_id)
+        .outerjoin(User, User.id == IssueFeedback.user_id)
         .where(IssueFeedback.id == issue_id)
     )
     row = result.first()
@@ -202,25 +203,11 @@ async def list_product_updates(
     status: Optional[ProductUpdateStatus] = Query(None),
     limit: int = Query(100, ge=1, le=300),
     offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
 ):
-    filters = []
-    if kind is not None:
-        filters.append(ProductUpdate.kind == kind)
-    if status is not None:
-        filters.append(ProductUpdate.status == status)
-
-    total = await db.scalar(select(func.count(ProductUpdate.id)).where(*filters))
-    result = await db.execute(
-        select(ProductUpdate)
-        .where(*filters)
-        .order_by(ProductUpdate.status.asc(), ProductUpdate.created_at.desc(), ProductUpdate.id.desc())
-        .limit(limit)
-        .offset(offset)
-    )
+    items, total = list_builtin_product_updates(kind=kind, status=status, limit=limit, offset=offset)
     return ProductUpdateListResponse(
-        items=[ProductUpdateResponse.model_validate(item) for item in result.scalars().all()],
-        total=int(total or 0),
+        items=items,
+        total=total,
     )
 
 

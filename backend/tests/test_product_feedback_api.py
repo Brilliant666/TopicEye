@@ -52,7 +52,7 @@ async def product_feedback_client() -> AsyncGenerator[tuple[httpx.AsyncClient, s
 
 
 @pytest.mark.asyncio
-async def test_issue_feedback_requires_login_and_admin_for_management(product_feedback_client):
+async def test_issue_feedback_allows_anonymous_submit_and_admin_management(product_feedback_client):
     client, user_token, admin_token = product_feedback_client
 
     anonymous = await client.post(
@@ -64,7 +64,11 @@ async def test_issue_feedback_requires_login_and_admin_for_management(product_fe
             "severity": "high",
         },
     )
-    assert anonymous.status_code == 401
+    assert anonymous.status_code == 201
+    anonymous_body = anonymous.json()
+    assert anonymous_body["user_id"] is None
+    assert anonymous_body["reporter_email"] is None
+    anonymous_issue_id = anonymous_body["id"]
 
     created = await client.post(
         "/product-feedback/issues",
@@ -85,6 +89,7 @@ async def test_issue_feedback_requires_login_and_admin_for_management(product_fe
     assert mine.json()["total"] == 1
     assert mine.json()["open_count"] == 1
     assert mine.json()["items"][0]["reporter_email"] == "feedback-user@example.com"
+    assert mine.json()["items"][0]["id"] == issue_id
 
     ordinary_list = await client.get("/product-feedback/issues", headers={"Authorization": f"Bearer {user_token}"})
     assert ordinary_list.status_code == 403
@@ -98,8 +103,19 @@ async def test_issue_feedback_requires_login_and_admin_for_management(product_fe
 
     admin_list = await client.get("/product-feedback/issues", headers={"Authorization": f"Bearer {admin_token}"})
     assert admin_list.status_code == 200
-    assert admin_list.json()["total"] == 1
-    assert admin_list.json()["items"][0]["reporter_email"] == "feedback-user@example.com"
+    assert admin_list.json()["total"] == 2
+    admin_items = admin_list.json()["items"]
+    assert any(item["id"] == anonymous_issue_id and item["user_id"] is None for item in admin_items)
+    assert any(item["id"] == issue_id and item["reporter_email"] == "feedback-user@example.com" for item in admin_items)
+
+    fixed_anonymous = await client.patch(
+        f"/product-feedback/issues/{anonymous_issue_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"status": "fixed", "resolution_note": "匿名反馈也已进入处理闭环"},
+    )
+    assert fixed_anonymous.status_code == 200
+    assert fixed_anonymous.json()["status"] == "fixed"
+    assert fixed_anonymous.json()["user_id"] is None
 
     fixed = await client.patch(
         f"/product-feedback/issues/{issue_id}",
@@ -120,9 +136,10 @@ async def test_issue_feedback_requires_login_and_admin_for_management(product_fe
 async def test_product_updates_are_public_read_and_admin_managed(product_feedback_client):
     client, user_token, admin_token = product_feedback_client
 
-    empty = await client.get("/product-feedback/updates")
-    assert empty.status_code == 200
-    assert empty.json() == {"items": [], "total": 0}
+    updates = await client.get("/product-feedback/updates")
+    assert updates.status_code == 200
+    assert updates.json()["total"] >= 1
+    assert any(item["title"] == "匿名问题反馈" for item in updates.json()["items"])
 
     ordinary_create = await client.post(
         "/product-feedback/updates",
@@ -135,6 +152,11 @@ async def test_product_updates_are_public_read_and_admin_managed(product_feedbac
         },
     )
     assert ordinary_create.status_code == 403
+
+    shipped_updates = await client.get("/product-feedback/updates?status=shipped")
+    assert shipped_updates.status_code == 200
+    assert shipped_updates.json()["total"] >= 1
+    assert all(item["status"] == "shipped" for item in shipped_updates.json()["items"])
 
     created = await client.post(
         "/product-feedback/updates",
@@ -160,8 +182,3 @@ async def test_product_updates_are_public_read_and_admin_managed(product_feedbac
     assert shipped.json()["status"] == "shipped"
     assert shipped.json()["kind"] == "release"
     assert shipped.json()["shipped_at"] is not None
-
-    updates = await client.get("/product-feedback/updates?status=shipped")
-    assert updates.status_code == 200
-    assert updates.json()["total"] == 1
-    assert updates.json()["items"][0]["version"] == "v0.2.0"

@@ -48,7 +48,7 @@ class IssueFeedbackUpdate(BaseModel):
 
 class IssueFeedbackResponse(BaseModel):
     id: int
-    user_id: int
+    user_id: Optional[int] = None
     title: str
     description: str
     area: str

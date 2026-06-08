@@ -1,9 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import {
-  ArrowRight,
   CheckCircle2,
   CircleDot,
   ClipboardCheck,
@@ -15,7 +13,6 @@ import {
   RefreshCw,
   Rocket,
   ShieldCheck,
-  Sparkles,
   Wrench,
 } from 'lucide-react';
 import { useAppContext } from '@/components/ClientLayout';
@@ -229,14 +226,11 @@ function UpdateBadge({ status }: { status: ProductUpdateStatus }) {
 }
 
 export default function FeedbackPage() {
-  const router = useRouter();
   const { currentUser, authLoading } = useAppContext();
   const isAdmin = currentUser?.role === 'admin';
   const [loading, setLoading] = useState(true);
   const [savingIssue, setSavingIssue] = useState(false);
-  const [savingUpdate, setSavingUpdate] = useState(false);
   const [issueUpdatingId, setIssueUpdatingId] = useState<number | null>(null);
-  const [updateUpdatingId, setUpdateUpdatingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [myIssues, setMyIssues] = useState<IssueFeedbackItem[]>([]);
@@ -251,14 +245,6 @@ export default function FeedbackPage() {
     severity: 'medium' as IssueFeedbackSeverity,
     description: '',
   });
-  const [updateForm, setUpdateForm] = useState({
-    title: '',
-    kind: 'roadmap' as ProductUpdateKind,
-    status: 'planned' as ProductUpdateStatus,
-    version: '',
-    target_date: '',
-    description: '',
-  });
 
   const roadmapItems = useMemo(
     () => updates.filter((item) => item.status !== 'shipped'),
@@ -270,23 +256,19 @@ export default function FeedbackPage() {
   );
 
   const loadData = useCallback(async () => {
-    if (!currentUser) {
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
       const [mine, updateList, adminIssues] = await Promise.all([
-        productFeedbackApi.listMine({ limit: 80 }),
+        currentUser ? productFeedbackApi.listMine({ limit: 80 }) : Promise.resolve(null),
         productFeedbackApi.listUpdates({ limit: 160 }),
         isAdmin ? productFeedbackApi.listIssues({ status: issueFilter, limit: 200 }) : Promise.resolve(null),
       ]);
-      setMyIssues(mine.items || []);
+      setMyIssues(mine?.items || []);
       setIssueStats((prev) => ({
         ...prev,
-        myOpen: mine.open_count || 0,
-        myFixed: mine.fixed_count || 0,
+        myOpen: mine?.open_count || 0,
+        myFixed: mine?.fixed_count || 0,
       }));
       setUpdates(updateList.items || []);
       if (adminIssues) {
@@ -296,6 +278,14 @@ export default function FeedbackPage() {
           total: adminIssues.total || 0,
           open: adminIssues.open_count || 0,
           fixed: adminIssues.fixed_count || 0,
+        }));
+      } else {
+        setAllIssues([]);
+        setIssueStats((prev) => ({
+          ...prev,
+          total: 0,
+          open: 0,
+          fixed: 0,
         }));
       }
     } catch (err) {
@@ -351,53 +341,6 @@ export default function FeedbackPage() {
     }
   };
 
-  const submitUpdate = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!updateForm.title.trim() || !updateForm.description.trim()) return;
-    setSavingUpdate(true);
-    setError(null);
-    setNotice(null);
-    try {
-      await productFeedbackApi.createUpdate({
-        title: updateForm.title.trim(),
-        description: updateForm.description.trim(),
-        kind: updateForm.kind,
-        status: updateForm.status,
-        version: updateForm.version.trim() || null,
-        target_date: updateForm.target_date || null,
-      });
-      setUpdateForm({
-        title: '',
-        kind: 'roadmap',
-        status: 'planned',
-        version: '',
-        target_date: '',
-        description: '',
-      });
-      setNotice('更新项已记录。');
-      await loadData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '保存更新项失败');
-    } finally {
-      setSavingUpdate(false);
-    }
-  };
-
-  const updateProductStatus = async (item: ProductUpdateItem, status: ProductUpdateStatus) => {
-    setUpdateUpdatingId(item.id);
-    setError(null);
-    setNotice(null);
-    try {
-      await productFeedbackApi.updateProductUpdate(item.id, { status });
-      setNotice(status === 'shipped' ? '已发布到更新记录。' : '路线图状态已更新。');
-      await loadData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '更新路线状态失败');
-    } finally {
-      setUpdateUpdatingId(null);
-    }
-  };
-
   if (authLoading || loading) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center bg-page">
@@ -405,26 +348,6 @@ export default function FeedbackPage() {
           <Loader2 size={16} className="animate-spin" />
           正在加载反馈工作台
         </div>
-      </div>
-    );
-  }
-
-  if (!currentUser) {
-    return (
-      <div className="flex h-full min-h-0 overflow-y-auto bg-page px-6 py-8 lg:px-10">
-        <Panel className="mx-auto flex w-full max-w-[620px] flex-col items-start justify-center p-7">
-          <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-sm bg-primary-light text-primary">
-            <MessageSquareWarning size={22} />
-          </div>
-          <h1 className="mb-2 text-2xl font-black text-gray-900">登录后提交反馈</h1>
-          <p className="mb-5 text-sm leading-7 text-gray-500">
-            反馈会绑定到你的账号，修复后可以在这里看到状态和处理记录。
-          </p>
-          <Button type="button" variant="primary" onClick={() => router.push('/login')}>
-            去登录
-            <ArrowRight size={14} />
-          </Button>
-        </Panel>
       </div>
     );
   }
@@ -440,7 +363,7 @@ export default function FeedbackPage() {
             </div>
             <h1 className="text-[26px] font-black leading-tight text-gray-900">反馈与更新</h1>
             <p className="mt-2 max-w-[760px] text-sm leading-7 text-gray-500">
-              记录产品问题、同步处理状态，并把已完成的修复沉淀到更新记录里。
+              反馈可以直接提交；更新路线和记录随版本发布内置展示。
             </p>
           </div>
           <Button type="button" onClick={() => void loadData()}>
@@ -461,13 +384,22 @@ export default function FeedbackPage() {
         )}
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatTile label="我的待处理" value={issueStats.myOpen} icon={<CircleDot size={14} />} tone="amber" />
-          <StatTile label="我的已修复" value={issueStats.myFixed} icon={<CheckCircle2 size={14} />} tone="teal" />
+          {currentUser ? (
+            <>
+              <StatTile label="我的待处理" value={issueStats.myOpen} icon={<CircleDot size={14} />} tone="amber" />
+              <StatTile label="我的已修复" value={issueStats.myFixed} icon={<CheckCircle2 size={14} />} tone="teal" />
+            </>
+          ) : (
+            <>
+              <StatTile label="反馈提交" value="匿名" icon={<CircleDot size={14} />} tone="amber" />
+              <StatTile label="状态跟踪" value="登录" icon={<CheckCircle2 size={14} />} tone="teal" />
+            </>
+          )}
           <StatTile label="路线推进" value={roadmapItems.length} icon={<Flag size={14} />} tone="primary" />
           <StatTile label="更新记录" value={shippedItems.length} icon={<Rocket size={14} />} tone="neutral" />
         </div>
 
-        <div className="grid gap-5 xl:grid-cols-[420px_1fr]">
+        <div className={cx('grid gap-5', currentUser ? 'xl:grid-cols-[420px_1fr]' : 'max-w-[520px]')}>
           <Surface title="提交问题反馈" hint="问题越具体，越容易定位和修复" icon={<MessageSquareWarning size={16} />}>
             <form className="space-y-3" onSubmit={submitIssue}>
               <div>
@@ -523,21 +455,23 @@ export default function FeedbackPage() {
             </form>
           </Surface>
 
-          <Surface title="我的反馈" hint="修复状态会在这里回流" icon={<ClipboardCheck size={16} />}>
-            <div className="space-y-3">
-              {myIssues.length === 0 ? (
-                <div className="rounded-sm border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm font-bold text-gray-400">
-                  还没有提交过反馈
-                </div>
-              ) : myIssues.map((issue) => (
-                <IssueRow key={issue.id} issue={issue} compact />
-              ))}
-            </div>
-          </Surface>
+          {currentUser && (
+            <Surface title="我的反馈" hint="修复状态会在这里回流" icon={<ClipboardCheck size={16} />}>
+              <div className="space-y-3">
+                {myIssues.length === 0 ? (
+                  <div className="rounded-sm border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm font-bold text-gray-400">
+                    还没有提交过反馈
+                  </div>
+                ) : myIssues.map((issue) => (
+                  <IssueRow key={issue.id} issue={issue} compact />
+                ))}
+              </div>
+            </Surface>
+          )}
         </div>
 
         {isAdmin && (
-          <div className="grid gap-5 xl:grid-cols-[1fr_420px]">
+          <div className="grid gap-5">
             <Surface title="全部反馈处理" hint={`${issueStats.open} 个待处理，${issueStats.fixed} 个已修复`} icon={<ShieldCheck size={16} />}>
               <Toolbar className="mb-3 justify-between">
                 <div className="flex flex-wrap items-center gap-2">
@@ -566,7 +500,7 @@ export default function FeedbackPage() {
                     <IssueRow issue={issue} />
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-3">
                       <div className="text-[11px] font-bold text-gray-400">
-                        提交人：{issue.reporter_name || issue.reporter_email || `用户 ${issue.user_id}`}
+                        提交人：{issue.reporter_name || issue.reporter_email || (issue.user_id ? `用户 ${issue.user_id}` : '匿名用户')}
                       </div>
                       <Toolbar>
                         <Button
@@ -600,79 +534,6 @@ export default function FeedbackPage() {
                 ))}
               </div>
             </Surface>
-
-            <Surface title="记录路线与更新" hint="管理员维护用户可见的产品进度" icon={<Sparkles size={16} />}>
-              <form className="space-y-3" onSubmit={submitUpdate}>
-                <div>
-                  <FieldLabel>标题</FieldLabel>
-                  <TextInput
-                    value={updateForm.title}
-                    onChange={(event) => setUpdateForm((prev) => ({ ...prev, title: event.target.value }))}
-                    placeholder="例如：AI 分析队列并发化"
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <FieldLabel>类型</FieldLabel>
-                    <Select
-                      value={updateForm.kind}
-                      onChange={(event) => setUpdateForm((prev) => ({ ...prev, kind: event.target.value as ProductUpdateKind }))}
-                    >
-                      <option value="roadmap">路线</option>
-                      <option value="release">版本</option>
-                      <option value="fix">修复</option>
-                      <option value="improvement">优化</option>
-                    </Select>
-                  </div>
-                  <div>
-                    <FieldLabel>状态</FieldLabel>
-                    <Select
-                      value={updateForm.status}
-                      onChange={(event) => setUpdateForm((prev) => ({ ...prev, status: event.target.value as ProductUpdateStatus }))}
-                    >
-                      <option value="planned">计划中</option>
-                      <option value="in_progress">推进中</option>
-                      <option value="shipped">已发布</option>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <FieldLabel>版本</FieldLabel>
-                    <TextInput
-                      value={updateForm.version}
-                      onChange={(event) => setUpdateForm((prev) => ({ ...prev, version: event.target.value }))}
-                      placeholder="v0.2.0"
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel>目标日期</FieldLabel>
-                    <TextInput
-                      type="date"
-                      value={updateForm.target_date}
-                      onChange={(event) => setUpdateForm((prev) => ({ ...prev, target_date: event.target.value }))}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <FieldLabel>说明</FieldLabel>
-                  <TextArea
-                    value={updateForm.description}
-                    onChange={(event) => setUpdateForm((prev) => ({ ...prev, description: event.target.value }))}
-                    placeholder="写清楚解决了什么、影响哪个流程、用户能看到什么变化。"
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  disabled={savingUpdate || !updateForm.title.trim() || !updateForm.description.trim()}
-                  className="w-full"
-                >
-                  {savingUpdate ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                  保存更新项
-                </Button>
-              </form>
-            </Surface>
           </div>
         )}
 
@@ -681,18 +542,12 @@ export default function FeedbackPage() {
             <UpdateList
               items={roadmapItems}
               emptyText="暂无路线图事项"
-              admin={isAdmin}
-              updatingId={updateUpdatingId}
-              onStatusChange={updateProductStatus}
             />
           </Surface>
           <Surface title="更新记录" hint="已发布版本、修复和优化" icon={<Rocket size={16} />}>
             <UpdateList
               items={shippedItems}
               emptyText="暂无更新记录"
-              admin={isAdmin}
-              updatingId={updateUpdatingId}
-              onStatusChange={updateProductStatus}
             />
           </Surface>
         </div>
@@ -730,15 +585,9 @@ function IssueRow({ issue, compact = false }: { issue: IssueFeedbackItem; compac
 function UpdateList({
   items,
   emptyText,
-  admin,
-  updatingId,
-  onStatusChange,
 }: {
   items: ProductUpdateItem[];
   emptyText: string;
-  admin: boolean;
-  updatingId: number | null;
-  onStatusChange: (item: ProductUpdateItem, status: ProductUpdateStatus) => Promise<void>;
 }) {
   if (items.length === 0) {
     return (
@@ -765,27 +614,6 @@ function UpdateList({
           </div>
           <div className="text-sm font-black leading-6 text-gray-900">{item.title}</div>
           <p className="mt-1 text-[13px] leading-6 text-gray-500">{item.description}</p>
-          {admin && (
-            <Toolbar className="mt-3 border-t border-gray-100 pt-3">
-              <Button
-                type="button"
-                onClick={() => onStatusChange(item, 'in_progress')}
-                disabled={updatingId === item.id || item.status === 'in_progress'}
-              >
-                <Wrench size={13} />
-                推进中
-              </Button>
-              <Button
-                type="button"
-                variant="success"
-                onClick={() => onStatusChange(item, 'shipped')}
-                disabled={updatingId === item.id || item.status === 'shipped'}
-              >
-                {updatingId === item.id ? <Loader2 size={13} className="animate-spin" /> : <Rocket size={13} />}
-                发布
-              </Button>
-            </Toolbar>
-          )}
         </div>
       ))}
     </div>

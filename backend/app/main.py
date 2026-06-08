@@ -610,7 +610,7 @@ async def ensure_product_feedback_schema(conn) -> None:
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS issue_feedback (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
+            user_id INTEGER,
             title VARCHAR(200) NOT NULL,
             description TEXT NOT NULL,
             area VARCHAR(80) NOT NULL DEFAULT 'general',
@@ -620,9 +620,42 @@ async def ensure_product_feedback_schema(conn) -> None:
             fixed_at DATETIME,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
         )
     """))
+    result = await conn.execute(text("PRAGMA table_info(issue_feedback)"))
+    columns = {row[1]: row for row in result.fetchall()}
+    user_id_column = columns.get("user_id")
+    if user_id_column is not None and int(user_id_column[3] or 0) == 1:
+        await conn.execute(text("DROP TABLE IF EXISTS issue_feedback_nullable_user"))
+        await conn.execute(text("""
+            CREATE TABLE issue_feedback_nullable_user (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                title VARCHAR(200) NOT NULL,
+                description TEXT NOT NULL,
+                area VARCHAR(80) NOT NULL DEFAULT 'general',
+                severity VARCHAR(8) NOT NULL DEFAULT 'medium',
+                status VARCHAR(11) NOT NULL DEFAULT 'open',
+                resolution_note TEXT,
+                fixed_at DATETIME,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+        """))
+        await conn.execute(text("""
+            INSERT INTO issue_feedback_nullable_user (
+                id, user_id, title, description, area, severity, status,
+                resolution_note, fixed_at, created_at, updated_at
+            )
+            SELECT
+                id, user_id, title, description, area, severity, status,
+                resolution_note, fixed_at, created_at, updated_at
+            FROM issue_feedback
+        """))
+        await conn.execute(text("DROP TABLE issue_feedback"))
+        await conn.execute(text("ALTER TABLE issue_feedback_nullable_user RENAME TO issue_feedback"))
     await conn.execute(text("""
         CREATE TABLE IF NOT EXISTS product_updates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -17,6 +17,12 @@ from app.schemas.analysis import AiAnalysisResponse
 from app.repositories.content_repo import ContentRepo
 from app.repositories.analysis_repo import AnalysisRepository
 from app.services.analysis import analyze_content, analyze_batch, analyze_batch_concurrent
+from app.services.analysis_jobs import (
+    create_analysis_job,
+    finish_analysis_job,
+    get_analysis_job,
+    mark_analysis_job_running,
+)
 
 router = APIRouter(prefix="/analyses", tags=["analyses"], dependencies=[Depends(get_current_user)])
 
@@ -91,21 +97,38 @@ async def analyze_all_pending(
             "count": 0,
             "ids": [],
             "queued_ids": [],
+            "skipped_inflight_ids": [],
             "analyzed_ids": [],
+            "job_id": None,
             "hours": hours,
             "mode": "sync" if sync else "background",
         }
 
     if not sync:
+        job = await create_analysis_job(ids)
+        if not job.content_ids:
+            return {
+                "message": "Analysis already queued for matching content",
+                "count": 0,
+                "ids": ids,
+                "queued_ids": [],
+                "skipped_inflight_ids": job.skipped_inflight_ids,
+                "analyzed_ids": [],
+                "job_id": job.job_id,
+                "hours": hours,
+                "mode": "background",
+            }
         if background_tasks is None:
             background_tasks = BackgroundTasks()
-        background_tasks.add_task(_run_batch_background, ids)
+        background_tasks.add_task(_run_batch_background, job.job_id, job.content_ids)
         return {
-            "message": f"Analysis queued for {len(ids)} items in background",
-            "count": len(ids),
+            "message": f"Analysis queued for {len(job.content_ids)} items in background",
+            "count": len(job.content_ids),
             "ids": ids,
-            "queued_ids": ids,
+            "queued_ids": job.content_ids,
+            "skipped_inflight_ids": job.skipped_inflight_ids,
             "analyzed_ids": [],
+            "job_id": job.job_id,
             "hours": hours,
             "mode": "background",
         }
@@ -116,8 +139,19 @@ async def analyze_all_pending(
             "ids": ids,
             "hours": hours,
             "queued_ids": [],
+            "skipped_inflight_ids": [],
+            "job_id": None,
             "mode": "sync",
             "analyzed_ids": [a.content_id for a in results]}
+
+
+@router.get("/jobs/{job_id}")
+async def get_analysis_job_status(job_id: str):
+    """Return process-local status for a background analysis job."""
+    job = await get_analysis_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Analysis job not found")
+    return job
 
 
 @router.get("/content/{content_id}", response_model=AiAnalysisResponse)
@@ -161,6 +195,14 @@ async def list_analyses(
     }
 
 
-async def _run_batch_background(content_ids: list[int]) -> None:
+async def _run_batch_background(job_id: str, content_ids: list[int]) -> None:
     """Run batch analysis in background."""
-    await analyze_batch_concurrent(content_ids)
+    await mark_analysis_job_running(job_id)
+    try:
+        results = await analyze_batch_concurrent(content_ids)
+        analyzed_ids = [item.content_id for item in results]
+        failed_ids = [content_id for content_id in content_ids if content_id not in set(analyzed_ids)]
+        await finish_analysis_job(job_id, analyzed_ids=analyzed_ids, failed_ids=failed_ids)
+    except Exception as exc:
+        await finish_analysis_job(job_id, failed_ids=content_ids, error_message=str(exc))
+        raise

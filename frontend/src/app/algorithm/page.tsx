@@ -25,6 +25,7 @@ type FlowFetchOptions = {
 };
 
 type AnalysisPollState = {
+  jobId?: string | null;
   queuedIds: Set<number>;
   baselineAnalyzedTotal: number;
   attempts: number;
@@ -128,6 +129,30 @@ export default function AlgorithmPage() {
         const current = analysisPollStateRef.current;
         if (!current) return;
 
+        if (current.jobId) {
+          try {
+            const job = await analysesApi.getJob(current.jobId);
+            if (job.status === 'SUCCESS' || job.status === 'PARTIAL') {
+              clearAnalysisPolling();
+              await fetchFlow({ silent: true });
+              setAnalysisNotice(
+                job.failed_count > 0
+                  ? `后台分析已完成 ${job.analyzed_count} 条，${job.failed_count} 条失败或待重试，评分流程已刷新。`
+                  : `后台分析完成 ${job.analyzed_count} 条，评分流程已刷新。`
+              );
+              return;
+            }
+            if (job.status === 'FAILED' || job.status === 'EXPIRED') {
+              clearAnalysisPolling();
+              await fetchFlow({ silent: true });
+              setAnalysisNotice('后台分析未完成，失败内容会在冷却后自动重试；评分流程已刷新当前状态。');
+              return;
+            }
+          } catch {
+            // If the process-local job record is unavailable, fall back to scoring-flow polling below.
+          }
+        }
+
         const result = await fetchFlow({ silent: true });
         if (!result) {
           if (current.attempts + 1 >= ANALYSIS_POLL_MAX_ATTEMPTS) {
@@ -176,18 +201,22 @@ export default function AlgorithmPage() {
       const baselineAnalyzedTotal = data?.diagnostics?.analyzed_total ?? 0;
       const result = await analysesApi.analyzePending({ limit: 1, hours });
       const queuedCount = result.queued_ids?.length ?? 0;
+      const skippedCount = result.skipped_inflight_ids?.length ?? 0;
       const analyzedCount = result.analyzed_ids?.length ?? 0;
       const windowText = formatWindow(hours);
       setAnalysisNotice(
         queuedCount > 0
           ? `已提交最近 ${windowText}内 ${queuedCount} 条内容到后台分析，页面会持续刷新评分流程。`
+          : skippedCount > 0
+            ? `最近 ${windowText}内 ${skippedCount} 条内容已在后台分析中，页面会继续跟踪刷新。`
           : analyzedCount > 0
             ? `已同步分析最近 ${windowText}内 ${analyzedCount} 条内容，正在刷新评分流程。`
           : '当前窗口没有可分析的待处理内容。'
       );
       const flow = await fetchFlow();
-      if (queuedCount > 0) {
+      if (queuedCount > 0 || skippedCount > 0) {
         const pollState = {
+          jobId: result.job_id,
           queuedIds: new Set(result.queued_ids || []),
           baselineAnalyzedTotal,
           attempts: 0,

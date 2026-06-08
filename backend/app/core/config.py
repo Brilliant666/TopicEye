@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     LLM_TOKENS_PER_MINUTE: int = 100000
     LLM_WORKER_CONCURRENCY: int = 4
     ANALYSIS_WORKER_CONCURRENCY: int = 3
+    ANALYSIS_JOB_INFLIGHT_TTL_SECONDS: int = 900
     CLASSIFICATION_WORKER_CONCURRENCY: int = 3
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}

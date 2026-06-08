@@ -685,7 +685,9 @@ export const analysesApi = {
     count: number;
     ids?: number[];
     queued_ids?: number[];
+    skipped_inflight_ids?: number[];
     analyzed_ids?: number[];
+    job_id?: string | null;
     hours?: number | null;
     mode?: 'background' | 'sync';
   }> {
@@ -697,6 +699,29 @@ export const analysesApi = {
         ).toString()
       : '?limit=20';
     return request(`/analyses/pending${query}`, { method: 'POST' });
+  },
+
+  /** 查询后台分析任务状态 */
+  getJob(jobId: string): Promise<{
+    job_id: string;
+    status: 'QUEUED' | 'RUNNING' | 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'SKIPPED' | 'EXPIRED' | string;
+    content_ids: number[];
+    queued_ids: number[];
+    skipped_inflight_ids: number[];
+    analyzed_ids: number[];
+    failed_ids: number[];
+    pending_ids: number[];
+    count: number;
+    queued_count: number;
+    skipped_inflight_count: number;
+    analyzed_count: number;
+    failed_count: number;
+    queued_at: string;
+    started_at?: string | null;
+    finished_at?: string | null;
+    error_message?: string | null;
+  }> {
+    return request(`/analyses/jobs/${jobId}`);
   },
 
   /** 获取分析列表 */

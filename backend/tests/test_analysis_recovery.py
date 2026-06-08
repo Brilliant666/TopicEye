@@ -18,6 +18,14 @@ from app.models.source import Source  # noqa: F401
 from app.models.topic import TopicGroup  # noqa: F401
 from app.repositories.content_repo import ANALYSIS_STALE_MINUTES, ContentRepo
 from app.services import analysis
+from app.services import analysis_jobs
+from app.services.analysis_jobs import (
+    create_analysis_job,
+    finish_analysis_job,
+    get_analysis_job,
+    mark_analysis_job_running,
+    reset_analysis_jobs,
+)
 from app import scheduler as scheduler_module
 
 
@@ -100,6 +108,8 @@ async def test_list_pending_for_analysis_filters_recent_pending_items():
 
 @pytest.mark.asyncio
 async def test_analyze_pending_defaults_to_background_queue(monkeypatch):
+    await reset_analysis_jobs()
+
     async def fail_if_sync_analysis_runs(*args, **kwargs):
         raise AssertionError("pending endpoint should not analyze synchronously by default")
 
@@ -130,9 +140,106 @@ async def test_analyze_pending_defaults_to_background_queue(monkeypatch):
     assert result["mode"] == "background"
     assert result["queued_ids"] == [1]
     assert result["analyzed_ids"] == []
+    assert result["job_id"]
     assert result["hours"] == 24
     assert len(background_tasks.tasks) == 1
+
+    job = await get_analysis_job(result["job_id"])
+    assert job["status"] == "QUEUED"
+    assert job["queued_ids"] == [1]
+    assert job["pending_ids"] == [1]
+
     await engine.dispose()
+    await reset_analysis_jobs()
+
+
+@pytest.mark.asyncio
+async def test_analyze_pending_deduplicates_inflight_background_jobs(monkeypatch):
+    await reset_analysis_jobs()
+
+    async def fail_if_sync_analysis_runs(*args, **kwargs):
+        raise AssertionError("pending endpoint should not analyze synchronously by default")
+
+    monkeypatch.setattr(analyses_api, "analyze_batch_concurrent", fail_if_sync_analysis_runs)
+    engine, session_factory = await _session_factory()
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="重复提交的后台分析内容",
+                url="https://example.com/background-queue-dedupe",
+                status=ContentStatus.PENDING,
+                crawled_at=datetime.utcnow(),
+            )
+        )
+        await db.commit()
+
+        first_tasks = BackgroundTasks()
+        first = await analyses_api.analyze_all_pending(
+            limit=10,
+            hours=24,
+            sync=False,
+            background_tasks=first_tasks,
+            db=db,
+        )
+        second_tasks = BackgroundTasks()
+        second = await analyses_api.analyze_all_pending(
+            limit=10,
+            hours=24,
+            sync=False,
+            background_tasks=second_tasks,
+            db=db,
+        )
+
+    assert first["queued_ids"] == [1]
+    assert first["job_id"]
+    assert len(first_tasks.tasks) == 1
+    assert second["queued_ids"] == []
+    assert second["skipped_inflight_ids"] == [1]
+    assert second["job_id"]
+    assert len(second_tasks.tasks) == 0
+
+    await engine.dispose()
+    await reset_analysis_jobs()
+
+
+@pytest.mark.asyncio
+async def test_analysis_job_status_records_completion():
+    await reset_analysis_jobs()
+    job = await create_analysis_job([1, 2])
+
+    await mark_analysis_job_running(job.job_id)
+    await finish_analysis_job(job.job_id, analyzed_ids=[1], failed_ids=[2])
+
+    status = await analyses_api.get_analysis_job_status(job.job_id)
+
+    assert status["status"] == "PARTIAL"
+    assert status["analyzed_ids"] == [1]
+    assert status["failed_ids"] == [2]
+    assert status["pending_ids"] == []
+    assert status["started_at"] is not None
+    assert status["finished_at"] is not None
+    await reset_analysis_jobs()
+
+
+@pytest.mark.asyncio
+async def test_analysis_job_inflight_ttl_releases_stuck_ids(monkeypatch):
+    await reset_analysis_jobs()
+    monkeypatch.setattr(analysis_jobs.settings, "ANALYSIS_JOB_INFLIGHT_TTL_SECONDS", 60)
+
+    first = await create_analysis_job([1])
+    first.queued_at = datetime.utcnow() - timedelta(seconds=90)
+    second = await create_analysis_job([1])
+
+    expired = await get_analysis_job(first.job_id)
+    active = await get_analysis_job(second.job_id)
+
+    assert expired["status"] == "EXPIRED"
+    assert second.content_ids == [1]
+    assert second.skipped_inflight_ids == []
+    assert active["status"] == "QUEUED"
+    await reset_analysis_jobs()
 
 
 @pytest.mark.asyncio

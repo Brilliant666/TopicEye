@@ -455,7 +455,29 @@ async def ignore_content(
     content = await ContentRepo(db).get_by_id(content_id)
     if not content:
         raise HTTPException(404, "Content not found")
-    ignored = await IgnoredRepo(db).ignore(content_id, reason=reason)
+
+    async def _write():
+        ignored_item = await IgnoredRepo(db).ignore(content_id, reason=reason)
+        await db.flush()
+        return ignored_item
+
+    restore_busy_timeout = False
+    try:
+        if database_profile.is_sqlite:
+            await db.execute(text("PRAGMA busy_timeout=500"))
+            restore_busy_timeout = True
+        ignored = await retry_sqlite_locked(_write, attempts=3, base_delay=0.1, on_retry=db.rollback)
+    except OperationalError as exc:
+        await db.rollback()
+        if is_sqlite_locked(exc):
+            raise HTTPException(status_code=503, detail="数据库繁忙，请稍后重试")
+        raise
+    finally:
+        if restore_busy_timeout:
+            try:
+                await db.execute(text("PRAGMA busy_timeout=30000"))
+            except Exception:
+                await db.rollback()
     invalidate_content_read_caches()
     return {"content_id": content_id, "ignored": True, "reason": ignored.reason}
 
@@ -468,6 +490,26 @@ async def unignore_content(
 ):
     """Remove ignore flag from a content item."""
     from app.repositories.ignored_repo import IgnoredRepo
-    removed = await IgnoredRepo(db).unignore(content_id)
+
+    async def _write():
+        return await IgnoredRepo(db).unignore(content_id)
+
+    restore_busy_timeout = False
+    try:
+        if database_profile.is_sqlite:
+            await db.execute(text("PRAGMA busy_timeout=500"))
+            restore_busy_timeout = True
+        removed = await retry_sqlite_locked(_write, attempts=3, base_delay=0.1, on_retry=db.rollback)
+    except OperationalError as exc:
+        await db.rollback()
+        if is_sqlite_locked(exc):
+            raise HTTPException(status_code=503, detail="数据库繁忙，请稍后重试")
+        raise
+    finally:
+        if restore_busy_timeout:
+            try:
+                await db.execute(text("PRAGMA busy_timeout=30000"))
+            except Exception:
+                await db.rollback()
     invalidate_content_read_caches()
     return {"content_id": content_id, "ignored": False, "removed": removed}

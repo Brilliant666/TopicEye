@@ -68,7 +68,7 @@ async def test_analysis_repository_reads_and_filters_latest_rows_only():
 async def test_creation_plan_uses_latest_analysis_prompt_material(monkeypatch):
     captured_messages = []
 
-    async def fake_call_llm_json(messages, scene):
+    async def fake_call_llm_json(messages, scene, **_kwargs):
         captured_messages.extend(messages)
         return {"titles": ["新分析选题"]}
 
@@ -217,9 +217,88 @@ async def test_trend_snapshot_counts_latest_analysis_once():
 
         assert result == {"topics": 1, "keywords": 1, "date": "2026-06-08"}
         assert topic_trend.content_count == 1
-        assert topic_trend.avg_score == 35.0
-        assert topic_trend.max_score == 35.0
+        assert topic_trend.avg_score < 35.0
+        assert topic_trend.max_score < 35.0
         assert topic_trend.pick_count == 0
+        assert topic_trend.top_items[0]["score"] == topic_trend.max_score
         assert keywords == {"新关键词"}
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_trend_snapshot_uses_unified_scorer_for_picks_and_top_items():
+    engine, session_factory = await _session_factory()
+    target = date(2026, 6, 8)
+    created_at = datetime(2026, 6, 8, 12, 0, 0)
+    async with session_factory() as db:
+        db.add(TopicGroup(id=1, name="AI话题"))
+        db.add_all([
+            ContentItem(
+                id=1,
+                title="原始高分但质量弱",
+                url="https://example.com/weak",
+                category="AI",
+                topic_id=1,
+                status=ContentStatus.ANALYZED,
+                crawled_at=created_at,
+                created_at=created_at,
+            ),
+            ContentItem(
+                id=2,
+                title="统一评分高质量",
+                url="https://example.com/strong",
+                category="AI",
+                topic_id=1,
+                status=ContentStatus.ANALYZED,
+                crawled_at=created_at,
+                created_at=created_at,
+            ),
+        ])
+        db.add_all([
+            AiAnalysis(
+                id=1,
+                content_id=1,
+                curation_score=95,
+                info_density=10,
+                actionability=10,
+                creator_score=10,
+                viral_score=10,
+                freshness_score=50,
+                quality_score=10,
+                hot_score=10,
+                risk_score=0,
+                tags=["弱质量"],
+                created_at=created_at,
+            ),
+            AiAnalysis(
+                id=2,
+                content_id=2,
+                curation_score=70,
+                info_density=90,
+                actionability=90,
+                source_weight=70,
+                creator_score=90,
+                viral_score=70,
+                freshness_score=80,
+                quality_score=90,
+                hot_score=70,
+                risk_score=0,
+                tags=["高质量"],
+                created_at=created_at,
+            ),
+        ])
+        await db.commit()
+
+        result = await snapshot_daily_trends(db, target)
+        trends = (await db.execute(select(TopicTrend))).scalars().all()
+        topic_trend = next(item for item in trends if item.topic_id == 1)
+
+        assert result["topics"] == 1
+        assert topic_trend.content_count == 2
+        assert topic_trend.pick_count == 1
+        assert topic_trend.top_items[0]["title"] == "统一评分高质量"
+        assert topic_trend.top_items[0]["score"] == topic_trend.max_score
+        assert topic_trend.top_items[0]["score"] > topic_trend.top_items[1]["score"]
 
     await engine.dispose()

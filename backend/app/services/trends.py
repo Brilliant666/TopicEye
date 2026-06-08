@@ -12,14 +12,17 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import select, func, text, and_, case
+from sqlalchemy import select, func, text, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.trend import TopicTrend
 from app.models.topic import TopicGroup
 from app.models.content import ContentItem
 from app.models.analysis import AiAnalysis
+from app.models.source import Source
 from app.repositories.analysis_queries import latest_analysis_id_subquery
+from app.services.feedback_signal import get_feedback_scores
+from app.services.scoring_engine import ScoringInput, score_items
 
 logger = logging.getLogger(__name__)
 
@@ -48,18 +51,29 @@ async def snapshot_daily_trends(db: AsyncSession, target_date: Optional[date] = 
     topic_rows = await db.execute(
         select(
             ContentItem.topic_id,
-            func.count(ContentItem.id).label("cnt"),
-            func.avg(AiAnalysis.curation_score).label("avg_score"),
-            func.max(AiAnalysis.curation_score).label("max_score"),
-            func.sum(
-                case(
-                    (AiAnalysis.curation_score >= 60, 1),
-                    else_=0,
-                )
-            ).label("pick_count"),
+            ContentItem.id,
+            ContentItem.title,
+            ContentItem.url,
+            ContentItem.category,
+            ContentItem.source_id,
+            ContentItem.source_name,
+            ContentItem.published_at,
+            ContentItem.crawled_at,
+            AiAnalysis.curation_score,
+            AiAnalysis.info_density,
+            AiAnalysis.actionability,
+            AiAnalysis.source_weight.label("analysis_source_weight"),
+            AiAnalysis.creator_score,
+            AiAnalysis.viral_score,
+            AiAnalysis.freshness_score,
+            AiAnalysis.quality_score,
+            AiAnalysis.hot_score,
+            AiAnalysis.risk_score,
+            Source.weight.label("source_weight_db"),
         )
         .select_from(ContentItem)
         .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
+        .outerjoin(Source, Source.id == ContentItem.source_id)
         .where(
             and_(
                 ContentItem.topic_id.isnot(None),
@@ -67,44 +81,45 @@ async def snapshot_daily_trends(db: AsyncSession, target_date: Optional[date] = 
                 ContentItem.created_at < end_dt,
             )
         )
-        .group_by(ContentItem.topic_id)
     )
 
-    topic_count = 0
+    topic_items: dict[int, list] = {}
+    content_ids: list[int] = []
     for row in topic_rows:
-        topic_id = row.topic_id
+        topic_items.setdefault(row.topic_id, []).append(row)
+        content_ids.append(row.id)
+
+    feedback_scores = await get_feedback_scores(db, content_ids)
+
+    topic_count = 0
+    for topic_id, rows in topic_items.items():
         # Get topic name
         tg = await db.get(TopicGroup, topic_id)
         topic_name = tg.name if tg else f"Topic-{topic_id}"
 
-        # Get top 3 items for this topic
-        top_q = await db.execute(
-            select(ContentItem.title, ContentItem.url, AiAnalysis.curation_score)
-            .select_from(ContentItem)
-            .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
-            .where(
-                and_(
-                    ContentItem.topic_id == topic_id,
-                    ContentItem.created_at >= start_dt,
-                    ContentItem.created_at < end_dt,
-                )
-            )
-            .order_by(AiAnalysis.curation_score.desc())
-            .limit(3)
-        )
+        row_map = {row.id: row for row in rows}
+        scored_items = score_items([
+            _trend_row_to_scoring_input(row, feedback_scores.get(row.id, 0))
+            for row in rows
+        ])
+        final_scores = [breakdown.final_score for breakdown, _item in scored_items]
         top_items = [
-            {"title": r.title, "url": r.url, "score": round(r.curation_score or 0, 1)}
-            for r in top_q
+            {
+                "title": row_map[item.content_id].title,
+                "url": row_map[item.content_id].url,
+                "score": round(breakdown.final_score or 0, 1),
+            }
+            for breakdown, item in scored_items[:3]
         ]
 
         snap = TopicTrend(
             snapshot_date=target_date,
             topic_id=topic_id,
             topic_name=topic_name,
-            content_count=row.cnt,
-            avg_score=round(float(row.avg_score or 0), 1),
-            max_score=round(float(row.max_score or 0), 1),
-            pick_count=int(row.pick_count or 0),
+            content_count=len(rows),
+            avg_score=round(sum(final_scores) / len(final_scores), 1) if final_scores else 0,
+            max_score=round(max(final_scores), 1) if final_scores else 0,
+            pick_count=sum(1 for breakdown, _item in scored_items if breakdown.selected),
             top_items=top_items,
         )
         db.add(snap)
@@ -157,6 +172,31 @@ async def snapshot_daily_trends(db: AsyncSession, target_date: Optional[date] = 
     )
 
     return {"topics": topic_count, "keywords": keyword_count, "date": target_date.isoformat()}
+
+
+def _trend_row_to_scoring_input(row, feedback_score: float = 0) -> ScoringInput:
+    """Convert a trend snapshot candidate row into the unified scorer input."""
+    return ScoringInput(
+        content_id=row.id,
+        title=row.title or "",
+        category=row.category,
+        source_id=row.source_id,
+        source_name=row.source_name,
+        published_at=row.published_at,
+        crawled_at=row.crawled_at,
+        curation_score=row.curation_score or 0,
+        info_density=row.info_density or 50,
+        actionability=row.actionability or 50,
+        source_weight=row.analysis_source_weight or 50,
+        creator_score=row.creator_score or 0,
+        viral_score=row.viral_score or 0,
+        freshness_score=row.freshness_score or 0,
+        quality_score=row.quality_score or 0,
+        hot_score=row.hot_score or 0,
+        risk_score=row.risk_score or 0,
+        source_weight_db=row.source_weight_db or 3,
+        feedback_score=feedback_score,
+    )
 
 
 async def get_topic_trends(

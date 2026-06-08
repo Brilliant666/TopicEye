@@ -33,6 +33,7 @@ import app.models.favorite  # noqa: F401
 import app.models.user  # noqa: F401
 import app.models.user_integration  # noqa: F401
 import app.models.product_feedback  # noqa: F401
+import app.models.analysis_job  # noqa: F401
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -304,6 +305,31 @@ async def ensure_content_status_values(conn) -> None:
         END
         WHERE status IN ('PENDING', 'ANALYZING', 'ANALYZED', 'ERROR')
     """))
+
+
+async def ensure_analysis_jobs_schema(conn) -> None:
+    """Ensure persisted analysis job status table exists on upgraded SQLite installs."""
+    if not database_profile.is_sqlite:
+        return
+
+    await conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS analysis_jobs (
+            job_id VARCHAR(64) PRIMARY KEY,
+            status VARCHAR(20) NOT NULL,
+            content_ids JSON NOT NULL,
+            skipped_inflight_ids JSON NOT NULL,
+            analyzed_ids JSON NOT NULL,
+            failed_ids JSON NOT NULL,
+            queued_at DATETIME NOT NULL,
+            started_at DATETIME,
+            finished_at DATETIME,
+            error_message TEXT
+        )
+    """))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_analysis_jobs_status_queued "
+        "ON analysis_jobs(status, queued_at)"
+    ))
 
 
 async def ensure_favorite_items_schema(conn) -> None:
@@ -733,6 +759,7 @@ async def ensure_sqlite_upgrade_schema(conn) -> None:
     await ensure_llm_models_route_schema(conn)
     await ensure_performance_indexes(conn)
     await ensure_content_status_values(conn)
+    await ensure_analysis_jobs_schema(conn)
     await ensure_favorite_items_schema(conn)
     await ensure_user_auth_schema(conn)
     await ensure_user_integrations_schema(conn)

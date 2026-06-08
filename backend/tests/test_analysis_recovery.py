@@ -12,6 +12,7 @@ from app.api.v1 import analyses as analyses_api
 from app.core.database import Base
 from app import main as app_main
 from app.models.analysis import AiAnalysis
+from app.models.analysis_job import AnalysisJobRecord
 from app.models.content import ContentItem, ContentStatus
 from app.models.metrics import ContentMetrics  # noqa: F401
 from app.models.source import Source  # noqa: F401
@@ -294,6 +295,67 @@ async def test_analysis_job_status_records_completion():
     assert status["pending_ids"] == []
     assert status["started_at"] is not None
     assert status["finished_at"] is not None
+    await reset_analysis_jobs()
+
+
+@pytest.mark.asyncio
+async def test_analysis_job_status_persists_for_memory_miss(monkeypatch):
+    await reset_analysis_jobs()
+    engine, session_factory = await _session_factory()
+    monkeypatch.setattr(analysis_jobs, "async_session", session_factory)
+
+    job = await create_analysis_job([1, 2, 2])
+    await mark_analysis_job_running(job.job_id)
+    await finish_analysis_job(job.job_id, analyzed_ids=[1], failed_ids=[2])
+
+    async with session_factory() as db:
+        record = await db.get(AnalysisJobRecord, job.job_id)
+
+    assert record is not None
+    assert record.status == "PARTIAL"
+    assert record.content_ids == [1, 2]
+    assert record.analyzed_ids == [1]
+    assert record.failed_ids == [2]
+
+    async with analysis_jobs._lock:
+        analysis_jobs._jobs.clear()
+        analysis_jobs._active_content_ids.clear()
+
+    status = await get_analysis_job(job.job_id)
+
+    assert status["status"] == "PARTIAL"
+    assert status["queued_ids"] == [1, 2]
+    assert status["analyzed_ids"] == [1]
+    assert status["failed_ids"] == [2]
+    assert status["pending_ids"] == []
+    await engine.dispose()
+    await reset_analysis_jobs()
+
+
+@pytest.mark.asyncio
+async def test_analysis_job_snapshot_retries_sqlite_lock(monkeypatch):
+    await reset_analysis_jobs()
+    engine, session_factory = await _session_factory()
+    calls = {"begin": 0}
+
+    async def flaky_begin_immediate(_db):
+        calls["begin"] += 1
+        if calls["begin"] == 1:
+            raise OperationalError("BEGIN IMMEDIATE", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(analysis_jobs, "async_session", session_factory)
+    monkeypatch.setattr(analysis_jobs, "begin_immediate_for_sqlite", flaky_begin_immediate)
+
+    job = await create_analysis_job([1])
+
+    async with session_factory() as db:
+        record = await db.get(AnalysisJobRecord, job.job_id)
+
+    assert calls["begin"] == 2
+    assert record is not None
+    assert record.status == "QUEUED"
+    assert record.content_ids == [1]
+    await engine.dispose()
     await reset_analysis_jobs()
 
 
@@ -1350,6 +1412,7 @@ async def test_sqlite_upgrade_schema_runs_helpers_for_sqlite(monkeypatch):
     monkeypatch.setattr(app_main, "ensure_user_integrations_schema", helper("user_integrations"))
     monkeypatch.setattr(app_main, "ensure_user_feedback_schema", helper("user_feedback"))
     monkeypatch.setattr(app_main, "ensure_product_feedback_schema", helper("product_feedback"))
+    monkeypatch.setattr(app_main, "ensure_analysis_jobs_schema", helper("analysis_jobs"))
 
     await app_main.ensure_sqlite_upgrade_schema(object())
 
@@ -1360,6 +1423,7 @@ async def test_sqlite_upgrade_schema_runs_helpers_for_sqlite(monkeypatch):
         "llm_models_route",
         "performance_indexes",
         "content_status_values",
+        "analysis_jobs",
         "favorite_items",
         "user_auth",
         "user_integrations",

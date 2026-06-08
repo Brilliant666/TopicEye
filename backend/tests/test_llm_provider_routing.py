@@ -19,6 +19,7 @@ def _model(model_id: int, name: str, priority: int) -> SimpleNamespace:
         cooldown_seconds=300,
         temperature=0.3,
         max_tokens=2000,
+        requests_per_minute=60,
         extra_params=None,
     )
 
@@ -158,3 +159,66 @@ async def test_llm_completion_calls_are_globally_bounded(monkeypatch):
         assert max_active == 2
     finally:
         provider.reset_completion_semaphore()
+
+
+@pytest.mark.asyncio
+async def test_llm_completion_calls_are_bounded_per_model(monkeypatch):
+    provider.reset_completion_semaphore()
+    provider.reset_model_rate_limiters()
+    active = 0
+    max_active = 0
+    lock = asyncio.Lock()
+    model_config = _model(99, "limited", 10)
+    model_config.requests_per_minute = 1
+
+    class FastRateLimiter(provider.RateLimiter):
+        def __init__(self, max_requests: int = 60, window_seconds: int = 60):
+            super().__init__(max_requests=max_requests, window_seconds=0.03)
+
+    class FakeMessage:
+        content = "{}"
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeResponse:
+        choices = [FakeChoice()]
+
+    async def fake_to_thread(func, **kwargs):
+        nonlocal active, max_active
+        async with lock:
+            active += 1
+            max_active = max(max_active, active)
+        await asyncio.sleep(0.02)
+        async with lock:
+            active -= 1
+        return FakeResponse()
+
+    async def fake_record_llm_call_in_new_session(**kwargs):
+        return None
+
+    monkeypatch.setattr(provider, "RateLimiter", FastRateLimiter)
+    monkeypatch.setattr(provider.settings, "LLM_WORKER_CONCURRENCY", 5)
+    monkeypatch.setattr(provider.asyncio, "to_thread", fake_to_thread)
+    monkeypatch.setattr(provider, "record_llm_call_in_new_session", fake_record_llm_call_in_new_session)
+
+    try:
+        await asyncio.gather(*[
+            provider._call_llm_single(
+                [{"role": "user", "content": f"hello {index}"}],
+                "openai/limited",
+                "test-key",
+                "https://example.test/v1",
+                0.2,
+                100,
+                None,
+                model_config,
+                "test",
+            )
+            for index in range(3)
+        ])
+
+        assert max_active == 1
+    finally:
+        provider.reset_completion_semaphore()
+        provider.reset_model_rate_limiters()

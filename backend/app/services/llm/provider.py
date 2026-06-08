@@ -149,6 +149,7 @@ async def invalidate_model_cache() -> None:
         _model_cache._user_route_models = {}
         _model_cache._last_refresh = 0.0
         _model_cache._user_last_refresh = {}
+    reset_model_rate_limiters()
     _failover.reset()
 
 # ── Model failover state tracker ──────────────────────────────────────
@@ -248,6 +249,7 @@ class RateLimiter:
                 logger.warning("Rate limiter: waiting %.1fs", sleep_time)
                 await asyncio.sleep(sleep_time)
                 self._tokens = 1
+                self._last_refill = time.monotonic()
 
             self._tokens -= 1
 
@@ -257,6 +259,8 @@ _rate_limiter = RateLimiter(
     max_requests=settings.LLM_REQUESTS_PER_MINUTE,
     window_seconds=60,
 )
+_model_rate_limiters: dict[str, RateLimiter] = {}
+_model_rate_limiters_lock = threading.Lock()
 _completion_semaphore: Optional[asyncio.Semaphore] = None
 
 
@@ -266,6 +270,44 @@ def _normalize_llm_concurrency(value: Any = None) -> int:
     except (TypeError, ValueError):
         parsed = 1
     return max(1, min(parsed, 20))
+
+
+def _normalize_model_rpm(value: Any = None) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(parsed, int(settings.LLM_REQUESTS_PER_MINUTE or 60)))
+
+
+def _model_limiter_key(model_config: Any = None) -> str | None:
+    if model_config is None:
+        return None
+    model_id = getattr(model_config, "id", None)
+    if model_id is None:
+        return None
+    return f"db:{model_id}"
+
+
+def _get_model_rate_limiter(model_config: Any = None) -> RateLimiter | None:
+    rpm = _normalize_model_rpm(getattr(model_config, "requests_per_minute", None))
+    if rpm <= 0:
+        return None
+    key = _model_limiter_key(model_config)
+    if key is None:
+        return None
+    with _model_rate_limiters_lock:
+        limiter = _model_rate_limiters.get(key)
+        if limiter is None or limiter.max_requests != rpm:
+            limiter = RateLimiter(max_requests=rpm, window_seconds=60)
+            _model_rate_limiters[key] = limiter
+        return limiter
+
+
+def reset_model_rate_limiters() -> None:
+    """Reset per-model request limiters after model configuration changes/tests."""
+    with _model_rate_limiters_lock:
+        _model_rate_limiters.clear()
 
 
 def _get_completion_semaphore() -> asyncio.Semaphore:
@@ -330,6 +372,9 @@ async def _call_llm_single(
 ) -> str:
     """Make a single LLM call (no retry)."""
     await _rate_limiter.acquire()
+    model_limiter = _get_model_rate_limiter(model_config)
+    if model_limiter is not None:
+        await model_limiter.acquire()
 
     kwargs: dict[str, Any] = {
         "model": model,

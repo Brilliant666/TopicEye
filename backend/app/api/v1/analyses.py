@@ -15,7 +15,7 @@ from app.models.content import ContentStatus
 from app.schemas.analysis import AiAnalysisResponse
 from app.repositories.content_repo import ContentRepo
 from app.repositories.analysis_repo import AnalysisRepository
-from app.services.analysis import analyze_content, analyze_batch
+from app.services.analysis import analyze_content, analyze_batch, analyze_batch_concurrent
 
 router = APIRouter(prefix="/analyses", tags=["analyses"], dependencies=[Depends(get_current_user)])
 
@@ -108,7 +108,7 @@ async def analyze_all_pending(
             "mode": "background",
         }
 
-    results = await analyze_batch(ids, db)
+    results = await analyze_batch_concurrent(ids)
     return {"message": f"Analysis complete for {len(results)} items",
             "count": len(results),
             "ids": ids,
@@ -161,6 +161,4 @@ async def list_analyses(
 
 async def _run_batch_background(content_ids: list[int]) -> None:
     """Run batch analysis in background."""
-    from app.core.database import async_session
-    async with async_session() as db:
-        await analyze_batch(content_ids, db)
+    await analyze_batch_concurrent(content_ids)

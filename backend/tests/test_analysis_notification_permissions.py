@@ -63,10 +63,10 @@ async def test_analysis_and_notifications_require_login(monkeypatch):
 
     monkeypatch.setattr(notification_service, "async_session", session_factory)
 
-    async def fake_analyze_batch(content_ids: list[int], db: AsyncSession):
+    async def fake_analyze_batch_concurrent(content_ids: list[int]):
         return []
 
-    monkeypatch.setattr(analyses_api, "analyze_batch", fake_analyze_batch)
+    monkeypatch.setattr(analyses_api, "analyze_batch_concurrent", fake_analyze_batch_concurrent)
 
     app = FastAPI()
     app.include_router(analyses_api.router)

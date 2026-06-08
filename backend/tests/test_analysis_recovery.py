@@ -87,7 +87,7 @@ async def test_analyze_pending_defaults_to_background_queue(monkeypatch):
     async def fail_if_sync_analysis_runs(*args, **kwargs):
         raise AssertionError("pending endpoint should not analyze synchronously by default")
 
-    monkeypatch.setattr(analyses_api, "analyze_batch", fail_if_sync_analysis_runs)
+    monkeypatch.setattr(analyses_api, "analyze_batch_concurrent", fail_if_sync_analysis_runs)
     engine, session_factory = await _session_factory()
 
     async with session_factory() as db:
@@ -102,11 +102,12 @@ async def test_analyze_pending_defaults_to_background_queue(monkeypatch):
         )
         await db.commit()
 
+        background_tasks = BackgroundTasks()
         result = await analyses_api.analyze_all_pending(
             limit=10,
             hours=24,
             sync=False,
-            background_tasks=BackgroundTasks(),
+            background_tasks=background_tasks,
             db=db,
         )
 
@@ -114,6 +115,64 @@ async def test_analyze_pending_defaults_to_background_queue(monkeypatch):
     assert result["queued_ids"] == [1]
     assert result["analyzed_ids"] == []
     assert result["hours"] == 24
+    assert len(background_tasks.tasks) == 1
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_analyze_pending_sync_uses_concurrent_analysis(monkeypatch):
+    called = {}
+
+    async def fake_concurrent(content_ids):
+        called["ids"] = content_ids
+        return [
+            AiAnalysis(
+                content_id=content_id,
+                summary="并发分析完成",
+                curation_score=60,
+            )
+            for content_id in content_ids
+        ]
+
+    async def fail_if_sequential_analysis_runs(*args, **kwargs):
+        raise AssertionError("pending sync endpoint should use concurrent analysis")
+
+    monkeypatch.setattr(analyses_api, "analyze_batch_concurrent", fake_concurrent)
+    monkeypatch.setattr(analyses_api, "analyze_batch", fail_if_sequential_analysis_runs)
+    engine, session_factory = await _session_factory()
+
+    async with session_factory() as db:
+        db.add_all([
+            ContentItem(
+                id=1,
+                title="最近待同步分析一",
+                url="https://example.com/sync-concurrent-1",
+                status=ContentStatus.PENDING,
+                crawled_at=datetime.utcnow(),
+            ),
+            ContentItem(
+                id=2,
+                title="最近待同步分析二",
+                url="https://example.com/sync-concurrent-2",
+                status=ContentStatus.PENDING,
+                crawled_at=datetime.utcnow() - timedelta(minutes=1),
+            ),
+        ])
+        await db.commit()
+
+        result = await analyses_api.analyze_all_pending(
+            limit=10,
+            hours=24,
+            sync=True,
+            background_tasks=BackgroundTasks(),
+            db=db,
+        )
+
+    assert called["ids"] == [1, 2]
+    assert result["mode"] == "sync"
+    assert result["queued_ids"] == []
+    assert result["analyzed_ids"] == [1, 2]
+    assert result["count"] == 2
     await engine.dispose()
 
 

@@ -1107,3 +1107,78 @@ def test_daily_stats_uses_latest_analysis_and_unified_curated_count(monkeypatch)
     assert stats["dup_count"] == 1
 
     conn.close()
+
+
+def test_daily_stats_uses_unified_risk_threshold(monkeypatch):
+    conn = duckdb.connect(":memory:")
+    conn.execute("CREATE SCHEMA oltp_db")
+    conn.execute("""
+        CREATE TABLE oltp_db.content_items (
+            id INTEGER,
+            source_id INTEGER,
+            source_name VARCHAR,
+            category VARCHAR,
+            crawled_at TIMESTAMP,
+            duplicate_of INTEGER,
+            topic_id INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.sources (
+            id INTEGER,
+            name VARCHAR,
+            source_type VARCHAR,
+            weight INTEGER
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.ai_analyses (
+            id INTEGER,
+            content_id INTEGER,
+            curation_score DOUBLE,
+            info_density DOUBLE,
+            actionability DOUBLE,
+            source_weight DOUBLE,
+            creator_score DOUBLE,
+            viral_score DOUBLE,
+            freshness_score DOUBLE,
+            quality_score DOUBLE,
+            hot_score DOUBLE,
+            risk_score DOUBLE,
+            created_at TIMESTAMP
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE oltp_db.user_feedback (
+            id INTEGER,
+            content_id INTEGER,
+            user_id INTEGER,
+            score_delta DOUBLE,
+            created_at TIMESTAMP
+        )
+    """)
+    create_ignored_items_table(conn)
+
+    now = datetime.utcnow()
+    conn.execute("INSERT INTO oltp_db.sources VALUES (1, '测试信源', 'RSS', 3)")
+    for content_id, risk_score in ((1, 80), (2, 83)):
+        conn.execute(
+            "INSERT INTO oltp_db.content_items VALUES (?, 1, '测试信源', 'AI', ?, NULL, ?)",
+            [content_id, now, content_id],
+        )
+        conn.execute(
+            "INSERT INTO oltp_db.ai_analyses VALUES (?, ?, 90, 90, 90, 90, 90, 90, 90, 90, 90, ?, ?)",
+            [content_id, content_id, risk_score, now],
+        )
+
+    analytics = duckdb_service.DuckDBAnalytics()
+    monkeypatch.setattr(analytics, "_get_conn", lambda: conn)
+
+    stats = analytics.query_daily_stats()
+
+    assert stats["total_items"] == 1
+    assert stats["avg_curation"] == 90.0
+    assert stats["max_curation"] == 90.0
+    assert stats["topic_count"] == 1
+
+    conn.close()

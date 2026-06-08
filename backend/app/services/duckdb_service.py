@@ -683,6 +683,7 @@ class DuckDBAnalytics:
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(hours=48)).isoformat()
         scored_items = self._query_stats_scored_items(hours=48)
+        risk_threshold = float(SCORING_CONFIG["risk_threshold"])
 
         row = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},
@@ -698,7 +699,7 @@ class DuckDBAnalytics:
             LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
               AND ignored.content_id IS NULL
-              AND a.risk_score <= 70
+              AND a.risk_score <= {risk_threshold}
         """).fetchone()
 
         return {

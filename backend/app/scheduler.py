@@ -172,9 +172,29 @@ async def _sync_single_source(source_id: int) -> None:
                 stats = await ingest_from_source(source, db)
                 await db.commit()
                 logger.info("Scheduler: source '%s' synced — %s", source.name, stats)
+                _request_post_sync_pipeline(stats)
             except Exception:
                 logger.exception("Scheduler: failed to sync source id=%d", source_id)
                 await db.rollback()
+
+
+def _request_post_sync_pipeline(stats: Optional[dict] = None) -> bool:
+    """Request shared post-sync work after a source sync produced new content."""
+    try:
+        if not stats or int(stats.get("new", 0) or 0) <= 0:
+            return False
+    except (TypeError, ValueError):
+        return False
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.warning("Scheduler: could not request post-sync pipeline (no running loop)")
+        return False
+
+    loop.create_task(_run_post_sync_pipeline())
+    logger.info("Scheduler: requested post-sync pipeline for %d new items", int(stats.get("new", 0) or 0))
+    return True
 
 
 @track_job("post_sync_pipeline", name="同步后分析聚合", timeout=600,

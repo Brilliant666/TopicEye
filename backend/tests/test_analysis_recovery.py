@@ -740,6 +740,62 @@ async def test_post_sync_drain_releases_claims_after_batch_timeout(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_post_sync_pipeline_request_only_when_new_content(monkeypatch):
+    created = []
+
+    async def fake_pipeline():
+        return None
+
+    class FakeLoop:
+        def create_task(self, coroutine):
+            created.append(coroutine)
+            coroutine.close()
+
+    monkeypatch.setattr(scheduler_module, "_run_post_sync_pipeline", fake_pipeline)
+    monkeypatch.setattr(scheduler_module.asyncio, "get_running_loop", lambda: FakeLoop())
+
+    assert scheduler_module._request_post_sync_pipeline({"new": 0}) is False
+    assert scheduler_module._request_post_sync_pipeline({"new": "bad"}) is False
+    assert scheduler_module._request_post_sync_pipeline({"new": 2}) is True
+    assert len(created) == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_single_source_requests_post_sync_pipeline_for_new_content(monkeypatch):
+    engine, session_factory = await _session_factory()
+    requested = []
+
+    monkeypatch.setattr(scheduler_module, "async_session", session_factory)
+
+    async def fake_ingest_from_source(source, db):
+        return {"fetched": 3, "new": 2, "duplicates": 1}
+
+    def fake_request_post_sync_pipeline(stats):
+        requested.append(stats)
+        return True
+
+    monkeypatch.setattr(scheduler_module, "ingest_from_source", fake_ingest_from_source)
+    monkeypatch.setattr(scheduler_module, "_request_post_sync_pipeline", fake_request_post_sync_pipeline)
+
+    async with session_factory() as db:
+        db.add(
+            Source(
+                id=1,
+                name="测试信源",
+                source_type="RSS",
+                url="https://example.com/rss.xml",
+                enabled=True,
+            )
+        )
+        await db.commit()
+
+    await scheduler_module._sync_single_source(1)
+
+    assert requested == [{"fetched": 3, "new": 2, "duplicates": 1}]
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_source_sort_order_backfill_skips_sqlite_lock(monkeypatch):
     async def locked_backfill(*args, **kwargs):
         raise OperationalError("UPDATE sources", {}, Exception("database is locked"))

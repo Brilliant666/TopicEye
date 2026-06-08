@@ -418,6 +418,27 @@ async def test_update_source_disables_enabled_flag_when_status_disabled(sources_
 
 
 @pytest.mark.asyncio
+async def test_update_source_rejects_manual_syncing_status(sources_http_client: httpx.AsyncClient):
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "Syncing Guard API",
+            "url": "https://example.com/syncing-guard-api",
+            "source_type": "API",
+        },
+    )
+    assert created.status_code == 201
+
+    updated = await sources_http_client.put(
+        f"/sources/{created.json()['id']}",
+        json={"status": "syncing"},
+    )
+
+    assert updated.status_code == 422
+    assert updated.json()["detail"] == "syncing 是系统内部状态，不能手动设置"
+
+
+@pytest.mark.asyncio
 async def test_update_api_source_validates_and_normalizes_config(sources_http_client: httpx.AsyncClient):
     created = await sources_http_client.post(
         "/sources",
@@ -729,6 +750,37 @@ async def test_sync_source_requests_post_sync_pipeline_for_new_content(
     assert synced.status_code == 200
     assert synced.json()["new"] == 2
     assert post_sync_requests == [{"fetched": 3, "new": 2, "duplicates": 1}]
+
+
+@pytest.mark.asyncio
+async def test_sync_source_rejects_active_sync_lease(
+    sources_http_client: httpx.AsyncClient,
+    monkeypatch,
+):
+    async def fake_claim_sync(self, source_id: int, *, lease_seconds: int, min_interval_seconds: int = 0):
+        return None
+
+    async def fail_ingest_from_source(source: Source, db: AsyncSession):
+        raise AssertionError("active source sync lease should skip ingest")
+
+    monkeypatch.setattr(sources_api.SourceRepository, "claim_sync", fake_claim_sync)
+    monkeypatch.setattr(sources_api, "ingest_from_source", fail_ingest_from_source)
+
+    created = await sources_http_client.post(
+        "/sources",
+        json={
+            "name": "Busy API",
+            "url": "https://example.com/busy-api",
+            "source_type": "API",
+        },
+    )
+    assert created.status_code == 201
+    source_id = created.json()["id"]
+
+    response = await sources_http_client.post(f"/sources/{source_id}/sync")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "信源正在同步中，请稍后再试"
 
 
 def test_redact_source_sync_error_removes_credentials(monkeypatch):

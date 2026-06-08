@@ -40,6 +40,9 @@ def _invalidate_source_cache() -> None:
 
 
 def _normalize_source_status(payload: dict, current: Optional[Source] = None) -> dict:
+    if payload.get("status") == SourceStatus.SYNCING:
+        raise HTTPException(status_code=422, detail="syncing 是系统内部状态，不能手动设置")
+
     if payload.get("enabled") is False:
         payload["status"] = SourceStatus.DISABLED
         return payload
@@ -543,12 +546,20 @@ async def delete_source(source_id: int, db: AsyncSession = Depends(get_db)):
 async def sync_source(source_id: int, db: AsyncSession = Depends(get_db)):
     repo = SourceRepository(db)
     try:
-        source = await repo.get_by_id_or_raise(source_id, resource_name="Source")
+        existing = await repo.get_by_id_or_raise(source_id, resource_name="Source")
     except NotFoundError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
-    if not source.enabled or source.status == SourceStatus.DISABLED:
+    if not existing.enabled or existing.status == SourceStatus.DISABLED:
         raise HTTPException(status_code=409, detail="信源已禁用，请启用后再同步")
+
+    source = await repo.claim_sync(
+        source_id,
+        lease_seconds=int(settings.SOURCE_SYNC_TIMEOUT_SECONDS),
+    )
+    await db.commit()
+    if source is None:
+        raise HTTPException(status_code=409, detail="信源正在同步中，请稍后再试")
 
     stats = await ingest_from_source(source, db)
     await db.refresh(source)

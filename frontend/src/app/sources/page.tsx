@@ -27,6 +27,7 @@ const sourceTierMeta: Record<SourceTierKey, { label: string; desc: string; text:
 };
 
 function getSourceTier(source: BackendSource): SourceTierKey {
+  if (source.status === 'syncing') return 'stable';
   if (!source.enabled || source.status === 'error' || source.sync_error) return 'attention';
   if ((source.weight ?? 3) >= 4) return 'core';
   if ((source.weight ?? 3) <= 2) return 'watch';
@@ -300,8 +301,9 @@ function SourceMapCard({
   const isFavorite = favoriteTargets.has(favoriteKey);
   const favoritePending = favoriteTargetPendingKeys.has(favoriteKey);
   const meta = sourceTierMeta[tierKey];
+  const sourceSyncing = syncing || source.status === 'syncing';
   const sourceDisabled = !source.enabled || source.status === 'disabled';
-  const syncDisabled = syncing || sourceDisabled;
+  const syncDisabled = sourceSyncing || sourceDisabled;
 
   return (
     <div
@@ -350,7 +352,7 @@ function SourceMapCard({
         </div>
       </div>
       <div className={cx('mt-2 text-[11px] leading-5', source.sync_error ? 'text-red' : 'text-gray-400')}>
-        {source.sync_error ? source.sync_error : `最近同步 ${timeAgo(source.last_sync_at)}`}
+        {sourceSyncing ? '同步中' : source.sync_error ? source.sync_error : `最近同步 ${timeAgo(source.last_sync_at)}`}
       </div>
       <div className="mt-2.5 flex gap-1.5">
         <Button
@@ -361,7 +363,7 @@ function SourceMapCard({
           className="min-h-7 flex-1 px-2 py-1 text-[11px]"
           title={sourceDisabled ? '信源已禁用，启用后可同步' : '同步信源'}
         >
-          {syncing ? '同步中' : '同步'}
+          {sourceSyncing ? '同步中' : '同步'}
         </Button>
         <Button type="button" variant="secondary" onClick={() => onEdit(source)} className="min-h-7 flex-1 px-2 py-1 text-[11px]">
           编辑

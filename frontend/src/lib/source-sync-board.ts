@@ -75,6 +75,7 @@ export function formatDateTime(date: Date | null): string {
 
 export function inferSyncBoardKey(source: BackendSource, syncingIds: Set<number>, now: Date): SyncBoardKey {
   if (syncingIds.has(source.id)) return 'running';
+  if (source.status === 'syncing') return 'running';
   if (!source.enabled || source.status === 'disabled') return 'paused';
   if (source.status === 'error' || source.sync_error) return 'error';
 

@@ -1366,6 +1366,43 @@ async def test_sync_single_source_requests_post_sync_pipeline_for_new_content(mo
 
 
 @pytest.mark.asyncio
+async def test_sync_single_source_skips_active_sync_lease(monkeypatch):
+    engine, session_factory = await _session_factory()
+    requested = []
+
+    monkeypatch.setattr(scheduler_module, "async_session", session_factory)
+
+    async def fail_ingest_from_source(source, db):
+        raise AssertionError("active sync lease should skip scheduler ingest")
+
+    def fake_request_post_sync_pipeline(stats):
+        requested.append(stats)
+        return True
+
+    monkeypatch.setattr(scheduler_module, "ingest_from_source", fail_ingest_from_source)
+    monkeypatch.setattr(scheduler_module, "_request_post_sync_pipeline", fake_request_post_sync_pipeline)
+
+    async with session_factory() as db:
+        db.add(
+            Source(
+                id=1,
+                name="忙碌信源",
+                source_type="RSS",
+                url="https://example.com/busy.xml",
+                enabled=True,
+                status="syncing",
+                last_sync_at=datetime.utcnow(),
+            )
+        )
+        await db.commit()
+
+    await scheduler_module._sync_single_source(1)
+
+    assert requested == []
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_source_sort_order_backfill_skips_sqlite_lock(monkeypatch):
     async def locked_backfill(*args, **kwargs):
         raise OperationalError("UPDATE sources", {}, Exception("database is locked"))

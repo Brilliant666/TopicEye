@@ -26,6 +26,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.triggers.cron import CronTrigger
 
+from app.core.config import settings
 from app.core.database import async_session
 from app.repositories.source_repo import SourceRepository
 from app.repositories.content_repo import ContentRepo
@@ -165,9 +166,13 @@ async def _sync_single_source(source_id: int) -> None:
         async with async_session() as db:
             from app.repositories.source_repo import SourceRepository
             source_repo = SourceRepository(db)
-            source = await source_repo.get_by_id(source_id)
+            source = await source_repo.claim_sync(
+                source_id,
+                lease_seconds=int(settings.SOURCE_SYNC_TIMEOUT_SECONDS),
+            )
+            await db.commit()
             if not source or not source.enabled:
-                logger.debug("Source id=%d skipped (not found or disabled)", source_id)
+                logger.debug("Source id=%d skipped (not found, disabled, or sync lease active)", source_id)
                 return
             try:
                 stats = await ingest_from_source(source, db)

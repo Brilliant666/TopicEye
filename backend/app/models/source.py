@@ -27,6 +27,7 @@ class SourceType(str, enum.Enum):
 
 class SourceStatus(str, enum.Enum):
     ACTIVE = "active"
+    SYNCING = "syncing"
     ERROR = "error"
     DISABLED = "disabled"
 

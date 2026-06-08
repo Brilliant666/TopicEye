@@ -114,8 +114,9 @@ export default function SourceRowComponent({
   const [intervalOpen, setIntervalOpen] = useState(false);
   const typeClass = typeColors[source.source_type] || 'bg-gray-100 text-gray-600';
   const isActive = source.status === 'active' && source.enabled;
+  const sourceSyncing = syncing || source.status === 'syncing';
   const sourceDisabled = !source.enabled || source.status === 'disabled';
-  const syncDisabled = syncing || sourceDisabled;
+  const syncDisabled = sourceSyncing || sourceDisabled;
   const displayUrl = source.url ? redactSourceUrlForDisplay(source.url) : '';
 
   return (
@@ -140,7 +141,7 @@ export default function SourceRowComponent({
 
       <div className="min-w-0">
         <span className={cx('text-xs', source.sync_error ? 'text-red' : 'text-gray-400')}>
-          {source.sync_error ? '同步失败' : timeAgo(source.last_sync_at)}
+          {sourceSyncing ? '同步中' : source.sync_error ? '同步失败' : timeAgo(source.last_sync_at)}
         </span>
         {source.sync_error && <div className="mt-0.5 truncate text-[11px] text-red">{source.sync_error}</div>}
         {syncResult && <div className="mt-0.5 truncate text-[11px] text-teal">{syncResult}</div>}
@@ -221,12 +222,12 @@ export default function SourceRowComponent({
           type="button"
           onClick={onSync}
           disabled={syncDisabled}
-          variant={syncing ? 'secondary' : 'success'}
+          variant={sourceSyncing ? 'secondary' : 'success'}
           className="min-h-7 px-2.5 py-1 text-[11px]"
           title={sourceDisabled ? '信源已禁用，启用后可同步' : '同步信源'}
         >
-          {syncing ? <Spinner /> : null}
-          {syncing ? '同步中' : '同步'}
+          {sourceSyncing ? <Spinner /> : null}
+          {sourceSyncing ? '同步中' : '同步'}
         </Button>
         <Button type="button" onClick={onEdit} variant="secondary" className="min-h-7 bg-purple-light px-2.5 py-1 text-[11px] text-purple hover:text-purple">
           编辑

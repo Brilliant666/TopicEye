@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import select
@@ -10,6 +11,7 @@ from app.core.database import Base
 from app.models.category import Category
 from app.models.content import ContentItem
 from app.models.source import Source, SourceStatus, SourceType
+from app.repositories.source_repo import SourceRepository
 from app.services import content_pipeline
 from app.services.content_pipeline import _build_http_client_kwargs, _update_source_error
 
@@ -38,6 +40,55 @@ def test_build_http_client_kwargs_skips_explicit_proxy_for_loopback(monkeypatch)
     assert "proxy" not in local_kwargs
     assert remote_kwargs["trust_env"] is False
     assert remote_kwargs["proxy"] == "http://127.0.0.1:7890"
+
+
+@pytest.mark.asyncio
+async def test_claim_source_sync_uses_last_sync_lease():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    try:
+        async with session_factory() as db:
+            source = Source(
+                id=1,
+                name="Lease Example",
+                url="https://example.com/feed",
+                source_type=SourceType.RSS,
+                enabled=True,
+            )
+            db.add(source)
+            await db.commit()
+
+            first = await SourceRepository(db).claim_sync(1, lease_seconds=60)
+            await db.commit()
+            second = await SourceRepository(db).claim_sync(1, lease_seconds=60)
+
+            assert first is not None
+            assert first.status == SourceStatus.SYNCING
+            assert second is None
+
+        async with session_factory() as db:
+            source = await db.get(Source, 1)
+            source.last_sync_at = source.last_sync_at - timedelta(seconds=120)
+            await db.commit()
+
+            stale = await SourceRepository(db).claim_sync(1, lease_seconds=60)
+
+            assert stale is not None
+            assert stale.status == SourceStatus.SYNCING
+
+        async with session_factory() as db:
+            source = await db.get(Source, 1)
+            source.status = SourceStatus.ACTIVE
+            await db.commit()
+
+            completed = await SourceRepository(db).claim_sync(1, lease_seconds=60)
+
+            assert completed is not None
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

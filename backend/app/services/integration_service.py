@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locked
 from app.models.user_integration import UserIntegration
 from app.services.secret_store import decrypt_secret, encrypt_secret
 
@@ -49,6 +50,57 @@ async def get_user_integration(
         )
     )
     return result.scalar_one_or_none()
+
+
+async def claim_user_integration_sync(
+    db: AsyncSession,
+    *,
+    integration_id: int,
+    lease_seconds: int,
+) -> Optional[UserIntegration]:
+    """Acquire a per-user integration sync lease."""
+    now = datetime.utcnow()
+    lease_cutoff = now - timedelta(seconds=max(int(lease_seconds), 1))
+
+    async def _claim() -> Optional[UserIntegration]:
+        await begin_immediate_for_sqlite(db)
+        result = await db.execute(
+            select(UserIntegration)
+            .where(UserIntegration.id == integration_id)
+            .with_for_update()
+        )
+        integration = result.scalar_one_or_none()
+        if integration is None:
+            return None
+
+        if (
+            integration.last_sync_status == "syncing"
+            and integration.last_sync_at is not None
+            and integration.last_sync_at > lease_cutoff
+        ):
+            return None
+
+        integration.last_sync_at = now
+        integration.last_sync_status = "syncing"
+        integration.last_sync_error = None
+        integration.updated_at = now
+        await db.flush()
+        return integration
+
+    return await retry_sqlite_locked(_claim, on_retry=db.rollback)
+
+
+async def mark_user_integration_sync_error(
+    db: AsyncSession,
+    integration: UserIntegration,
+    *,
+    message: str,
+) -> None:
+    integration.last_sync_at = datetime.utcnow()
+    integration.last_sync_status = "error"
+    integration.last_sync_error = message[:500]
+    integration.updated_at = datetime.utcnow()
+    await db.flush()
 
 
 async def upsert_user_integration(

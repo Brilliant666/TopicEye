@@ -4,15 +4,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_user
+from app.core.config import settings
 from app.core.dependencies import get_db
 from app.models.user import User
 from app.schemas.integration import IntegrationStatusResponse, IntegrationUpdateRequest, WeReadSyncResponse
 from app.services.integration_service import (
     WEREAD_PROVIDER,
+    claim_user_integration_sync,
     clear_user_integration,
     get_user_integration,
     integration_api_key,
     integration_status,
+    mark_user_integration_sync_error,
     upsert_user_integration,
 )
 from app.services.weread_materials import redact_weread_sync_error, sync_weread_materials
@@ -65,13 +68,27 @@ async def sync_weread(
     if not integration or not api_key:
         raise HTTPException(status_code=422, detail="请先在个人中心配置微信读书 API Key")
 
+    await db.commit()
+    claimed = await claim_user_integration_sync(
+        db,
+        integration_id=integration.id,
+        lease_seconds=int(settings.SOURCE_SYNC_TIMEOUT_SECONDS),
+    )
+    await db.commit()
+    if claimed is None:
+        raise HTTPException(status_code=409, detail="微信读书素材正在同步中，请稍后再试")
+
     try:
-        result = await sync_weread_materials(db, integration, api_key=api_key, limit=limit)
+        result = await sync_weread_materials(db, claimed, api_key=api_key, limit=limit)
     except RuntimeError as exc:
+        if claimed.last_sync_status == "syncing":
+            await mark_user_integration_sync_error(db, claimed, message=redact_weread_sync_error(str(exc), api_key))
         await db.commit()
         detail = redact_weread_sync_error(str(exc), api_key)
         raise HTTPException(status_code=502, detail=detail)
     except Exception as exc:
+        if claimed.last_sync_status == "syncing":
+            await mark_user_integration_sync_error(db, claimed, message=redact_weread_sync_error(str(exc), api_key))
         await db.commit()
         detail = redact_weread_sync_error(str(exc), api_key)
         raise HTTPException(status_code=502, detail=f"微信读书素材同步失败：{detail}")

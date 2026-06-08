@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import AsyncGenerator
 
 import httpx
@@ -300,6 +301,48 @@ async def test_weread_sync_without_endpoint_returns_actionable_error(monkeypatch
         assert refreshed["last_sync_at"] is None
         assert refreshed["last_sync_status"] is None
         assert refreshed["last_sync_error"] is None
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_weread_sync_rejects_active_user_lease(monkeypatch):
+    async def fail_fetch(api_key: str, *, limit: int = 50):
+        raise AssertionError("active weread sync lease should skip remote fetch")
+
+    monkeypatch.setattr(weread_materials, "fetch_weread_materials", fail_fetch)
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        user = await create_user(db, email="sync-active-weread@example.com", password="Password123")
+        await update_weread_integration(
+            IntegrationUpdateRequest(api_key="wr_secret_active_123456"),
+            user,
+            db,
+        )
+        integration = await get_user_integration(db, user_id=user.id, provider=WEREAD_PROVIDER)
+        assert integration is not None
+        integration.last_sync_at = datetime.utcnow()
+        integration.last_sync_status = "syncing"
+        integration.last_sync_error = None
+        await db.flush()
+
+        error = None
+        try:
+            await sync_weread(limit=1, current_user=user, db=db)
+        except HTTPException as exc:
+            error = exc
+
+        assert error is not None
+        assert error.status_code == 409
+        assert "正在同步" in str(error.detail)
+
+        status = await get_weread_integration(user, db)
+        assert status["last_sync_status"] == "syncing"
+        assert status["last_sync_error"] is None
 
     await engine.dispose()
 

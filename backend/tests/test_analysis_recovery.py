@@ -230,6 +230,75 @@ async def test_analyze_batch_recovers_from_empty_llm_response(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_analyze_batch_normalizes_malformed_llm_contract(monkeypatch):
+    async def malformed_llm_response(*args, **kwargs):
+        return {
+            "summary": {"bad": "object"},
+            "key_points": "单点观点",
+            "recommendation": 123,
+            "creator_angles": ["角度", " ", "角度", {"bad": 1}],
+            "title_suggestions": '["标题一", "标题二"]',
+            "risk_notes": {"bad": "risk"},
+            "tags": '["AI", "AI", " ", "%s", "工具"]' % ("x" * 80),
+            "scores": {
+                "quality_score": 120,
+                "hot_score": -5,
+                "freshness_score": "80",
+                "creator_score": None,
+                "viral_score": "bad",
+                "risk_score": 90,
+            },
+            "curation": {
+                "curation_score": 150,
+                "info_density": -10,
+                "actionability": "70",
+                "source_weight": "bad",
+            },
+        }
+
+    monkeypatch.setattr(analysis, "call_llm_json", malformed_llm_response)
+    engine, session_factory = await _session_factory()
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="格式漂移的分析结果",
+                url="https://example.com/malformed-analysis-contract",
+                status=ContentStatus.PENDING,
+                raw_content="用于验证 LLM 返回局部格式异常时，分析结果仍会以稳定契约落库。",
+            )
+        )
+        await db.commit()
+
+        results = await analysis.analyze_batch([1], db)
+
+        stored_analysis = await db.scalar(select(AiAnalysis).where(AiAnalysis.content_id == 1))
+        stored_content = await db.get(ContentItem, 1)
+
+    assert [item.content_id for item in results] == [1]
+    assert stored_content.status == ContentStatus.ANALYZED
+    assert stored_analysis.quality_score == 100
+    assert stored_analysis.hot_score == 0
+    assert stored_analysis.freshness_score == 80
+    assert stored_analysis.creator_score == 50
+    assert stored_analysis.viral_score == 50
+    assert stored_analysis.risk_score == 90
+    assert stored_analysis.curation_score == 100
+    assert stored_analysis.info_density == 0
+    assert stored_analysis.actionability == 70
+    assert stored_analysis.source_weight == 50
+    assert stored_analysis.summary == ""
+    assert stored_analysis.key_points == ["单点观点"]
+    assert stored_analysis.creator_angles == ["角度"]
+    assert stored_analysis.title_suggestions == ["标题一", "标题二"]
+    assert stored_analysis.recommendation == ""
+    assert stored_analysis.risk_notes == {"notes": ""}
+    assert stored_analysis.tags == ["AI", "x" * 40, "工具"]
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_analyze_batch_retries_stale_analyzing_content(monkeypatch):
     async def empty_llm_response(*args, **kwargs):
         return {"raw_response": ""}

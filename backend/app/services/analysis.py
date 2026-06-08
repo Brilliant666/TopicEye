@@ -53,9 +53,13 @@ def _detect_lang(title: str, content: str) -> str:
     return "zh"
 
 
-def _valid_analysis_result(result: dict[str, Any]) -> bool:
+def _valid_analysis_result(result: Any) -> bool:
     """Return whether the model result contains the minimum analysis contract."""
-    return isinstance(result.get("scores"), dict) and isinstance(result.get("curation"), dict)
+    return (
+        isinstance(result, dict)
+        and isinstance(result.get("scores"), dict)
+        and isinstance(result.get("curation"), dict)
+    )
 
 
 def _clamp_score(value: Any, default: float = 50) -> float:
@@ -63,6 +67,86 @@ def _clamp_score(value: Any, default: float = 50) -> float:
         return max(0, min(100, float(value)))
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_text(value: Any, *, default: str = "", max_length: int = 600) -> str:
+    if not isinstance(value, str):
+        return default
+
+    text = value.strip()
+    if not text:
+        return default
+    return text[:max_length]
+
+
+def _parse_json_list(value: str) -> list[Any] | None:
+    text = value.strip()
+    if not text.startswith("["):
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, list) else None
+
+
+def _normalize_string_list(
+    value: Any,
+    *,
+    max_items: int = 8,
+    max_length: int = 120,
+) -> list[str]:
+    if isinstance(value, str):
+        parsed = _parse_json_list(value)
+        candidates: Any = parsed if parsed is not None else [value]
+    elif isinstance(value, (list, tuple, set)):
+        candidates = value
+    else:
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()[:max_length]
+        if not text or text in seen:
+            continue
+        normalized.append(text)
+        seen.add(text)
+        if len(normalized) >= max_items:
+            break
+
+    return normalized
+
+
+def _normalize_analysis_result(result: dict[str, Any]) -> dict[str, Any]:
+    scores = result.get("scores", {})
+    normalized_scores = {
+        key: _clamp_score(scores.get(key), 50)
+        for key in ["quality_score", "hot_score", "freshness_score", "creator_score", "viral_score", "risk_score"]
+    }
+
+    curation = result.get("curation", {})
+    normalized_curation = {
+        "curation_score": _clamp_score(curation.get("curation_score"), 0),
+        "info_density": _clamp_score(curation.get("info_density"), 50),
+        "actionability": _clamp_score(curation.get("actionability"), 50),
+        "source_weight": _clamp_score(curation.get("source_weight"), 50),
+    }
+
+    return {
+        **result,
+        "summary": _normalize_text(result.get("summary"), max_length=600),
+        "key_points": _normalize_string_list(result.get("key_points"), max_items=8, max_length=240),
+        "recommendation": _normalize_text(result.get("recommendation"), max_length=800),
+        "creator_angles": _normalize_string_list(result.get("creator_angles"), max_items=8, max_length=240),
+        "title_suggestions": _normalize_string_list(result.get("title_suggestions"), max_items=6, max_length=80),
+        "risk_notes": _normalize_text(result.get("risk_notes"), max_length=500),
+        "tags": _normalize_string_list(result.get("tags"), max_items=8, max_length=40),
+        "scores": normalized_scores,
+        "curation": normalized_curation,
+    }
 
 
 def _local_analysis_result(content: ContentItem, *, lang: str) -> dict[str, Any]:
@@ -185,15 +269,14 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
             str(result)[:200],
         )
         result = _local_analysis_result(content, lang=lang)
+    result = _normalize_analysis_result(result)
 
     # Extract scores
     scores = result.get("scores", {})
-    for key in ["quality_score", "hot_score", "freshness_score", "creator_score", "viral_score", "risk_score"]:
-        scores[key] = _clamp_score(scores.get(key), 50)
 
     # Extract curation
     curation = result.get("curation", {})
-    curation_score = _clamp_score(curation.get("curation_score"), 0)
+    curation_score = curation.get("curation_score", 0)
 
     # Cross-market bonus: English content from HN/Reddit has higher signal value
     # for Chinese-speaking creators (early trend detection before mainstream coverage)
@@ -230,9 +313,9 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
         curation_score=curation_score,
         tags=result.get("tags"),
         recommendation=result.get("recommendation"),
-        info_density=curation.get("info_density"),
-        actionability=curation.get("actionability"),
-        source_weight=curation.get("source_weight"),
+        info_density=curation.get("info_density", 50),
+        actionability=curation.get("actionability", 50),
+        source_weight=curation.get("source_weight", 50),
     )
 
     db.add(analysis)

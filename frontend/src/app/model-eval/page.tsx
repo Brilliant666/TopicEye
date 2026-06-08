@@ -168,6 +168,12 @@ function parameterMeta(catalog: LlmModelPresetCatalog | null, field: string): st
   return parts.join(' · ');
 }
 
+function parameterChangeHint(catalog: LlmModelPresetCatalog | null, field: string): string {
+  const changes = catalog?.parameter_help?.[field]?.when_to_change;
+  if (!changes?.length) return '';
+  return `需要调整：${changes.slice(0, 2).join('；')}`;
+}
+
 function parseOptionalNumber(value: string): number | null {
   if (value.trim() === '') return null;
   const parsed = Number(value);
@@ -559,7 +565,7 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
   const isEdit = !!model;
   const initialPreset = PROVIDER_PRESETS[model?.provider || 'openai'] || PROVIDER_PRESETS.openai;
   const [catalog, setCatalog] = useState<LlmModelPresetCatalog | null>(null);
-  const [loadingCatalog, setLoadingCatalog] = useState(!isEdit);
+  const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [presetKey, setPresetKey] = useState('deepseek_balanced');
   const [showAdvanced, setShowAdvanced] = useState(isEdit);
   const [form, setForm] = useState({
@@ -652,19 +658,19 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
   }, [catalog, selectedPreset]);
 
   useEffect(() => {
-    if (isEdit) return;
     let cancelled = false;
     setLoadingCatalog(true);
     modelsApi.presets()
       .then((res) => {
         if (cancelled) return;
         setCatalog(res);
+        if (isEdit) return;
         const nextKey = res.presets.some((item) => item.key === presetKey) ? presetKey : res.presets[0]?.key || 'custom';
         applyPreset(nextKey, res);
       })
       .catch((e) => {
         console.error('fetchModelPresets', e);
-        if (!cancelled) {
+        if (!cancelled && !isEdit) {
           setForm((prev) => ({
             ...prev,
             provider: prev.provider || 'openai',
@@ -881,7 +887,7 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
           className="inline-flex items-center gap-1.5 rounded-sm border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 transition hover:border-primary-border hover:text-primary"
         >
           <SlidersHorizontal size={14} />
-          {showAdvanced ? '收起高级参数' : '高级参数'}
+          {showAdvanced ? '收起专家参数' : '专家参数'}
         </button>
         <button
           type="button"
@@ -894,10 +900,18 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
         {selectedPreset?.help && !showAdvanced && (
           <span className="ml-2 align-middle text-xs font-bold text-gray-500">{selectedPreset.help}</span>
         )}
+        {!showAdvanced && (
+          <span className="ml-2 align-middle text-xs font-bold text-teal">
+            保持收起时使用推荐默认参数。
+          </span>
+        )}
       </div>
 
       {showAdvanced && (
         <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="rounded-xs border border-teal-border bg-teal-light px-3 py-2 text-xs font-bold leading-5 text-teal lg:col-span-2">
+            {catalog?.help.advanced_tip || '这些参数只在你明确知道要调整模型行为时再改；不确定时点“恢复推荐默认”。'}
+          </div>
           <div>
             <FieldLabel>Provider *</FieldLabel>
             <SelectInput value={form.provider || 'openai'} onChange={(e) => handleProviderChange(e.target.value)}>
@@ -917,6 +931,17 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
           <div>
             <FieldLabel>失败冷却秒数</FieldLabel>
             <TextInput type="number" value={form.cooldown_seconds} onChange={(e) => setForm((f) => ({ ...f, cooldown_seconds: parseInt(e.target.value, 10) || 300 }))} />
+            <div className="mt-1 text-[10px] leading-4 text-gray-400">
+              <span className="font-bold text-gray-500">{parameterMeta(catalog, 'cooldown_seconds')}</span>
+              <br />
+              {catalog?.parameter_help?.cooldown_seconds?.plain || catalog?.help.cooldown_tip || '失败后暂停一段时间再重试。'}
+              {parameterChangeHint(catalog, 'cooldown_seconds') && (
+                <>
+                  <br />
+                  {parameterChangeHint(catalog, 'cooldown_seconds')}
+                </>
+              )}
+            </div>
           </div>
           <div>
             <FieldLabel>模型家族</FieldLabel>
@@ -933,6 +958,12 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
               <span className="font-bold text-gray-500">{parameterMeta(catalog, 'temperature')}</span>
               <br />
               {catalog?.parameter_help?.temperature?.plain || catalog?.help.temperature_tip || '越低越稳定，分析和摘要通常用 0.2-0.4。'}
+              {parameterChangeHint(catalog, 'temperature') && (
+                <>
+                  <br />
+                  {parameterChangeHint(catalog, 'temperature')}
+                </>
+              )}
             </div>
           </div>
           <div>
@@ -942,6 +973,12 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
               <span className="font-bold text-gray-500">{parameterMeta(catalog, 'max_tokens')}</span>
               <br />
               {catalog?.parameter_help?.max_tokens?.plain || catalog?.help.max_tokens_tip || '控制单次输出长度。'}
+              {parameterChangeHint(catalog, 'max_tokens') && (
+                <>
+                  <br />
+                  {parameterChangeHint(catalog, 'max_tokens')}
+                </>
+              )}
             </div>
           </div>
           <div>
@@ -951,6 +988,12 @@ function ModelEditForm({ model, onClose }: { model?: LlmModelItem | null; onClos
               <span className="font-bold text-gray-500">{parameterMeta(catalog, 'requests_per_minute')}</span>
               <br />
               {catalog?.parameter_help?.requests_per_minute?.plain || catalog?.help.rpm_tip || '每分钟请求数。个人 Key 建议从 10-30 开始。'}
+              {parameterChangeHint(catalog, 'requests_per_minute') && (
+                <>
+                  <br />
+                  {parameterChangeHint(catalog, 'requests_per_minute')}
+                </>
+              )}
             </div>
           </div>
           <div>

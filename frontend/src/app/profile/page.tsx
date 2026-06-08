@@ -113,6 +113,12 @@ function parameterMeta(catalog: LlmModelPresetCatalog | null, field: string) {
   return parts.join(' · ');
 }
 
+function parameterChangeHint(catalog: LlmModelPresetCatalog | null, field: string) {
+  const changes = catalog?.parameter_help?.[field]?.when_to_change;
+  if (!changes?.length) return '';
+  return `需要调整：${changes.slice(0, 2).join('；')}`;
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const { currentUser, authLoading, refreshCounts } = useAppContext();
@@ -719,14 +725,19 @@ export default function ProfilePage() {
                     className="inline-flex items-center gap-1.5 rounded-sm border border-gray-200 bg-white px-3 py-2 text-xs font-bold text-gray-600 transition hover:border-primary-border hover:text-primary"
                   >
                     <Settings2 size={14} />
-                    {aiForm.showAdvanced ? '收起高级参数' : '高级参数'}
+                    {aiForm.showAdvanced ? '收起专家参数' : '专家参数'}
                   </button>
                   <span className="text-xs font-bold text-gray-500">
-                    {aiCatalog?.help.advanced_tip || '留空表示使用预设默认值。'}
+                    {aiForm.showAdvanced
+                      ? (aiCatalog?.help.advanced_tip || '只在你明确知道要调整模型行为时再改。')
+                      : '不用展开也能保存，系统会使用推荐默认参数。'}
                   </span>
                 </div>
                 {aiForm.showAdvanced && (
                   <div className="mt-3 grid gap-3 md:grid-cols-4">
+                    <div className="rounded-sm border border-teal-border bg-teal-light px-3 py-2 text-xs font-bold leading-5 text-teal md:col-span-4">
+                      留空表示使用当前预设默认值；只有当输出太保守、被截断、或供应商限流时才需要改。
+                    </div>
                     <label className="block">
                       <span className="mb-1.5 block text-xs font-black text-gray-500">稳定度</span>
                       <input
@@ -742,6 +753,12 @@ export default function ProfilePage() {
                         <span className="font-bold text-gray-500">{parameterMeta(aiCatalog, 'temperature')}</span>
                         <br />
                         {aiCatalog?.parameter_help?.temperature?.plain || aiCatalog?.help.temperature_tip || '选题分析和摘要建议保持默认。'}
+                        {parameterChangeHint(aiCatalog, 'temperature') && (
+                          <>
+                            <br />
+                            {parameterChangeHint(aiCatalog, 'temperature')}
+                          </>
+                        )}
                       </div>
                     </label>
                     <label className="block">
@@ -758,6 +775,12 @@ export default function ProfilePage() {
                         <span className="font-bold text-gray-500">{parameterMeta(aiCatalog, 'max_tokens')}</span>
                         <br />
                         {aiCatalog?.parameter_help?.max_tokens?.plain || aiCatalog?.help.max_tokens_tip || '控制单次输出长度。'}
+                        {parameterChangeHint(aiCatalog, 'max_tokens') && (
+                          <>
+                            <br />
+                            {parameterChangeHint(aiCatalog, 'max_tokens')}
+                          </>
+                        )}
                       </div>
                     </label>
                     <label className="block">
@@ -774,6 +797,12 @@ export default function ProfilePage() {
                         <span className="font-bold text-gray-500">{parameterMeta(aiCatalog, 'requests_per_minute')}</span>
                         <br />
                         {aiCatalog?.parameter_help?.requests_per_minute?.plain || aiCatalog?.help.rpm_tip || '个人 Key 建议从保守上限开始。'}
+                        {parameterChangeHint(aiCatalog, 'requests_per_minute') && (
+                          <>
+                            <br />
+                            {parameterChangeHint(aiCatalog, 'requests_per_minute')}
+                          </>
+                        )}
                       </div>
                     </label>
                     <label className="block">
@@ -790,6 +819,12 @@ export default function ProfilePage() {
                         <span className="font-bold text-gray-500">{parameterMeta(aiCatalog, 'cooldown_seconds')}</span>
                         <br />
                         {aiCatalog?.parameter_help?.cooldown_seconds?.plain || aiCatalog?.help.cooldown_tip || '失败后暂停一段时间再重试。'}
+                        {parameterChangeHint(aiCatalog, 'cooldown_seconds') && (
+                          <>
+                            <br />
+                            {parameterChangeHint(aiCatalog, 'cooldown_seconds')}
+                          </>
+                        )}
                       </div>
                     </label>
                     <div className="md:col-span-4">

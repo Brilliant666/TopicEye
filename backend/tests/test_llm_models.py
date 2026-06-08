@@ -1,5 +1,14 @@
 from types import SimpleNamespace
+from typing import AsyncGenerator
 
+import httpx
+import pytest
+import pytest_asyncio
+from fastapi import FastAPI
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+import app.main  # noqa: F401 - import all models for Base.metadata
 from app.api.v1.llm_models import (
     LLM_COMPLETION_TIMEOUT_SECONDS,
     ModelCreateRequest,
@@ -10,7 +19,60 @@ from app.api.v1.llm_models import (
     _resolve_litellm_model,
     _sample_payload,
 )
+from app.api.v1 import auth as auth_api
+from app.api.v1 import llm_models as llm_models_api
+from app.core.database import Base
+from app.models.llm_model import LlmModel
+from app.services.auth_service import create_session, create_user
+from app.services.llm.provider import ModelConfigCache
 from app.services.llm.model_resolver import resolve_litellm_model
+
+
+@pytest_asyncio.fixture
+async def llm_model_client() -> AsyncGenerator[tuple[httpx.AsyncClient, str, str, async_sessionmaker], None]:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        free_user = await create_user(db, email="free-model@example.com", password="Password123", role="user")
+        pro_user = await create_user(db, email="pro-model@example.com", password="Password123", role="user")
+        admin = await create_user(db, email="admin-model@example.com", password="Password123", role="admin")
+        pro_user.plan = "pro"
+        free_token, _ = await create_session(db, free_user)
+        pro_token, _ = await create_session(db, pro_user)
+        admin_token, _ = await create_session(db, admin)
+        system_model = LlmModel(
+            name="System Model",
+            provider="openai",
+            model_id="gpt-test",
+            api_key="system-key",
+            enabled=True,
+        )
+        db.add(system_model)
+        await db.commit()
+
+    app = FastAPI()
+    app.include_router(llm_models_api.router)
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[auth_api.get_db] = override_get_db
+    app.dependency_overrides[llm_models_api.get_db] = override_get_db
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        yield client, free_token, pro_token, admin_token, session_factory
+
+    await engine.dispose()
 
 
 def test_resolve_litellm_model_adds_provider_prefix_for_plain_model_id():
@@ -148,3 +210,75 @@ def test_sample_payload_parses_title_and_content_from_json():
 def test_auto_score_accepts_fenced_json_and_json_lists():
     assert _auto_score_response('```json\n{"summary":"ok","tags":["a"]}\n```') >= 4
     assert _auto_score_response('[{"title":"a"}]') >= 3
+
+
+@pytest.mark.asyncio
+async def test_user_custom_models_require_paid_plan_and_are_owner_scoped(llm_model_client):
+    client, free_token, pro_token, admin_token, session_factory = llm_model_client
+    payload = {
+        "name": "My OpenAI Compatible Model",
+        "provider": "openai",
+        "model_id": "custom-model",
+        "api_key": "user-key",
+        "api_base": "https://example.test/v1",
+    }
+
+    denied = await client.post("/models/me", headers={"Authorization": f"Bearer {free_token}"}, json=payload)
+    assert denied.status_code == 403
+
+    created = await client.post("/models/me", headers={"Authorization": f"Bearer {pro_token}"}, json=payload)
+    assert created.status_code == 200
+    model_id = created.json()["id"]
+
+    mine = await client.get("/models/me", headers={"Authorization": f"Bearer {pro_token}"})
+    assert mine.status_code == 200
+    assert mine.json()["custom_ai_allowed"] is True
+    assert mine.json()["total"] == 1
+    assert mine.json()["models"][0]["id"] == model_id
+    assert mine.json()["models"][0]["scope"] == "user"
+    assert mine.json()["models"][0]["api_key_set"] is True
+
+    free_mine = await client.get("/models/me", headers={"Authorization": f"Bearer {free_token}"})
+    assert free_mine.status_code == 200
+    assert free_mine.json()["custom_ai_allowed"] is False
+    assert free_mine.json()["total"] == 0
+
+    system_list = await client.get("/models", headers={"Authorization": f"Bearer {admin_token}"})
+    assert system_list.status_code == 200
+    assert system_list.json()["total"] == 1
+    assert system_list.json()["models"][0]["scope"] == "system"
+
+    async with session_factory() as db:
+        result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
+        model = result.scalar_one()
+        assert model.owner_user_id is not None
+        assert model.scope == "user"
+
+
+@pytest.mark.asyncio
+async def test_model_config_cache_prefers_user_models_then_system_fallback(llm_model_client, monkeypatch):
+    _client, _free_token, _pro_token, _admin_token, session_factory = llm_model_client
+    async with session_factory() as db:
+        user = await create_user(db, email="route-user@example.com", password="Password123", role="user")
+        user.plan = "pro"
+        user_model = LlmModel(
+            owner_user_id=user.id,
+            scope="user",
+            name="User Model",
+            provider="openai",
+            model_id="user-model",
+            api_key="user-key",
+            enabled=True,
+            routing_priority=1,
+        )
+        db.add(user_model)
+        await db.commit()
+        user_id = user.id
+
+    import app.core.database as database
+
+    monkeypatch.setattr(database, "async_session", session_factory)
+    cache = ModelConfigCache()
+    models = await cache.get_route_models(user_id=user_id)
+
+    assert [model.name for model in models] == ["User Model", "System Model"]

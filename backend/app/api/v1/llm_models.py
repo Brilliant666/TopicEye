@@ -31,11 +31,12 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, desc, func, Integer as SAInteger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_admin_user
+from app.api.v1.auth import get_current_admin_user, get_current_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locked
 from app.models.llm_model import LlmCallLog, LlmModel, ModelEvaluation
+from app.models.user import User
 from app.services.llm.model_list_cache import (
     MODEL_LIST_CACHE_HEADER,
     get_cached_model_list,
@@ -46,8 +47,9 @@ from app.services.llm.provider import invalidate_model_cache
 from app.services.llm.model_resolver import resolve_litellm_model
 from app.services.llm.model_pricing import is_free_model, normalized_model_pricing
 from app.services.llm_usage import extract_usage, record_llm_call_in_new_session
+from app.services.plan_catalog import plan_allows_custom_ai
 
-router = APIRouter(prefix="/models", tags=["models"], dependencies=[Depends(get_current_admin_user)])
+router = APIRouter(prefix="/models", tags=["models"])
 
 LLM_COMPLETION_TIMEOUT_SECONDS = 25
 LITELLM_COMPLETION_PARAM_KEYS = {
@@ -315,6 +317,8 @@ def _model_payload(m: LlmModel) -> dict:
     pricing = normalized_model_pricing(m)
     return {
         "id": m.id,
+        "owner_user_id": m.owner_user_id,
+        "scope": m.scope,
         "name": m.name,
         "provider": m.provider,
         "model_id": m.model_id,
@@ -342,9 +346,73 @@ def _model_payload(m: LlmModel) -> dict:
     }
 
 
+def _ensure_custom_ai_allowed(user: User) -> None:
+    if not plan_allows_custom_ai(user.plan):
+        raise HTTPException(status_code=403, detail="自定义 AI 配置仅对付费用户开放")
+
+
+def _apply_model_request(model: LlmModel, req: ModelCreateRequest | ModelUpdateRequest) -> None:
+    update_data = req.model_dump(exclude_unset=True)
+    for api_only_key in ("cost_per_1m_input", "cost_per_1m_input_cache_hit", "cost_per_1m_output"):
+        update_data.pop(api_only_key, None)
+    if "cost_per_1m_input" in req.model_fields_set:
+        update_data["cost_per_1k_input"] = _per_1m_to_1k(req.cost_per_1m_input)
+    if "cost_per_1m_output" in req.model_fields_set:
+        update_data["cost_per_1k_output"] = _per_1m_to_1k(req.cost_per_1m_output)
+    if "cost_per_1m_input_cache_hit" in req.model_fields_set:
+        update_data["extra_params"] = _pricing_extra_params(
+            update_data.get("extra_params", model.extra_params),
+            req.cost_per_1m_input_cache_hit,
+        )
+    for key, value in update_data.items():
+        setattr(model, key, value)
+
+    if is_free_model(model.model_id):
+        model.cost_per_1k_input = 0.0
+        model.cost_per_1k_output = 0.0
+        model.extra_params = _pricing_extra_params(model.extra_params, 0.0)
+
+
+def _new_model_from_request(
+    req: ModelCreateRequest,
+    *,
+    owner_user_id: int | None = None,
+    scope: str = "system",
+) -> LlmModel:
+    cost_per_1k_input = _model_cost_input(req)
+    cost_per_1k_output = _model_cost_output(req)
+    cache_hit_price = req.cost_per_1m_input_cache_hit
+    if is_free_model(req.model_id):
+        cost_per_1k_input = 0.0
+        cost_per_1k_output = 0.0
+        cache_hit_price = 0.0
+    return LlmModel(
+        owner_user_id=owner_user_id,
+        scope=scope,
+        name=req.name,
+        provider=req.provider,
+        model_id=req.model_id,
+        api_key=req.api_key,
+        api_base=req.api_base,
+        enabled=req.enabled,
+        routing_group=req.routing_group or "default",
+        model_family=req.model_family,
+        channel_name=req.channel_name,
+        routing_priority=req.routing_priority,
+        cooldown_seconds=req.cooldown_seconds,
+        temperature=req.temperature,
+        max_tokens=req.max_tokens,
+        requests_per_minute=req.requests_per_minute,
+        description=req.description,
+        cost_per_1k_input=cost_per_1k_input,
+        cost_per_1k_output=cost_per_1k_output,
+        extra_params=_pricing_extra_params(req.extra_params, cache_hit_price),
+    )
+
+
 # ── Model Config CRUD ─────────────────────────────────────────────────
 
-@router.get("")
+@router.get("", dependencies=[Depends(get_current_admin_user)])
 async def list_models(db: AsyncSession = Depends(get_db)):
     """List all configured LLM models."""
     cached = get_cached_model_list(ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
@@ -356,7 +424,11 @@ async def list_models(db: AsyncSession = Depends(get_db)):
             headers={MODEL_LIST_CACHE_HEADER: f"HIT; age={age_seconds:.3f}s"},
         )
 
-    result = await db.execute(select(LlmModel).order_by(LlmModel.routing_group, LlmModel.routing_priority, LlmModel.id))
+    result = await db.execute(
+        select(LlmModel)
+        .where(LlmModel.owner_user_id.is_(None))
+        .order_by(LlmModel.routing_group, LlmModel.routing_priority, LlmModel.id)
+    )
     models = result.scalars().all()
     payload = {
         "models": [_model_payload(m) for m in models],
@@ -370,37 +442,11 @@ async def list_models(db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(get_current_admin_user)])
 async def create_model(req: ModelCreateRequest, db: AsyncSession = Depends(get_db)):
     """Add a new LLM model configuration."""
     async def _create():
-        cost_per_1k_input = _model_cost_input(req)
-        cost_per_1k_output = _model_cost_output(req)
-        cache_hit_price = req.cost_per_1m_input_cache_hit
-        if is_free_model(req.model_id):
-            cost_per_1k_input = 0.0
-            cost_per_1k_output = 0.0
-            cache_hit_price = 0.0
-        model = LlmModel(
-            name=req.name,
-            provider=req.provider,
-            model_id=req.model_id,
-            api_key=req.api_key,
-            api_base=req.api_base,
-            enabled=req.enabled,
-            routing_group=req.routing_group or "default",
-            model_family=req.model_family,
-            channel_name=req.channel_name,
-            routing_priority=req.routing_priority,
-            cooldown_seconds=req.cooldown_seconds,
-            temperature=req.temperature,
-            max_tokens=req.max_tokens,
-            requests_per_minute=req.requests_per_minute,
-            description=req.description,
-            cost_per_1k_input=cost_per_1k_input,
-            cost_per_1k_output=cost_per_1k_output,
-            extra_params=_pricing_extra_params(req.extra_params, cache_hit_price),
-        )
+        model = _new_model_from_request(req)
         db.add(model)
         await db.flush()
         return {"id": model.id, "name": model.name, "message": "模型配置创建成功"}
@@ -408,10 +454,94 @@ async def create_model(req: ModelCreateRequest, db: AsyncSession = Depends(get_d
     return await _retry_write_and_invalidate_models(db, _create)
 
 
+@router.get("/me")
+async def list_my_models(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(LlmModel)
+        .where(LlmModel.owner_user_id == current_user.id)
+        .order_by(LlmModel.routing_group, LlmModel.routing_priority, LlmModel.id)
+    )
+    models = result.scalars().all()
+    return {
+        "models": [_model_payload(m) for m in models],
+        "total": len(models),
+        "custom_ai_allowed": plan_allows_custom_ai(current_user.plan),
+    }
+
+
+@router.post("/me")
+async def create_my_model(
+    req: ModelCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_custom_ai_allowed(current_user)
+
+    async def _create():
+        model = _new_model_from_request(req, owner_user_id=current_user.id, scope="user")
+        db.add(model)
+        await db.flush()
+        return {"id": model.id, "name": model.name, "message": "自定义 AI 配置创建成功"}
+
+    return await _retry_write_and_invalidate_models(db, _create)
+
+
+@router.put("/me/{model_id}")
+async def update_my_model(
+    model_id: int,
+    req: ModelUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_custom_ai_allowed(current_user)
+
+    async def _update():
+        result = await db.execute(
+            select(LlmModel).where(LlmModel.id == model_id, LlmModel.owner_user_id == current_user.id)
+        )
+        model = result.scalar_one_or_none()
+        if not model:
+            raise HTTPException(404, f"Model {model_id} not found")
+        _apply_model_request(model, req)
+        model.scope = "user"
+        model.owner_user_id = current_user.id
+        await db.flush()
+        return {"message": f"自定义 AI {model.name} 更新成功"}
+
+    return await _retry_write_and_invalidate_models(db, _update)
+
+
+@router.delete("/me/{model_id}")
+async def delete_my_model(
+    model_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    _ensure_custom_ai_allowed(current_user)
+
+    async def _delete():
+        result = await db.execute(
+            select(LlmModel).where(LlmModel.id == model_id, LlmModel.owner_user_id == current_user.id)
+        )
+        model = result.scalar_one_or_none()
+        if not model:
+            raise HTTPException(404, f"Model {model_id} not found")
+        name = model.name
+        await db.delete(model)
+        await db.flush()
+        return {"message": f"自定义 AI {name} 已删除"}
+
+    return await _retry_write_and_invalidate_models(db, _delete)
+
+
 @router.get("/usage/summary")
 async def get_usage_summary(
     days: int = Query(30, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin_user),
 ):
     """Summarize token usage and estimated cost from request-level LLM call logs."""
     since = datetime.utcnow() - timedelta(days=days)
@@ -552,46 +682,27 @@ async def get_usage_summary(
     }
 
 
-@router.put("/{model_id}")
+@router.put("/{model_id}", dependencies=[Depends(get_current_admin_user)])
 async def update_model(model_id: int, req: ModelUpdateRequest, db: AsyncSession = Depends(get_db)):
     """Update an existing model configuration."""
     async def _update():
-        result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
+        result = await db.execute(select(LlmModel).where(LlmModel.id == model_id, LlmModel.owner_user_id.is_(None)))
         model = result.scalar_one_or_none()
         if not model:
             raise HTTPException(404, f"Model {model_id} not found")
 
-        update_data = req.model_dump(exclude_unset=True)
-        for api_only_key in ("cost_per_1m_input", "cost_per_1m_input_cache_hit", "cost_per_1m_output"):
-            update_data.pop(api_only_key, None)
-        if "cost_per_1m_input" in req.model_fields_set:
-            update_data["cost_per_1k_input"] = _per_1m_to_1k(req.cost_per_1m_input)
-        if "cost_per_1m_output" in req.model_fields_set:
-            update_data["cost_per_1k_output"] = _per_1m_to_1k(req.cost_per_1m_output)
-        if "cost_per_1m_input_cache_hit" in req.model_fields_set:
-            update_data["extra_params"] = _pricing_extra_params(
-                update_data.get("extra_params", model.extra_params),
-                req.cost_per_1m_input_cache_hit,
-            )
-        for key, value in update_data.items():
-            setattr(model, key, value)
-
-        if is_free_model(model.model_id):
-            model.cost_per_1k_input = 0.0
-            model.cost_per_1k_output = 0.0
-            model.extra_params = _pricing_extra_params(model.extra_params, 0.0)
-
+        _apply_model_request(model, req)
         await db.flush()
         return {"message": f"模型 {model.name} 更新成功"}
 
     return await _retry_write_and_invalidate_models(db, _update)
 
 
-@router.delete("/{model_id}")
+@router.delete("/{model_id}", dependencies=[Depends(get_current_admin_user)])
 async def delete_model(model_id: int, db: AsyncSession = Depends(get_db)):
     """Delete a model configuration."""
     async def _delete():
-        result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
+        result = await db.execute(select(LlmModel).where(LlmModel.id == model_id, LlmModel.owner_user_id.is_(None)))
         model = result.scalar_one_or_none()
         if not model:
             raise HTTPException(404, f"Model {model_id} not found")
@@ -603,12 +714,12 @@ async def delete_model(model_id: int, db: AsyncSession = Depends(get_db)):
     return await _retry_write_and_invalidate_models(db, _delete)
 
 
-@router.post("/{model_id}/test")
+@router.post("/{model_id}/test", dependencies=[Depends(get_current_admin_user)])
 async def test_model(model_id: int, db: AsyncSession = Depends(get_db)):
     """Test a model by sending a simple prompt."""
     from litellm import completion
 
-    result = await db.execute(select(LlmModel).where(LlmModel.id == model_id))
+    result = await db.execute(select(LlmModel).where(LlmModel.id == model_id, LlmModel.owner_user_id.is_(None)))
     model = result.scalar_one_or_none()
     if not model:
         raise HTTPException(404, f"Model {model_id} not found")
@@ -730,14 +841,18 @@ EVAL_PROMPTS = {
 }
 
 
-@router.post("/evaluations/run")
+@router.post("/evaluations/run", dependencies=[Depends(get_current_admin_user)])
 async def run_evaluation(req: EvalRunRequest, db: AsyncSession = Depends(get_db)):
     """Run an A/B evaluation across selected models with the same prompt."""
     from litellm import completion
 
     # Fetch models
     result = await db.execute(
-        select(LlmModel).where(LlmModel.id.in_(req.model_ids), LlmModel.enabled == True)
+        select(LlmModel).where(
+            LlmModel.id.in_(req.model_ids),
+            LlmModel.enabled == True,
+            LlmModel.owner_user_id.is_(None),
+        )
     )
     models = [_model_snapshot(model) for model in result.scalars().all()]
     if not models:
@@ -871,7 +986,7 @@ async def run_evaluation(req: EvalRunRequest, db: AsyncSession = Depends(get_db)
     }
 
 
-@router.get("/evaluations/runs")
+@router.get("/evaluations/runs", dependencies=[Depends(get_current_admin_user)])
 async def list_eval_runs(
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -909,7 +1024,7 @@ async def list_eval_runs(
     }
 
 
-@router.get("/evaluations/runs/{run_id}")
+@router.get("/evaluations/runs/{run_id}", dependencies=[Depends(get_current_admin_user)])
 async def get_eval_run(run_id: str, db: AsyncSession = Depends(get_db)):
     """Get all evaluation results for a specific run."""
     result = await db.execute(
@@ -946,7 +1061,7 @@ async def get_eval_run(run_id: str, db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.put("/evaluations/{eval_id}/score")
+@router.put("/evaluations/{eval_id}/score", dependencies=[Depends(get_current_admin_user)])
 async def score_evaluation(
     eval_id: int,
     req: ScoreRequest,

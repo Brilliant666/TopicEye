@@ -111,6 +111,7 @@ async def generate_creation_plan(
     db: AsyncSession,
     content_id: int,
     platform: str,
+    user_id: int | None = None,
 ) -> dict:
     """
     Generate a platform-specific content creation plan for a content item.
@@ -164,7 +165,7 @@ async def generate_creation_plan(
     # 3. Call LLM
     try:
         plan = await asyncio.wait_for(
-            call_llm_json(messages, scene="creation_plan"),
+            call_llm_json(messages, scene="creation_plan", user_id=user_id),
             timeout=settings.CREATION_PLAN_TIMEOUT_SECONDS,
         )
         if isinstance(plan, dict) and "error" not in plan:

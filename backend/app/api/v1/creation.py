@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_user
 from app.core.database import async_session
+from app.models.user import User
 from app.services.creation import generate_creation_plan, PLATFORM_PROMPTS
+from app.services.plan_catalog import plan_allows_custom_ai
 
 router = APIRouter(prefix="/creation", tags=["creation"])
 
@@ -29,7 +31,7 @@ async def get_db():
 async def create_plan(
     req: CreationRequest,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     """Generate a creation plan for a content item on a specific platform."""
     if req.platform not in PLATFORM_PROMPTS:
@@ -37,7 +39,8 @@ async def create_plan(
             status_code=400,
             detail=f"Unsupported platform: {req.platform}. Supported: {list(PLATFORM_PROMPTS.keys())}"
         )
-    result = await generate_creation_plan(db, req.content_id, req.platform)
+    custom_ai_user_id = current_user.id if plan_allows_custom_ai(current_user.plan) else None
+    result = await generate_creation_plan(db, req.content_id, req.platform, user_id=custom_ai_user_id)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result

@@ -70,10 +70,12 @@ class ModelConfigCache:
     """
     def __init__(self):
         self._route_models: list[Any] = []
+        self._user_route_models: dict[int, list[Any]] = {}
         self._last_refresh = 0.0
+        self._user_last_refresh: dict[int, float] = {}
         self._lock = asyncio.Lock()
 
-    async def refresh(self):
+    async def refresh(self, user_id: int | None = None):
         """Reload model configs from DB."""
         try:
             from app.core.database import async_session
@@ -81,21 +83,32 @@ class ModelConfigCache:
             from sqlalchemy import select
 
             async with async_session() as session:
+                filters = [LlmModel.enabled == True]
+                if user_id is None:
+                    filters.append(LlmModel.owner_user_id.is_(None))
+                else:
+                    filters.append(LlmModel.owner_user_id == user_id)
                 result = await session.execute(
                     select(LlmModel)
-                    .where(LlmModel.enabled == True)
+                    .where(*filters)
                     .order_by(LlmModel.routing_group, LlmModel.routing_priority, LlmModel.id)
                 )
                 models = result.scalars().all()
 
-                self._route_models = list(models)
-                self._last_refresh = time.monotonic()
-                logger.debug("ModelConfigCache: %d route models loaded", len(models))
+                if user_id is None:
+                    self._route_models = list(models)
+                    self._last_refresh = time.monotonic()
+                    logger.debug("ModelConfigCache: %d system route models loaded", len(models))
+                else:
+                    self._user_route_models[user_id] = list(models)
+                    self._user_last_refresh[user_id] = time.monotonic()
+                    logger.debug("ModelConfigCache: %d user route models loaded for user=%s", len(models), user_id)
         except Exception as e:
             logger.warning("ModelConfigCache refresh failed: %s", e)
 
-    async def get_route_models(self, routing_group: str = "default"):
-        if time.monotonic() - self._last_refresh > 60:
+    async def _get_system_route_models(self, routing_group: str = "default"):
+        now = time.monotonic()
+        if now - self._last_refresh > 60:
             async with self._lock:
                 if time.monotonic() - self._last_refresh > 60:
                     await self.refresh()
@@ -105,6 +118,26 @@ class ModelConfigCache:
             return models
         return self._route_models
 
+    async def _get_user_route_models(self, user_id: int, routing_group: str = "default"):
+        now = time.monotonic()
+        if now - self._user_last_refresh.get(user_id, 0.0) > 60:
+            async with self._lock:
+                if time.monotonic() - self._user_last_refresh.get(user_id, 0.0) > 60:
+                    await self.refresh(user_id=user_id)
+        group = (routing_group or "default").strip() or "default"
+        user_models = self._user_route_models.get(user_id, [])
+        models = [m for m in user_models if (m.routing_group or "default") == group]
+        if models:
+            return models
+        return user_models
+
+    async def get_route_models(self, routing_group: str = "default", user_id: int | None = None):
+        system_models = await self._get_system_route_models(routing_group)
+        if user_id is None:
+            return system_models
+        user_models = await self._get_user_route_models(user_id, routing_group)
+        return [*user_models, *system_models]
+
 
 _model_cache = ModelConfigCache()
 
@@ -113,7 +146,9 @@ async def invalidate_model_cache() -> None:
     """Force the next LLM call to reload model settings from the database."""
     async with _model_cache._lock:
         _model_cache._route_models = []
+        _model_cache._user_route_models = {}
         _model_cache._last_refresh = 0.0
+        _model_cache._user_last_refresh = {}
     _failover.reset()
 
 # ── Model failover state tracker ──────────────────────────────────────
@@ -369,6 +404,7 @@ async def call_llm(
     temperature: float = 0.3,
     max_tokens: int = 2000,
     scene: str = "general",
+    user_id: int | None = None,
 ) -> str:
     """
     Call LLM with automatic ordered failover.
@@ -376,7 +412,7 @@ async def call_llm(
     Model config resolution:
     - DB llm_models table ordered by routing_group/routing_priority.
     """
-    db_models = await _model_cache.get_route_models("default")
+    db_models = await _model_cache.get_route_models("default", user_id=user_id)
     candidates = [_candidate_from_db_model(m, temperature, max_tokens) for m in db_models]
 
     skipped: list[dict[str, Any]] = []
@@ -454,6 +490,7 @@ async def call_llm_json(
     temperature: float = 0.2,
     max_tokens: int = 2000,
     scene: str = "general",
+    user_id: int | None = None,
 ) -> dict[str, Any]:
     """Call LLM and parse JSON response.
 
@@ -462,7 +499,7 @@ async def call_llm_json(
     raw = ""
     max_attempts = 1 if scene == "content_analysis" else 2
     for attempt in range(max_attempts):
-        raw = await call_llm(messages, temperature=temperature, max_tokens=max_tokens, scene=scene)
+        raw = await call_llm(messages, temperature=temperature, max_tokens=max_tokens, scene=scene, user_id=user_id)
 
         # Try to extract JSON from markdown code blocks or raw text
         text = raw.strip()

@@ -254,6 +254,8 @@ async def ensure_llm_models_route_schema(conn) -> None:
         return
 
     additions = {
+        "owner_user_id": "ALTER TABLE llm_models ADD COLUMN owner_user_id INTEGER",
+        "scope": "ALTER TABLE llm_models ADD COLUMN scope VARCHAR(20) NOT NULL DEFAULT 'system'",
         "routing_group": "ALTER TABLE llm_models ADD COLUMN routing_group VARCHAR(50) NOT NULL DEFAULT 'default'",
         "model_family": "ALTER TABLE llm_models ADD COLUMN model_family VARCHAR(50)",
         "channel_name": "ALTER TABLE llm_models ADD COLUMN channel_name VARCHAR(100)",
@@ -269,6 +271,10 @@ async def ensure_llm_models_route_schema(conn) -> None:
             await conn.execute(text(f"ALTER TABLE llm_models DROP COLUMN {obsolete_column}"))
 
     await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_llm_models_route ON llm_models(routing_group, routing_priority)"))
+    await conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_llm_models_owner_route "
+        "ON llm_models(owner_user_id, routing_group, routing_priority)"
+    ))
 
 
 async def ensure_performance_indexes(conn) -> None:

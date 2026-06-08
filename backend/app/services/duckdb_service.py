@@ -197,7 +197,7 @@ class DuckDBAnalytics:
                 a.recommended_reason, a.recommendation,
                 a.summary AS ai_summary, a.tags AS ai_tags,
                 a.enrichment_status, a.enrichment,
-                COALESCE(s.weight, 3) AS source_weight,
+                COALESCE(s.weight, 3) AS source_weight_db,
                 COALESCE(f.feedback_score, 0) AS feedback_score,
                 CASE
                     WHEN a.curation_score > 0
@@ -231,7 +231,7 @@ class DuckDBAnalytics:
             'curation_score', 'info_density', 'actionability',
             'recommended_reason', 'recommendation',
             'ai_summary', 'ai_tags',
-            'enrichment_status', 'enrichment', 'source_weight',
+            'enrichment_status', 'enrichment', 'source_weight_db',
             'feedback_score',
             'adjusted_curation_score',
         ]

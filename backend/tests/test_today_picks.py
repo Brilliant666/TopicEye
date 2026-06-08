@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi import FastAPI
@@ -8,6 +9,7 @@ from app.api.v1 import contents as contents_api
 from app.repositories.content_repo import ContentRepo
 from app.services import today_picks
 from app.services.json_cache import invalidate_json_cache
+from app.services.scoring_engine import ScoringInput, score_items
 
 
 class FailingSession:
@@ -26,6 +28,8 @@ def _failing_session_factory():
 
 
 def _duckdb_rows():
+    now = datetime.utcnow()
+    crawled_at = (now - timedelta(hours=2)).isoformat()
     return [
         {
             "id": 1,
@@ -36,8 +40,8 @@ def _duckdb_rows():
             "source_type": "RSS",
             "platform": "rss",
             "author": None,
-            "published_at": None,
-            "crawled_at": "2026-06-04T00:00:00",
+            "published_at": crawled_at,
+            "crawled_at": crawled_at,
             "content_hash": None,
             "summary": "原始摘要",
             "raw_content": None,
@@ -50,10 +54,10 @@ def _duckdb_rows():
             "topic_id": 10,
             "duplicate_of": None,
             "similarity_score": 0.0,
-            "created_at": "2026-06-04T00:00:00",
-            "updated_at": "2026-06-04T00:00:00",
+            "created_at": crawled_at,
+            "updated_at": crawled_at,
             "analysis_id": 101,
-            "analysis_created_at": "2026-06-04T00:01:00",
+            "analysis_created_at": now.isoformat(),
             "quality_score": 80.0,
             "hot_score": 75.0,
             "freshness_score": 90.0,
@@ -69,7 +73,8 @@ def _duckdb_rows():
             "ai_tags": ["AI", "产品"],
             "enrichment_status": "pending",
             "enrichment": '{"why_matters":"测试"}',
-            "source_weight": 5,
+            "analysis_source_weight": 72.0,
+            "source_weight_db": 5,
             "feedback_score": 20.0,
             "adjusted_curation_score": 107.0,
         },
@@ -81,22 +86,70 @@ def _duckdb_rows():
             "source_name": "测试信源",
             "source_type": "RSS",
             "platform": "rss",
-            "published_at": None,
-            "crawled_at": "2026-06-04T00:00:00",
+            "published_at": crawled_at,
+            "crawled_at": crawled_at,
             "category": "AI",
             "status": "analyzed",
             "is_favorited": False,
             "topic_id": 10,
             "duplicate_of": 1,
             "analysis_id": 102,
-            "analysis_created_at": "2026-06-04T00:01:00",
+            "analysis_created_at": now.isoformat(),
             "creator_score": 80.0,
             "risk_score": 10.0,
             "curation_score": 90.0,
-            "source_weight": 3,
+            "analysis_source_weight": 50.0,
+            "source_weight_db": 3,
             "adjusted_curation_score": 90.0,
         },
     ]
+
+
+def _duckdb_rows_with_weak_candidate():
+    rows = _duckdb_rows()
+    weak = dict(rows[0])
+    weak.update({
+        "id": 3,
+        "title": "低质量预筛样本",
+        "url": "https://example.com/weak",
+        "quality_score": 30.0,
+        "info_density": 30.0,
+        "actionability": 30.0,
+        "creator_score": 30.0,
+        "viral_score": 30.0,
+        "curation_score": 70.0,
+        "adjusted_curation_score": 90.0,
+        "topic_id": 11,
+        "duplicate_of": None,
+    })
+    return [weak, *rows]
+
+
+def _expected_breakdown_for_first_row():
+    row = _duckdb_rows()[0]
+    return score_items([
+        ScoringInput(
+            content_id=row["id"],
+            title=row["title"],
+            category=row["category"],
+            source_id=row["source_id"],
+            source_name=row["source_name"],
+            published_at=row["published_at"],
+            crawled_at=row["crawled_at"],
+            curation_score=row["curation_score"],
+            info_density=row["info_density"],
+            actionability=row["actionability"],
+            source_weight=row["analysis_source_weight"],
+            creator_score=row["creator_score"],
+            viral_score=row["viral_score"],
+            freshness_score=row["freshness_score"],
+            quality_score=row["quality_score"],
+            hot_score=row["hot_score"],
+            risk_score=row["risk_score"],
+            source_weight_db=row["source_weight_db"],
+            feedback_score=row["feedback_score"],
+        )
+    ])[0][0].to_dict()
 
 
 @pytest.mark.asyncio
@@ -123,16 +176,46 @@ async def test_build_today_picks_uses_duckdb_payload_without_orm(monkeypatch):
     assert payload["page_size"] == 1
     assert payload["topics"] == [{"id": 10, "name": "AI 话题", "summary": "摘要", "keywords": ["AI"], "best_score": 104.0}]
     item = payload["items"][0]
+    expected = _expected_breakdown_for_first_row()
     assert item["id"] == 1
     assert item["tags"] == ["AI"]
     assert item["analysis"]["id"] == 101
     assert item["analysis"]["tags"] == ["AI", "产品"]
     assert item["analysis"]["enrichment"] == {"why_matters": "测试"}
-    assert item["analysis"]["adjusted_curation_score"] == 107.0
-    assert item["analysis"]["score_breakdown"]["final_score"] == 107.0
-    assert item["analysis"]["score_breakdown"]["feedback_score"] == 20.0
+    assert item["analysis"]["adjusted_curation_score"] == expected["final_score"]
+    assert item["analysis"]["score_breakdown"]["final_score"] == expected["final_score"]
     assert item["analysis"]["score_breakdown"]["dimension_scores"]["feedback_adjustment"] == 3.0
-    assert item["analysis"]["score_breakdown"]["source_bonus"] == 16.0
+    assert item["analysis"]["score_breakdown"]["source_bonus"] == expected["source_bonus"]
+    assert item["analysis"]["score_breakdown"]["quality_factor"] == expected["quality_factor"]
+    assert item["analysis"]["score_breakdown"]["risk_factor"] == expected["risk_factor"]
+    assert item["analysis"]["score_breakdown"]["time_decay"] == expected["time_decay"]
+
+
+@pytest.mark.asyncio
+async def test_build_today_picks_filters_prescreened_items_with_unified_scorer(monkeypatch):
+    query_args = []
+
+    def fake_query_today_picks(hours=48, category=None, limit=None, curation_threshold=55):
+        query_args.append({
+            "hours": hours,
+            "category": category,
+            "limit": limit,
+            "curation_threshold": curation_threshold,
+        })
+        return _duckdb_rows_with_weak_candidate()
+
+    monkeypatch.setattr(
+        today_picks,
+        "query_today_picks",
+        fake_query_today_picks,
+    )
+    monkeypatch.setattr(today_picks, "query_topics", lambda: [])
+
+    payload = await today_picks.build_today_picks(FailingSession(), hours=48)
+
+    assert query_args[0]["curation_threshold"] == 0
+    assert [item["id"] for item in payload["items"]] == [1]
+    assert payload["total"] == 1
 
 
 @pytest.mark.asyncio

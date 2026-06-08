@@ -9,6 +9,7 @@ from datetime import datetime, date, timedelta
 from typing import Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.weekly_digest import WeeklyDigest
@@ -23,6 +24,11 @@ from app.services.digest_context import (
 )
 
 logger = logging.getLogger(__name__)
+DIGEST_GENERATING_STALE_AFTER = timedelta(minutes=10)
+
+
+def _utc_now() -> datetime:
+    return datetime.utcnow()
 
 
 def _get_week_range(reference_date: Optional[date] = None) -> tuple[str, str, str, str]:
@@ -57,6 +63,13 @@ def _build_category_stats(items: list[dict]) -> dict:
     return build_category_stats(items)
 
 
+def _is_active_generating(digest: WeeklyDigest, now: datetime) -> bool:
+    if digest.status != "GENERATING":
+        return False
+    generated_at = digest.updated_at or digest.created_at or now
+    return now - generated_at < DIGEST_GENERATING_STALE_AFTER
+
+
 async def generate_weekly_digest(
     db: AsyncSession,
     reference_date: Optional[date] = None,
@@ -77,6 +90,7 @@ async def generate_weekly_digest(
     d = reference_date or date.today()
     last_week_date = d - timedelta(days=7)
     week_key, week_label, week_start, week_end = _get_week_range(last_week_date)
+    now = _utc_now()
 
     # Check if digest already exists and is done
     existing = await db.execute(
@@ -86,6 +100,37 @@ async def generate_weekly_digest(
 
     if digest and digest.status == "DONE":
         return digest
+    if digest and _is_active_generating(digest, now):
+        return digest
+
+    if not digest:
+        digest = WeeklyDigest(
+            week_key=week_key,
+            week_label=week_label,
+            week_start=week_start,
+            week_end=week_end,
+            status="GENERATING",
+        )
+        db.add(digest)
+        try:
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            existing = await db.execute(
+                select(WeeklyDigest).where(WeeklyDigest.week_key == week_key)
+            )
+            digest = existing.scalar_one()
+            if digest.status == "DONE":
+                return digest
+            if _is_active_generating(digest, _utc_now()):
+                return digest
+            digest.status = "GENERATING"
+            await db.flush()
+    else:
+        digest.status = "GENERATING"
+        await db.flush()
+
+    await db.commit()
 
     # Fetch this week's analyzed content
     items_data = await _fetch_weekly_analyzed(db, week_start, week_end)
@@ -101,19 +146,9 @@ async def generate_weekly_digest(
             )
 
     if not items_data:
-        if not digest:
-            digest = WeeklyDigest(
-                week_key=week_key,
-                week_label=week_label,
-                week_start=week_start,
-                week_end=week_end,
-                status="ERROR",
-                overview="本周暂无分析数据，请先同步信源并等待 AI 分析完成。",
-            )
-            db.add(digest)
-            await db.flush()
-            await db.commit()
-            return digest
+        digest.status = "ERROR"
+        digest.overview = "本周暂无分析数据，请先同步信源并等待 AI 分析完成。"
+        await db.commit()
         return digest
 
     # Build items text for prompt (top 25)
@@ -129,28 +164,11 @@ async def generate_weekly_digest(
         category_text=category_text,
     )
 
-    # Update or create digest record
-    if not digest:
-        digest = WeeklyDigest(
-            week_key=week_key,
-            week_label=week_label,
-            week_start=week_start,
-            week_end=week_end,
-            status="GENERATING",
-            content_count=len(items_data),
-            analyzed_count=len(items_data),
-            source_count=len({x["source_name"] for x in items_data}),
-            category_count=len(cat_stats),
-        )
-        db.add(digest)
-        await db.flush()
-    else:
-        digest.status = "GENERATING"
-        digest.content_count = len(items_data)
-        digest.analyzed_count = len(items_data)
-        digest.source_count = len({x["source_name"] for x in items_data})
-        digest.category_count = len(cat_stats)
-        await db.flush()
+    digest.content_count = len(items_data)
+    digest.analyzed_count = len(items_data)
+    digest.source_count = len({x["source_name"] for x in items_data})
+    digest.category_count = len(cat_stats)
+    await db.flush()
 
     try:
         result = await call_llm_json(
@@ -177,7 +195,7 @@ async def generate_weekly_digest(
         digest.topic_clusters = json.dumps(result.get("topic_clusters", []), ensure_ascii=False)
         digest.action_items = json.dumps(result.get("action_items", []), ensure_ascii=False)
         digest.status = "DONE"
-        digest.updated_at = datetime.utcnow()
+        digest.updated_at = _utc_now()
         await db.commit()
         logger.info("Weekly digest generated: %s (%s)", week_key, week_label)
         # 通知：周刊生成成功

@@ -76,6 +76,13 @@ feedback_scores AS (
 )
 """
 
+IGNORED_CONTENT_CTE = """
+ignored_content AS (
+    SELECT DISTINCT content_id
+    FROM oltp_db.ignored_items
+)
+"""
+
 # ── DuckDB Analytics singleton ─────────────────────────────────────────
 
 class DuckDBAnalytics:
@@ -198,7 +205,8 @@ class DuckDBAnalytics:
 
         results = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},
-            {LATEST_FEEDBACK_SCORES_CTE}
+            {LATEST_FEEDBACK_SCORES_CTE},
+            {IGNORED_CONTENT_CTE}
             SELECT
                 c.id, c.title, c.url, c.source_id, c.source_name, c.source_type,
                 c.platform, c.author,
@@ -228,7 +236,9 @@ class DuckDBAnalytics:
             LEFT JOIN latest_analysis a ON a.content_id = c.id
             LEFT JOIN oltp_db.sources s ON s.id = c.source_id
             LEFT JOIN feedback_scores f ON f.content_id = c.id
+            LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE c.crawled_at >= ?
+              AND ignored.content_id IS NULL
               AND a.risk_score <= {risk_threshold}
               AND a.curation_score IS NOT NULL
               {category_clause}
@@ -365,7 +375,8 @@ class DuckDBAnalytics:
         cutoff = (datetime.utcnow() - window).isoformat()
         rows = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},
-            {LATEST_FEEDBACK_SCORES_CTE}
+            {LATEST_FEEDBACK_SCORES_CTE},
+            {IGNORED_CONTENT_CTE}
             SELECT
                 c.id,
                 c.source_id,
@@ -389,7 +400,9 @@ class DuckDBAnalytics:
             JOIN oltp_db.content_items c ON c.id = a.content_id
             LEFT JOIN oltp_db.sources s ON s.id = c.source_id
             LEFT JOIN feedback_scores f ON f.content_id = c.id
+            LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE c.crawled_at >= ?
+              AND ignored.content_id IS NULL
               AND c.duplicate_of IS NULL
               AND a.curation_score IS NOT NULL
         """, [cutoff]).fetchall()
@@ -485,19 +498,25 @@ class DuckDBAnalytics:
         threshold = self._stats_threshold_from_scored(scored_items)
 
         row = conn.execute(f"""
-            WITH {LATEST_ANALYSIS_CTE}
+            WITH {LATEST_ANALYSIS_CTE},
+            {IGNORED_CONTENT_CTE}
             SELECT
                 COUNT(c.id) AS total,
                 COUNT(CASE WHEN a.curation_score IS NOT NULL THEN c.id END) AS analyzed
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
+            LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
+              AND ignored.content_id IS NULL
               AND c.duplicate_of IS NULL
         """).fetchone()
         today_row = conn.execute(f"""
+            WITH {IGNORED_CONTENT_CTE}
             SELECT COUNT(c.id)
             FROM oltp_db.content_items c
+            LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE c.crawled_at >= '{today_start}'
+              AND ignored.content_id IS NULL
               AND c.duplicate_of IS NULL
         """).fetchone()
 
@@ -523,7 +542,8 @@ class DuckDBAnalytics:
             scored_items
         )
         rows = conn.execute(f"""
-            WITH {LATEST_ANALYSIS_CTE}
+            WITH {LATEST_ANALYSIS_CTE},
+            {IGNORED_CONTENT_CTE}
             SELECT
                 COALESCE(s.name, '未知') AS source_name,
                 LOWER(COALESCE(CAST(s.source_type AS VARCHAR), 'unknown')) AS source_type,
@@ -531,7 +551,9 @@ class DuckDBAnalytics:
             FROM oltp_db.content_items c
             LEFT JOIN oltp_db.sources s ON s.id = c.source_id
             LEFT JOIN latest_analysis a ON a.content_id = c.id
+            LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
+              AND ignored.content_id IS NULL
               AND c.duplicate_of IS NULL
             GROUP BY s.id, s.name, s.source_type
             HAVING COUNT(c.id) > 0
@@ -556,14 +578,17 @@ class DuckDBAnalytics:
         conn = self._get_conn()
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
         rows = conn.execute(f"""
-            WITH {LATEST_ANALYSIS_CTE}
+            WITH {LATEST_ANALYSIS_CTE},
+            {IGNORED_CONTENT_CTE}
             SELECT
                 COALESCE(c.category, '未分类') AS category,
                 COUNT(c.id) AS content_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_score
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
+            LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
+              AND ignored.content_id IS NULL
               AND c.duplicate_of IS NULL
             GROUP BY c.category
             ORDER BY content_count DESC
@@ -593,14 +618,17 @@ class DuckDBAnalytics:
             scored_items
         )
         rows = conn.execute(f"""
-            WITH {LATEST_ANALYSIS_CTE}
+            WITH {LATEST_ANALYSIS_CTE},
+            {IGNORED_CONTENT_CTE}
             SELECT
                 CAST(c.crawled_at AS DATE) AS crawl_date,
                 COUNT(c.id) AS content_count,
                 COUNT(CASE WHEN a.id IS NOT NULL THEN c.id END) AS analyzed_count
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
+            LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
+              AND ignored.content_id IS NULL
               AND c.duplicate_of IS NULL
             GROUP BY CAST(c.crawled_at AS DATE)
             ORDER BY crawl_date ASC
@@ -656,7 +684,8 @@ class DuckDBAnalytics:
         scored_items = self._query_stats_scored_items(hours=48)
 
         row = conn.execute(f"""
-            WITH {LATEST_ANALYSIS_CTE}
+            WITH {LATEST_ANALYSIS_CTE},
+            {IGNORED_CONTENT_CTE}
             SELECT
                 COUNT(*) AS total_items,
                 AVG(a.curation_score) AS avg_curation,
@@ -665,7 +694,9 @@ class DuckDBAnalytics:
                 COUNT(CASE WHEN c.duplicate_of IS NOT NULL THEN 1 END) AS dup_count
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
+            LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
+              AND ignored.content_id IS NULL
               AND a.risk_score <= 70
         """).fetchone()
 
@@ -695,19 +726,23 @@ class DuckDBAnalytics:
 
         # ── KPI row ────────────────────────────────────────────────────────
         kpi_row = conn.execute(f"""
-            WITH {LATEST_ANALYSIS_CTE}
+            WITH {LATEST_ANALYSIS_CTE},
+            {IGNORED_CONTENT_CTE}
             SELECT
                 COUNT(DISTINCT c.id) AS total_crawled,
                 ROUND(AVG(a.curation_score), 1) AS avg_curation,
                 COUNT(DISTINCT c.source_id) AS active_sources
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
+            LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
+              AND ignored.content_id IS NULL
         """).fetchone()
 
         # ── Source breakdown (curated count per source) ───────────────────
         source_rows = conn.execute(f"""
-            WITH {LATEST_ANALYSIS_CTE}
+            WITH {LATEST_ANALYSIS_CTE},
+            {IGNORED_CONTENT_CTE}
             SELECT
                 s.name,
                 s.source_type,
@@ -716,7 +751,9 @@ class DuckDBAnalytics:
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
             LEFT JOIN oltp_db.sources s ON s.id = c.source_id
+            LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
+              AND ignored.content_id IS NULL
             GROUP BY s.id, s.name, s.source_type
             HAVING COUNT(DISTINCT c.id) > 0
             ORDER BY content_count DESC
@@ -725,14 +762,17 @@ class DuckDBAnalytics:
 
         # ── Daily volume trend ─────────────────────────────────────────────
         trend_rows = conn.execute(f"""
-            WITH {LATEST_ANALYSIS_CTE}
+            WITH {LATEST_ANALYSIS_CTE},
+            {IGNORED_CONTENT_CTE}
             SELECT
                 CAST(c.crawled_at AS DATE) AS crawl_date,
                 COUNT(DISTINCT c.id) AS content_count,
                 ROUND(AVG(a.curation_score), 1) AS avg_curation
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
+            LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
+              AND ignored.content_id IS NULL
             GROUP BY CAST(c.crawled_at AS DATE)
             ORDER BY crawl_date ASC
         """).fetchall()
@@ -782,13 +822,16 @@ class DuckDBAnalytics:
         cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
 
         results = conn.execute(f"""
-            WITH {LATEST_ANALYSIS_CTE}
+            WITH {LATEST_ANALYSIS_CTE},
+            {IGNORED_CONTENT_CTE}
             SELECT c.id, c.title, c.url, c.category, c.source_name, a.summary,
                    a.creator_score, a.viral_score, a.quality_score, a.risk_score,
                    a.recommended_reason
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
+            LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE c.crawled_at >= '{cutoff}'
+              AND ignored.content_id IS NULL
               AND a.curation_score IS NOT NULL
             ORDER BY (COALESCE(a.creator_score, 0) + COALESCE(a.viral_score, 0)) DESC
             LIMIT 100
@@ -824,7 +867,8 @@ class DuckDBAnalytics:
 
         results = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},
-            {LATEST_FEEDBACK_SCORES_CTE}
+            {LATEST_FEEDBACK_SCORES_CTE},
+            {IGNORED_CONTENT_CTE}
             SELECT c.id, c.title, c.category, c.source_name, c.platform,
                    a.summary, a.creator_score, a.viral_score, a.quality_score,
                    a.risk_score, a.curation_score, a.tags, a.recommendation,
@@ -836,8 +880,10 @@ class DuckDBAnalytics:
             FROM oltp_db.content_items c
             LEFT JOIN latest_analysis a ON a.content_id = c.id
             LEFT JOIN feedback_scores f ON f.content_id = c.id
+            LEFT JOIN ignored_content ignored ON ignored.content_id = c.id
             WHERE CAST(c.crawled_at AS DATE) >= DATE '{start_date}'
               AND CAST(c.crawled_at AS DATE) <= DATE '{end_date}'
+              AND ignored.content_id IS NULL
               AND a.curation_score IS NOT NULL
             ORDER BY adjusted_score DESC, COALESCE(a.creator_score, 0) DESC
         """).fetchall()

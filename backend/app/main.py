@@ -650,6 +650,19 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Mother topic seed skipped by config")
 
+    # Seed default content sources (idempotent, no-op for existing URLs)
+    if settings.STARTUP_SEED_ENABLED:
+        try:
+            from app.services.source_seed import seed_default_sources
+            async with async_session() as seed_db:
+                added = await seed_default_sources(seed_db)
+                await seed_db.commit()
+                logger.info("Default sources seeded (%d new)", added)
+        except Exception as e:
+            logger.warning("Default source seed skipped: %s", e)
+    else:
+        logger.info("Default source seed skipped by config")
+
     # Initialize DuckDB analytical layer (in-memory + ATTACH SQLite)
     try:
         from app.services.duckdb_service import get_analytics

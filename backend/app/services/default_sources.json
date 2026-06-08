@@ -1,0 +1,182 @@
+[
+  {
+    "name": "AIHOT",
+    "source_type": "RSS",
+    "url": "https://aihot.virxact.com/feed/all.xml",
+    "category": "AI",
+    "platform": "RSS",
+    "weight": 5,
+    "fetch_interval_minutes": 60
+  },
+  {
+    "name": "Hacker News AI",
+    "source_type": "RSS",
+    "url": "https://hnrss.org/newest?q=AI+OR+LLM+OR+agent+OR+machine+learning",
+    "category": "AI/技术",
+    "platform": "Hacker News",
+    "weight": 4,
+    "fetch_interval_minutes": 60
+  },
+  {
+    "name": "Hacker News Front Page",
+    "source_type": "RSS",
+    "url": "https://hnrss.org/frontpage",
+    "category": "技术",
+    "platform": "Hacker News",
+    "weight": 4,
+    "fetch_interval_minutes": 60
+  },
+  {
+    "name": "MIT Technology Review",
+    "source_type": "RSS",
+    "url": "https://www.technologyreview.com/feed/",
+    "category": "科技",
+    "platform": "MIT Technology Review",
+    "weight": 4,
+    "fetch_interval_minutes": 120
+  },
+  {
+    "name": "The Verge",
+    "source_type": "RSS",
+    "url": "https://www.theverge.com/rss/index.xml",
+    "category": "科技",
+    "platform": "The Verge",
+    "weight": 3,
+    "fetch_interval_minutes": 120
+  },
+  {
+    "name": "Wired",
+    "source_type": "RSS",
+    "url": "https://www.wired.com/feed/rss",
+    "category": "科技",
+    "platform": "Wired",
+    "weight": 3,
+    "fetch_interval_minutes": 120
+  },
+  {
+    "name": "Quanta Magazine",
+    "source_type": "RSS",
+    "url": "https://www.quantamagazine.org/feed/",
+    "category": "科学",
+    "platform": "Quanta Magazine",
+    "weight": 3,
+    "fetch_interval_minutes": 240
+  },
+  {
+    "name": "36氪",
+    "source_type": "RSS",
+    "url": "https://36kr.com/feed",
+    "category": "科技",
+    "platform": "36氪",
+    "weight": 3,
+    "fetch_interval_minutes": 120
+  },
+  {
+    "name": "少数派",
+    "source_type": "RSSHub",
+    "url": "sspai/index",
+    "category": "效率工具",
+    "platform": "少数派",
+    "weight": 4,
+    "fetch_interval_minutes": 120
+  },
+  {
+    "name": "GitHub Blog",
+    "source_type": "RSS",
+    "url": "https://github.blog/feed/",
+    "category": "开发者",
+    "platform": "GitHub",
+    "weight": 4,
+    "fetch_interval_minutes": 180
+  },
+  {
+    "name": "GitHub Engineering",
+    "source_type": "RSS",
+    "url": "http://githubengineering.com/atom.xml",
+    "category": "开发者",
+    "platform": "GitHub",
+    "weight": 4,
+    "fetch_interval_minutes": 180
+  },
+  {
+    "name": "NVIDIA Developer Blog",
+    "source_type": "RSS",
+    "url": "https://developer.nvidia.com/blog/feed",
+    "category": "AI/技术",
+    "platform": "NVIDIA",
+    "weight": 4,
+    "fetch_interval_minutes": 240
+  },
+  {
+    "name": "Engineering at Meta",
+    "source_type": "RSS",
+    "url": "https://engineering.fb.com/feed/",
+    "category": "开发者",
+    "platform": "Meta",
+    "weight": 3,
+    "fetch_interval_minutes": 240
+  },
+  {
+    "name": "Stripe Blog",
+    "source_type": "RSS",
+    "url": "https://stripe.com/blog/feed.rss",
+    "category": "产品/技术",
+    "platform": "Stripe",
+    "weight": 3,
+    "fetch_interval_minutes": 240
+  },
+  {
+    "name": "Cloudflare Blog",
+    "source_type": "RSS",
+    "url": "https://blog.cloudflare.com/rss/",
+    "category": "开发者",
+    "platform": "Cloudflare",
+    "weight": 3,
+    "fetch_interval_minutes": 240
+  },
+  {
+    "name": "Slack Engineering",
+    "source_type": "RSS",
+    "url": "https://slack.engineering/feed",
+    "category": "开发者",
+    "platform": "Slack",
+    "weight": 3,
+    "fetch_interval_minutes": 240
+  },
+  {
+    "name": "web.dev",
+    "source_type": "RSS",
+    "url": "https://web.dev/feed.xml",
+    "category": "前端/体验",
+    "platform": "Google",
+    "weight": 3,
+    "fetch_interval_minutes": 240
+  },
+  {
+    "name": "NN/g",
+    "source_type": "RSS",
+    "url": "https://www.nngroup.com/feed/rss/",
+    "category": "设计/体验",
+    "platform": "NN/g",
+    "weight": 3,
+    "fetch_interval_minutes": 240
+  },
+  {
+    "name": "Ness Labs",
+    "source_type": "RSS",
+    "url": "https://nesslabs.com/feed",
+    "category": "知识管理",
+    "platform": "Ness Labs",
+    "weight": 3,
+    "fetch_interval_minutes": 240
+  },
+  {
+    "name": "Farnam Street",
+    "source_type": "RSS",
+    "url": "https://fs.blog/feed/",
+    "category": "思维/成长",
+    "platform": "Farnam Street",
+    "weight": 3,
+    "fetch_interval_minutes": 240
+  }
+]

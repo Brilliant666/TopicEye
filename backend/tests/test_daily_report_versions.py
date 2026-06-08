@@ -1,6 +1,17 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
-from app.services.daily_report import _day_window, _local_window_to_utc_naive, _normalize_edition
+import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app.core.database import Base
+from app.models.daily_report import DailyReport
+from app.services import daily_report
+from app.services.daily_report import (
+    GENERATING_STALE_AFTER,
+    _day_window,
+    _local_window_to_utc_naive,
+    _normalize_edition,
+)
 
 
 def test_snapshot_window_uses_start_of_target_day_to_cutoff():
@@ -33,3 +44,88 @@ def test_report_window_queries_utc_storage_range():
 
     assert start == datetime(2026, 5, 26, 16, 0, 0)
     assert end == datetime(2026, 5, 27, 4, 0, 0)
+
+
+@pytest.mark.asyncio
+async def test_generate_daily_report_returns_active_generating_without_llm(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    now = datetime(2026, 5, 27, 12, 0, 0)
+    monkeypatch.setattr(daily_report, "_local_now", lambda: now)
+
+    async def fail_fetch_inputs(*_args, **_kwargs):
+        raise AssertionError("active GENERATING report should not generate again")
+
+    monkeypatch.setattr(daily_report, "_fetch_report_inputs", fail_fetch_inputs)
+    start, end = _day_window(date(2026, 5, 27), now, "noon")
+    async with session_factory() as db:
+        existing = DailyReport(
+            report_date="2026-05-27",
+            weekday="周三",
+            edition="noon",
+            generated_at=now - timedelta(minutes=1),
+            window_start=start,
+            window_end=end,
+            cutoff_at=end,
+            status="GENERATING",
+        )
+        db.add(existing)
+        await db.commit()
+
+        report = await daily_report.generate_daily_report(
+            db,
+            target_date=date(2026, 5, 27),
+            edition="noon",
+            cutoff_at=now,
+            force=False,
+        )
+
+    assert report.id == existing.id
+    assert report.status == "GENERATING"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_generate_daily_report_reclaims_stale_generating(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    now = datetime(2026, 5, 27, 12, 0, 0)
+    monkeypatch.setattr(daily_report, "_local_now", lambda: now)
+
+    async def fake_fetch_inputs(*_args, **_kwargs):
+        return [], []
+
+    monkeypatch.setattr(daily_report, "_fetch_report_inputs", fake_fetch_inputs)
+    start, end = _day_window(date(2026, 5, 27), now, "noon")
+    async with session_factory() as db:
+        existing = DailyReport(
+            report_date="2026-05-27",
+            weekday="周三",
+            edition="noon",
+            generated_at=now - GENERATING_STALE_AFTER - timedelta(seconds=1),
+            window_start=start,
+            window_end=end,
+            cutoff_at=end,
+            status="GENERATING",
+        )
+        db.add(existing)
+        await db.commit()
+
+        report = await daily_report.generate_daily_report(
+            db,
+            target_date=date(2026, 5, 27),
+            edition="noon",
+            cutoff_at=now,
+            force=False,
+        )
+
+    assert report.id == existing.id
+    assert report.status == "ERROR"
+    assert "暂无分析数据" in report.overview
+    await engine.dispose()

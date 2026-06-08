@@ -9,6 +9,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.daily_report import DailyReport
@@ -24,6 +25,7 @@ from app.services.zhihu_url import normalize_zhihu_url
 WEEKDAYS = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 VALID_EDITIONS = {"snapshot", "noon", "evening", "final", "manual", "legacy"}
 LOCAL_TZ = ZoneInfo("Asia/Shanghai")
+GENERATING_STALE_AFTER = timedelta(minutes=10)
 
 REPORT_PROMPT = """你是一位资深内容策划顾问。请根据以下「精选内容」和「全天候选背景」，生成一份面向创作者的日报。
 
@@ -137,6 +139,13 @@ def _normalize_edition(edition: Optional[str], target: date, cutoff_at: Optional
     return _edition_for_now(cutoff_at)
 
 
+def _is_active_generating(report: DailyReport, now: datetime) -> bool:
+    if report.status != "GENERATING":
+        return False
+    generated_at = _as_local_naive(report.generated_at) or _as_local_naive(report.updated_at) or now
+    return now - generated_at < GENERATING_STALE_AFTER
+
+
 async def _fetch_report_inputs(
     db: AsyncSession,
     *,
@@ -241,6 +250,7 @@ async def generate_daily_report(
     window_start, window_end = _day_window(target, cutoff_at, normalized_edition)
     report_date = target.isoformat()
     weekday = WEEKDAYS[target.weekday()]
+    now = _local_now()
 
     existing = await db.execute(
         select(DailyReport)
@@ -251,38 +261,60 @@ async def generate_daily_report(
     report = existing.scalar_one_or_none()
     if report and report.status == "DONE" and not force:
         return report
-
-    curated_items, background_items = await _fetch_report_inputs(
-        db,
-        window_start=window_start,
-        window_end=window_end,
-    )
+    if report and _is_active_generating(report, now) and not force:
+        return report
 
     if not report:
         report = DailyReport(
             report_date=report_date,
             weekday=weekday,
             edition=normalized_edition,
-            generated_at=_local_now(),
+            generated_at=now,
             window_start=window_start,
             window_end=window_end,
             cutoff_at=window_end,
             source_scope="curated",
             status="GENERATING",
-            content_count=len(background_items),
-            analyzed_count=len(background_items),
+            content_count=0,
+            analyzed_count=0,
         )
         db.add(report)
-        await db.flush()
+        try:
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            existing = await db.execute(
+                select(DailyReport)
+                .where(DailyReport.report_date == report_date)
+                .where(DailyReport.edition == normalized_edition)
+                .where(DailyReport.cutoff_at == window_end)
+            )
+            report = existing.scalar_one()
+            if report.status == "DONE" and not force:
+                return report
+            if _is_active_generating(report, _local_now()) and not force:
+                return report
+            report.status = "GENERATING"
+            report.generated_at = _local_now()
+            await db.flush()
     else:
         report.status = "GENERATING"
-        report.generated_at = _local_now()
+        report.generated_at = now
         report.window_start = window_start
         report.window_end = window_end
         report.cutoff_at = window_end
-        report.content_count = len(background_items)
-        report.analyzed_count = len(background_items)
         await db.flush()
+
+    await db.commit()
+
+    curated_items, background_items = await _fetch_report_inputs(
+        db,
+        window_start=window_start,
+        window_end=window_end,
+    )
+    report.content_count = len(background_items)
+    report.analyzed_count = len(background_items)
+    await db.flush()
 
     if not background_items:
         report.status = "ERROR"

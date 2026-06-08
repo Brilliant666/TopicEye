@@ -78,9 +78,11 @@ async def _score_content_page(
     if not scoring_inputs:
         return _empty_list_response(page, page_size)
 
-    scored = score_fn(scoring_inputs)
-    if sort_order == "asc":
-        scored = sorted(scored, key=lambda pair: pair[0].final_score)
+    scored = sorted(
+        score_fn(scoring_inputs),
+        key=lambda pair: pair[0].final_score,
+        reverse=(sort_order == "desc"),
+    )
     page_offset = (page - 1) * page_size
     page_items = scored[page_offset:page_offset + page_size]
     result_items = [_with_scoring_breakdown(item_map, breakdown, scoring_input) for breakdown, scoring_input in page_items]

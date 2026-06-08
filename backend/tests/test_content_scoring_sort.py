@@ -105,10 +105,11 @@ async def _fake_build_scoring_inputs(db, items):
 
 def _fake_score_items(scoring_inputs):
     scores = {1: 90.0, 2: 30.0, 3: 60.0}
-    return [
+    scored = [
         (_breakdown(item.content_id, scores[item.content_id]), item)
         for item in scoring_inputs
     ]
+    return [scored[2], scored[0], scored[1]]
 
 
 @pytest.mark.asyncio
@@ -130,3 +131,24 @@ async def test_score_content_page_applies_ascending_order_before_pagination(monk
 
     assert [item["id"] for item in payload["items"]] == [2, 3]
     assert [item["analysis"]["adjusted_curation_score"] for item in payload["items"]] == [30.0, 60.0]
+
+
+@pytest.mark.asyncio
+async def test_score_content_page_applies_descending_order_before_pagination(monkeypatch):
+    monkeypatch.setattr(contents_api, "ContentRepo", FakeContentRepo)
+    monkeypatch.setattr("app.services.scoring_inputs.build_scoring_inputs", _fake_build_scoring_inputs)
+
+    payload = await contents_api._score_content_page(
+        db=object(),
+        filters={},
+        ignored_ids=[],
+        time_cutoff=None,
+        exclude_source_types=None,
+        page=1,
+        page_size=2,
+        score_fn=_fake_score_items,
+        sort_order="desc",
+    )
+
+    assert [item["id"] for item in payload["items"]] == [1, 3]
+    assert [item["analysis"]["adjusted_curation_score"] for item in payload["items"]] == [90.0, 60.0]

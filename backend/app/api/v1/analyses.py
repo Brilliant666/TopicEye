@@ -16,6 +16,7 @@ from app.models.content import ContentStatus
 from app.schemas.analysis import AiAnalysisResponse
 from app.repositories.content_repo import ContentRepo
 from app.repositories.analysis_repo import AnalysisRepository
+from app.services.content_read_cache import invalidate_content_read_caches
 from app.services.analysis import analyze_content, analyze_batch, analyze_batch_concurrent
 from app.services.analysis_jobs import (
     create_analysis_job,
@@ -52,6 +53,7 @@ async def analyze_single(
         content = await content_repo.get_by_id_or_raise(content_id, "Content")
         analysis = await analyze_content(content, db)
         await db.commit()
+        invalidate_content_read_caches()
         return analysis
     except Exception as e:
         await db.rollback()

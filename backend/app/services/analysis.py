@@ -322,7 +322,6 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
     content.status = ContentStatus.ANALYZED
     await db.flush()
     await db.refresh(analysis)
-    invalidate_content_read_caches()
 
     logger.info(
         "Analysis id=%d: Q=%.0f C=%.0f V=%.0f R=%.0f Curation=%.0f Tags=%s",
@@ -418,6 +417,7 @@ async def analyze_one_claimed(content_id: int, db: AsyncSession) -> Optional[AiA
 
         analysis = await analyze_content(content, db)
         await db.commit()
+        invalidate_content_read_caches()
         return analysis
     except Exception as e:
         await db.rollback()

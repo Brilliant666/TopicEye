@@ -27,6 +27,12 @@ from app.services.analysis_jobs import (
     reset_analysis_jobs,
 )
 from app import scheduler as scheduler_module
+from app.services.scoring_flow import (
+    build_empty_payload,
+    cache_payload,
+    get_cached_scoring_flow_json,
+    invalidate_scoring_flow_cache,
+)
 
 
 async def _session_factory():
@@ -588,6 +594,62 @@ async def test_analyze_batch_commits_analyzing_status_before_llm_call(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_analyze_batch_invalidates_scoring_cache_after_commit(monkeypatch):
+    engine, session_factory = await _session_factory()
+    invalidate_scoring_flow_cache()
+    cache_payload((24, 160, 80), build_empty_payload(
+        hours=24,
+        analyzed_total=0,
+        window_total=0,
+        ignored_count=0,
+        limit=160,
+        sample_limit=80,
+    ))
+    observed = {}
+
+    async def fake_analyze_content(content, db):
+        analysis_record = AiAnalysis(
+            content_id=content.id,
+            summary="已分析",
+            curation_score=60,
+            quality_score=60,
+            hot_score=60,
+            freshness_score=60,
+            creator_score=60,
+            viral_score=60,
+            risk_score=20,
+        )
+        db.add(analysis_record)
+        content.status = ContentStatus.ANALYZED
+        await db.flush()
+        observed["cache_before_commit"] = get_cached_scoring_flow_json(hours=24, limit=160) is not None
+        return analysis_record
+
+    monkeypatch.setattr(analysis, "analyze_content", fake_analyze_content)
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="缓存提交边界测试内容",
+                url="https://example.com/analysis-cache-boundary",
+                status=ContentStatus.PENDING,
+                raw_content="用于验证分析完成后只在提交成功之后刷新算法缓存。",
+            )
+        )
+        await db.commit()
+
+        results = await analysis.analyze_batch([1], db)
+
+    assert observed["cache_before_commit"] is True
+    assert [item.content_id for item in results] == [1]
+    assert get_cached_scoring_flow_json(hours=24, limit=160) is None
+
+    invalidate_scoring_flow_cache()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_analyze_single_commits_analyzing_status_before_llm_call(monkeypatch):
     engine, session_factory = await _session_factory()
     observed = {}
@@ -634,6 +696,62 @@ async def test_analyze_single_commits_analyzing_status_before_llm_call(monkeypat
     assert observed["status_before_analysis"] == ContentStatus.ANALYZING
     assert result.content_id == 1
     assert stored_content.status == ContentStatus.ANALYZED
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_analyze_single_invalidates_scoring_cache_after_commit(monkeypatch):
+    engine, session_factory = await _session_factory()
+    invalidate_scoring_flow_cache()
+    cache_payload((24, 160, 80), build_empty_payload(
+        hours=24,
+        analyzed_total=0,
+        window_total=0,
+        ignored_count=0,
+        limit=160,
+        sample_limit=80,
+    ))
+    observed = {}
+
+    async def fake_analyze_content(content, db):
+        analysis_record = AiAnalysis(
+            content_id=content.id,
+            summary="单条已分析",
+            curation_score=60,
+            quality_score=60,
+            hot_score=60,
+            freshness_score=60,
+            creator_score=60,
+            viral_score=60,
+            risk_score=20,
+        )
+        db.add(analysis_record)
+        content.status = ContentStatus.ANALYZED
+        await db.flush()
+        observed["cache_before_commit"] = get_cached_scoring_flow_json(hours=24, limit=160) is not None
+        return analysis_record
+
+    monkeypatch.setattr(analyses_api, "analyze_content", fake_analyze_content)
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="单条缓存提交边界测试内容",
+                url="https://example.com/single-analysis-cache-boundary",
+                status=ContentStatus.PENDING,
+                raw_content="用于验证单条分析接口只在提交成功之后刷新算法缓存。",
+            )
+        )
+        await db.commit()
+
+        result = await analyses_api.analyze_single(1, db=db)
+
+    assert observed["cache_before_commit"] is True
+    assert result.content_id == 1
+    assert get_cached_scoring_flow_json(hours=24, limit=160) is None
+
+    invalidate_scoring_flow_cache()
     await engine.dispose()
 
 

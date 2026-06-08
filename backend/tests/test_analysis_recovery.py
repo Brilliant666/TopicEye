@@ -142,6 +142,41 @@ async def test_claim_pending_analysis_ids_marks_items_analyzing_before_workers_r
 
 
 @pytest.mark.asyncio
+async def test_claim_pending_analysis_ids_retries_sqlite_write_lock(monkeypatch):
+    engine, session_factory = await _session_factory()
+    calls = {"begin": 0}
+
+    async def flaky_begin_immediate(_db):
+        calls["begin"] += 1
+        if calls["begin"] == 1:
+            raise OperationalError("BEGIN IMMEDIATE", {}, Exception("database is locked"))
+
+    monkeypatch.setattr("app.repositories.content_repo.begin_immediate_for_sqlite", flaky_begin_immediate)
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="锁重试认领内容",
+                url="https://example.com/claim-lock-retry",
+                status=ContentStatus.PENDING,
+                crawled_at=datetime.utcnow(),
+            )
+        )
+        await db.commit()
+
+        claimed_ids = await ContentRepo(db).claim_pending_analysis_ids(limit=10, hours=24)
+        await db.commit()
+
+        content = await db.get(ContentItem, 1)
+
+    assert calls["begin"] == 2
+    assert claimed_ids == [1]
+    assert content.status == ContentStatus.ANALYZING
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_analyze_pending_defaults_to_background_queue(monkeypatch):
     await reset_analysis_jobs()
 

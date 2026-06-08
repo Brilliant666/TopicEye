@@ -19,6 +19,7 @@ from sqlalchemy import select, update, func, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.sqlite_retry import begin_immediate_for_sqlite, retry_sqlite_locked
 from app.models.content import ContentItem, ContentStatus
 from app.repositories.analysis_queries import latest_analysis_id_subquery
 from app.repositories.base import BaseRepository
@@ -147,34 +148,43 @@ class ContentRepo(BaseRepository[ContentItem]):
         hours: Optional[int] = None,
     ) -> list[int]:
         """Claim pending or stale analysis candidates and return claimed IDs in queue order."""
-        pending = await self.list_pending_for_analysis(limit=limit, hours=hours)
-        if not pending:
-            return []
+        async def _claim() -> list[int]:
+            await begin_immediate_for_sqlite(self.db)
+            pending = await self.list_pending_for_analysis(limit=limit, hours=hours)
+            if not pending:
+                return []
 
-        stale_cutoff = datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES)
-        claimed_at = datetime.utcnow()
-        claimed_ids: list[int] = []
-        for item in pending:
-            result = await self.db.execute(
-                update(self.model)
-                .where(self.model.id == item.id)
-                .where(
-                    (self.model.status == ContentStatus.PENDING)
-                    | (
-                        (self.model.status == ContentStatus.ANALYZING)
-                        & (self.model.updated_at <= stale_cutoff)
+            stale_cutoff = datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES)
+            claimed_at = datetime.utcnow()
+            claimed_ids: list[int] = []
+            for item in pending:
+                result = await self.db.execute(
+                    update(self.model)
+                    .where(self.model.id == item.id)
+                    .where(
+                        (self.model.status == ContentStatus.PENDING)
+                        | (
+                            (self.model.status == ContentStatus.ANALYZING)
+                            & (self.model.updated_at <= stale_cutoff)
+                        )
+                        | (
+                            (self.model.status == ContentStatus.ERROR)
+                            & (self.model.updated_at <= stale_cutoff)
+                        )
                     )
-                    | (
-                        (self.model.status == ContentStatus.ERROR)
-                        & (self.model.updated_at <= stale_cutoff)
-                    )
+                    .values(status=ContentStatus.ANALYZING, updated_at=claimed_at)
                 )
-                .values(status=ContentStatus.ANALYZING, updated_at=claimed_at)
-            )
-            if result.rowcount:
-                claimed_ids.append(int(item.id))
-        await self.db.flush()
-        return claimed_ids
+                if result.rowcount:
+                    claimed_ids.append(int(item.id))
+            await self.db.flush()
+            return claimed_ids
+
+        return await retry_sqlite_locked(
+            _claim,
+            attempts=4,
+            base_delay=0.1,
+            on_retry=self.db.rollback,
+        )
 
     async def update_status(self, id: int, status: ContentStatus) -> ContentItem:
         """Transition a single item to a new status."""

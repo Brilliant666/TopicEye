@@ -91,6 +91,14 @@ function presetRequires(preset: LlmModelPresetItem | undefined, field: string) {
   return Boolean(preset?.requires.includes(field));
 }
 
+function presetDefaultValue(
+  preset: LlmModelPresetItem | undefined,
+  catalog: LlmModelPresetCatalog | null,
+  field: string,
+) {
+  return preset?.defaults[field] ?? catalog?.defaults[field];
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const { currentUser, authLoading, refreshCounts } = useAppContext();
@@ -135,6 +143,28 @@ export default function ProfilePage() {
   const needsModelId = presetRequires(selectedPreset, 'model_id');
   const needsApiBase = presetRequires(selectedPreset, 'api_base');
   const canSaveAi = customAiAllowed && aiForm.api_key.trim().length >= 8 && (!needsModelId || aiForm.model_id.trim()) && !savingAi;
+  const selectedPresetDefaults = useMemo(() => ([
+    {
+      label: '稳定度',
+      value: presetDefaultValue(selectedPreset, aiCatalog, 'temperature'),
+      hint: '越低越稳定',
+    },
+    {
+      label: '输出长度',
+      value: presetDefaultValue(selectedPreset, aiCatalog, 'max_tokens'),
+      hint: '单次回答上限',
+    },
+    {
+      label: '请求上限',
+      value: presetDefaultValue(selectedPreset, aiCatalog, 'requests_per_minute'),
+      hint: '每分钟调用',
+    },
+    {
+      label: '失败冷却',
+      value: presetDefaultValue(selectedPreset, aiCatalog, 'cooldown_seconds'),
+      hint: '失败后暂停',
+    },
+  ]), [aiCatalog, selectedPreset]);
 
   const readiness = useMemo(() => {
     if (!status?.configured) {
@@ -259,6 +289,10 @@ export default function ProfilePage() {
       model_id: preset?.model_id || '',
       api_base: preset?.api_base || '',
       name: '',
+      showAdvanced: false,
+      temperature: '',
+      max_tokens: '',
+      requests_per_minute: '',
     }));
   };
 
@@ -582,6 +616,25 @@ export default function ProfilePage() {
                 })}
               </div>
 
+              {selectedPreset && (
+                <div className="grid gap-3 rounded-sm border border-gray-200 bg-gray-50 p-3 md:grid-cols-[minmax(0,1.1fr)_minmax(0,2fr)]">
+                  <div className="min-w-0">
+                    <div className="mb-1 text-xs font-black text-gray-500">当前预设</div>
+                    <div className="truncate text-sm font-black text-gray-900">{selectedPreset.label}</div>
+                    <div className="mt-1 text-xs leading-5 text-gray-500">{selectedPreset.help}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {selectedPresetDefaults.map((item) => (
+                      <div key={item.label} className="rounded-xs border border-gray-200 bg-white px-2.5 py-2">
+                        <div className="mb-1 text-[10px] font-black text-gray-400">{item.label}</div>
+                        <div className="font-mono text-sm font-black text-gray-900">{formatPresetValue(item.value)}</div>
+                        <div className="mt-1 truncate text-[10px] text-gray-400">{item.hint}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="grid gap-3 md:grid-cols-2">
                 <label className="block">
                   <span className="mb-1.5 block text-xs font-black text-gray-500">API Key</span>
@@ -653,6 +706,9 @@ export default function ProfilePage() {
                         step="0.1"
                         disabled={!customAiAllowed}
                       />
+                      <div className="mt-1 text-[10px] leading-4 text-gray-400">
+                        {aiCatalog?.help.temperature_tip || '选题分析和摘要建议保持默认。'}
+                      </div>
                     </label>
                     <label className="block">
                       <span className="mb-1.5 block text-xs font-black text-gray-500">输出长度</span>
@@ -664,6 +720,9 @@ export default function ProfilePage() {
                         type="number"
                         disabled={!customAiAllowed}
                       />
+                      <div className="mt-1 text-[10px] leading-4 text-gray-400">
+                        {aiCatalog?.help.max_tokens_tip || '控制单次输出长度。'}
+                      </div>
                     </label>
                     <label className="block">
                       <span className="mb-1.5 block text-xs font-black text-gray-500">每分钟请求数</span>
@@ -675,6 +734,9 @@ export default function ProfilePage() {
                         type="number"
                         disabled={!customAiAllowed}
                       />
+                      <div className="mt-1 text-[10px] leading-4 text-gray-400">
+                        {aiCatalog?.help.rpm_tip || '个人 Key 建议从保守上限开始。'}
+                      </div>
                     </label>
                   </div>
                 )}

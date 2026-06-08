@@ -84,17 +84,14 @@ class ScoringInput:
         "hot_score", "risk_score",
         # Source
         "source_weight_db",  # Source.weight from DB (1-5)
-        # Feedback & source accuracy signals
+        # Feedback signal
         "feedback_score",     # user feedback signal (0+, default 0)
-        "source_accuracy",    # source historical accuracy (0-1, default 0.5)
     )
 
     def __init__(self, **kwargs):
         for slot in self.__slots__:
             if slot == "feedback_score":
                 setattr(self, slot, kwargs.get(slot, 0))
-            elif slot == "source_accuracy":
-                setattr(self, slot, kwargs.get(slot, 0.5))
             else:
                 setattr(self, slot, kwargs.get(slot, 0))
 
@@ -183,13 +180,7 @@ def _compute_base_score(item: ScoringInput) -> tuple[float, dict]:
     feedback_adjustment = feedback_score * cfg["w_feedback"]
     base += feedback_adjustment
 
-    # ── Source historical accuracy factor ──
-    # accuracy_factor range: 0.8 (low accuracy) – 1.2 (high accuracy)
-    source_accuracy = _clamp(item.source_accuracy, 0, 1, 0.5)
-    accuracy_factor = 0.8 + source_accuracy * 0.4
-    base *= accuracy_factor
     dimensions["feedback_adjustment"] = feedback_adjustment
-    dimensions["source_accuracy_factor"] = accuracy_factor
 
     return base, dimensions
 

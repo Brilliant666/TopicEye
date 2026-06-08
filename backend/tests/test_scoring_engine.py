@@ -111,17 +111,3 @@ def test_feedback_signal_is_clamped_before_scoring_adjustment():
     assert by_id[3].dimension_scores["feedback_adjustment"] == expected_adjustment
     assert by_id[3].base_score == by_id[2].base_score
     assert by_id[3].base_score > by_id[1].base_score
-
-
-def test_source_accuracy_signal_is_clamped_to_calibrated_factor_range():
-    low = _item(1, source_accuracy=-5)
-    normal = _item(2, source_accuracy=0.5)
-    high = _item(3, source_accuracy=5)
-
-    scored = score_items([low, normal, high])
-    by_id = {item.content_id: breakdown for breakdown, item in scored}
-
-    assert by_id[1].dimension_scores["source_accuracy_factor"] == 0.8
-    assert by_id[2].dimension_scores["source_accuracy_factor"] == 1.0
-    assert by_id[3].dimension_scores["source_accuracy_factor"] == 1.2
-    assert by_id[1].base_score < by_id[2].base_score < by_id[3].base_score

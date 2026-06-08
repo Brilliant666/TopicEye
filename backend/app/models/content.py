@@ -48,5 +48,9 @@ class ContentItem(Base):
 
     source: Mapped[Optional["Source"]] = relationship(back_populates="contents")
     metrics: Mapped[list["ContentMetrics"]] = relationship(back_populates="content", cascade="all, delete-orphan")
-    analyses: Mapped[list["AiAnalysis"]] = relationship(back_populates="content", cascade="all, delete-orphan")
+    analyses: Mapped[list["AiAnalysis"]] = relationship(
+        back_populates="content",
+        cascade="all, delete-orphan",
+        order_by="AiAnalysis.created_at, AiAnalysis.id",
+    )
     topic: Mapped[Optional["TopicGroup"]] = relationship(back_populates="items", foreign_keys=[topic_id])

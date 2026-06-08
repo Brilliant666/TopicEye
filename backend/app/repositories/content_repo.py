@@ -340,13 +340,14 @@ class ContentRepo(BaseRepository[ContentItem]):
         from datetime import datetime as dt, timedelta
 
         cutoff = dt.utcnow() - timedelta(hours=hours)
+        latest_analysis_id = self._latest_analysis_id_subquery(AiAnalysis)
         stmt = (
             select(self.model)
             .options(
                 selectinload(self.model.analyses),
                 selectinload(self.model.source),
             )
-            .join(AiAnalysis, AiAnalysis.content_id == self.model.id)
+            .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
             .where(self.model.crawled_at >= cutoff)
             .where(AiAnalysis.risk_score <= 70)
         )
@@ -365,13 +366,14 @@ class ContentRepo(BaseRepository[ContentItem]):
         """Fetch analyzed items in a precise report window for daily report snapshots."""
         from app.models.analysis import AiAnalysis
 
+        latest_analysis_id = self._latest_analysis_id_subquery(AiAnalysis)
         stmt = (
             select(self.model)
             .options(
                 selectinload(self.model.analyses),
                 selectinload(self.model.source),
             )
-            .join(AiAnalysis, AiAnalysis.content_id == self.model.id)
+            .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
             .where(self.model.crawled_at >= window_start)
             .where(self.model.crawled_at <= window_end)
             .where(AiAnalysis.risk_score <= 70)
@@ -402,9 +404,11 @@ class ContentRepo(BaseRepository[ContentItem]):
         from sqlalchemy import func, select
         from app.models.analysis import AiAnalysis
 
+        latest_analysis_id = self._latest_analysis_id_subquery(AiAnalysis)
+
         # Count query — all analyzed matching filters
         count_stmt = select(func.count(self.model.id)).join(
-            AiAnalysis, AiAnalysis.content_id == self.model.id
+            AiAnalysis, AiAnalysis.id == latest_analysis_id
         ).where(self.model.status == ContentStatus.ANALYZED)
 
         # Data query — eager-load analyses + source
@@ -414,7 +418,7 @@ class ContentRepo(BaseRepository[ContentItem]):
                 selectinload(self.model.analyses),
                 selectinload(self.model.source),
             )
-            .join(AiAnalysis, AiAnalysis.content_id == self.model.id)
+            .join(AiAnalysis, AiAnalysis.id == latest_analysis_id)
             .where(self.model.status == ContentStatus.ANALYZED)
         )
 
@@ -505,12 +509,7 @@ class ContentRepo(BaseRepository[ContentItem]):
         from app.models.analysis import AiAnalysis
         from app.models.source import Source
 
-        latest_analysis_id = (
-            select(func.max(AiAnalysis.id))
-            .where(AiAnalysis.content_id == self.model.id)
-            .correlate(self.model)
-            .scalar_subquery()
-        )
+        latest_analysis_id = self._latest_analysis_id_subquery(AiAnalysis)
 
         stmt = (
             select(
@@ -556,6 +555,17 @@ class ContentRepo(BaseRepository[ContentItem]):
         stmt = stmt.order_by(self.model.crawled_at.desc()).limit(limit)
         result = await self.db.execute(stmt)
         return [ScoringContentRow(**row._mapping) for row in result.all()]
+
+    def _latest_analysis_id_subquery(self, analysis_model):
+        """Return a correlated subquery for the latest analysis row per content item."""
+        return (
+            select(analysis_model.id)
+            .where(analysis_model.content_id == self.model.id)
+            .order_by(analysis_model.created_at.desc(), analysis_model.id.desc())
+            .limit(1)
+            .correlate(self.model)
+            .scalar_subquery()
+        )
 
     # ── Recent items ───────────────────────────────────────────────
 

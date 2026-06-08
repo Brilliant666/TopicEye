@@ -63,7 +63,7 @@ async def test_feedback_aggregates_multiple_users_and_updates_own_vote():
 
 
 @pytest.mark.asyncio
-async def test_feedback_overwrite_collapses_legacy_duplicates():
+async def test_feedback_overwrite_keeps_one_record_per_user_content_pair():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as conn:
@@ -72,22 +72,20 @@ async def test_feedback_overwrite_collapses_legacy_duplicates():
     async with session_factory() as db:
         db.add(feedback_content(1))
         await db.flush()
-        db.add_all([
-            UserFeedback(user_id=1, content_id=1, feedback_type="like", score_delta=10.0),
-            UserFeedback(user_id=1, content_id=1, feedback_type="dislike", score_delta=-15.0),
-            UserFeedback(user_id=2, content_id=1, feedback_type="like", score_delta=10.0),
-        ])
-        await db.flush()
-
-        feedback = await submit_feedback(
-            FeedbackCreate(content_id=1, feedback_type="great_pick", comment="revised"),
+        first = await submit_feedback(
+            FeedbackCreate(content_id=1, feedback_type="like", comment="first"),
+            db,
+            SimpleNamespace(id=1),
+        )
+        second = await submit_feedback(
+            FeedbackCreate(content_id=1, feedback_type="great_pick", comment="second"),
             db,
             SimpleNamespace(id=1),
         )
 
         scores = await get_feedback_scores(db, [1])
-        assert scores == {1: 30.0}
-        assert feedback.comment == "revised"
+        assert first.id == second.id
+        assert scores == {1: 20.0}
 
     await engine.dispose()
 

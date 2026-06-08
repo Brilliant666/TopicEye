@@ -598,6 +598,24 @@ async def ensure_user_feedback_schema(conn) -> None:
     if "user_id" not in columns:
         await conn.execute(text("ALTER TABLE user_feedback ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1"))
 
+    await conn.execute(text("""
+        DELETE FROM user_feedback
+        WHERE id NOT IN (
+            SELECT id FROM (
+                SELECT id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY content_id, user_id
+                           ORDER BY created_at DESC, id DESC
+                       ) AS row_num
+                FROM user_feedback
+            )
+            WHERE row_num = 1
+        )
+    """))
+    await conn.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_feedback_content_user "
+        "ON user_feedback(content_id, user_id)"
+    ))
     await conn.execute(text(
         "CREATE INDEX IF NOT EXISTS ix_user_feedback_content_user "
         "ON user_feedback(content_id, user_id)"

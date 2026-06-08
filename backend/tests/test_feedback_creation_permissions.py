@@ -40,7 +40,7 @@ async def test_feedback_and_creation_mutation_apis_require_login(monkeypatch):
         )
         await db.commit()
 
-    async def fake_generate_creation_plan(db, content_id: int, platform: str):
+    async def fake_generate_creation_plan(db, content_id: int, platform: str, user_id: int | None = None):
         return {"titles": ["测试方案"], "_meta": {"content_id": content_id, "platform": platform}}
 
     monkeypatch.setattr(creation_api, "generate_creation_plan", fake_generate_creation_plan)
@@ -121,4 +121,66 @@ async def test_feedback_and_creation_mutation_apis_require_login(monkeypatch):
         assert authorized_plan.status_code == 200
         assert authorized_plan.json()["titles"] == ["测试方案"]
 
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_feedback_submit_uses_sqlite_lock_retry(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        user = await create_user(db, email="feedback-retry@example.com", password="Password123", role="user")
+        token, _session = await create_session(db, user)
+        db.add(
+            ContentItem(
+                id=1,
+                title="反馈重试样本",
+                url="https://example.com/feedback-retry",
+                source_name="测试信源",
+                source_type="RSS",
+                status=ContentStatus.ANALYZED,
+            )
+        )
+        await db.commit()
+
+    retry_calls = 0
+
+    async def retry_spy(operation, **kwargs):
+        nonlocal retry_calls
+        retry_calls += 1
+        assert kwargs["attempts"] == 3
+        assert kwargs["base_delay"] == 0.1
+        assert kwargs["on_retry"] is not None
+        return await operation()
+
+    monkeypatch.setattr(feedback_api, "retry_sqlite_locked", retry_spy)
+
+    app = FastAPI()
+    app.include_router(feedback_api.router)
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[auth_api.get_db] = override_get_db
+    app.dependency_overrides[feedback_api.get_db] = override_get_db
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/feedback",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"content_id": 1, "feedback_type": "great_pick"},
+        )
+        assert response.status_code == 201
+
+    assert retry_calls == 1
     await engine.dispose()

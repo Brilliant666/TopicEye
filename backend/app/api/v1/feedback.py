@@ -3,9 +3,12 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete, select, func
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.api.v1.auth import get_current_user
+from app.core.database import database_profile
 from app.core.dependencies import get_db
+from app.core.sqlite_retry import begin_immediate_for_sqlite, is_sqlite_locked, retry_sqlite_locked
 from app.models.feedback import (
     UserFeedback,
     FeedbackType,
@@ -23,26 +26,23 @@ from app.services.content_read_cache import invalidate_content_read_caches
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 
-@router.post("", response_model=FeedbackResponse, status_code=201)
-async def submit_feedback(
-    data: FeedbackCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Submit feedback for a content item.
-
-    Keeps one active feedback record per content item, allowing users to revise it.
-    """
-    # Validate feedback_type
-    try:
-        fb_type = FeedbackType(data.feedback_type)
-    except ValueError:
-        valid = ", ".join(t.value for t in FeedbackType)
-        raise HTTPException(
-            status_code=422,
-            detail=f"Invalid feedback_type. Must be one of: {valid}",
+def _is_feedback_unique_conflict(exc: IntegrityError) -> bool:
+    message = str(exc).lower()
+    return (
+        "uq_user_feedback_content_user" in message
+        or (
+            "user_feedback" in message
+            and ("unique constraint" in message or "duplicate key" in message)
         )
+    )
 
+
+async def _write_feedback(
+    data: FeedbackCreate,
+    db: AsyncSession,
+    current_user: User,
+    fb_type: FeedbackType,
+) -> UserFeedback:
     content_id = await db.scalar(select(ContentItem.id).where(ContentItem.id == data.content_id))
     if content_id is None:
         raise HTTPException(status_code=404, detail="Content not found")
@@ -65,7 +65,6 @@ async def submit_feedback(
             await db.execute(delete(UserFeedback).where(UserFeedback.id.in_(stale_ids)))
         await db.flush()
         await db.refresh(existing)
-        invalidate_content_read_caches()
         return existing
 
     feedback = UserFeedback(
@@ -78,6 +77,47 @@ async def submit_feedback(
     db.add(feedback)
     await db.flush()
     await db.refresh(feedback)
+    return feedback
+
+
+@router.post("", response_model=FeedbackResponse, status_code=201)
+async def submit_feedback(
+    data: FeedbackCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Submit feedback for a content item.
+
+    Keeps one active feedback record per content item, allowing users to revise it.
+    """
+    # Validate feedback_type
+    try:
+        fb_type = FeedbackType(data.feedback_type)
+    except ValueError:
+        valid = ", ".join(t.value for t in FeedbackType)
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid feedback_type. Must be one of: {valid}",
+        )
+
+    async def _write():
+        if database_profile.is_sqlite and not db.in_transaction():
+            await begin_immediate_for_sqlite(db)
+        try:
+            return await _write_feedback(data, db, current_user, fb_type)
+        except IntegrityError as exc:
+            if not _is_feedback_unique_conflict(exc):
+                raise
+            await db.rollback()
+            return await _write_feedback(data, db, current_user, fb_type)
+
+    try:
+        feedback = await retry_sqlite_locked(_write, attempts=3, base_delay=0.1, on_retry=db.rollback)
+    except OperationalError as exc:
+        await db.rollback()
+        if is_sqlite_locked(exc):
+            raise HTTPException(status_code=503, detail="数据库繁忙，请稍后重试")
+        raise
     invalidate_content_read_caches()
     return feedback
 

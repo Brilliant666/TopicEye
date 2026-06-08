@@ -1229,11 +1229,19 @@ async def test_user_feedback_schema_upgrade_adds_user_scope(monkeypatch):
             CREATE TABLE user_feedback (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 content_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL DEFAULT 1,
                 feedback_type VARCHAR(12) NOT NULL,
                 score_delta FLOAT NOT NULL,
                 comment TEXT,
                 created_at DATETIME NOT NULL
             )
+        """))
+        await conn.execute(text("""
+            INSERT INTO user_feedback (content_id, user_id, feedback_type, score_delta, created_at)
+            VALUES
+                (1, 1, 'like', 10.0, '2026-01-01 00:00:00'),
+                (1, 1, 'dislike', -15.0, '2026-01-02 00:00:00'),
+                (1, 2, 'like', 10.0, '2026-01-01 00:00:00')
         """))
 
         await app_main.ensure_user_feedback_schema(conn)
@@ -1246,10 +1254,18 @@ async def test_user_feedback_schema_upgrade_adds_user_scope(monkeypatch):
             row[1]
             for row in (await conn.execute(text("PRAGMA index_list(user_feedback)"))).fetchall()
         }
+        feedback_rows = (
+            await conn.execute(text(
+                "SELECT content_id, user_id, feedback_type "
+                "FROM user_feedback ORDER BY user_id"
+            ))
+        ).fetchall()
 
     assert "user_id" in columns
     assert columns["user_id"][3] == 1
     assert columns["user_id"][4] == "1"
+    assert feedback_rows == [(1, 1, "dislike"), (1, 2, "like")]
+    assert "uq_user_feedback_content_user" in indexes
     assert "ix_user_feedback_content_user" in indexes
     assert "ix_user_feedback_user_created" in indexes
     await engine.dispose()

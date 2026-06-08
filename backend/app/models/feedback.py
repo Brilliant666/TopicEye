@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Optional
 import enum
 from datetime import datetime
-from sqlalchemy import Integer, Float, Text, DateTime, ForeignKey, Index
+from sqlalchemy import Integer, Float, Text, DateTime, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 from app.models.enum_types import value_enum
@@ -50,6 +50,7 @@ class UserFeedback(Base):
     user = relationship("User")
 
     __table_args__ = (
+        UniqueConstraint("content_id", "user_id", name="uq_user_feedback_content_user"),
         Index("ix_user_feedback_content_user", "content_id", "user_id"),
         Index("ix_user_feedback_user_created", "user_id", "created_at"),
     )

@@ -10,6 +10,7 @@ export interface FormState {
   keyword: string;
   category: string;
   weight: number;
+  fetch_interval_minutes: number;
   enabled: boolean;
 }
 
@@ -20,11 +21,20 @@ export const emptyForm: FormState = {
   keyword: '',
   category: 'AI',
   weight: 3,
+  fetch_interval_minutes: 60,
   enabled: true,
 };
 
 export const CATEGORIES = ['AI', '商业', '科技', '教育', '自媒体', '生活', '职场', '产品'];
 export const SOURCE_TYPES = ['RSS', 'RSSHub', 'Reddit', 'TwitterRSS', 'API', '公众号', '网站', 'Zhihu'];
+export const SOURCE_INTERVAL_OPTIONS = [
+  { value: 30, label: '30分钟' },
+  { value: 60, label: '1小时' },
+  { value: 120, label: '2小时' },
+  { value: 360, label: '6小时' },
+  { value: 720, label: '12小时' },
+  { value: 1440, label: '1天' },
+];
 
 interface SourceFormProps {
   form: FormState;
@@ -120,6 +130,27 @@ export default function SourceForm({ form, setForm }: SourceFormProps) {
           <span className="ml-2 font-mono text-xs text-gray-500">
             {form.weight}/5 {form.weight > 3 ? `(+${(form.weight - 3) * 6}分)` : form.weight < 3 ? `(${(form.weight - 3) * 6}分)` : '(基准)'}
           </span>
+        </div>
+      </div>
+
+      <div>
+        <FieldLabel>采集频率</FieldLabel>
+        <div className="grid grid-cols-3 gap-1.5">
+          {SOURCE_INTERVAL_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setForm((f) => ({ ...f, fetch_interval_minutes: opt.value }))}
+              className={cx(
+                'h-8 rounded-xs border px-2 text-xs transition',
+                form.fetch_interval_minutes === opt.value
+                  ? 'border-primary-border bg-primary-light font-bold text-primary'
+                  : 'border-gray-200 bg-white font-medium text-gray-600 hover:border-gray-300',
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
       </div>
 

@@ -595,6 +595,7 @@ export default function SourcesPage() {
         keyword: form.keyword.trim() || null,
         category: form.category,
         weight: form.weight,
+        fetch_interval_minutes: form.fetch_interval_minutes,
         enabled: form.enabled,
       } as CreateSourceRequest);
       setShowAddModal(false);
@@ -697,8 +698,9 @@ export default function SourcesPage() {
         keyword: form.keyword.trim() || null,
         category: form.category,
         weight: form.weight,
+        fetch_interval_minutes: form.fetch_interval_minutes,
         enabled: form.enabled,
-      } as CreateSourceRequest);
+      } as UpdateSourceRequest);
       setEditingSource(null);
       setForm(emptyForm);
       await fetchSources();
@@ -720,6 +722,7 @@ export default function SourcesPage() {
       keyword: src.keyword || '',
       category: src.category,
       weight: src.weight ?? 3,
+      fetch_interval_minutes: src.fetch_interval_minutes || 60,
       enabled: src.enabled,
     });
   };

@@ -118,6 +118,7 @@ export interface CreateSourceRequest {
   keyword?: string | null;
   category: string;
   weight?: number;
+  fetch_interval_minutes?: number;
   enabled?: boolean;
   sort_order?: number;
 }

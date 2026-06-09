@@ -80,6 +80,8 @@ class ModelConfigCache:
         try:
             from app.core.database import async_session
             from app.models.llm_model import LlmModel
+            from app.models.user import User
+            from app.services.plan_catalog import plan_allows_custom_ai
             from sqlalchemy import select
 
             async with async_session() as session:
@@ -87,6 +89,11 @@ class ModelConfigCache:
                 if user_id is None:
                     filters.append(LlmModel.owner_user_id.is_(None))
                 else:
+                    plan = await session.scalar(select(User.plan).where(User.id == user_id))
+                    if not plan_allows_custom_ai(plan):
+                        self._user_route_models[user_id] = []
+                        self._user_last_refresh[user_id] = time.monotonic()
+                        return
                     filters.append(LlmModel.owner_user_id == user_id)
                 result = await session.execute(
                     select(LlmModel)

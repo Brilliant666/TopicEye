@@ -550,8 +550,6 @@ async def delete_my_model(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ensure_custom_ai_allowed(current_user)
-
     async def _delete():
         result = await db.execute(
             select(LlmModel).where(LlmModel.id == model_id, LlmModel.owner_user_id == current_user.id)

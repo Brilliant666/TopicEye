@@ -24,6 +24,7 @@ from app.api.v1 import auth as auth_api
 from app.api.v1 import llm_models as llm_models_api
 from app.core.database import Base
 from app.models.llm_model import LlmModel, ModelEvaluation
+from app.models.user import User
 from app.services.auth_service import create_session, create_user
 from app.services.llm.provider import ModelConfigCache
 from app.services.llm.presets import apply_model_preset, list_model_presets
@@ -312,6 +313,33 @@ async def test_user_custom_models_require_paid_plan_and_are_owner_scoped(llm_mod
 
 
 @pytest.mark.asyncio
+async def test_free_user_can_delete_existing_custom_model(llm_model_client):
+    client, free_token, _pro_token, _admin_token, session_factory = llm_model_client
+    async with session_factory() as db:
+        free_user = await db.scalar(select(User).where(User.email == "free-model@example.com"))
+        model = LlmModel(
+            owner_user_id=free_user.id,
+            scope="user",
+            name="Legacy Free User Model",
+            provider="openai",
+            model_id="legacy-user-model",
+            api_key="legacy-key",
+            enabled=True,
+        )
+        db.add(model)
+        await db.commit()
+        model_id = model.id
+
+    deleted = await client.delete(f"/models/me/{model_id}", headers={"Authorization": f"Bearer {free_token}"})
+    assert deleted.status_code == 200
+
+    async with session_factory() as db:
+        model = await db.get(LlmModel, model_id)
+
+    assert model is None
+
+
+@pytest.mark.asyncio
 async def test_paid_user_can_create_custom_model_from_preset_defaults(llm_model_client):
     client, _free_token, pro_token, _admin_token, session_factory = llm_model_client
 
@@ -366,6 +394,34 @@ async def test_model_config_cache_prefers_user_models_then_system_fallback(llm_m
     models = await cache.get_route_models(user_id=user_id)
 
     assert [model.name for model in models] == ["User Model", "System Model"]
+
+
+@pytest.mark.asyncio
+async def test_model_config_cache_ignores_user_models_without_paid_plan(llm_model_client, monkeypatch):
+    _client, _free_token, _pro_token, _admin_token, session_factory = llm_model_client
+    async with session_factory() as db:
+        user = await create_user(db, email="free-route-user@example.com", password="Password123", role="user")
+        user_model = LlmModel(
+            owner_user_id=user.id,
+            scope="user",
+            name="Free User Model",
+            provider="openai",
+            model_id="free-user-model",
+            api_key="user-key",
+            enabled=True,
+            routing_priority=1,
+        )
+        db.add(user_model)
+        await db.commit()
+        user_id = user.id
+
+    import app.core.database as database
+
+    monkeypatch.setattr(database, "async_session", session_factory)
+    cache = ModelConfigCache()
+    models = await cache.get_route_models(user_id=user_id)
+
+    assert [model.name for model in models] == ["System Model"]
 
 
 @pytest.mark.asyncio

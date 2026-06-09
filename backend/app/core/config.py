@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     ANALYSIS_PRO_ROUTING_GROUP: str = "default"
     ANALYSIS_CASCADE_ESCALATE_SCORE: float = 75.0
     ANALYSIS_CASCADE_MIN_CONFIDENCE: float = 0.75
+    ENRICHMENT_WORKER_CONCURRENCY: int = 3
     CLASSIFICATION_WORKER_CONCURRENCY: int = 3
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}

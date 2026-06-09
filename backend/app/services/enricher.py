@@ -16,13 +16,16 @@ Triggered:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from sqlalchemy import select, and_
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.config import settings
+from app.core.database import async_session
 from app.models.content import ContentItem
 from app.models.analysis import AiAnalysis
 from app.models.topic import TopicGroup
@@ -34,6 +37,21 @@ from app.services.content_read_cache import invalidate_content_read_caches
 from app.services.llm import call_llm_json
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_enrichment_concurrency(value: Optional[int] = None) -> int:
+    try:
+        parsed = int(value if value is not None else settings.ENRICHMENT_WORKER_CONCURRENCY)
+    except (TypeError, ValueError):
+        parsed = 1
+    return max(1, min(parsed, 10))
+
+
+def _session_factory_from_session(db: AsyncSession) -> Callable[[], Any]:
+    bind = getattr(db, "bind", None)
+    if bind is None:
+        return async_session
+    return async_sessionmaker(bind, expire_on_commit=False)
 
 SYSTEM_PROMPT = """你是一位资深内容策展编辑，擅长从创作者视角挖掘选题价值。
 
@@ -182,26 +200,43 @@ async def enrich_content(
 async def enrich_batch(
     content_ids: list[int],
     db: AsyncSession,
+    *,
+    concurrency: Optional[int] = None,
+    session_factory: Callable[[], Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Run enrichment on multiple content items sequentially."""
-    results = []
-    for cid in content_ids:
+    """Run enrichment on multiple content items with bounded concurrency."""
+    if not content_ids:
+        return []
+
+    limit = _normalize_enrichment_concurrency(concurrency)
+    semaphore = asyncio.Semaphore(limit)
+    factory = session_factory or _session_factory_from_session(db)
+
+    async def _run_one(cid: int) -> dict[str, Any]:
+        async with semaphore:
+            async with factory() as item_db:
+                return await _enrich_one_claimed(cid, item_db)
+
+    return await asyncio.gather(*(_run_one(cid) for cid in content_ids))
+
+
+async def _enrich_one_claimed(cid: int, db: AsyncSession) -> dict[str, Any]:
+    try:
+        data = await enrich_content(cid, db)
+        result = await db.execute(
+            select(AiAnalysis).where(AiAnalysis.id == latest_analysis_id_for_content_id(cid))
+        )
+        record = result.scalar_one_or_none()
+        if record:
+            record.enrichment = data
+            record.enrichment_status = "completed"
+        await db.commit()
+        invalidate_content_read_caches()
+        return {"content_id": cid, "status": "completed", "data": data}
+    except Exception as e:
+        logger.error("Enrich batch item %d failed: %s", cid, e)
+        await db.rollback()
         try:
-            data = await enrich_content(cid, db)
-            # Update DB record
-            result = await db.execute(
-                select(AiAnalysis).where(AiAnalysis.id == latest_analysis_id_for_content_id(cid))
-            )
-            record = result.scalar_one_or_none()
-            if record:
-                record.enrichment = data
-                record.enrichment_status = "completed"
-            await db.commit()
-            invalidate_content_read_caches()
-            results.append({"content_id": cid, "status": "completed", "data": data})
-        except Exception as e:
-            logger.error("Enrich batch item %d failed: %s", cid, e)
-            # Mark as error
             result = await db.execute(
                 select(AiAnalysis).where(AiAnalysis.id == latest_analysis_id_for_content_id(cid))
             )
@@ -210,5 +245,7 @@ async def enrich_batch(
                 record.enrichment_status = "error"
             await db.commit()
             invalidate_content_read_caches()
-            results.append({"content_id": cid, "status": "error", "error": str(e)})
-    return results
+        except Exception as status_error:
+            await db.rollback()
+            logger.warning("Failed to mark enrichment error for content_id=%d: %s", cid, status_error)
+        return {"content_id": cid, "status": "error", "error": str(e)}

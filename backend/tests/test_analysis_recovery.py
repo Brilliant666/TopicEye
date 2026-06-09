@@ -802,6 +802,235 @@ async def test_analysis_cascade_escalates_high_score_to_pro(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_analysis_cascade_escalates_low_confidence_to_pro(monkeypatch):
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_CASCADE_ENABLED", True)
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_LITE_ROUTING_GROUP", "analysis_lite")
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_PRO_ROUTING_GROUP", "analysis_pro")
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_CASCADE_MIN_CONFIDENCE", 0.75)
+    calls = []
+
+    async def fake_llm_json_with_metadata(messages, **kwargs):
+        calls.append({"scene": kwargs.get("scene"), "routing_group": kwargs.get("routing_group")})
+        if kwargs.get("scene") == "content_prescreen":
+            return {
+                "score": 58,
+                "confidence": 0.4,
+                "should_escalate": False,
+                "reason": "置信不足，需要深度确认",
+                "tags": ["AI"],
+            }, {"actual_model": "openai/lite"}
+        if kwargs.get("scene") == "content_analysis":
+            return {
+                "summary": "低置信升级后的 Pro 分析",
+                "key_points": ["重点一"],
+                "recommendation": "需要深挖",
+                "creator_angles": ["角度一"],
+                "title_suggestions": ["标题一"],
+                "risk_notes": "",
+                "tags": ["AI"],
+                "scores": {
+                    "quality_score": 80,
+                    "hot_score": 70,
+                    "freshness_score": 60,
+                    "creator_score": 75,
+                    "viral_score": 65,
+                    "risk_score": 20,
+                },
+                "curation": {
+                    "curation_score": 79,
+                    "info_density": 78,
+                    "actionability": 76,
+                    "source_weight": 50,
+                },
+            }, {"actual_model": "openai/pro"}
+        raise AssertionError(f"unexpected scene: {kwargs.get('scene')}")
+
+    monkeypatch.setattr(analysis, "call_llm_json_with_metadata", fake_llm_json_with_metadata)
+    engine, session_factory = await _session_factory()
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="低置信预筛内容",
+                url="https://example.com/cascade-low-confidence",
+                status=ContentStatus.PENDING,
+                raw_content="这条内容信号不稳定，Lite 预筛置信度偏低，应升级到 Pro 完整分析。",
+            )
+        )
+        await db.commit()
+
+        results = await analysis.analyze_batch([1], db)
+        stored_analysis = await db.scalar(select(AiAnalysis).where(AiAnalysis.content_id == 1))
+
+    assert [item.content_id for item in results] == [1]
+    assert calls == [
+        {"scene": "content_prescreen", "routing_group": "analysis_lite"},
+        {"scene": "content_analysis", "routing_group": "analysis_pro"},
+    ]
+    assert stored_analysis.analysis_mode == "cascade"
+    assert stored_analysis.prescreen_model == "openai/lite"
+    assert stored_analysis.final_model == "openai/pro"
+    assert stored_analysis.escalated is True
+    assert stored_analysis.escalation_reason == "low_prescreen_confidence"
+    assert stored_analysis.prescreen_score == 58
+    assert stored_analysis.prescreen_confidence == 0.4
+    assert stored_analysis.summary == "低置信升级后的 Pro 分析"
+    assert stored_analysis.curation_score == 79
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_analysis_cascade_honors_lite_requested_escalation(monkeypatch):
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_CASCADE_ENABLED", True)
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_LITE_ROUTING_GROUP", "analysis_lite")
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_PRO_ROUTING_GROUP", "analysis_pro")
+    calls = []
+
+    async def fake_llm_json_with_metadata(messages, **kwargs):
+        calls.append({"scene": kwargs.get("scene"), "routing_group": kwargs.get("routing_group")})
+        if kwargs.get("scene") == "content_prescreen":
+            return {
+                "score": 61,
+                "confidence": 0.9,
+                "should_escalate": True,
+                "reason": "Lite 判断需要深挖",
+                "tags": ["产品"],
+            }, {"actual_model": "openai/lite"}
+        if kwargs.get("scene") == "content_analysis":
+            return {
+                "summary": "Lite 要求升级后的 Pro 分析",
+                "key_points": ["重点一"],
+                "recommendation": "适合深挖",
+                "creator_angles": ["角度一"],
+                "title_suggestions": ["标题一"],
+                "risk_notes": "",
+                "tags": ["产品"],
+                "scores": {
+                    "quality_score": 78,
+                    "hot_score": 70,
+                    "freshness_score": 60,
+                    "creator_score": 75,
+                    "viral_score": 65,
+                    "risk_score": 20,
+                },
+                "curation": {
+                    "curation_score": 81,
+                    "info_density": 78,
+                    "actionability": 76,
+                    "source_weight": 50,
+                },
+            }, {"actual_model": "openai/pro"}
+        raise AssertionError(f"unexpected scene: {kwargs.get('scene')}")
+
+    monkeypatch.setattr(analysis, "call_llm_json_with_metadata", fake_llm_json_with_metadata)
+    engine, session_factory = await _session_factory()
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="Lite 显式升级内容",
+                url="https://example.com/cascade-lite-requested",
+                status=ContentStatus.PENDING,
+                raw_content="这条内容由 Lite 预筛显式要求升级，不能被 score 阈值覆盖。",
+            )
+        )
+        await db.commit()
+
+        results = await analysis.analyze_batch([1], db)
+        stored_analysis = await db.scalar(select(AiAnalysis).where(AiAnalysis.content_id == 1))
+
+    assert [item.content_id for item in results] == [1]
+    assert calls == [
+        {"scene": "content_prescreen", "routing_group": "analysis_lite"},
+        {"scene": "content_analysis", "routing_group": "analysis_pro"},
+    ]
+    assert stored_analysis.analysis_mode == "cascade"
+    assert stored_analysis.prescreen_model == "openai/lite"
+    assert stored_analysis.final_model == "openai/pro"
+    assert stored_analysis.escalated is True
+    assert stored_analysis.escalation_reason == "lite_requested_escalation"
+    assert stored_analysis.prescreen_score == 61
+    assert stored_analysis.prescreen_confidence == 0.9
+    assert stored_analysis.summary == "Lite 要求升级后的 Pro 分析"
+    assert stored_analysis.curation_score == 81
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_analysis_cascade_escalates_invalid_lite_prescreen_to_pro(monkeypatch):
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_CASCADE_ENABLED", True)
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_LITE_ROUTING_GROUP", "analysis_lite")
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_PRO_ROUTING_GROUP", "analysis_pro")
+    calls = []
+
+    async def fake_llm_json_with_metadata(messages, **kwargs):
+        calls.append({"scene": kwargs.get("scene"), "routing_group": kwargs.get("routing_group")})
+        if kwargs.get("scene") == "content_prescreen":
+            return {"raw_response": ""}, {"actual_model": "openai/lite"}
+        if kwargs.get("scene") == "content_analysis":
+            return {
+                "summary": "预筛无效后的 Pro 分析",
+                "key_points": ["重点一"],
+                "recommendation": "需要完整分析",
+                "creator_angles": ["角度一"],
+                "title_suggestions": ["标题一"],
+                "risk_notes": "",
+                "tags": ["AI"],
+                "scores": {
+                    "quality_score": 76,
+                    "hot_score": 70,
+                    "freshness_score": 60,
+                    "creator_score": 74,
+                    "viral_score": 65,
+                    "risk_score": 20,
+                },
+                "curation": {
+                    "curation_score": 77,
+                    "info_density": 78,
+                    "actionability": 76,
+                    "source_weight": 50,
+                },
+            }, {"actual_model": "openai/pro"}
+        raise AssertionError(f"unexpected scene: {kwargs.get('scene')}")
+
+    monkeypatch.setattr(analysis, "call_llm_json_with_metadata", fake_llm_json_with_metadata)
+    engine, session_factory = await _session_factory()
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="预筛格式异常内容",
+                url="https://example.com/cascade-invalid-prescreen",
+                status=ContentStatus.PENDING,
+                raw_content="Lite 返回空或格式异常时，系统应升级 Pro，不能直接用无效预筛结果落库。",
+            )
+        )
+        await db.commit()
+
+        results = await analysis.analyze_batch([1], db)
+        stored_analysis = await db.scalar(select(AiAnalysis).where(AiAnalysis.content_id == 1))
+
+    assert [item.content_id for item in results] == [1]
+    assert calls == [
+        {"scene": "content_prescreen", "routing_group": "analysis_lite"},
+        {"scene": "content_analysis", "routing_group": "analysis_pro"},
+    ]
+    assert stored_analysis.analysis_mode == "cascade"
+    assert stored_analysis.prescreen_model == "openai/lite"
+    assert stored_analysis.final_model == "openai/pro"
+    assert stored_analysis.escalated is True
+    assert stored_analysis.escalation_reason == "prescreen_invalid"
+    assert stored_analysis.prescreen_score is None
+    assert stored_analysis.prescreen_confidence is None
+    assert stored_analysis.summary == "预筛无效后的 Pro 分析"
+    assert stored_analysis.curation_score == 77
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_analyze_batch_normalizes_malformed_llm_contract(monkeypatch):
     async def malformed_llm_response(*args, **kwargs):
         return {

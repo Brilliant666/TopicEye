@@ -598,6 +598,36 @@ async def test_analyze_pending_sync_uses_concurrent_analysis(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_analyze_batch_endpoint_uses_concurrent_analysis(monkeypatch):
+    called = {}
+
+    async def fake_concurrent(content_ids, **_kwargs):
+        called["ids"] = content_ids
+        return [
+            AiAnalysis(
+                content_id=content_id,
+                summary="批量并发分析完成",
+                curation_score=60,
+            )
+            for content_id in content_ids
+        ]
+
+    async def fail_if_sequential_analysis_runs(*args, **kwargs):
+        raise AssertionError("batch endpoint should use concurrent analysis")
+
+    monkeypatch.setattr(analyses_api, "analyze_batch_concurrent", fake_concurrent)
+    monkeypatch.setattr(analyses_api, "analyze_batch", fail_if_sequential_analysis_runs)
+    engine, session_factory = await _session_factory()
+
+    async with session_factory() as db:
+        results = await analyses_api.analyze_batch_endpoint([1, 2], db=db)
+
+    assert called["ids"] == [1, 2]
+    assert [item.content_id for item in results] == [1, 2]
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_analyze_batch_recovers_from_empty_llm_response(monkeypatch):
     async def empty_llm_response(*args, **kwargs):
         return {"raw_response": ""}

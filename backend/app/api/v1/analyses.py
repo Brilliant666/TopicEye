@@ -74,7 +74,7 @@ async def analyze_batch_endpoint(
         raise HTTPException(status_code=400, detail="No content IDs provided")
     if len(content_ids) > 50:
         raise HTTPException(status_code=400, detail="Maximum 50 items per batch")
-    return await analyze_batch(content_ids, db)
+    return await analyze_batch_concurrent(content_ids)
 
 
 @router.post("/pending")

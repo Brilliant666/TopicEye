@@ -83,10 +83,10 @@ async def admin_api_client(monkeypatch) -> AsyncGenerator[tuple[httpx.AsyncClien
 
     monkeypatch.setattr(scheduler_api, "get_all_job_configs", fake_jobs)
 
-    async def fake_cluster_and_dedup(db):
-        return {"groups": 1}
+    async def fake_cluster_and_dedup_with_lease(db, *, trigger_type: str = "manual"):
+        return {"groups": 1}, True
 
-    monkeypatch.setattr(topics_api, "cluster_and_dedup", fake_cluster_and_dedup)
+    monkeypatch.setattr(topics_api, "cluster_and_dedup_with_lease", fake_cluster_and_dedup_with_lease)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -236,3 +236,18 @@ async def test_topic_reads_are_public_but_clustering_requires_admin(admin_api_cl
     admin = await client.post("/topics/cluster", headers={"Authorization": f"Bearer {admin_token}"})
     assert admin.status_code == 200
     assert admin.json() == {"status": "ok", "stats": {"groups": 1}}
+
+
+@pytest.mark.asyncio
+async def test_topic_clustering_returns_conflict_when_lease_is_active(admin_api_client, monkeypatch):
+    client, _user_token, admin_token = admin_api_client
+
+    async def fake_skipped_cluster(db, *, trigger_type: str = "manual"):
+        return None, False
+
+    monkeypatch.setattr(topics_api, "cluster_and_dedup_with_lease", fake_skipped_cluster)
+
+    response = await client.post("/topics/cluster", headers={"Authorization": f"Bearer {admin_token}"})
+
+    assert response.status_code == 409
+    assert "正在运行" in response.json()["detail"]

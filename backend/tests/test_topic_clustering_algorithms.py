@@ -85,3 +85,31 @@ async def test_cluster_helpers_name_and_dedup_candidate_clusters(monkeypatch):
     assert [item["name"] for item in names] == ["AI工具", "AI工具"]
     assert [item["content_count"] for item in names] == [2, 2]
     assert dedup == {2: 1, 4: 3}
+
+
+@pytest.mark.asyncio
+async def test_cluster_and_dedup_with_lease_skips_active_run(monkeypatch):
+    from app.services import job_tracker
+
+    skipped_jobs = []
+
+    async def fake_claim_job_run(job_key: str, name: str, description: str, timeout: int):
+        return False
+
+    async def fake_record_skipped_job(job_key: str, trigger_type: str, summary: str):
+        skipped_jobs.append((job_key, trigger_type, summary))
+
+    async def fail_cluster_and_dedup(db):
+        raise AssertionError("topic clustering body should be skipped while a lease is active")
+
+    monkeypatch.setattr(job_tracker, "_claim_job_run", fake_claim_job_run)
+    monkeypatch.setattr(job_tracker, "_record_skipped_job", fake_record_skipped_job)
+    monkeypatch.setattr(topic_clustering, "cluster_and_dedup", fail_cluster_and_dedup)
+
+    stats, claimed = await topic_clustering.cluster_and_dedup_with_lease(None, trigger_type="manual")
+
+    assert stats is None
+    assert claimed is False
+    assert skipped_jobs == [
+        (topic_clustering.TOPIC_CLUSTERING_JOB_KEY, "manual", "话题聚类仍在运行，本次触发已跳过")
+    ]

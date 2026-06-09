@@ -107,9 +107,12 @@ async def sync_and_analyze() -> None:
     # ── Phase 3: Cluster + dedup ──
     try:
         async with async_session() as db:
-            from app.services.topic_clustering import cluster_and_dedup
-            stats = await cluster_and_dedup(db)
-        logger.info("Scheduler: clustering done — %s", stats)
+            from app.services.topic_clustering import cluster_and_dedup_with_lease
+            stats, claimed = await cluster_and_dedup_with_lease(db, trigger_type="scheduler")
+        if claimed:
+            logger.info("Scheduler: clustering done — %s", stats)
+        else:
+            logger.info("Scheduler: clustering skipped because another run holds the lease")
     except Exception:
         logger.exception("Scheduler: clustering failed")
 
@@ -270,9 +273,12 @@ async def _run_post_sync_pipeline_once() -> None:
 
     try:
         async with async_session() as db:
-            from app.services.topic_clustering import cluster_and_dedup
-            stats = await cluster_and_dedup(db)
-        logger.info("Scheduler: clustering done — %s", stats)
+            from app.services.topic_clustering import cluster_and_dedup_with_lease
+            stats, claimed = await cluster_and_dedup_with_lease(db, trigger_type="scheduler")
+        if claimed:
+            logger.info("Scheduler: clustering done — %s", stats)
+        else:
+            logger.info("Scheduler: clustering skipped because another run holds the lease")
     except Exception:
         logger.exception("Scheduler: clustering failed")
     try:

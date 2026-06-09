@@ -34,6 +34,10 @@ logger = logging.getLogger(__name__)
 CLUSTER_TAG_OVERLAP = 1    # min shared tags to be in same cluster
 MIN_CLUSTER_SIZE = 2       # min items to form a topic group
 CLUSTER_LLM_CONCURRENCY = 3
+TOPIC_CLUSTERING_JOB_KEY = "topic_clustering"
+TOPIC_CLUSTERING_JOB_NAME = "话题聚类与去重"
+TOPIC_CLUSTERING_JOB_TIMEOUT = 600
+TOPIC_CLUSTERING_JOB_DESCRIPTION = "重建话题分组和语义去重关系"
 
 
 # ── Tag-based clustering ────────────────────────────────────────────────
@@ -178,6 +182,43 @@ async def _dedup_candidate_clusters(cluster_items: list[list[dict]]) -> dict[int
 
 
 # ── Main entry point ────────────────────────────────────────────────────
+
+async def cluster_and_dedup_with_lease(
+    db: AsyncSession,
+    *,
+    trigger_type: str = "manual",
+) -> tuple[Optional[dict], bool]:
+    """Run clustering under a cross-process lease.
+
+    The clustering pass clears and rebuilds topic/duplicate state, so overlapping
+    runs must be skipped instead of allowed to interleave writes.
+    """
+    from app.services import job_tracker
+
+    claimed = await job_tracker._claim_job_run(
+        TOPIC_CLUSTERING_JOB_KEY,
+        TOPIC_CLUSTERING_JOB_NAME,
+        TOPIC_CLUSTERING_JOB_DESCRIPTION,
+        TOPIC_CLUSTERING_JOB_TIMEOUT,
+    )
+    if not claimed:
+        await job_tracker._record_skipped_job(
+            TOPIC_CLUSTERING_JOB_KEY,
+            trigger_type,
+            "话题聚类仍在运行，本次触发已跳过",
+        )
+        return None, False
+
+    status = "SUCCESS"
+    try:
+        stats = await cluster_and_dedup(db)
+        return stats, True
+    except Exception:
+        status = "FAILED"
+        raise
+    finally:
+        await job_tracker._release_job_run(TOPIC_CLUSTERING_JOB_KEY, status)
+
 
 async def cluster_and_dedup(db: AsyncSession) -> dict:
     """Run dedup + clustering on all analyzed content. Returns stats."""

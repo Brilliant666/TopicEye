@@ -37,20 +37,43 @@ from app.services.job_tracker import track_job
 logger = logging.getLogger(__name__)
 
 # Semaphore to limit concurrent DB write tasks — SQLite single-writer constraint.
-_MAX_CONCURRENT_SYNCS = 3
-POST_SYNC_ANALYSIS_BATCH_SIZE = 10
-POST_SYNC_ANALYSIS_TIME_BUDGET_SECONDS = 520
-POST_SYNC_MIN_REMAINING_SECONDS = 90
 _sync_semaphore: Optional[asyncio.Semaphore] = None
+_sync_semaphore_limit: Optional[int] = None
 _post_sync_lock: Optional[asyncio.Lock] = None
 _post_sync_task: Optional[asyncio.Task] = None
 _post_sync_rerun_requested = False
 
 
+def _positive_int(value: object, default: int) -> int:
+    try:
+        parsed = int(value if value is not None else default)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(1, parsed)
+
+
+def _source_sync_concurrency() -> int:
+    return _positive_int(getattr(settings, "SOURCE_SYNC_WORKER_CONCURRENCY", 3), 3)
+
+
+def _post_sync_analysis_batch_size() -> int:
+    return _positive_int(getattr(settings, "POST_SYNC_ANALYSIS_BATCH_SIZE", 10), 10)
+
+
+def _post_sync_analysis_time_budget_seconds() -> int:
+    return _positive_int(getattr(settings, "POST_SYNC_ANALYSIS_TIME_BUDGET_SECONDS", 520), 520)
+
+
+def _post_sync_min_remaining_seconds() -> int:
+    return _positive_int(getattr(settings, "POST_SYNC_MIN_REMAINING_SECONDS", 90), 90)
+
+
 def _get_semaphore() -> asyncio.Semaphore:
-    global _sync_semaphore
-    if _sync_semaphore is None:
-        _sync_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_SYNCS)
+    global _sync_semaphore, _sync_semaphore_limit
+    limit = _source_sync_concurrency()
+    if _sync_semaphore is None or _sync_semaphore_limit != limit:
+        _sync_semaphore = asyncio.Semaphore(limit)
+        _sync_semaphore_limit = limit
     return _sync_semaphore
 
 
@@ -293,8 +316,8 @@ async def _run_post_sync_pipeline_once() -> None:
 
 async def _drain_pending_analysis(
     *,
-    batch_size: int = POST_SYNC_ANALYSIS_BATCH_SIZE,
-    time_budget_seconds: int = POST_SYNC_ANALYSIS_TIME_BUDGET_SECONDS,
+    batch_size: Optional[int] = None,
+    time_budget_seconds: Optional[int] = None,
 ) -> dict[str, int | bool | str]:
     """Analyze pending and stale in-flight content until the time budget is nearly spent.
 
@@ -303,6 +326,9 @@ async def _drain_pending_analysis(
     and leaving more items in ``analyzing``.
     """
     started_at = asyncio.get_running_loop().time()
+    batch_size = _positive_int(batch_size, _post_sync_analysis_batch_size())
+    time_budget_seconds = _positive_int(time_budget_seconds, _post_sync_analysis_time_budget_seconds())
+    min_remaining_seconds = _post_sync_min_remaining_seconds()
     attempted = 0
     analyzed = 0
     batches = 0
@@ -311,7 +337,7 @@ async def _drain_pending_analysis(
     while True:
         elapsed = asyncio.get_running_loop().time() - started_at
         remaining_seconds = time_budget_seconds - elapsed
-        if remaining_seconds < POST_SYNC_MIN_REMAINING_SECONDS:
+        if remaining_seconds < min_remaining_seconds:
             stop_reason = "time_budget"
             break
 

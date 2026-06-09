@@ -1378,6 +1378,27 @@ async def test_analyze_batch_concurrent_runs_items_in_parallel(monkeypatch):
     await engine.dispose()
 
 
+def test_source_sync_semaphore_uses_configured_concurrency(monkeypatch):
+    scheduler_module._sync_semaphore = None
+    scheduler_module._sync_semaphore_limit = None
+    monkeypatch.setattr(scheduler_module.settings, "SOURCE_SYNC_WORKER_CONCURRENCY", 7)
+
+    first = scheduler_module._get_semaphore()
+
+    assert scheduler_module._sync_semaphore_limit == 7
+    assert first._value == 7
+
+    monkeypatch.setattr(scheduler_module.settings, "SOURCE_SYNC_WORKER_CONCURRENCY", 2)
+    second = scheduler_module._get_semaphore()
+
+    assert scheduler_module._sync_semaphore_limit == 2
+    assert second._value == 2
+    assert second is not first
+
+    scheduler_module._sync_semaphore = None
+    scheduler_module._sync_semaphore_limit = None
+
+
 @pytest.mark.asyncio
 async def test_post_sync_drain_processes_backlog_and_stale_analyzing(monkeypatch):
     engine, session_factory = await _session_factory()
@@ -1461,6 +1482,65 @@ async def test_post_sync_drain_processes_backlog_and_stale_analyzing(monkeypatch
         1: ContentStatus.ANALYZED,
         2: ContentStatus.ANALYZED,
         3: ContentStatus.ANALYZED,
+    }
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_post_sync_drain_uses_configured_default_batch_size(monkeypatch):
+    engine, session_factory = await _session_factory()
+    now = datetime.utcnow()
+    calls = []
+
+    monkeypatch.setattr(scheduler_module, "async_session", session_factory)
+    monkeypatch.setattr(scheduler_module.settings, "POST_SYNC_ANALYSIS_BATCH_SIZE", 3)
+    monkeypatch.setattr(scheduler_module.settings, "POST_SYNC_ANALYSIS_TIME_BUDGET_SECONDS", 120)
+    monkeypatch.setattr(scheduler_module.settings, "POST_SYNC_MIN_REMAINING_SECONDS", 1)
+
+    async def fake_analyze_batch(content_ids, **_kwargs):
+        calls.append(list(content_ids))
+        results = []
+        async with session_factory() as db:
+            for content_id in content_ids:
+                content = await db.get(ContentItem, content_id)
+                if content is None:
+                    continue
+                analysis_record = AiAnalysis(
+                    content_id=content.id,
+                    summary="按配置批量分析",
+                    curation_score=60,
+                )
+                db.add(analysis_record)
+                content.status = ContentStatus.ANALYZED
+                await db.flush()
+                results.append(analysis_record)
+            await db.commit()
+        return results
+
+    monkeypatch.setattr(scheduler_module, "analyze_batch_concurrent", fake_analyze_batch)
+
+    async with session_factory() as db:
+        db.add_all([
+            ContentItem(
+                id=content_id,
+                title=f"配置批量 {content_id}",
+                url=f"https://example.com/configured-batch-{content_id}",
+                status=ContentStatus.PENDING,
+                crawled_at=now - timedelta(minutes=content_id),
+            )
+            for content_id in range(1, 5)
+        ])
+        await db.commit()
+
+    stats = await scheduler_module._drain_pending_analysis()
+
+    assert calls == [[1, 2, 3], [4]]
+    assert stats == {
+        "attempted": 4,
+        "analyzed": 4,
+        "batches": 2,
+        "remaining": False,
+        "stop_reason": "no_pending",
     }
     await engine.dispose()
 

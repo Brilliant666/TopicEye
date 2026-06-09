@@ -330,23 +330,28 @@ async def get_enrichment(
 ):
     """Get or trigger Round-2 enrichment for a content item."""
     from app.services.enricher import enrich_content
-    analysis = await AnalysisRepository(db).get_by_content_id(content_id)
+    repo = AnalysisRepository(db)
+    analysis = await repo.get_by_content_id(content_id)
     if not analysis:
         raise HTTPException(404, "No analysis found for this content")
     if analysis.enrichment_status == "completed" and analysis.enrichment:
         return {"content_id": content_id, "status": "completed", "enrichment": analysis.enrichment}
     if analysis.enrichment_status == "processing":
         return {"content_id": content_id, "status": "processing", "enrichment": None}
+
+    claimed_analysis = await repo.claim_enrichment_for_content(content_id)
+    await db.commit()
+    if not claimed_analysis:
+        return {"content_id": content_id, "status": "processing", "enrichment": None}
+
     try:
-        analysis.enrichment_status = "processing"
-        await db.commit()
         data = await enrich_content(content_id, db)
-        analysis.enrichment, analysis.enrichment_status = data, "completed"
+        claimed_analysis.enrichment, claimed_analysis.enrichment_status = data, "completed"
         await db.flush()
         invalidate_content_read_caches()
         return {"content_id": content_id, "status": "completed", "enrichment": data}
     except Exception as e:
-        analysis.enrichment_status = "error"
+        claimed_analysis.enrichment_status = "error"
         await db.flush()
         invalidate_content_read_caches()
         raise HTTPException(500, f"Enrichment failed: {e}")

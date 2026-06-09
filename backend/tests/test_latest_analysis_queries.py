@@ -180,6 +180,56 @@ async def test_pending_enrichment_claim_marks_processing_and_skips_reclaim():
 
 
 @pytest.mark.asyncio
+async def test_single_enrichment_claim_marks_latest_processing_and_skips_reclaim():
+    engine, session_factory = await _session_factory()
+    now = datetime.utcnow()
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="单条增强认领",
+                url="https://example.com/single-enrichment-claim",
+                category="AI",
+                status=ContentStatus.ANALYZED,
+                crawled_at=now,
+            )
+        )
+        db.add_all([
+            AiAnalysis(
+                id=1,
+                content_id=1,
+                summary="旧分析",
+                curation_score=95,
+                enrichment_status="pending",
+                created_at=now - timedelta(minutes=1),
+            ),
+            AiAnalysis(
+                id=2,
+                content_id=1,
+                summary="新分析",
+                curation_score=75,
+                enrichment_status="pending",
+                created_at=now,
+            ),
+        ])
+        await db.commit()
+
+        repo = AnalysisRepository(db)
+        claimed = await repo.claim_enrichment_for_content(1)
+        await db.commit()
+        second_claim = await repo.claim_enrichment_for_content(1)
+        old_analysis = await db.get(AiAnalysis, 1)
+        latest_analysis = await db.get(AiAnalysis, 2)
+
+    assert claimed is not None
+    assert claimed.id == 2
+    assert second_claim is None
+    assert old_analysis.enrichment_status == "pending"
+    assert latest_analysis.enrichment_status == "processing"
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
 async def test_pending_enrichment_claim_retries_sqlite_write_lock(monkeypatch):
     engine, session_factory = await _session_factory()
     now = datetime.utcnow()

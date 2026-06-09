@@ -168,6 +168,57 @@ class AnalysisRepository(BaseRepository[AiAnalysis]):
             on_retry=self.db.rollback,
         )
 
+    async def claim_enrichment_for_content(self, content_id: int) -> Optional[AiAnalysis]:
+        """Claim the latest analysis for one content item before running enrichment."""
+        async def _claim() -> Optional[AiAnalysis]:
+            if database_profile.is_sqlite:
+                await begin_immediate_for_sqlite(self.db)
+
+            latest_id = latest_analysis_id_for_content_id(AiAnalysis.content_id)
+            lock_stmt = (
+                select(AiAnalysis)
+                .where(AiAnalysis.id == latest_id)
+                .where(AiAnalysis.content_id == content_id)
+                .where(
+                    or_(
+                        AiAnalysis.enrichment_status.is_(None),
+                        AiAnalysis.enrichment_status.in_(("pending", "error")),
+                    )
+                )
+            )
+            if database_profile.is_postgresql:
+                lock_stmt = lock_stmt.with_for_update(skip_locked=True)
+
+            result = await self.db.execute(lock_stmt)
+            analysis = result.scalar_one_or_none()
+            if analysis is None:
+                return None
+
+            update_result = await self.db.execute(
+                update(AiAnalysis)
+                .where(AiAnalysis.id == analysis.id)
+                .where(
+                    or_(
+                        AiAnalysis.enrichment_status.is_(None),
+                        AiAnalysis.enrichment_status.in_(("pending", "error")),
+                    )
+                )
+                .values(enrichment_status="processing")
+            )
+            await self.db.flush()
+            if update_result.rowcount != 1:
+                return None
+
+            analysis.enrichment_status = "processing"
+            return analysis
+
+        return await retry_sqlite_locked(
+            _claim,
+            attempts=4,
+            base_delay=0.1,
+            on_retry=self.db.rollback,
+        )
+
     async def list_with_score_filter(
         self,
         *,

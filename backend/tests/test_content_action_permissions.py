@@ -13,6 +13,7 @@ from app.api.v1 import contents as contents_api
 from app.core.database import Base
 from app.models.analysis import AiAnalysis
 from app.models.content import ContentItem, ContentStatus
+from app.repositories.analysis_repo import AnalysisRepository
 from app.services import enricher
 from app.services.auth_service import create_session, create_user
 
@@ -155,6 +156,72 @@ async def test_content_read_is_public_but_mutations_require_login_or_admin(monke
         assert admin_batch.status_code == 200
         assert admin_batch.json() == {"processed": [{"content_id": 2, "status": "completed"}]}
 
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_single_enrich_skips_llm_when_claim_lost(monkeypatch):
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        user = await create_user(db, email="content-claim-lost@example.com", password="Password123", role="user")
+        user_token, _ = await create_session(db, user)
+        db.add(
+            ContentItem(
+                id=1,
+                title="增强认领失败样本",
+                url="https://example.com/content-enrichment-claim-lost",
+                source_name="测试信源",
+                source_type="RSS",
+                status=ContentStatus.ANALYZED,
+            )
+        )
+        db.add(
+            AiAnalysis(
+                content_id=1,
+                summary="测试摘要",
+                curation_score=88,
+                enrichment_status="pending",
+            )
+        )
+        await db.commit()
+
+    async def fake_claim(_repo: AnalysisRepository, content_id: int):
+        return None
+
+    async def fail_if_enrich_runs(content_id: int, db: AsyncSession):
+        raise AssertionError("lost enrichment claim should not call LLM")
+
+    monkeypatch.setattr(AnalysisRepository, "claim_enrichment_for_content", fake_claim)
+    monkeypatch.setattr(enricher, "enrich_content", fail_if_enrich_runs)
+
+    app = FastAPI()
+    app.include_router(contents_api.router)
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[auth_api.get_db] = override_get_db
+    app.dependency_overrides[contents_api.get_db] = override_get_db
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.get(
+            "/contents/1/enrich",
+            headers={"Authorization": f"Bearer {user_token}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"content_id": 1, "status": "processing", "enrichment": None}
     await engine.dispose()
 
 

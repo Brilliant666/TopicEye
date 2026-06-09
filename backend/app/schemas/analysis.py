@@ -30,6 +30,14 @@ class AiAnalysisResponse(BaseModel):
     info_density: Optional[float] = 0.0
     actionability: Optional[float] = 0.0
     source_weight: Optional[float] = 0.0
+    # Model cascade routing metadata
+    analysis_mode: Optional[str] = "pro_only"
+    prescreen_model: Optional[str] = None
+    final_model: Optional[str] = None
+    escalated: Optional[bool] = False
+    escalation_reason: Optional[str] = None
+    prescreen_confidence: Optional[float] = None
+    prescreen_score: Optional[float] = None
     # Round-2 enrichment fields
     enrichment_status: Optional[str] = "pending"
     enrichment: Optional[Any] = None

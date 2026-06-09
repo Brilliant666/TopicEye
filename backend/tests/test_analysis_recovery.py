@@ -630,6 +630,13 @@ async def test_analyze_batch_recovers_from_empty_llm_response(monkeypatch):
     assert stored_analysis is not None
     assert stored_analysis.summary
     assert stored_analysis.curation_score and stored_analysis.curation_score > 0
+    assert stored_analysis.analysis_mode == "pro_only"
+    assert stored_analysis.escalated is False
+    assert stored_analysis.prescreen_model is None
+    assert stored_analysis.final_model is None
+    assert stored_analysis.escalation_reason is None
+    assert stored_analysis.prescreen_confidence is None
+    assert stored_analysis.prescreen_score is None
     assert stored_content.status == ContentStatus.ANALYZED
     await engine.dispose()
 
@@ -1525,6 +1532,7 @@ async def test_sqlite_upgrade_schema_runs_helpers_for_sqlite(monkeypatch):
     monkeypatch.setattr(app_main, "ensure_llm_models_route_schema", helper("llm_models_route"))
     monkeypatch.setattr(app_main, "ensure_performance_indexes", helper("performance_indexes"))
     monkeypatch.setattr(app_main, "ensure_content_status_values", helper("content_status_values"))
+    monkeypatch.setattr(app_main, "ensure_ai_analysis_cascade_schema", helper("ai_analysis_cascade"))
     monkeypatch.setattr(app_main, "ensure_favorite_items_schema", helper("favorite_items"))
     monkeypatch.setattr(app_main, "ensure_user_auth_schema", helper("user_auth"))
     monkeypatch.setattr(app_main, "ensure_user_integrations_schema", helper("user_integrations"))
@@ -1541,6 +1549,7 @@ async def test_sqlite_upgrade_schema_runs_helpers_for_sqlite(monkeypatch):
         "llm_models_route",
         "performance_indexes",
         "content_status_values",
+        "ai_analysis_cascade",
         "analysis_jobs",
         "favorite_items",
         "user_auth",
@@ -1548,6 +1557,54 @@ async def test_sqlite_upgrade_schema_runs_helpers_for_sqlite(monkeypatch):
         "user_feedback",
         "product_feedback",
     ]
+
+
+@pytest.mark.asyncio
+async def test_ai_analysis_cascade_schema_upgrade_adds_metadata_columns(monkeypatch):
+    monkeypatch.setattr(app_main, "database_profile", SimpleNamespace(is_sqlite=True))
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE ai_analyses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                content_id INTEGER NOT NULL,
+                curation_score FLOAT,
+                created_at DATETIME
+            )
+        """))
+        await conn.execute(text("""
+            INSERT INTO ai_analyses (id, content_id, curation_score, created_at)
+            VALUES (1, 1, 80, CURRENT_TIMESTAMP)
+        """))
+
+        await app_main.ensure_ai_analysis_cascade_schema(conn)
+
+        columns_result = await conn.execute(text("PRAGMA table_info(ai_analyses)"))
+        columns = {row[1] for row in columns_result.fetchall()}
+        row = (await conn.execute(text("""
+            SELECT analysis_mode, escalated, prescreen_model, final_model,
+                   escalation_reason, prescreen_confidence, prescreen_score
+            FROM ai_analyses WHERE id = 1
+        """))).mappings().one()
+
+    assert {
+        "analysis_mode",
+        "prescreen_model",
+        "final_model",
+        "escalated",
+        "escalation_reason",
+        "prescreen_confidence",
+        "prescreen_score",
+    }.issubset(columns)
+    assert row["analysis_mode"] == "pro_only"
+    assert row["escalated"] in (0, False)
+    assert row["prescreen_model"] is None
+    assert row["final_model"] is None
+    assert row["escalation_reason"] is None
+    assert row["prescreen_confidence"] is None
+    assert row["prescreen_score"] is None
+    await engine.dispose()
 
 
 @pytest.mark.asyncio

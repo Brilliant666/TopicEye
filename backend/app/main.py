@@ -307,6 +307,33 @@ async def ensure_content_status_values(conn) -> None:
     """))
 
 
+async def ensure_ai_analysis_cascade_schema(conn) -> None:
+    """SQLite create_all does not add analysis model cascade metadata columns."""
+    if not database_profile.is_sqlite:
+        return
+
+    result = await conn.execute(text("PRAGMA table_info(ai_analyses)"))
+    columns = {row[1] for row in result.fetchall()}
+    if not columns:
+        return
+
+    additions = {
+        "analysis_mode": "ALTER TABLE ai_analyses ADD COLUMN analysis_mode TEXT DEFAULT 'pro_only'",
+        "prescreen_model": "ALTER TABLE ai_analyses ADD COLUMN prescreen_model TEXT",
+        "final_model": "ALTER TABLE ai_analyses ADD COLUMN final_model TEXT",
+        "escalated": "ALTER TABLE ai_analyses ADD COLUMN escalated BOOLEAN DEFAULT 0",
+        "escalation_reason": "ALTER TABLE ai_analyses ADD COLUMN escalation_reason TEXT",
+        "prescreen_confidence": "ALTER TABLE ai_analyses ADD COLUMN prescreen_confidence FLOAT",
+        "prescreen_score": "ALTER TABLE ai_analyses ADD COLUMN prescreen_score FLOAT",
+    }
+    for column, ddl in additions.items():
+        if column not in columns:
+            await conn.execute(text(ddl))
+
+    await conn.execute(text("UPDATE ai_analyses SET analysis_mode = 'pro_only' WHERE analysis_mode IS NULL"))
+    await conn.execute(text("UPDATE ai_analyses SET escalated = 0 WHERE escalated IS NULL"))
+
+
 async def ensure_analysis_jobs_schema(conn) -> None:
     """Ensure persisted analysis job status table exists on upgraded SQLite installs."""
     if not database_profile.is_sqlite:
@@ -759,6 +786,7 @@ async def ensure_sqlite_upgrade_schema(conn) -> None:
     await ensure_llm_models_route_schema(conn)
     await ensure_performance_indexes(conn)
     await ensure_content_status_values(conn)
+    await ensure_ai_analysis_cascade_schema(conn)
     await ensure_analysis_jobs_schema(conn)
     await ensure_favorite_items_schema(conn)
     await ensure_user_auth_schema(conn)

@@ -316,6 +316,8 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
         info_density=curation.get("info_density", 50),
         actionability=curation.get("actionability", 50),
         source_weight=curation.get("source_weight", 50),
+        analysis_mode="pro_only",
+        escalated=False,
     )
 
     db.add(analysis)

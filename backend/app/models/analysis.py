@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Optional
 from datetime import datetime
-from sqlalchemy import Integer, Float, Text, DateTime, ForeignKey, JSON
+from sqlalchemy import Boolean, Integer, Float, Text, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
@@ -35,6 +35,14 @@ class AiAnalysis(Base):
     source_weight: Mapped[Optional[float]] = mapped_column(Float, nullable=True, default=50.0)
     info_density: Mapped[Optional[float]] = mapped_column(Float, nullable=True, default=50.0)
     actionability: Mapped[Optional[float]] = mapped_column(Float, nullable=True, default=50.0)
+    # ── Model cascade routing metadata ──
+    analysis_mode: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="pro_only")  # pro_only|lite_only|cascade
+    prescreen_model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    final_model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    escalated: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True, default=False)
+    escalation_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    prescreen_confidence: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    prescreen_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     # ── Round-2 enrichment fields ──
     enrichment_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="pending")  # pending|completed|error
     enrichment: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # background/related_angles/why_matters/creator_tips

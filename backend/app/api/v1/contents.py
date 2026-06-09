@@ -352,7 +352,7 @@ async def get_enrichment(
         return {"content_id": content_id, "status": "completed", "enrichment": data}
     except Exception as e:
         claimed_analysis.enrichment_status = "error"
-        await db.flush()
+        await db.commit()
         invalidate_content_read_caches()
         raise HTTPException(500, f"Enrichment failed: {e}")
 

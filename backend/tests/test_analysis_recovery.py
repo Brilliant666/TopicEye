@@ -633,11 +633,141 @@ async def test_analyze_batch_recovers_from_empty_llm_response(monkeypatch):
     assert stored_analysis.analysis_mode == "pro_only"
     assert stored_analysis.escalated is False
     assert stored_analysis.prescreen_model is None
-    assert stored_analysis.final_model is None
+    assert stored_analysis.final_model == "default"
     assert stored_analysis.escalation_reason is None
     assert stored_analysis.prescreen_confidence is None
     assert stored_analysis.prescreen_score is None
     assert stored_content.status == ContentStatus.ANALYZED
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_analysis_cascade_uses_lite_result_without_pro_when_confident(monkeypatch):
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_CASCADE_ENABLED", True)
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_LITE_ROUTING_GROUP", "analysis_lite")
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_PRO_ROUTING_GROUP", "analysis_pro")
+    calls = []
+
+    async def fake_llm_json_with_metadata(messages, **kwargs):
+        calls.append({"scene": kwargs.get("scene"), "routing_group": kwargs.get("routing_group")})
+        if kwargs.get("scene") == "content_prescreen":
+            return {
+                "score": 62,
+                "confidence": 0.92,
+                "should_escalate": False,
+                "reason": "普通观察项，暂不需要深挖",
+                "tags": ["AI", "工具"],
+            }, {"actual_model": "openai/lite"}
+        raise AssertionError("confident lite prescreen should not call pro analysis")
+
+    monkeypatch.setattr(analysis, "call_llm_json_with_metadata", fake_llm_json_with_metadata)
+    engine, session_factory = await _session_factory()
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="普通工具更新",
+                url="https://example.com/lite-only-analysis",
+                status=ContentStatus.PENDING,
+                raw_content="这是一个普通工具更新，信息量中等，适合观察但不需要深度分析。",
+            )
+        )
+        await db.commit()
+
+        results = await analysis.analyze_batch([1], db)
+        stored_analysis = await db.scalar(select(AiAnalysis).where(AiAnalysis.content_id == 1))
+
+    assert [item.content_id for item in results] == [1]
+    assert calls == [{"scene": "content_prescreen", "routing_group": "analysis_lite"}]
+    assert stored_analysis.analysis_mode == "lite_only"
+    assert stored_analysis.prescreen_model == "openai/lite"
+    assert stored_analysis.final_model == "openai/lite"
+    assert stored_analysis.escalated is False
+    assert stored_analysis.escalation_reason is None
+    assert stored_analysis.prescreen_score == 62
+    assert stored_analysis.prescreen_confidence == 0.92
+    assert stored_analysis.curation_score == 62
+    assert stored_analysis.tags == ["AI", "工具"]
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_analysis_cascade_escalates_high_score_to_pro(monkeypatch):
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_CASCADE_ENABLED", True)
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_LITE_ROUTING_GROUP", "analysis_lite")
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_PRO_ROUTING_GROUP", "analysis_pro")
+    monkeypatch.setattr(analysis.settings, "ANALYSIS_CASCADE_ESCALATE_SCORE", 75.0)
+    calls = []
+
+    async def fake_llm_json_with_metadata(messages, **kwargs):
+        calls.append({"scene": kwargs.get("scene"), "routing_group": kwargs.get("routing_group")})
+        if kwargs.get("scene") == "content_prescreen":
+            return {
+                "score": 91,
+                "confidence": 0.9,
+                "should_escalate": False,
+                "reason": "高价值内容",
+                "tags": ["AI"],
+            }, {"actual_model": "openai/lite"}
+        if kwargs.get("scene") == "content_analysis":
+            return {
+            "summary": "Pro 完整分析",
+            "key_points": ["重点一"],
+            "recommendation": "适合深挖",
+            "creator_angles": ["角度一"],
+            "title_suggestions": ["标题一"],
+            "risk_notes": "",
+            "tags": ["AI"],
+            "scores": {
+                "quality_score": 80,
+                "hot_score": 70,
+                "freshness_score": 60,
+                "creator_score": 75,
+                "viral_score": 65,
+                "risk_score": 20,
+            },
+            "curation": {
+                "curation_score": 82,
+                "info_density": 78,
+                "actionability": 76,
+                "source_weight": 50,
+            },
+        }, {"actual_model": "openai/pro"}
+        raise AssertionError(f"unexpected scene: {kwargs.get('scene')}")
+
+    monkeypatch.setattr(analysis, "call_llm_json_with_metadata", fake_llm_json_with_metadata)
+    engine, session_factory = await _session_factory()
+
+    async with session_factory() as db:
+        db.add(
+            ContentItem(
+                id=1,
+                title="重要模型发布",
+                url="https://example.com/cascade-pro-analysis",
+                status=ContentStatus.PENDING,
+                raw_content="一个重要模型发布，具备高传播和深挖价值。",
+            )
+        )
+        await db.commit()
+
+        results = await analysis.analyze_batch([1], db)
+        stored_analysis = await db.scalar(select(AiAnalysis).where(AiAnalysis.content_id == 1))
+
+    assert [item.content_id for item in results] == [1]
+    assert calls == [
+        {"scene": "content_prescreen", "routing_group": "analysis_lite"},
+        {"scene": "content_analysis", "routing_group": "analysis_pro"},
+    ]
+    assert stored_analysis.analysis_mode == "cascade"
+    assert stored_analysis.prescreen_model == "openai/lite"
+    assert stored_analysis.final_model == "openai/pro"
+    assert stored_analysis.escalated is True
+    assert stored_analysis.escalation_reason == "high_prescreen_score"
+    assert stored_analysis.prescreen_score == 91
+    assert stored_analysis.prescreen_confidence == 0.9
+    assert stored_analysis.summary == "Pro 完整分析"
+    assert stored_analysis.curation_score == 82
     await engine.dispose()
 
 

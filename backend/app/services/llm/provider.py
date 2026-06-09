@@ -444,20 +444,16 @@ async def _call_with_retry(
     )
 
 
-async def call_llm(
+async def call_llm_with_metadata(
     messages: list,
     temperature: float = 0.3,
     max_tokens: int = 2000,
     scene: str = "general",
     user_id: int | None = None,
-) -> str:
-    """
-    Call LLM with automatic ordered failover.
-
-    Model config resolution:
-    - DB llm_models table ordered by routing_group/routing_priority.
-    """
-    db_models = await _model_cache.get_route_models("default", user_id=user_id)
+    routing_group: str = "default",
+) -> tuple[str, dict[str, Any]]:
+    """Call LLM with automatic ordered failover and return the selected route metadata."""
+    db_models = await _model_cache.get_route_models(routing_group, user_id=user_id)
     candidates = [_candidate_from_db_model(m, temperature, max_tokens) for m in db_models]
 
     skipped: list[dict[str, Any]] = []
@@ -486,7 +482,7 @@ async def call_llm(
                 scene,
             )
             _failover.on_success(key)
-            return response
+            return response, _llm_call_metadata(model_config, request_model, routing_group)
         except Exception as exc:
             last_exc = exc
             reset_time = _parse_reset_time(exc) if _is_rate_limit_error(exc) else None
@@ -506,7 +502,6 @@ async def call_llm(
             model_config = candidate["model_config"]
             request_model = candidate["request_model"]
             api_base = candidate["api_base"]
-            key = _model_key(model_config)
             try:
                 response = await _call_with_retry(
                     messages,
@@ -519,8 +514,8 @@ async def call_llm(
                     model_config,
                     scene,
                 )
-                _failover.on_success(key)
-                return response
+                _failover.on_success(_model_key(model_config))
+                return response, _llm_call_metadata(model_config, request_model, routing_group)
             except Exception as exc:
                 last_exc = exc
 
@@ -530,29 +525,64 @@ async def call_llm(
     raise RuntimeError("No enabled LLM route models configured")
 
 
-async def call_llm_json(
+def _llm_call_metadata(model_config: Any, request_model: str, routing_group: str) -> dict[str, Any]:
+    return {
+        "actual_model": request_model,
+        "request_model": request_model,
+        "model_name": getattr(model_config, "name", None),
+        "model_id": getattr(model_config, "id", None),
+        "routing_group": routing_group,
+    }
+
+
+async def call_llm(
+    messages: list,
+    temperature: float = 0.3,
+    max_tokens: int = 2000,
+    scene: str = "general",
+    user_id: int | None = None,
+    routing_group: str = "default",
+) -> str:
+    """Call LLM with automatic ordered failover."""
+    response, _metadata = await call_llm_with_metadata(
+        messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        scene=scene,
+        user_id=user_id,
+        routing_group=routing_group,
+    )
+    return response
+
+
+async def call_llm_json_with_metadata(
     messages: list,
     temperature: float = 0.2,
     max_tokens: int = 2000,
     scene: str = "general",
     user_id: int | None = None,
-) -> dict[str, Any]:
-    """Call LLM and parse JSON response.
-
-    Retries once on empty/unparseable response before giving up.
-    """
+    routing_group: str = "default",
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Call LLM, parse JSON response, and return selected route metadata."""
     raw = ""
+    metadata: dict[str, Any] = {}
     max_attempts = 1 if scene == "content_analysis" else 2
     for attempt in range(max_attempts):
-        raw = await call_llm(messages, temperature=temperature, max_tokens=max_tokens, scene=scene, user_id=user_id)
+        raw, metadata = await call_llm_with_metadata(
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            scene=scene,
+            user_id=user_id,
+            routing_group=routing_group,
+        )
 
-        # Try to extract JSON from markdown code blocks or raw text
         text = raw.strip()
         if not text:
             logger.warning("LLM returned empty response (attempt %d)", attempt + 1)
             if attempt < max_attempts - 1:
                 continue
-            return {"raw_response": raw}
+            return {"raw_response": raw}, metadata
 
         if "```json" in text:
             start = text.index("```json") + 7
@@ -569,11 +599,31 @@ async def call_llm_json(
                 logger.warning("LLM JSON is empty or not a dict (attempt %d): %s", attempt + 1, str(result)[:200])
                 if attempt < max_attempts - 1:
                     continue
-                return {"raw_response": raw}
-            return result
+                return {"raw_response": raw}, metadata
+            return result, metadata
         except json.JSONDecodeError:
             logger.warning("Failed to parse LLM JSON response (attempt %d): %s", attempt + 1, text[:200])
             if attempt < max_attempts - 1:
                 continue
 
-    return {"raw_response": raw}
+    return {"raw_response": raw}, metadata
+
+
+async def call_llm_json(
+    messages: list,
+    temperature: float = 0.2,
+    max_tokens: int = 2000,
+    scene: str = "general",
+    user_id: int | None = None,
+    routing_group: str = "default",
+) -> dict[str, Any]:
+    """Call LLM and parse JSON response."""
+    result, _metadata = await call_llm_json_with_metadata(
+        messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        scene=scene,
+        user_id=user_id,
+        routing_group=routing_group,
+    )
+    return result

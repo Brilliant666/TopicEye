@@ -72,6 +72,58 @@ async def test_call_llm_skips_cooling_down_candidate(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_call_llm_with_metadata_returns_selected_model(monkeypatch):
+    provider._failover.reset()
+    models = [_model(1, "lite", 10)]
+
+    async def route_models(group="default", user_id=None):
+        return models
+
+    async def fake_call(messages, model, api_key, api_base, temperature, max_tokens, response_format, model_config, scene):
+        return "{}"
+
+    monkeypatch.setattr(provider._model_cache, "get_route_models", route_models)
+    monkeypatch.setattr(provider, "_call_with_retry", fake_call)
+
+    result, metadata = await provider.call_llm_with_metadata(
+        [{"role": "user", "content": "hello"}],
+        routing_group="analysis_lite",
+    )
+
+    assert result == "{}"
+    assert metadata["actual_model"] == "openai/lite"
+    assert metadata["routing_group"] == "analysis_lite"
+    assert metadata["model_id"] == 1
+
+
+@pytest.mark.asyncio
+async def test_call_llm_uses_requested_routing_group(monkeypatch):
+    provider._failover.reset()
+    models = [_model(1, "lite", 10)]
+    observed = {}
+
+    async def route_models(group="default", user_id=None):
+        observed["group"] = group
+        observed["user_id"] = user_id
+        return models
+
+    async def fake_call(messages, model, api_key, api_base, temperature, max_tokens, response_format, model_config, scene):
+        return f"ok from {model}"
+
+    monkeypatch.setattr(provider._model_cache, "get_route_models", route_models)
+    monkeypatch.setattr(provider, "_call_with_retry", fake_call)
+
+    result = await provider.call_llm(
+        [{"role": "user", "content": "hello"}],
+        user_id=42,
+        routing_group="analysis_lite",
+    )
+
+    assert result == "ok from openai/lite"
+    assert observed == {"group": "analysis_lite", "user_id": 42}
+
+
+@pytest.mark.asyncio
 async def test_call_llm_requires_enabled_db_route_models(monkeypatch):
     provider._failover.reset()
 

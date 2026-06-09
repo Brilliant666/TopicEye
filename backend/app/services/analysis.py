@@ -1,8 +1,9 @@
 """
-AI Analysis service — single-pass analysis with curation scoring.
+AI Analysis service — content analysis with optional Lite/Pro cascade.
 
-One LLM call produces: summary, 6-dim scores, curation_score, tags,
-recommendation, creator angles, and title suggestions.
+Default mode keeps the existing Pro analysis path. When enabled, a Lite
+prescreen can finalize low-risk items or escalate high-value/uncertain items
+to the Pro analysis route.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from app.core.sqlite_retry import is_sqlite_locked, retry_sqlite_locked
 from app.models.content import ContentItem, ContentStatus
 from app.models.analysis import AiAnalysis
 from app.repositories.content_repo import ANALYSIS_STALE_MINUTES
-from app.services.llm import call_llm_json
+from app.services.llm import call_llm_json, call_llm_json_with_metadata
 from app.services.llm.prompts.analysis import (
     SYSTEM_PROMPT,
     ANALYSIS_PROMPT,
@@ -33,6 +34,34 @@ from app.services.llm.prompts.analysis import (
 from app.services.content_read_cache import invalidate_content_read_caches
 
 logger = logging.getLogger(__name__)
+
+_ORIGINAL_CALL_LLM_JSON = call_llm_json
+
+
+async def _call_llm_json_with_metadata(messages: list, **kwargs) -> tuple[dict[str, Any], dict[str, Any]]:
+    if call_llm_json is not _ORIGINAL_CALL_LLM_JSON:
+        return await call_llm_json(messages, **kwargs), {}
+    return await call_llm_json_with_metadata(messages, **kwargs)
+
+
+PRESCREEN_SYSTEM_PROMPT = """你是内容选题预筛模型。只输出 JSON，不要输出解释。"""
+PRESCREEN_PROMPT = """
+请对下面内容做低成本预筛，判断是否必须升级到深度分析模型。
+
+输出 JSON 字段：
+{{
+  "score": 0-100,
+  "confidence": 0-1,
+  "should_escalate": true/false,
+  "reason": "不超过80字的判断理由",
+  "tags": ["最多5个标签"]
+}}
+
+升级标准：高价值、低置信、信息密度高、争议风险高、适合深挖、需要完整创作建议。
+
+标题：{title}
+内容：{content}
+"""
 
 # ── Language detection (no external deps) ─────────────────────────────
 
@@ -149,6 +178,110 @@ def _normalize_analysis_result(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalize_prescreen_result(result: Any) -> dict[str, Any] | None:
+    if not isinstance(result, dict):
+        return None
+
+    if "raw_response" in result:
+        return None
+
+    score = _clamp_score(result.get("score"), 0)
+    try:
+        confidence = float(result.get("confidence"))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    confidence = max(0.0, min(1.0, confidence))
+
+    should_escalate = result.get("should_escalate")
+    if not isinstance(should_escalate, bool):
+        should_escalate = score >= _cascade_escalate_score() or confidence < _cascade_min_confidence()
+
+    return {
+        "score": score,
+        "confidence": confidence,
+        "should_escalate": should_escalate,
+        "reason": _normalize_text(result.get("reason"), max_length=120),
+        "tags": _normalize_string_list(result.get("tags"), max_items=5, max_length=40),
+    }
+
+
+def _cascade_enabled() -> bool:
+    return bool(getattr(settings, "ANALYSIS_CASCADE_ENABLED", False))
+
+
+def _cascade_lite_routing_group() -> str:
+    return str(getattr(settings, "ANALYSIS_LITE_ROUTING_GROUP", "analysis_lite") or "analysis_lite")
+
+
+def _cascade_pro_routing_group() -> str:
+    return str(getattr(settings, "ANALYSIS_PRO_ROUTING_GROUP", "default") or "default")
+
+
+def _cascade_escalate_score() -> float:
+    return _clamp_score(getattr(settings, "ANALYSIS_CASCADE_ESCALATE_SCORE", 75.0), 75.0)
+
+
+def _cascade_min_confidence() -> float:
+    try:
+        value = float(getattr(settings, "ANALYSIS_CASCADE_MIN_CONFIDENCE", 0.75))
+    except (TypeError, ValueError):
+        value = 0.75
+    return max(0.0, min(1.0, value))
+
+
+def _prescreen_escalation_reason(prescreen: dict[str, Any] | None) -> str | None:
+    if prescreen is None:
+        return "prescreen_invalid"
+    if bool(prescreen.get("should_escalate")):
+        return "lite_requested_escalation"
+    if float(prescreen.get("score") or 0) >= _cascade_escalate_score():
+        return "high_prescreen_score"
+    if float(prescreen.get("confidence") or 0) < _cascade_min_confidence():
+        return "low_prescreen_confidence"
+    return None
+
+
+def _analysis_result_from_prescreen(
+    content: ContentItem,
+    prescreen: dict[str, Any],
+    *,
+    lang: str,
+) -> dict[str, Any]:
+    result = _local_analysis_result(content, lang=lang)
+    score = _clamp_score(prescreen.get("score"), 0)
+    confidence = float(prescreen.get("confidence") or 0)
+    reason = _normalize_text(prescreen.get("reason"), max_length=120)
+    tags = _normalize_string_list(prescreen.get("tags"), max_items=5, max_length=40)
+
+    result["curation"]["curation_score"] = score
+    result["curation"]["info_density"] = min(100, max(35, score))
+    result["curation"]["actionability"] = min(100, max(35, score - 5))
+    result["scores"]["quality_score"] = min(100, max(35, score))
+    result["scores"]["creator_score"] = min(100, max(35, score - 3))
+    if tags:
+        result["tags"] = tags
+    if reason:
+        result["recommendation"] = reason
+    result["fallback"] = "lite_prescreen_final"
+    result["prescreen_confidence"] = confidence
+    return result
+
+
+async def _run_lite_prescreen(content: ContentItem, *, title: str, truncated: str) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    messages = [
+        {"role": "system", "content": PRESCREEN_SYSTEM_PROMPT},
+        {"role": "user", "content": PRESCREEN_PROMPT.format(title=title, content=truncated[:1800])},
+    ]
+    result, metadata = await _call_llm_json_with_metadata(
+        messages,
+        temperature=0.1,
+        max_tokens=500,
+        scene="content_prescreen",
+        routing_group=_cascade_lite_routing_group(),
+    )
+    return _normalize_prescreen_result(result), metadata
+
+
 def _local_analysis_result(content: ContentItem, *, lang: str) -> dict[str, Any]:
     """Build a deterministic baseline analysis when the LLM response is empty."""
     text = f"{content.title}\n{content.summary or ''}\n{content.raw_content or ''}".strip()
@@ -261,14 +394,52 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
         {"role": "user", "content": analysis_prompt.format(title=title, content=truncated)},
     ]
 
-    result = await call_llm_json(messages, temperature=0.25, max_tokens=1500, scene="content_analysis")
-    if not _valid_analysis_result(result):
-        logger.warning(
-            "LLM analysis result invalid for content id=%d, using local fallback: %s",
-            content.id,
-            str(result)[:200],
+    analysis_mode = "pro_only"
+    prescreen_model = None
+    final_model = _cascade_pro_routing_group()
+    escalated = False
+    escalation_reason = None
+    prescreen_score = None
+    prescreen_confidence = None
+    result: dict[str, Any] | None = None
+
+    if _cascade_enabled():
+        analysis_mode = "cascade"
+        prescreen_model = _cascade_lite_routing_group()
+        try:
+            prescreen, prescreen_metadata = await _run_lite_prescreen(content, title=title, truncated=truncated)
+            prescreen_model = prescreen_metadata.get("actual_model") or prescreen_model
+        except Exception as exc:
+            logger.warning("Lite prescreen failed for content id=%d, escalating to pro: %s", content.id, exc)
+            prescreen = None
+
+        if prescreen is not None:
+            prescreen_score = prescreen.get("score")
+            prescreen_confidence = prescreen.get("confidence")
+        escalation_reason = _prescreen_escalation_reason(prescreen)
+        escalated = escalation_reason is not None
+
+        if not escalated and prescreen is not None:
+            analysis_mode = "lite_only"
+            final_model = prescreen_model
+            result = _analysis_result_from_prescreen(content, prescreen, lang=lang)
+
+    if result is None:
+        result, final_metadata = await _call_llm_json_with_metadata(
+            messages,
+            temperature=0.25,
+            max_tokens=1500,
+            scene="content_analysis",
+            routing_group=_cascade_pro_routing_group(),
         )
-        result = _local_analysis_result(content, lang=lang)
+        final_model = final_metadata.get("actual_model") or final_model
+        if not _valid_analysis_result(result):
+            logger.warning(
+                "LLM analysis result invalid for content id=%d, using local fallback: %s",
+                content.id,
+                str(result)[:200],
+            )
+            result = _local_analysis_result(content, lang=lang)
     result = _normalize_analysis_result(result)
 
     # Extract scores
@@ -316,8 +487,13 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
         info_density=curation.get("info_density", 50),
         actionability=curation.get("actionability", 50),
         source_weight=curation.get("source_weight", 50),
-        analysis_mode="pro_only",
-        escalated=False,
+        analysis_mode=analysis_mode,
+        prescreen_model=prescreen_model,
+        final_model=final_model,
+        escalated=escalated,
+        escalation_reason=escalation_reason,
+        prescreen_confidence=prescreen_confidence,
+        prescreen_score=prescreen_score,
     )
 
     db.add(analysis)

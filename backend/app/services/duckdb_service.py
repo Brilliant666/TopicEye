@@ -76,6 +76,15 @@ feedback_scores AS (
 )
 """
 
+EMPTY_FEEDBACK_SCORES_CTE = """
+feedback_scores AS (
+    SELECT
+        CAST(NULL AS INTEGER) AS content_id,
+        CAST(0 AS DOUBLE) AS feedback_score
+    WHERE FALSE
+)
+"""
+
 IGNORED_CONTENT_CTE = """
 ignored_content AS (
     SELECT DISTINCT content_id
@@ -174,6 +183,21 @@ class DuckDBAnalytics:
             "error": self._last_error,
         }
 
+    def _feedback_scores_cte(self, conn) -> str:
+        """Return feedback CTE, falling back when upgraded/test DBs lack the table."""
+        try:
+            exists = conn.execute("""
+                SELECT COUNT(*)
+                FROM information_schema.tables
+                WHERE table_schema = 'oltp_db'
+                  AND table_name = 'user_feedback'
+            """).fetchone()
+            if exists and exists[0]:
+                return LATEST_FEEDBACK_SCORES_CTE
+        except Exception as exc:
+            logger.debug("DuckDB feedback score CTE disabled: %s", exc)
+        return EMPTY_FEEDBACK_SCORES_CTE
+
     # ── Analytical queries ──────────────────────────────────────────────
 
     def query_today_picks(
@@ -206,7 +230,7 @@ class DuckDBAnalytics:
 
         results = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},
-            {LATEST_FEEDBACK_SCORES_CTE},
+            {self._feedback_scores_cte(conn)},
             {IGNORED_CONTENT_CTE}
             SELECT
                 c.id, c.title, c.url, c.source_id, c.source_name, c.source_type,
@@ -376,7 +400,7 @@ class DuckDBAnalytics:
         cutoff = (datetime.utcnow() - window).isoformat()
         rows = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},
-            {LATEST_FEEDBACK_SCORES_CTE},
+            {self._feedback_scores_cte(conn)},
             {IGNORED_CONTENT_CTE}
             SELECT
                 c.id,
@@ -869,7 +893,7 @@ class DuckDBAnalytics:
 
         results = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},
-            {LATEST_FEEDBACK_SCORES_CTE},
+            {self._feedback_scores_cte(conn)},
             {IGNORED_CONTENT_CTE}
             SELECT c.id, c.title, c.category, c.source_name, c.platform,
                    c.crawled_at,

@@ -46,11 +46,11 @@ _SCORING_BATCH_SIZE = 500
 _TREND_SOURCE_TYPES = {"DouyinHot"}
 
 
-def _is_admin(user: Optional[User]) -> bool:
+def _is_admin(user: User | None) -> bool:
     return bool(user and user.role == "admin")
 
 
-def _require_admin_view(admin_view: bool, user: Optional[User]) -> None:
+def _require_admin_view(admin_view: bool, user: User | None) -> None:
     if not admin_view:
         return
     if user is None:
@@ -134,7 +134,7 @@ async def list_contents(
                           pattern=r"^(created_at|published_at|crawled_at|curation_score|low_follower_viral)$"),
     sort_order: str = Query("desc", pattern=r"^(asc|desc)$"),
     admin_view: bool = Query(False, description="Return management fields; admin only"),
-    current_user: Optional[User] = Depends(get_optional_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     from app.repositories.ignored_repo import IgnoredRepo
     from datetime import timedelta
@@ -401,7 +401,7 @@ async def enrich_top_items(
 async def get_content(
     content_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(get_optional_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     content = await ContentRepo(db).get_detail(
         content_id,

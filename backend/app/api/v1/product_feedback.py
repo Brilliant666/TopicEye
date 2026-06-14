@@ -32,7 +32,7 @@ from app.services.product_updates import list_builtin_product_updates
 router = APIRouter(prefix="/product-feedback", tags=["product-feedback"])
 
 
-def _issue_response(issue: IssueFeedback, reporter: Optional[User] = None) -> IssueFeedbackResponse:
+def _issue_response(issue: IssueFeedback, reporter: User | None = None) -> IssueFeedbackResponse:
     return IssueFeedbackResponse(
         id=issue.id,
         user_id=issue.user_id,
@@ -78,7 +78,7 @@ async def _issue_counts(db: AsyncSession, user_id: int | None = None) -> tuple[i
 async def create_issue_feedback(
     data: IssueFeedbackCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(get_optional_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     issue = IssueFeedback(
         user_id=current_user.id if current_user else None,

@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Optional
 import enum
 from datetime import datetime
-from sqlalchemy import String, Integer, Text, DateTime
+from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 from app.models.enum_types import value_enum
@@ -36,6 +36,8 @@ class Source(Base):
     __tablename__ = "sources"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    owner_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    scope: Mapped[str] = mapped_column(String(20), nullable=False, default="system")
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     source_type: Mapped[str] = mapped_column(value_enum(SourceType), nullable=False, default=SourceType.RSS)
     url: Mapped[str] = mapped_column(String(1024), nullable=False)
@@ -51,5 +53,10 @@ class Source(Base):
     enabled: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_sources_owner", "owner_user_id"),
+        Index("ix_sources_owner_enabled", "owner_user_id", "enabled"),
+    )
 
     contents: Mapped[list["ContentItem"]] = relationship(back_populates="source", cascade="all, delete-orphan")

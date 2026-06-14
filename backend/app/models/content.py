@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Optional
 import enum
 from datetime import datetime
-from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, JSON, Boolean, Float
+from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, JSON, Boolean, Float, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 from app.models.enum_types import value_enum
@@ -25,6 +25,7 @@ class ContentItem(Base):
     source_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     source_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     platform: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    owner_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="冗余 source.owner_user_id；NULL=公共内容池")
     author: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     crawled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
@@ -45,6 +46,11 @@ class ContentItem(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_content_items_owner", "owner_user_id"),
+        Index("ix_content_items_owner_status", "owner_user_id", "status"),
+    )
 
     source: Mapped[Optional["Source"]] = relationship(back_populates="contents")
     metrics: Mapped[list["ContentMetrics"]] = relationship(back_populates="content", cascade="all, delete-orphan")

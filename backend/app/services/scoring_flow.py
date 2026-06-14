@@ -106,6 +106,7 @@ async def build_scoring_flow_payload(
         exclude_ids=ignored_ids,
         time_cutoff=time_cutoff,
         limit=limit,
+        visible_user_id=visible_user_id,
     )
 
     scoring_inputs, item_map, feedback_scores = await build_scoring_inputs_from_rows(db, items)

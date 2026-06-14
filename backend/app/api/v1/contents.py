@@ -83,6 +83,7 @@ async def _score_content_page(
         exclude_source_types=exclude_source_types,
         time_cutoff=time_cutoff,
         limit=_SCORING_BATCH_SIZE,
+        visible_user_id=current_user.id if current_user is not None else None,
     )
     if not scored_items:
         return _empty_list_response(page, page_size)
@@ -154,6 +155,7 @@ async def list_contents(
         hours=hours,
         sort_by=sort_by,
         sort_order=sort_order,
+        user_id=current_user.id if current_user is not None else None,
     )
     if cache_params.cacheable and not include_raw_content:
         cached = get_cached_content_list(cache_params, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
@@ -216,7 +218,8 @@ async def list_contents(
         items, total = await repo.list_paginated_with_analyses(
             page=page, page_size=page_size,
             filters=filters or None, sort_by=sort_by, sort_order=sort_order,
-            exclude_ids=ignored_ids, exclude_source_types=exclude_source_types, time_cutoff=time_cutoff)
+            exclude_ids=ignored_ids, exclude_source_types=exclude_source_types, time_cutoff=time_cutoff,
+            visible_user_id=current_user.id if current_user is not None else None,)
         payload = {"items": [content_with_latest_analysis(i, include_raw_content=include_raw_content) for i in items],
                    "total": total, "page": page, "page_size": page_size}
         if cache_params.cacheable and not include_raw_content:
@@ -292,7 +295,10 @@ async def scoring_flow(
 
     try:
         async with async_session() as db:
-            payload = await build_scoring_flow_payload(db, hours=hours, limit=limit)
+            payload = await build_scoring_flow_payload(
+                db, hours=hours, limit=limit,
+                visible_user_id=current_user.id,
+            )
             return Response(
                 content=json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str),
                 media_type="application/json",
@@ -397,7 +403,10 @@ async def get_content(
     db: AsyncSession = Depends(get_db),
     current_user: Optional[User] = Depends(get_optional_current_user),
 ):
-    content = await ContentRepo(db).get_detail(content_id)
+    content = await ContentRepo(db).get_detail(
+        content_id,
+        visible_user_id=current_user.id if current_user is not None else None,
+    )
     if not content:
         raise HTTPException(404, "Content not found")
     d = ContentResponse.model_validate(content).model_dump()

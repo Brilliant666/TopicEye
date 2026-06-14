@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
-from sqlalchemy import select, update, func, exists
+from sqlalchemy import or_, select, update, func, exists
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -350,10 +350,26 @@ class ContentRepo(BaseRepository[ContentItem]):
         exclude_ids: Optional[set] = None,
         exclude_source_types: Optional[set[str]] = None,
         time_cutoff: Optional[datetime] = None,
+        visible_user_id: Optional[int] = None,
     ) -> tuple[Sequence[ContentItem], int]:
-        """Like list_paginated but eager-loads analyses relation."""
+        """Like list_paginated but eager-loads analyses relation.
+
+        When ``visible_user_id`` is provided, restrict to content that is either
+        public (``owner_user_id IS NULL``) or owned by that user — i.e. enforces
+        ADR 0001 visibility for user-facing list endpoints. Pass ``None`` (the
+        default) for batch/internal callers that must see all rows.
+        """
         stmt = select(self.model).options(selectinload(self.model.analyses))
         count_stmt = select(func.count()).select_from(self.model)
+        if visible_user_id is not None:
+            stmt = stmt.where(or_(
+                self.model.owner_user_id.is_(None),
+                self.model.owner_user_id == visible_user_id,
+            ))
+            count_stmt = count_stmt.where(or_(
+                self.model.owner_user_id.is_(None),
+                self.model.owner_user_id == visible_user_id,
+            ))
 
         if filters:
             for field, value in filters.items():
@@ -399,14 +415,29 @@ class ContentRepo(BaseRepository[ContentItem]):
 
     # ── Detail with metrics + analyses ────────────────────────────
 
-    async def get_detail(self, id: int) -> Optional[ContentItem]:
-        """Fetch a content item eagerly loaded with metrics and analyses."""
-        result = await self.db.execute(
+    async def get_detail(
+        self,
+        id: int,
+        visible_user_id: Optional[int] = None,
+    ) -> Optional[ContentItem]:
+        """Fetch a content item eagerly loaded with metrics and analyses.
+
+        When ``visible_user_id`` is provided, the row is only returned if it
+        is public or owned by that user; otherwise ``None`` is returned.
+        Pass ``None`` (the default) for internal callers that must see all.
+        """
+        stmt = (
             select(self.model)
             .options(selectinload(self.model.metrics))
             .options(selectinload(self.model.analyses))
             .where(self.model.id == id)
         )
+        if visible_user_id is not None:
+            stmt = stmt.where(or_(
+                self.model.owner_user_id.is_(None),
+                self.model.owner_user_id == visible_user_id,
+            ))
+        result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
     # ── Favorites listing ─────────────────────────────────────────
@@ -429,8 +460,14 @@ class ContentRepo(BaseRepository[ContentItem]):
         self,
         hours: int = 48,
         category: Optional[str] = None,
+        visible_user_id: Optional[int] = None,
     ) -> Sequence[ContentItem]:
-        """Fetch items with analyses + source for today-picks scoring."""
+        """Fetch items with analyses + source for today-picks scoring.
+
+        When ``visible_user_id`` is provided, restrict to public content
+        (``owner_user_id IS NULL``) or content owned by that user. ``None``
+        means no visibility filter (batch/internal callers).
+        """
         from app.models.analysis import AiAnalysis
         from app.services.scoring_engine import CONFIG as SCORING_CONFIG
         from datetime import datetime as dt, timedelta
@@ -450,6 +487,11 @@ class ContentRepo(BaseRepository[ContentItem]):
         )
         if category:
             stmt = stmt.where(self.model.category == category)
+        if visible_user_id is not None:
+            stmt = stmt.where(or_(
+                self.model.owner_user_id.is_(None),
+                self.model.owner_user_id == visible_user_id,
+            ))
         result = await self.db.execute(stmt)
         return result.scalars().unique().all()
 
@@ -493,6 +535,7 @@ class ContentRepo(BaseRepository[ContentItem]):
         exclude_source_types: Optional[set[str]] = None,
         time_cutoff: Optional[datetime] = None,
         limit: int = 500,
+        visible_user_id: Optional[int] = None,
     ) -> tuple[Sequence[ContentItem], int]:
         """
         Fetch ANALYZED items with analyses + source for scoring pipeline.
@@ -543,6 +586,15 @@ class ContentRepo(BaseRepository[ContentItem]):
         if time_cutoff:
             count_stmt = count_stmt.where(self.model.crawled_at >= time_cutoff)
             data_stmt = data_stmt.where(self.model.crawled_at >= time_cutoff)
+        if visible_user_id is not None:
+            count_stmt = count_stmt.where(or_(
+                self.model.owner_user_id.is_(None),
+                self.model.owner_user_id == visible_user_id,
+            ))
+            data_stmt = data_stmt.where(or_(
+                self.model.owner_user_id.is_(None),
+                self.model.owner_user_id == visible_user_id,
+            ))
 
         total_result = await self.db.execute(count_stmt)
         total = total_result.scalar() or 0
@@ -603,6 +655,7 @@ class ContentRepo(BaseRepository[ContentItem]):
         exclude_source_types: Optional[set[str]] = None,
         time_cutoff: Optional[datetime] = None,
         limit: int = 500,
+        visible_user_id: Optional[int] = None,
     ) -> list[ScoringContentRow]:
         """Fetch only columns needed by the scoring debug payload."""
         from app.models.analysis import AiAnalysis
@@ -651,6 +704,11 @@ class ContentRepo(BaseRepository[ContentItem]):
             stmt = stmt.where(self.model.source_type.notin_(exclude_source_types))
         if time_cutoff:
             stmt = stmt.where(self.model.crawled_at >= time_cutoff)
+        if visible_user_id is not None:
+            stmt = stmt.where(or_(
+                self.model.owner_user_id.is_(None),
+                self.model.owner_user_id == visible_user_id,
+            ))
 
         stmt = stmt.order_by(self.model.crawled_at.desc()).limit(limit)
         result = await self.db.execute(stmt)

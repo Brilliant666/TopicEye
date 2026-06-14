@@ -26,6 +26,7 @@ class ContentListCacheParams:
     hours: Optional[int] = None
     sort_by: str = "created_at"
     sort_order: str = "desc"
+    user_id: Optional[int] = None  # None = anonymous (public-only), int = user-scoped
 
     @property
     def cacheable(self) -> bool:
@@ -39,6 +40,7 @@ class ContentListCacheParams:
             "include_trend_sources": int(self.include_trend_sources),
             "sort_by": self.sort_by,
             "sort_order": self.sort_order,
+            "user_id": "" if self.user_id is None else str(self.user_id),
         }
         optional = {
             "source_type": self.source_type,

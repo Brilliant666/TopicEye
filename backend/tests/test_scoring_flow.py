@@ -326,7 +326,7 @@ async def test_scoring_flow_api_cache_headers_and_503(monkeypatch):
     transport = httpx.ASGITransport(app=app)
     calls = {"count": 0}
 
-    async def fake_build_scoring_flow_payload(db, *, hours, limit):
+    async def fake_build_scoring_flow_payload(db, *, hours, limit, visible_user_id=None):
         calls["count"] += 1
         return cache_payload(
             (hours, limit, 80),

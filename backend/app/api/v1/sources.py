@@ -27,6 +27,7 @@ from app.repositories.source_repo import SourceRepository
 from app.services.content_pipeline import ingest_from_source
 from app.scheduler import _request_post_sync_pipeline
 from app.services.plan_catalog import plan_allows_private_source
+from app.services.scrapers.recognizer import recognize_source_type
 from app.services.source_cache import (
     SourceListCacheParams,
     get_cached_source_list,
@@ -636,18 +637,12 @@ async def import_opml(
 
         name = outline.get("title") or outline.get("text") or feed_url
 
-        # Detect xgo.ing Twitter RSS feeds
-        if "xgo.ing" in feed_url:
-            source_type = SourceType.TWITTER_RSS
-            # Extract @handle from name like "OpenAI(@OpenAI)"
-            screen_name = ""
-            handle_match = re.search(r'\(@?(\w+)\)', name)
-            if handle_match:
-                screen_name = handle_match.group(1)
-            keyword = json.dumps({"screen_name": screen_name}) if screen_name else None
-        else:
-            source_type = SourceType.RSS
-            keyword = None
+        # URL -> source_type auto-detection (T1-3b): replaces the hard-coded
+        # xgo.ing branch and adds YouTube / Podcast / Newsletter recognition.
+        source_type, normalized_url, extra_config = recognize_source_type(
+            feed_url, name=name
+        )
+        keyword = json.dumps(extra_config) if extra_config else None
 
         await repo.create(
             name=name, url=feed_url,

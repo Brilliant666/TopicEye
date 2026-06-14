@@ -18,6 +18,8 @@ class SourceType(str, enum.Enum):
     X = "X"
     TWITTER_RSS = "TwitterRSS"
     YOUTUBE = "YouTube"
+    PODCAST = "Podcast"
+    NEWSLETTER = "Newsletter"
     ZHIHU = "Zhihu"
     BILIBILI = "B站"
     DOUYIN_HOT = "DouyinHot"

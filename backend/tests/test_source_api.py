@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import select
 
 import app.main  # noqa: F401 - import all models for Base.metadata
 import app.api.v1.sources as sources_api
@@ -934,3 +935,157 @@ async def test_source_list_cache_header_and_sync_error_invalidation(
     payload = after_sync.json()
     assert payload["items"][0]["status"] == "error"
     assert payload["items"][0]["sync_error"] == "API endpoint unavailable"
+
+
+# ── Dual-track endpoint tests (/me series) ────────────────────────────
+
+from app.api.v1.auth import get_current_user
+from app.models.user import User as UserModel
+
+
+@pytest_asyncio.fixture
+async def dual_track_client(monkeypatch):
+    """Shared fixture for /me endpoints: in-memory DB with two users (pro + free)."""
+    invalidate_source_list_cache()
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    monkeypatch.setattr(sources_api, "async_session", session_factory)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    pro_user = UserModel(id=10, email="pro@example.com", password_hash="x", plan="pro", role="user", is_active=True, display_name="Pro")
+    free_user = UserModel(id=11, email="free@example.com", password_hash="x", plan="free", role="user", is_active=True, display_name="Free")
+    admin_user = UserModel(id=1, email="admin@example.com", password_hash="x", plan="studio", role="admin", is_active=True, display_name="Admin")
+
+    app = FastAPI()
+    app.include_router(sources_router)
+    user_by_id = {10: pro_user, 11: free_user, 1: admin_user}
+
+    def current_user_dep() -> UserModel:
+        from fastapi import Request
+        return pro_user  # default
+
+    app.dependency_overrides[get_current_user] = lambda: pro_user
+    app.dependency_overrides[get_current_admin_user] = lambda: admin_user
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[get_db] = override_get_db
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        yield client, session_factory, user_by_id
+
+    invalidate_source_list_cache()
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_pro_user_can_create_private_source(dual_track_client):
+    client, factory, _ = dual_track_client
+    resp = await client.post(
+        "/sources/me",
+        json={
+            "name": "My Private",
+            "url": "https://example.com/private.xml",
+            "source_type": "RSS",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["owner_user_id"] == 10
+    assert data["scope"] == "user"
+
+    # Source persisted with correct owner/scope
+    async with factory() as db:
+        result = await db.execute(select(Source).where(Source.url == "https://example.com/private.xml"))
+        src = result.scalar_one()
+        assert src.owner_user_id == 10
+        assert src.scope == "user"
+
+
+@pytest.mark.asyncio
+async def test_free_user_cannot_create_private_source(dual_track_client):
+    client, factory, users = dual_track_client
+    free = users[11]
+
+    # Re-override to free user
+    from app.api.v1.sources import router as _  # ensure import
+    # Swap the dependency on the same app — need to re-create the app context
+    # Use a fresh client with free user override
+    app = client._transport.app  # type: ignore[attr-defined]
+    app.dependency_overrides[get_current_user] = lambda: free
+
+    resp = await client.post(
+        "/sources/me",
+        json={
+            "name": "Nope",
+            "url": "https://example.com/nope.xml",
+            "source_type": "RSS",
+        },
+    )
+    assert resp.status_code == 403
+    assert "Pro" in resp.text or "私有" in resp.text
+
+
+@pytest.mark.asyncio
+async def test_user_cannot_see_or_modify_other_users_private_source(dual_track_client):
+    client, factory, users = dual_track_client
+    pro = users[10]
+    other = users[11]
+
+    # Pro creates a private source
+    create = await client.post(
+        "/sources/me",
+        json={"name": "Pro Only", "url": "https://example.com/pro.xml", "source_type": "RSS"},
+    )
+    assert create.status_code == 201
+    src_id = create.json()["id"]
+
+    # Switch to "other" user (free user trying to read pro's source)
+    app = client._transport.app  # type: ignore[attr-defined]
+    app.dependency_overrides[get_current_user] = lambda: other
+
+    # /me list for other user should not see pro's source
+    list_other = await client.get("/sources/me")
+    assert list_other.status_code == 200
+    other_ids = {item["id"] for item in list_other.json()["items"]}
+    assert src_id not in other_ids
+
+    # /me/{id} for pro's source from other user should 404 (not 403, to mask existence)
+    get_other = await client.get(f"/sources/me/{src_id}")
+    assert get_other.status_code == 404
+
+    # DELETE by other user should also 404
+    del_other = await client.delete(f"/sources/me/{src_id}")
+    assert del_other.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_does_not_see_user_private_sources(dual_track_client):
+    client, factory, _ = dual_track_client
+    pro = _[10] if False else None  # ignore; we'll re-fetch
+
+    # Pro creates a private source
+    create = await client.post(
+        "/sources/me",
+        json={"name": "Hidden from admin", "url": "https://example.com/hidden.xml", "source_type": "RSS"},
+    )
+    assert create.status_code == 201
+    src_id = create.json()["id"]
+
+    # Admin lists via /sources (system scope) — should NOT include private source
+    admin_list = await client.get("/sources")
+    assert admin_list.status_code == 200
+    admin_ids = {item["id"] for item in admin_list.json()["items"]}
+    assert src_id not in admin_ids
+
+    # Admin GET /sources/{id} on private source should 404
+    admin_get = await client.get(f"/sources/{src_id}")
+    assert admin_get.status_code == 404

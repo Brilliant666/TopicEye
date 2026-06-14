@@ -19,6 +19,7 @@ class SourceListCacheParams:
     status: Optional[str] = None
     enabled: Optional[bool] = None
     keyword: Optional[str] = None
+    user_id: Optional[int] = None  # None = admin/global, int = user-scoped /me
 
     @property
     def key(self) -> str:
@@ -28,6 +29,7 @@ class SourceListCacheParams:
             "status": self.status,
             "enabled": None if self.enabled is None else int(self.enabled),
             "keyword": (self.keyword or "").strip(),
+            "user_id": "" if self.user_id is None else str(self.user_id),
         }
         params.update({key: value for key, value in optional.items() if value not in (None, "")})
         return SOURCE_LIST_CACHE_PREFIX + urlencode(params)

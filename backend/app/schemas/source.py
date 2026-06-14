@@ -146,6 +146,8 @@ class SourceUpdate(BaseModel):
 
 class SourceResponse(BaseModel):
     id: int
+    owner_user_id: Optional[int] = None
+    scope: str = "system"
     name: str
     source_type: str
     url: str

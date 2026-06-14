@@ -15,6 +15,10 @@ backend/venv/
 *.db-shm
 *.db-wal
 backend/data/duckdb_extensions/
+data/duckdb_extensions/
+
+# Local DB backups (never commit)
+*.db.*
 
 # Frontend
 frontend/node_modules/

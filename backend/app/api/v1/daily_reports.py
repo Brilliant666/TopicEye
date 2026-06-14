@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.auth import get_current_user
 from app.core.database import get_db
 from app.models.daily_report import DailyReport
+from app.models.user import User
 from app.repositories.daily_report_repo import DailyReportRepository
 from app.schemas.daily_report import (
     DailyReportResponse,
@@ -22,8 +23,79 @@ from app.schemas.daily_report import (
     DailyReportCalendarResponse,
 )
 from app.services.daily_report import LOCAL_TZ, WEEKDAYS, generate_daily_report, get_latest_today_report
+from app.services.plan_catalog import plan_allows_private_source
 
 router = APIRouter(prefix="/daily-reports", tags=["daily-reports"], dependencies=[Depends(get_current_user)])
+
+
+
+
+# ── /me series: user-owned private daily reports (T2) ───────────────────
+# Declared BEFORE /today so FastAPI matches the literal "me" segment first.
+
+
+@router.get("/me/today", response_model=DailyReportResponse)
+async def get_my_today_report(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get today's user-owned daily report, generating one if none exists.
+
+    Requires ``plan_allows_private_source`` (Pro and above). T1-3a shares
+    the same paywall.
+    """
+    if not plan_allows_private_source(current_user.plan):
+        raise HTTPException(
+            status_code=403, detail="我的日报需 Pro 及以上套餐"
+        )
+    return await get_latest_today_report(db, owner_user_id=current_user.id)
+
+
+@router.get("/me/by-date", response_model=DailyReportResponse)
+async def get_my_report_by_date(
+    date: str = Query(..., description="Report date in YYYY-MM-DD format"),
+    edition: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Fetch the user's own report for a date, or latest snapshot if final does not exist."""
+    if not plan_allows_private_source(current_user.plan):
+        raise HTTPException(
+            status_code=403, detail="我的日报需 Pro 及以上套餐"
+        )
+    repo = DailyReportRepository(db)
+    report = await repo.get_by_date(date, edition=edition, owner_user_id=current_user.id)
+    if report is None:
+        raise HTTPException(status_code=404, detail=f"No my-report found for {date}")
+    return report
+
+
+@router.get("/me/dates", response_model=DailyReportDatesResponse)
+async def list_my_report_dates(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List all dates that have the user's own reports, newest first."""
+    if not plan_allows_private_source(current_user.plan):
+        raise HTTPException(
+            status_code=403, detail="我的日报需 Pro 及以上套餐"
+        )
+    repo = DailyReportRepository(db)
+    dates = await repo.get_dates_with_reports(owner_user_id=current_user.id)
+    return {"dates": dates}
+
+
+@router.post("/me/generate", response_model=DailyReportResponse)
+async def trigger_my_generate(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Force generate today's user-owned daily report snapshot."""
+    if not plan_allows_private_source(current_user.plan):
+        raise HTTPException(
+            status_code=403, detail="我的日报需 Pro 及以上套餐"
+        )
+    return await generate_daily_report(db, force=True, owner_user_id=current_user.id)
 
 
 @router.get("/today", response_model=DailyReportResponse)

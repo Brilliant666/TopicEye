@@ -868,6 +868,28 @@ export const dailyReportApi = {
     ).toString();
     return request(`/daily-reports/generate-version${query ? `?${query}` : ''}`, { method: 'POST' });
   },
+
+  // ── /me series: user-owned private daily reports (T2) ──
+
+  /** 获取今日我的专属日报（不存在则自动生成；需 Pro+） */
+  getMyToday(): Promise<Record<string, unknown>> {
+    return request('/daily-reports/me/today');
+  },
+
+  /** 按日期查询我的日报 */
+  getMyByDate(date: string): Promise<Record<string, unknown>> {
+    return request(`/daily-reports/me/by-date?date=${encodeURIComponent(date)}`);
+  },
+
+  /** 获取我的日报日期列表 */
+  listMyDates(): Promise<{ dates: Array<{ report_date: string; weekday: string; takeaway: string | null; status: string }> }> {
+    return request('/daily-reports/me/dates');
+  },
+
+  /** 强制重新生成我的今日日报 */
+  regenerateMy(): Promise<Record<string, unknown>> {
+    return request('/daily-reports/me/generate', { method: 'POST' });
+  },
 };
 
 export const creationApi = {

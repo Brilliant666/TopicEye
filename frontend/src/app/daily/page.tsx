@@ -162,6 +162,14 @@ export default function DailyReportPage() {
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
   const [calendarStats, setCalendarStats] = useState({ done: 0, error: 0, missing: 0, generating: 0 });
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  // T2: 'public' (default) | 'mine' — query-string controlled to keep diff small
+  const [reportScope] = useState<'public' | 'mine'>(() => {
+    if (typeof window !== 'undefined') {
+      const p = new URLSearchParams(window.location.search).get('scope');
+      if (p === 'mine') return 'mine';
+    }
+    return 'public';
+  });
   const [loading, setLoading] = useState(true);
   const [datesLoading, setDatesLoading] = useState(true);
   const [calendarLoading, setCalendarLoading] = useState(true);
@@ -171,7 +179,7 @@ export default function DailyReportPage() {
 
   const refreshReportIndexes = useCallback(async () => {
     const [datesData, calendarData] = await Promise.all([
-      dailyReportApi.listDates(),
+      reportScope === 'mine' ? dailyReportApi.listMyDates() : dailyReportApi.listDates(),
       dailyReportApi.calendar(30),
     ]);
     setDates(datesData.dates || []);
@@ -201,9 +209,9 @@ export default function DailyReportPage() {
     try {
       setLoading(true);
       setError(null);
-      const data = date
-        ? await dailyReportApi.getByDate(date) as unknown as DailyReportData
-        : await dailyReportApi.getToday() as unknown as DailyReportData;
+      const data: DailyReportData = date
+        ? ((reportScope === 'mine' ? await dailyReportApi.getMyByDate(date) : await dailyReportApi.getByDate(date)) as unknown as DailyReportData)
+        : ((reportScope === 'mine' ? await dailyReportApi.getMyToday() : await dailyReportApi.getToday()) as unknown as DailyReportData);
       setReport(data);
       setSelectedDate(data.report_date);
     } catch (err: unknown) {
@@ -218,11 +226,17 @@ export default function DailyReportPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [reportScope]);
 
   useEffect(() => {
     fetchReport();
   }, [fetchReport]);
+
+  // T2: 当 scope 切换时刷新主报告
+  useEffect(() => {
+    fetchReport();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportScope]);
 
   const handleDateSelect = useCallback((date: string) => {
     if (date === selectedDate) return;
@@ -302,6 +316,35 @@ export default function DailyReportPage() {
 
   return (
     <div className="h-full w-full overflow-x-auto overflow-y-hidden">
+      <div className="flex items-center gap-1 border-b border-gray-200 bg-white px-3 py-1.5 text-[11px] font-black text-gray-500">
+        <a
+          href="/daily"
+          className={cx(
+            "rounded px-2.5 py-1",
+            reportScope === 'public'
+              ? "bg-teal-light text-teal"
+              : "text-gray-500 hover:text-gray-700"
+          )}
+        >
+          公共日报
+        </a>
+        <a
+          href="/daily?scope=mine"
+          className={cx(
+            "rounded px-2.5 py-1",
+            reportScope === 'mine'
+              ? "bg-teal-light text-teal"
+              : "text-gray-500 hover:text-gray-700"
+          )}
+        >
+          我的日报
+        </a>
+        {reportScope === 'mine' && (
+          <span className="ml-1 text-[10px] font-normal text-gray-400">
+            基于你的私有信源（需 Pro 及以上）
+          </span>
+        )}
+      </div>
       <div className="flex h-full min-w-[1040px] overflow-hidden">
         <aside className="flex w-[260px] min-w-[260px] flex-col overflow-hidden border-r border-gray-200 bg-[linear-gradient(180deg,#F8FAFC_0%,#FFFFFF_34%,#F8FAFC_100%)]">
           <ReportSidebarHeader icon={CalendarDays} title="日报补录中心" countText={`近 30 天 · 待处理 ${recoveryDays.length}`} />

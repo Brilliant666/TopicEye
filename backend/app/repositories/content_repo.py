@@ -501,8 +501,14 @@ class ContentRepo(BaseRepository[ContentItem]):
         window_start: datetime,
         window_end: datetime,
         category: Optional[str] = None,
+        visible_user_id: Optional[int] = None,
     ) -> Sequence[ContentItem]:
-        """Fetch analyzed items in a precise report window for daily report snapshots."""
+        """Fetch analyzed items in a precise report window for daily report snapshots.
+
+        When ``visible_user_id`` is provided, restrict to public content
+        (``owner_user_id IS NULL``) or content owned by that user. ``None``
+        means no visibility filter (legacy / admin callers).
+        """
         from app.models.analysis import AiAnalysis
         from app.services.scoring_engine import CONFIG as SCORING_CONFIG
 
@@ -520,6 +526,11 @@ class ContentRepo(BaseRepository[ContentItem]):
             .where(AiAnalysis.risk_score <= risk_threshold)
             .where(AiAnalysis.curation_score.isnot(None))
         )
+        if visible_user_id is not None:
+            stmt = stmt.where(or_(
+                self.model.owner_user_id.is_(None),
+                self.model.owner_user_id == visible_user_id,
+            ))
         if category:
             stmt = stmt.where(self.model.category == category)
         result = await self.db.execute(stmt)

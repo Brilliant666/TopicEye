@@ -592,6 +592,108 @@ async def _generate_daily_report_final() -> None:
 
 @track_job("weekly_digest", name="AI周刊生成", timeout=300,
            description="每周一早9点生成AI周刊，基于本周已分析内容")
+# ── User-owned daily reports (T2) ────────────────────────────────────────
+# Generates a per-user daily report for Pro+ users that have enabled
+# private sources. Uses the same edition as the global daily report but
+# scoped to owner_user_id. Runs 10 minutes after the global report to
+# avoid stampede on the LLM gateway.
+
+
+async def _list_pro_users_with_private_sources() -> list[int]:
+    """Return user ids that (a) are Pro/Studio/Enterprise and (b) have at
+    least one enabled private source."""
+    from sqlalchemy import select, exists, and_
+    from app.core.database import async_session
+    from app.models.user import User
+    from app.models.source import Source
+
+    async with async_session() as db:
+        stmt = (
+            select(User.id)
+            .where(User.is_active.is_(True))
+            .where(User.plan.in_(["pro", "studio", "enterprise"]))
+            .where(
+                exists().where(
+                    and_(
+                        Source.owner_user_id == User.id,
+                        Source.enabled.is_(True),
+                    )
+                )
+            )
+        )
+        result = await db.execute(stmt)
+        return [row[0] for row in result.all()]
+
+
+@track_job("daily_report_user", name="用户日报生成", timeout=1800)
+async def _generate_user_daily_reports() -> None:
+    """Generate user-owned daily reports for all Pro+ users with private sources.
+
+    Concurrency strategy: ``asyncio.gather`` of per-user tasks in chunks
+    of 5, with a 2-second sleep between chunks to avoid stampeding the
+    LLM gateway. Each user is isolated in its own try/except so one
+    failure does not block the rest.
+    """
+    from app.core.database import async_session
+    from datetime import date as _date_cls
+    from app.services.daily_report import (
+        _day_window,
+        _edition_for_now,
+        generate_daily_report,
+    )
+    from app.models.daily_report import DailyReport
+    from sqlalchemy import select
+
+    user_ids = await _list_pro_users_with_private_sources()
+    if not user_ids:
+        logger.info("daily_report_user: no eligible users, skipping")
+        return
+
+    edition = _edition_for_now()
+    today = _date_cls.today()
+    # Use same window as the global daily report
+    window_start, window_end = _day_window(today, None, edition)
+
+    succeeded = 0
+    failed = 0
+    chunk_size = 5
+    for i in range(0, len(user_ids), chunk_size):
+        chunk = user_ids[i : i + chunk_size]
+
+        async def _gen_for_one(uid: int) -> None:
+            async with async_session() as session:
+                try:
+                    await generate_daily_report(
+                        session,
+                        target_date=today,
+                        edition=edition,
+                        owner_user_id=uid,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "daily_report_user: user=%s failed: %s", uid, exc
+                    )
+                    raise
+
+        results = await asyncio.gather(
+            *[_gen_for_one(uid) for uid in chunk],
+            return_exceptions=True,
+        )
+        for r in results:
+            if isinstance(r, Exception):
+                failed += 1
+            else:
+                succeeded += 1
+        if i + chunk_size < len(user_ids):
+            await asyncio.sleep(2)
+
+    logger.info(
+        "daily_report_user: succeeded=%s failed=%s (edition=%s window=%s..%s)",
+        succeeded, failed, edition, window_start, window_end,
+    )
+
+
+
 async def _generate_weekly_digest() -> None:
     """Generate AI weekly digest at 09:00 every Monday."""
     logger.info("Scheduler: weekly digest generation started")
@@ -690,6 +792,21 @@ def start_scheduler() -> None:
         trigger=CronTrigger(hour=20, minute=0),
         id="daily_report_evening",
         name="AI日报晚间快照",
+        replace_existing=True,
+    )
+    # 用户专属日报：错开全局 10 分钟，避免 LLM gateway 拥堵
+    scheduler.add_job(
+        _generate_user_daily_reports,
+        trigger=CronTrigger(hour=12, minute=10),
+        id="daily_report_user_noon",
+        name="用户日报午间",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        _generate_user_daily_reports,
+        trigger=CronTrigger(hour=20, minute=10),
+        id="daily_report_user_evening",
+        name="用户日报晚间",
         replace_existing=True,
     )
     scheduler.add_job(

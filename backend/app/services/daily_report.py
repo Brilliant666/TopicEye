@@ -153,10 +153,15 @@ async def _fetch_report_inputs(
     *,
     window_start: datetime,
     window_end: datetime,
+    visible_user_id: Optional[int] = None,
 ) -> tuple[list[dict], list[dict]]:
     repo = ContentRepo(db)
     query_start, query_end = _local_window_to_utc_naive(window_start, window_end)
-    items = list(await repo.list_for_report_window(window_start=query_start, window_end=query_end))
+    items = list(await repo.list_for_report_window(
+        window_start=query_start,
+        window_end=query_end,
+        visible_user_id=visible_user_id,
+    ))
     scoring_inputs, item_map, _ = await build_scoring_inputs(db, items)
     scored = score_items(scoring_inputs) if scoring_inputs else []
 
@@ -223,19 +228,31 @@ def _format_items(items: list[dict], *, limit: int, selected: bool) -> str:
     return "\n".join(lines)
 
 
-async def get_latest_today_report(db: AsyncSession) -> DailyReport:
-    """Return today's newest report, generating a snapshot if none exists."""
+async def get_latest_today_report(
+    db: AsyncSession,
+    *,
+    owner_user_id: Optional[int] = None,
+) -> DailyReport:
+    """Return today's newest report, generating a snapshot if none exists.
+
+    ``owner_user_id``: ``None`` → public (NULL) report; ``int`` → strictly the
+    user's own report. Pass the user's id for the /me endpoints.
+    """
     today = _local_today().isoformat()
     result = await db.execute(
         select(DailyReport)
         .where(DailyReport.report_date == today)
+        .where(DailyReport.owner_user_id.is_(owner_user_id))
         .order_by(DailyReport.cutoff_at.desc(), DailyReport.updated_at.desc())
         .limit(1)
     )
     report = result.scalar_one_or_none()
     if report:
         return report
-    return await generate_daily_report(db, target_date=_local_today(), edition=_edition_for_now())
+    return await generate_daily_report(
+        db, target_date=_local_today(), edition=_edition_for_now(),
+        owner_user_id=owner_user_id,
+    )
 
 
 async def generate_daily_report(
@@ -245,8 +262,13 @@ async def generate_daily_report(
     edition: Optional[str] = None,
     cutoff_at: Optional[datetime] = None,
     force: bool = False,
+    owner_user_id: Optional[int] = None,
 ) -> DailyReport:
-    """Generate a versioned daily report for a precise time window."""
+    """Generate a versioned daily report for a precise time window.
+
+    ``owner_user_id``: ``None`` → public report; ``int`` → user-owned report.
+    Pass the user's id for the /me endpoints.
+    """
     target = target_date or _local_today()
     normalized_edition = _normalize_edition(edition, target, cutoff_at)
     window_start, window_end = _day_window(target, cutoff_at, normalized_edition)
@@ -263,6 +285,7 @@ async def generate_daily_report(
             .where(DailyReport.report_date == report_date)
             .where(DailyReport.edition == normalized_edition)
             .where(DailyReport.cutoff_at == window_end)
+            .where(DailyReport.owner_user_id.is_(owner_user_id))
         )
         if database_profile.is_postgresql:
             existing_stmt = existing_stmt.with_for_update()
@@ -287,6 +310,7 @@ async def generate_daily_report(
                 status="GENERATING",
                 content_count=0,
                 analyzed_count=0,
+                owner_user_id=owner_user_id,
             )
             db.add(report)
             try:
@@ -329,6 +353,7 @@ async def generate_daily_report(
         db,
         window_start=window_start,
         window_end=window_end,
+        visible_user_id=owner_user_id,
     )
     report.content_count = len(background_items)
     report.analyzed_count = len(background_items)
@@ -431,7 +456,15 @@ async def generate_daily_report(
     return report
 
 
-async def generate_previous_day_final_report(db: AsyncSession, *, force: bool = False) -> DailyReport:
+async def generate_previous_day_final_report(
+    db: AsyncSession,
+    *,
+    force: bool = False,
+    owner_user_id: Optional[int] = None,
+) -> DailyReport:
     """Generate yesterday's final full-day edition."""
     yesterday = _local_today() - timedelta(days=1)
-    return await generate_daily_report(db, target_date=yesterday, edition="final", force=force)
+    return await generate_daily_report(
+        db, target_date=yesterday, edition="final", force=force,
+        owner_user_id=owner_user_id,
+    )

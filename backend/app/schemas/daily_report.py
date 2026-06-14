@@ -30,6 +30,7 @@ def _normalize_top_pick_urls(value: Any) -> Any:
 
 class DailyReportResponse(BaseModel):
     id: int
+    owner_user_id: Optional[int] = None
     report_date: str
     weekday: str
     edition: str = "snapshot"

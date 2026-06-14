@@ -20,13 +20,24 @@ class DailyReportRepository(BaseRepository[DailyReport]):
 
     model = DailyReport
 
-    async def get_by_date(self, report_date: str, edition: Optional[str] = None) -> Optional[DailyReport]:
-        """Fetch final report for a date, or latest snapshot if final does not exist."""
+    async def get_by_date(
+        self,
+        report_date: str,
+        edition: Optional[str] = None,
+        owner_user_id: Optional[int] = None,
+    ) -> Optional[DailyReport]:
+        """Fetch final report for a date, or latest snapshot if final does not exist.
+
+        ``owner_user_id``: ``None`` → public (NULL) reports; ``int`` → strictly
+        match a user-owned report. Pass the user's id for the /me endpoints;
+        pass ``None`` for the public endpoints.
+        """
         if edition:
             stmt = (
                 select(self.model)
                 .where(self.model.report_date == report_date)
                 .where(self.model.edition == edition)
+                .where(self.model.owner_user_id.is_(owner_user_id))
                 .order_by(self.model.cutoff_at.desc())
                 .limit(1)
             )
@@ -37,6 +48,7 @@ class DailyReportRepository(BaseRepository[DailyReport]):
             select(self.model)
             .where(self.model.report_date == report_date)
             .where(self.model.edition == "final")
+            .where(self.model.owner_user_id.is_(owner_user_id))
             .order_by(self.model.cutoff_at.desc())
             .limit(1)
         )
@@ -48,24 +60,41 @@ class DailyReportRepository(BaseRepository[DailyReport]):
         stmt = (
             select(self.model)
             .where(self.model.report_date == report_date)
+            .where(self.model.owner_user_id.is_(owner_user_id))
             .order_by(self.model.cutoff_at.desc(), self.model.updated_at.desc())
             .limit(1)
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_latest(self, limit: int = 7) -> Sequence[DailyReport]:
-        """Return the most recent reports, newest first."""
+    async def get_latest(
+        self,
+        limit: int = 7,
+        owner_user_id: Optional[int] = None,
+    ) -> Sequence[DailyReport]:
+        """Return the most recent reports, newest first.
+
+        ``owner_user_id``: ``None`` → public reports; ``int`` → strictly match
+        a user-owned report. Pass the user's id for the /me endpoints.
+        """
         stmt = (
             select(self.model)
+            .where(self.model.owner_user_id.is_(owner_user_id))
             .order_by(self.model.report_date.desc(), self.model.cutoff_at.desc())
             .limit(limit)
         )
         result = await self.db.execute(stmt)
         return result.scalars().all()
 
-    async def get_dates_with_reports(self) -> List[Dict[str, Any]]:
-        """Return latest report version per date, newest first."""
+    async def get_dates_with_reports(
+        self,
+        owner_user_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return latest report version per date, newest first.
+
+        ``owner_user_id``: ``None`` → public dates; ``int`` → only the user's
+        own report dates. Pass the user's id for the /me endpoints.
+        """
         stmt = (
             select(
                 self.model.report_date,
@@ -76,6 +105,7 @@ class DailyReportRepository(BaseRepository[DailyReport]):
                 self.model.generated_at,
                 self.model.cutoff_at,
             )
+            .where(self.model.owner_user_id.is_(owner_user_id))
             .order_by(self.model.report_date.desc(), self.model.cutoff_at.desc())
         )
         result = await self.db.execute(stmt)

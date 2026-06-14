@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, Text, DateTime, Integer, UniqueConstraint
+from sqlalchemy import String, Text, DateTime, Integer, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -15,10 +15,19 @@ from app.core.database import Base
 class DailyReport(Base):
     __tablename__ = "daily_reports"
     __table_args__ = (
-        UniqueConstraint("report_date", "edition", "cutoff_at", name="uq_daily_report_version"),
+        # owner_user_id 在最前 —— 多列 unique 中 NULL 视为 distinct，
+        # 公共行（owner_user_id=NULL）天然只一份；不同 user 各一份。
+        # 应用层额外 catch IntegrityError 兜底（公共 NULL 多进程并发）。
+        UniqueConstraint("owner_user_id", "report_date", "edition", "cutoff_at", name="uq_daily_report_version"),
+        Index("ix_daily_reports_owner", "owner_user_id"),
+        Index("ix_daily_reports_owner_date", "owner_user_id", "report_date"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    owner_user_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True,
+        comment="NULL=全局公共日报；非 NULL=用户专属日报",
+    )
     report_date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)  # YYYY-MM-DD
     weekday: Mapped[str] = mapped_column(String(10), nullable=False)  # 周一~周日
     edition: Mapped[str] = mapped_column(String(20), default="snapshot", nullable=False, index=True)

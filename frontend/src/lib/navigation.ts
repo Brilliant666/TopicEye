@@ -69,6 +69,7 @@ export const NAV_SPACES: NavSpace[] = [
     id: 'create',
     label: '创作',
     items: [
+      { id: 'my-sources', label: '我的信源', href: '/sources/me', icon: RadioTower, access: 'user', countKey: 'sources' },
       { id: 'my-topics', label: '我的母题', href: '/my-topics', icon: Crosshair, access: 'user' },
       { id: 'favorites', label: '收藏夹', href: '/favorites', icon: Bookmark, access: 'user', countKey: 'favorites' },
       { id: 'algorithm', label: '算法流程', href: '/algorithm', icon: GitBranch, access: 'user' },

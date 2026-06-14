@@ -174,7 +174,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
       }
       const [contents, sources, allFavorites] = await Promise.all([
         contentsApi.list({ page_size: 1 }),
-        isAdmin(currentUser) ? sourcesApi.list() : Promise.resolve(null),
+        isAdmin(currentUser)
+          ? sourcesApi.list({ page_size: 1 })
+          : sourcesApi.listMine({ page_size: 1 }),
         fetchAllFavoriteItems(),
       ]);
       setContentCount(contents.total || 0);

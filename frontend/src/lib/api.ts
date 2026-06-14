@@ -345,6 +345,59 @@ export const sourcesApi = {
       body: JSON.stringify(data),
     });
   },
+
+  // ── /me 系列：用户私有信源（对齐 modelsApi.mine/createMine 模式）──
+
+  /** 获取我的私有信源列表 */
+  listMine(params?: {
+    page?: number;
+    page_size?: number;
+    source_type?: string;
+    status?: string;
+    enabled?: boolean;
+    keyword?: string;
+  }): Promise<PaginatedResponse<Source> & { total?: number }> {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.page_size) qs.set('page_size', String(params.page_size));
+    if (params?.source_type) qs.set('source_type', params.source_type);
+    if (params?.status) qs.set('status', params.status);
+    if (params?.enabled !== undefined) qs.set('enabled', String(params.enabled));
+    if (params?.keyword) qs.set('keyword', params.keyword);
+    const query = qs.toString();
+    return request(`/sources/me${query ? '?' + query : ''}`);
+  },
+
+  /** 获取我的单个私有信源 */
+  getMine(id: number): Promise<Source> {
+    return request(`/sources/me/${id}`);
+  },
+
+  /** 创建我的私有信源 */
+  createMine(data: CreateSourceRequest): Promise<Source> {
+    return request('/sources/me', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** 更新我的私有信源 */
+  updateMine(id: number, data: UpdateSourceRequest): Promise<Source> {
+    return request(`/sources/me/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /** 删除我的私有信源 */
+  deleteMine(id: number): Promise<void> {
+    return request(`/sources/me/${id}`, { method: 'DELETE' });
+  },
+
+  /** 手动触发我的私有信源同步 */
+  syncMine(id: number): Promise<SyncResult> {
+    return request(`/sources/me/${id}/sync`, { method: 'POST' });
+  },
 };
 
 export interface SourceBatchImportItem {

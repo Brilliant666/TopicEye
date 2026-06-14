@@ -9,12 +9,15 @@ services:
       - ./backend:/app
       - backend-data:/app/data
     environment:
+      - APP_ENV=${APP_ENV:-development}
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./data/topiceye.db}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       - DATABASE_SQLITE_DOMAIN_SPLIT_ENABLED=${DATABASE_SQLITE_DOMAIN_SPLIT_ENABLED:-false}
       - DATABASE_SQLITE_DOMAIN_DIR=${DATABASE_SQLITE_DOMAIN_DIR:-./data/domains}
       - DUCKDB_THREADS=${DUCKDB_THREADS:-2}
       - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-256MB}
       - DUCKDB_EXTENSION_DIR=${DUCKDB_EXTENSION_DIR:-./data/duckdb_extensions}
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
 
   postgres:
@@ -41,6 +44,7 @@ services:
       - /app/node_modules
     environment:
       - BACKEND_API_URL=http://backend:8000
+    command: npm run dev
     depends_on:
       - backend
     restart: unless-stopped

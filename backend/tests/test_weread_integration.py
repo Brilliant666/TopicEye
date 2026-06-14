@@ -20,7 +20,7 @@ from app.api.v1.integrations import (
     sync_weread,
     update_weread_integration,
 )
-from app.core.config import settings
+from app.core.config import DEFAULT_LOCAL_SECRET_KEY, settings
 from app.core.database import Base
 from app.core.dependencies import get_db
 from app.models.content import ContentItem
@@ -29,7 +29,7 @@ from app.models.user_integration import UserIntegration
 from app.schemas.integration import IntegrationUpdateRequest
 from app.services.auth_service import create_user
 from app.services.integration_service import WEREAD_PROVIDER, WEREAD_INSTALL_COMMAND, get_user_integration
-from app.services.secret_store import decrypt_secret, is_encrypted_secret
+from app.services.secret_store import decrypt_secret, encrypt_secret, is_encrypted_secret
 from app.services.source_cache import (
     default_source_list_cache_params,
     get_cached_source_list,
@@ -38,6 +38,18 @@ from app.services.source_cache import (
 )
 import app.services.weread_materials as weread_materials
 from app.services.weread_materials import normalize_weread_entries, redact_weread_sync_error
+
+
+def test_production_runtime_rejects_default_secret(monkeypatch):
+    monkeypatch.setattr(settings, "APP_ENV", "production")
+    monkeypatch.setattr(settings, "APP_SECRET_KEY", DEFAULT_LOCAL_SECRET_KEY)
+    monkeypatch.setattr(settings, "INTEGRATION_SECRET_KEY", None)
+
+    with pytest.raises(RuntimeError, match="APP_ENV=production requires"):
+        app.main.ensure_runtime_secret_safety()
+
+    with pytest.raises(RuntimeError, match="Production secret encryption requires"):
+        encrypt_secret("wr_secret_1234567890")
 
 
 @pytest_asyncio.fixture

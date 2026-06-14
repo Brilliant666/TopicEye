@@ -6,7 +6,7 @@ from typing import Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from app.core.config import settings
+from app.core.config import DEFAULT_LOCAL_SECRET_KEY, settings
 
 SECRET_PREFIX = "enc:v1:"
 
@@ -14,7 +14,9 @@ SECRET_PREFIX = "enc:v1:"
 def _secret_material() -> str:
     material = (settings.INTEGRATION_SECRET_KEY or settings.APP_SECRET_KEY or "").strip()
     if not material:
-        material = "topiceye-local-dev-secret-change-me"
+        material = DEFAULT_LOCAL_SECRET_KEY
+    if settings.is_production and material == DEFAULT_LOCAL_SECRET_KEY:
+        raise RuntimeError("Production secret encryption requires INTEGRATION_SECRET_KEY or a custom APP_SECRET_KEY")
     return material
 
 

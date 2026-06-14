@@ -1,8 +1,15 @@
-from pydantic_settings import BaseSettings
 from typing import Optional
+
+from pydantic_settings import BaseSettings
+
+
+DEFAULT_LOCAL_SECRET_KEY = "topiceye-local-dev-secret-change-me"
 
 
 class Settings(BaseSettings):
+    # ── Runtime ──
+    APP_ENV: str = "development"
+
     # ── Database ──
     DATABASE_URL: str = "sqlite+aiosqlite:///./topiceye.db"
     DATABASE_SQLITE_DOMAIN_SPLIT_ENABLED: bool = False
@@ -20,8 +27,13 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: Optional[str] = None
     ADMIN_PASSWORD: Optional[str] = None
     ADMIN_DISPLAY_NAME: Optional[str] = None
-    APP_SECRET_KEY: str = "topiceye-local-dev-secret-change-me"
+    APP_SECRET_KEY: str = DEFAULT_LOCAL_SECRET_KEY
     INTEGRATION_SECRET_KEY: Optional[str] = None
+
+    # CORS — comma-separated origins. Defaults cover the local dev frontend
+    # (Next.js serves on 3000); set CORS_ORIGINS for any deployed frontend.
+    CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+
     SCHEDULER_ENABLED: bool = True
     CACHE_WARMUP_ENABLED: bool = True
     READ_CACHE_TTL_SECONDS: float = 60.0
@@ -39,6 +51,8 @@ class Settings(BaseSettings):
     AGENT_MAX_RETRIES: int = 3
 
     # ── Rate limiting ──
+    AUTH_LOGIN_ATTEMPTS_PER_MINUTE: int = 20
+    AUTH_REGISTER_ATTEMPTS_PER_MINUTE: int = 10
     LLM_REQUESTS_PER_MINUTE: int = 60
     LLM_TOKENS_PER_MINUTE: int = 100000
     LLM_WORKER_CONCURRENCY: int = 4
@@ -53,6 +67,15 @@ class Settings(BaseSettings):
     CLASSIFICATION_WORKER_CONCURRENCY: int = 3
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
+
+    @property
+    def is_production(self) -> bool:
+        return self.APP_ENV.strip().lower() in {"prod", "production"}
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Parse CORS_ORIGINS into a clean list of origin strings."""
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
 
 settings = Settings()

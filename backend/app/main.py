@@ -8,7 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.core.config import settings
+from app.core.config import DEFAULT_LOCAL_SECRET_KEY, settings
 from app.core.database import Base, async_session, database_profile, engine
 from app.core.db_backend import database_diagnostics, redact_database_secrets
 from app.core.sqlite_retry import is_sqlite_locked, retry_sqlite_locked
@@ -65,6 +65,13 @@ class ProcessTimeHeaderMiddleware:
 def should_retry_stats_warmup(errors: list[str]) -> bool:
     """Retry stats in background only when startup critical stats warmup failed."""
     return any(error.startswith("stats:") for error in errors)
+
+
+def ensure_runtime_secret_safety() -> None:
+    """Fail fast when production would encrypt user secrets with the public dev key."""
+    secret_material = (settings.INTEGRATION_SECRET_KEY or settings.APP_SECRET_KEY or "").strip()
+    if settings.is_production and secret_material == DEFAULT_LOCAL_SECRET_KEY:
+        raise RuntimeError("APP_ENV=production requires INTEGRATION_SECRET_KEY or a custom APP_SECRET_KEY")
 
 
 async def ensure_source_sort_order_column(conn) -> None:
@@ -800,6 +807,8 @@ async def ensure_sqlite_upgrade_schema(conn) -> None:
 async def lifespan(app: FastAPI):
     global _cache_warmup_task
 
+    ensure_runtime_secret_safety()
+
     # Startup: create all SQLite tables
     if settings.AUTO_CREATE_TABLES_ON_STARTUP:
         async with engine.begin() as conn:
@@ -934,10 +943,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS — allow frontend dev server
+# CORS — allow frontend origins from config (CORS_ORIGINS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

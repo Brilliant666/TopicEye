@@ -1,11 +1,16 @@
 from __future__ import annotations
 
-import pytest
-from fastapi import HTTPException
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from typing import AsyncGenerator
 
+import httpx
+import pytest
+from fastapi import FastAPI, HTTPException
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from app.api.v1 import auth as auth_api
 from app.api.v1.auth import get_current_user, login, logout, me, register
+from app.core.config import settings
 from app.core.database import Base
 from app.models.user import User
 from app.schemas.auth import AuthLoginRequest, AuthRegisterRequest
@@ -184,6 +189,52 @@ async def test_auth_route_functions_register_login_me_logout():
         assert invalid_error.status_code == 401
 
     await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_login_route_rate_limits_repeated_attempts(monkeypatch):
+    monkeypatch.setattr(settings, "AUTH_LOGIN_ATTEMPTS_PER_MINUTE", 1)
+    auth_api._AUTH_RATE_BUCKETS.clear()
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as db:
+        await create_user(db, email="limited@example.com", password="Password123")
+        await db.commit()
+
+    app = FastAPI()
+    app.include_router(auth_api.router)
+
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
+    app.dependency_overrides[auth_api.get_db] = override_get_db
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            first = await client.post(
+                "/auth/login",
+                json={"email": "limited@example.com", "password": "wrong"},
+            )
+            assert first.status_code == 401
+
+            second = await client.post(
+                "/auth/login",
+                json={"email": "limited@example.com", "password": "wrong"},
+            )
+            assert second.status_code == 429
+    finally:
+        auth_api._AUTH_RATE_BUCKETS.clear()
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

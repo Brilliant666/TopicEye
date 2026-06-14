@@ -180,6 +180,7 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
                 source_name=source.name,
                 source_type=source_type_str,
                 platform=source.platform,
+                owner_user_id=source.owner_user_id,
                 author=entry.get("author"),
                 published_at=entry.get("published_at"),
                 content_hash=ch,

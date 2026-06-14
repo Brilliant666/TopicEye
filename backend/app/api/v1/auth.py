@@ -88,7 +88,7 @@ async def get_current_user(
 async def get_optional_current_user(
     authorization: Optional[str] = Header(default=None),
     db: AsyncSession = Depends(get_db),
-) -> User | None:
+) -> Optional[User]:
     if not authorization:
         return None
     try:

@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import select
@@ -83,7 +83,7 @@ async def test_seed_default_sources_defers_existing_unsynced_source(tmp_path):
             db.add(Source(name="Example Feed", url="https://example.com/feed.xml"))
             await db.commit()
 
-        before = datetime.now(UTC).replace(tzinfo=None)
+        before = datetime.now(timezone.utc).replace(tzinfo=None)
         async with session_factory() as db:
             created = await seed_default_sources(db, seed_path=seed_path)
             await db.commit()

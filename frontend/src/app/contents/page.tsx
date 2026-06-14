@@ -62,7 +62,7 @@ export default function ContentsPage() {
     try {
       setLoading(true);
       setError(null);
-      const params: Record<string, unknown> = { page: p, page_size: PAGE_SIZE };
+      const params: Record<string, unknown> = { page: p, page_size: PAGE_SIZE, admin_view: true };
       if (cat && cat !== '全部') params.category = cat;
       const res = await contentsApi.list(params);
       const list = res?.items || [];

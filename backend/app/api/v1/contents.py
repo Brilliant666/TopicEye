@@ -10,7 +10,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_admin_user, get_current_user
+from app.api.v1.auth import get_current_admin_user, get_current_user, get_optional_current_user
 from app.core.database import async_session, database_profile, get_db
 from app.core.config import settings
 from app.core.sqlite_retry import retry_sqlite_locked, is_sqlite_locked
@@ -44,6 +44,19 @@ router = APIRouter(prefix="/contents", tags=["contents"])
 # Large batch size for scoring — enough for diversity penalty to work well
 _SCORING_BATCH_SIZE = 500
 _TREND_SOURCE_TYPES = {"DouyinHot"}
+
+
+def _is_admin(user: User | None) -> bool:
+    return bool(user and user.role == "admin")
+
+
+def _require_admin_view(admin_view: bool, user: User | None) -> None:
+    if not admin_view:
+        return
+    if user is None:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+    if not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin privileges required")
 
 
 def _empty_list_response(page: int, page_size: int) -> dict:
@@ -119,9 +132,14 @@ async def list_contents(
     sort_by: str = Query("created_at",
                           pattern=r"^(created_at|published_at|crawled_at|curation_score|low_follower_viral)$"),
     sort_order: str = Query("desc", pattern=r"^(asc|desc)$"),
+    admin_view: bool = Query(False, description="Return management fields; admin only"),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
     from app.repositories.ignored_repo import IgnoredRepo
     from datetime import timedelta
+
+    _require_admin_view(admin_view, current_user)
+    include_raw_content = _is_admin(current_user)
 
     cache_params = ContentListCacheParams(
         page=page,
@@ -137,7 +155,7 @@ async def list_contents(
         sort_by=sort_by,
         sort_order=sort_order,
     )
-    if cache_params.cacheable:
+    if cache_params.cacheable and not include_raw_content:
         cached = get_cached_content_list(cache_params, ttl_seconds=settings.READ_CACHE_TTL_SECONDS)
         if cached:
             content, age_seconds = cached
@@ -199,9 +217,9 @@ async def list_contents(
             page=page, page_size=page_size,
             filters=filters or None, sort_by=sort_by, sort_order=sort_order,
             exclude_ids=ignored_ids, exclude_source_types=exclude_source_types, time_cutoff=time_cutoff)
-        payload = {"items": [content_with_latest_analysis(i) for i in items],
+        payload = {"items": [content_with_latest_analysis(i, include_raw_content=include_raw_content) for i in items],
                    "total": total, "page": page, "page_size": page_size}
-        if cache_params.cacheable:
+        if cache_params.cacheable and not include_raw_content:
             content = set_cached_content_list(cache_params, payload)
             return Response(
                 content=content,
@@ -374,11 +392,17 @@ async def enrich_top_items(
 
 
 @router.get("/{content_id}")
-async def get_content(content_id: int, db: AsyncSession = Depends(get_db)):
+async def get_content(
+    content_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
     content = await ContentRepo(db).get_detail(content_id)
     if not content:
         raise HTTPException(404, "Content not found")
     d = ContentResponse.model_validate(content).model_dump()
+    if not _is_admin(current_user):
+        d["raw_content"] = None
     a = latest_analysis_from_item(content)
     if a:
         a_dict = AiAnalysisResponse.model_validate(a).model_dump()

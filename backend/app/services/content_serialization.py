@@ -19,8 +19,10 @@ def latest_analysis_from_item(item):
     )
 
 
-def content_with_latest_analysis(item) -> dict:
+def content_with_latest_analysis(item, *, include_raw_content: bool = False) -> dict:
     data = ContentResponse.model_validate(item).model_dump()
+    if not include_raw_content:
+        data["raw_content"] = None
     analysis = latest_analysis_from_item(item)
     if analysis:
         data["analysis"] = AiAnalysisResponse.model_validate(analysis).model_dump()

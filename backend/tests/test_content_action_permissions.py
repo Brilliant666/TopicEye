@@ -19,7 +19,7 @@ from app.services.auth_service import create_session, create_user
 
 
 @pytest.mark.asyncio
-async def test_content_read_is_public_but_mutations_require_login_or_admin(monkeypatch):
+async def test_content_read_strips_raw_content_and_management_requires_admin(monkeypatch):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with engine.begin() as conn:
@@ -37,6 +37,7 @@ async def test_content_read_is_public_but_mutations_require_login_or_admin(monke
                 url="https://example.com/content-actions",
                 source_name="测试信源",
                 source_type="RSS",
+                raw_content="只有管理员应该看到的原文",
                 status=ContentStatus.ANALYZED,
             )
         )
@@ -106,12 +107,41 @@ async def test_content_read_is_public_but_mutations_require_login_or_admin(monke
 
     app.dependency_overrides[auth_api.get_db] = override_get_db
     app.dependency_overrides[contents_api.get_db] = override_get_db
+    monkeypatch.setattr(contents_api, "async_session", session_factory)
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         public_detail = await client.get("/contents/1")
         assert public_detail.status_code == 200
         assert public_detail.json()["title"] == "内容动作权限样本"
+        assert public_detail.json()["raw_content"] is None
+
+        public_list = await client.get("/contents?page_size=10&keyword=内容动作权限")
+        assert public_list.status_code == 200
+        assert public_list.json()["items"][0]["raw_content"] is None
+
+        anonymous_admin_list = await client.get("/contents?page_size=10&keyword=内容动作权限&admin_view=true")
+        assert anonymous_admin_list.status_code == 401
+
+        user_admin_list = await client.get(
+            "/contents?page_size=10&keyword=内容动作权限&admin_view=true",
+            headers={"Authorization": f"Bearer {user_token}"},
+        )
+        assert user_admin_list.status_code == 403
+
+        admin_list = await client.get(
+            "/contents?page_size=10&keyword=内容动作权限&admin_view=true",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert admin_list.status_code == 200
+        assert admin_list.json()["items"][0]["raw_content"] == "只有管理员应该看到的原文"
+
+        admin_detail = await client.get(
+            "/contents/1",
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        assert admin_detail.status_code == 200
+        assert admin_detail.json()["raw_content"] == "只有管理员应该看到的原文"
 
         anonymous_ignore = await client.post("/contents/1/ignore")
         assert anonymous_ignore.status_code == 401

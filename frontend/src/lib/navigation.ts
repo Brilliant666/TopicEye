@@ -73,7 +73,7 @@ export const NAV_SPACES: NavSpace[] = [
       { id: 'my-topics', label: '我的母题', href: '/my-topics', icon: Crosshair, access: 'user' },
       { id: 'favorites', label: '收藏夹', href: '/favorites', icon: Bookmark, access: 'user', countKey: 'favorites' },
       { id: 'algorithm', label: '算法流程', href: '/algorithm', icon: GitBranch, access: 'user' },
-      { id: 'fanqie', label: '网文雷达', href: '/fanqie', icon: BookOpen, access: 'user' },
+      { id: 'fanqie', label: '网文雷达', href: '/novel', icon: BookOpen, access: 'user' },
     ],
   },
   {

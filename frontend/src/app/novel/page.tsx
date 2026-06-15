@@ -24,6 +24,7 @@ import {
   favoritesApi,
   fanqieApi,
   qimaoApi,
+  trendingApi,
   webnovelReportsApi,
   zhihuApi,
   type FanqieCategory,
@@ -32,9 +33,10 @@ import {
   type WebnovelMovementItem,
   type WebnovelWeeklyReport,
   type ZhihuAlbum,
+  type TrendingItem,
 } from '@/lib/api';
 
-type Platform = 'fanqie' | 'qimao' | 'zhihu';
+type Platform = 'fanqie' | 'qimao' | 'zhihu' | 'heiyan' | 'ishugui';
 type BookItem = FanqieBook | QimaoBook | ZhihuAlbum;
 type ViewMode = 'rankings' | 'weekly';
 
@@ -51,6 +53,8 @@ const PLATFORM_META: Record<Platform, { label: string; subtitle: string; color: 
   fanqie: { label: '番茄小说', subtitle: '免费网文热榜', color: '#DC2626', bg: '#FEF2F2' },
   qimao: { label: '七猫小说', subtitle: '付费与免费混合榜', color: '#2563EB', bg: '#EFF6FF' },
   zhihu: { label: '知乎盐选', subtitle: '故事与付费内容', color: '#0F766E', bg: '#ECFDF5' },
+  heiyan: { label: '黑岩书城', subtitle: '掌文品读公开 CDN', color: '#A855F7', bg: '#F5F0FF' },
+  ishugui: { label: '点众阅读', subtitle: 'Next.js 公开榜单', color: '#0EA5E9', bg: '#EBF8FF' },
 };
 
 const GROUP_LABELS = {
@@ -367,6 +371,79 @@ function WebnovelWeeklyPanel({ report, loading, onRefresh }: { report: WebnovelW
   );
 }
 
+/** 黑岩 / 点众卡片: 取 trending item extra 里的元数据 (author/words/tags/shelf) */
+function WebnovelCard({ item, platform }: { item: TrendingItem; platform: Platform }) {
+  const ex = (item.extra || {}) as Record<string, unknown>;
+  const author = (ex.author as string) || '';
+  const words = (ex.words_str as string) || (ex.total_word_size as string) || '';
+  const intro = (ex.intro as string) || '';
+  const tags = Array.isArray(ex.tags)
+    ? (ex.tags as string[])
+    : Array.isArray(ex.tag_v3)
+      ? (ex.tag_v3 as string[])
+      : [];
+  const shelf = (ex.shelf as string) || item.hot_value_raw || '';
+  const score = ex.book_score != null ? String(ex.book_score) : '';
+  const isShort = (ex.type as number) === 1 || (ex.words as number) <= 30000;
+  const finished = ex.finished === true;
+  const platformMeta = PLATFORM_META[platform];
+
+  return (
+    <article className="fanqie-book-card flex gap-3 rounded-sm border border-gray-200 bg-white p-3 transition hover:border-primary-border">
+      <a
+        href={item.url || '#'}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="relative h-[100px] w-[68px] shrink-0 overflow-hidden rounded-xs bg-gray-100"
+      >
+        {item.cover_url ? (
+          <img src={item.cover_url} alt={item.title} className="h-full w-full object-cover" loading="lazy" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-[10px] text-gray-400">无封面</div>
+        )}
+      </a>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-2">
+          <a
+            href={item.url || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="line-clamp-1 text-[13px] font-black leading-snug text-gray-900 no-underline"
+          >
+            {item.title}
+          </a>
+          <span className="font-mono text-[10px] text-gray-400">#{item.rank}</span>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-gray-500">
+          {author && <span>{author}</span>}
+          {words && <span>· {words}</span>}
+          {isShort && <span className="rounded-xs px-1 py-px font-bold" style={{ background: platformMeta.bg, color: platformMeta.color }}>短篇</span>}
+          {finished && <span className="rounded-xs bg-gray-100 px-1 py-px font-bold text-gray-600">完结</span>}
+          {score && <span className="text-amber">★ {score}</span>}
+        </div>
+        {intro && (
+          <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-gray-500">{intro}</p>
+        )}
+        {tags.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {tags.slice(0, 3).map((t, i) => (
+              <span key={i} className="rounded-xs bg-gray-100 px-1 py-px text-[9px] text-gray-600">{t}</span>
+            ))}
+          </div>
+        )}
+        <div className="mt-1 flex items-center justify-between text-[10px] text-gray-400">
+          <span>{shelf}</span>
+          {item.url && (
+            <a href={item.url} target="_blank" rel="noreferrer" title="打开原文" className="rounded-xs p-1 text-gray-400 transition hover:bg-gray-100 hover:text-primary">
+              <ExternalLink size={14} />
+            </a>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function BookCard({
   item,
   platform,
@@ -563,6 +640,12 @@ export default function FanqiePage() {
   const [bookFavoriteIds, setBookFavoriteIds] = useState<Map<string, number>>(new Map());
   const [bookFavoritePendingKeys, setBookFavoritePendingKeys] = useState<Set<string>>(new Set());
 
+  // heiyan / ishugui: 数据来源是 trending scrapers, 用 trendingApi.list 拉
+  const [heiyanBooks, setHeiyanBooks] = useState<TrendingItem[]>([]);
+  const [heiyanLoading, setHeiyanLoading] = useState(false);
+  const [ishuguiBooks, setIshuguiBooks] = useState<TrendingItem[]>([]);
+  const [ishuguiLoading, setIshuguiLoading] = useState(false);
+
   const fetchWeeklyReport = useCallback(async () => {
     setWeeklyLoading(true);
     setError(null);
@@ -624,6 +707,32 @@ export default function FanqiePage() {
     }
   }, [zhihuSort, zhihuSubcat]);
 
+  const fetchHeiyanData = useCallback(async () => {
+    setHeiyanLoading(true);
+    setError(null);
+    try {
+      const items = await trendingApi.list({ source: 'heiyan', limit: 100 });
+      setHeiyanBooks(items);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '黑岩榜单加载失败');
+    } finally {
+      setHeiyanLoading(false);
+    }
+  }, []);
+
+  const fetchIshuguiData = useCallback(async () => {
+    setIshuguiLoading(true);
+    setError(null);
+    try {
+      const items = await trendingApi.list({ source: 'ishugui', limit: 100 });
+      setIshuguiBooks(items);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '点众榜单加载失败');
+    } finally {
+      setIshuguiLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (platform === 'fanqie') void fetchFanqieData(rankTab, true);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -650,12 +759,20 @@ export default function FanqiePage() {
   }, [platform, zhihuSort, zhihuSubcat, fetchZhihuData]);
 
   useEffect(() => {
+    if (platform === 'heiyan' && heiyanBooks.length === 0) void fetchHeiyanData();
+  }, [platform, heiyanBooks.length, fetchHeiyanData]);
+
+  useEffect(() => {
+    if (platform === 'ishugui' && ishuguiBooks.length === 0) void fetchIshuguiData();
+  }, [platform, ishuguiBooks.length, fetchIshuguiData]);
+
+  useEffect(() => {
     if (viewMode === 'weekly' && !weeklyReport && !weeklyLoading) void fetchWeeklyReport();
   }, [viewMode, weeklyReport, weeklyLoading, fetchWeeklyReport]);
 
   const fanqieBooks = useMemo(() => booksMap[`${activeCat}|${rankTab}`] || [], [activeCat, booksMap, rankTab]);
   const currentBooks: BookItem[] = platform === 'fanqie' ? fanqieBooks : platform === 'qimao' ? qimaoBooks : zhihuAlbums;
-  const loading = platform === 'fanqie' ? initLoading || switching : platform === 'qimao' ? qimaoLoading : zhihuLoading;
+  const loading = platform === 'fanqie' ? initLoading || switching : platform === 'qimao' ? qimaoLoading : platform === 'heiyan' ? heiyanLoading : platform === 'ishugui' ? ishuguiLoading : zhihuLoading;
   const platformMeta = PLATFORM_META[platform];
   const currentCategory = categories.find((cat) => cat.fanqie_id === activeCat);
 
@@ -710,7 +827,11 @@ export default function FanqiePage() {
     ? `${GROUP_LABELS[groupTab].label} · ${RANK_TYPE_LABELS[rankTab].label}${currentCategory ? ` · ${currentCategory.name}` : ''}`
     : platform === 'qimao'
       ? `${QIMAO_CHANNEL_LABELS[qimaoChannel].label} · ${QIMAO_RANK_LABELS[qimaoRank].label}`
-      : `故事 · ${ZHIHU_SORT_LABELS[zhihuSort].label}${zhihuSubcat ? ` · ${zhihuSubcat}` : ''}`;
+      : platform === 'heiyan'
+        ? `书城 · 4 个公开榜单`
+        : platform === 'ishugui'
+          ? `首页 + 男女频畅销榜`
+          : `故事 · ${ZHIHU_SORT_LABELS[zhihuSort].label}${zhihuSubcat ? ` · ${zhihuSubcat}` : ''}`;
 
   const handleSync = async () => {
     if (platform === 'fanqie') {
@@ -1002,29 +1123,61 @@ export default function FanqiePage() {
           )}
 
           <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
-            {loading ? (
-              <LoadingState label="正在拉取榜单" />
-            ) : filteredBooks.length === 0 ? (
-              query.trim() ? (
-                <EmptyState title="没有匹配的作品" desc="换一个书名、作者或简介关键词试试。" />
-              ) : (
-                <EmptyState />
-              )
-            ) : (
-              <div className="fanqie-book-grid grid gap-2.5">
-                {filteredBooks.map((item) => (
-                  <BookCard
-                    key={'book_id' in item ? `${platform}-${item.book_id}-${item.position}` : `${platform}-${item.business_id}-${item.position}`}
-                    item={item}
-                    platform={platform}
-                    rankTab={rankTab}
-                    favorite={bookFavoriteKeys.has(getBookFavoriteMeta(item, platform, rankTab).target_key)}
-                    favoritePending={bookFavoritePendingKeys.has(getBookFavoriteMeta(item, platform, rankTab).target_key)}
-                    onFavorite={handleToggleBookFavorite}
-                  />
-                ))}
-              </div>
-            )}
+            {(() => {
+              const isWebnovel = platform === 'heiyan' || platform === 'ishugui';
+              const sourceBooks: TrendingItem[] = isWebnovel
+                ? (platform === 'heiyan' ? heiyanBooks : ishuguiBooks)
+                : (filteredBooks as unknown as TrendingItem[]);
+              const filteredWebnovel = isWebnovel
+                ? sourceBooks.filter((item) => {
+                    const q = query.trim().toLowerCase();
+                    if (!q) return true;
+                    const ex = (item.extra || {}) as Record<string, unknown>;
+                    const hay = [item.title, ex.author, ex.intro,
+                      ...(Array.isArray(ex.tags) ? (ex.tags as string[]) : []),
+                      ...(Array.isArray(ex.tag_v3) ? (ex.tag_v3 as string[]) : []),
+                    ].join(' ').toLowerCase();
+                    return hay.includes(q);
+                  })
+                : (filteredBooks as unknown as TrendingItem[]);
+
+              if (loading) {
+                return <LoadingState label="正在拉取榜单" />;
+              }
+              if (filteredWebnovel.length === 0) {
+                return query.trim()
+                  ? <EmptyState title="没有匹配的作品" desc="换一个书名、作者或简介关键词试试。" />
+                  : <EmptyState />;
+              }
+              if (isWebnovel) {
+                return (
+                  <div className="fanqie-book-grid grid gap-2.5">
+                    {(filteredWebnovel as TrendingItem[]).map((item) => (
+                      <WebnovelCard
+                        key={item.id}
+                        item={item}
+                        platform={platform}
+                      />
+                    ))}
+                  </div>
+                );
+              }
+              return (
+                <div className="fanqie-book-grid grid gap-2.5">
+                  {filteredBooks.map((item) => (
+                    <BookCard
+                      key={'book_id' in item ? `${platform}-${item.book_id}-${item.position}` : `${platform}-${item.business_id}-${item.position}`}
+                      item={item}
+                      platform={platform}
+                      rankTab={rankTab}
+                      favorite={bookFavoriteKeys.has(getBookFavoriteMeta(item, platform, rankTab).target_key)}
+                      favoritePending={bookFavoritePendingKeys.has(getBookFavoriteMeta(item, platform, rankTab).target_key)}
+                      onFavorite={handleToggleBookFavorite}
+                    />
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         </main>
       </div>

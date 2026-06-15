@@ -75,6 +75,32 @@ const QIMAO_RANK_LABELS = {
   update: { label: '更新', color: '#059669', bg: '#ECFDF5' },
 } as const;
 
+/** 点众 6 个具体榜单 (按男女频 × 6 维度), key 跟 backend 同步 */
+const ISHUGUI_RANK_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  bestselling:  { label: '畅销榜', color: '#DC2626', bg: '#FEF2F2' },
+  finished:     { label: '完本榜', color: '#D97706', bg: '#FFFBEB' },
+  newest:       { label: '新书榜', color: '#7C3AED', bg: '#F5F3FF' },
+  hot_read:     { label: '热读榜', color: '#059669', bg: '#ECFDF5' },
+  top_rated:    { label: '好评榜', color: '#2563EB', bg: '#EFF6FF' },
+  classic:      { label: '经典榜', color: '#4B5563', bg: '#F3F4F6' },
+};
+
+/** 后端 shelf 名 → ISHUGUI_RANK_LABELS key 的映射 */
+const ISHUGUI_SHELF_TO_RANK: Record<string, string> = {
+  '男生小说畅销榜': 'bestselling',
+  '男生小说完本榜': 'finished',
+  '男生小说新书榜': 'newest',
+  '男生小说热读榜': 'hot_read',
+  '男生小说好评榜': 'top_rated',
+  '男生小说经典榜': 'classic',
+  '女生小说畅销榜': 'bestselling',
+  '女生小说完本榜': 'finished',
+  '女生小说新书榜': 'newest',
+  '女生小说热读榜': 'hot_read',
+  '女生小说好评榜': 'top_rated',
+  '女生小说经典榜': 'classic',
+};
+
 const QIMAO_CHANNEL_LABELS = {
   boy: { label: '男频', color: '#2563EB', bg: '#EFF6FF' },
   girl: { label: '女频', color: '#E11D48', bg: '#FFF1F2' },
@@ -646,6 +672,10 @@ export default function FanqiePage() {
   const [ishuguiBooks, setIshuguiBooks] = useState<TrendingItem[]>([]);
   const [ishuguiLoading, setIshuguiLoading] = useState(false);
 
+  // 点众过滤: 男频/女频 × 6 榜单
+  const [ishuguiGender, setIshuguiGender] = useState<'male' | 'female'>('male');
+  const [ishuguiRankFilter, setIshuguiRankFilter] = useState<string>('');  // 空=全部
+
   const fetchWeeklyReport = useCallback(async () => {
     setWeeklyLoading(true);
     setError(null);
@@ -830,7 +860,7 @@ export default function FanqiePage() {
       : platform === 'heiyan'
         ? `书城 · 4 个公开榜单`
         : platform === 'ishugui'
-          ? `首页 + 男女频畅销榜`
+          ? `${ishuguiGender === 'male' ? '男频' : '女频'}${ishuguiRankFilter ? ` · ${ISHUGUI_RANK_LABELS[ishuguiRankFilter]?.label || ''}` : ' · 6 个榜单'}`
           : `故事 · ${ZHIHU_SORT_LABELS[zhihuSort].label}${zhihuSubcat ? ` · ${zhihuSubcat}` : ''}`;
 
   const handleSync = async () => {
@@ -1061,6 +1091,32 @@ export default function FanqiePage() {
                 </FilterGroup>
               </div>
             )}
+
+            {platform === 'ishugui' && (
+              <div className="flex flex-col gap-3.5">
+                <FilterGroup title="频道">
+                  {(Object.entries(GROUP_LABELS) as Array<[keyof typeof GROUP_LABELS, typeof GROUP_LABELS[keyof typeof GROUP_LABELS]]>).map(([key, value]) => (
+                    <FilterChip key={key} active={ishuguiGender === key} color={value.color} onClick={() => setIshuguiGender(key)}>{value.label}</FilterChip>
+                  ))}
+                </FilterGroup>
+                <FilterGroup title="榜单">
+                  <div className="grid w-full grid-cols-2 gap-1.5">
+                    <FilterChip active={ishuguiRankFilter === ''} color="#0EA5E9" onClick={() => setIshuguiRankFilter('')} className="justify-center">全部</FilterChip>
+                    {(Object.entries(ISHUGUI_RANK_LABELS) as Array<[string, typeof ISHUGUI_RANK_LABELS[string]]>).map(([key, value]) => (
+                      <FilterChip
+                        key={key}
+                        active={ishuguiRankFilter === key}
+                        color={value.color}
+                        onClick={() => setIshuguiRankFilter(key)}
+                        className="justify-center"
+                      >
+                        {value.label}
+                      </FilterChip>
+                    ))}
+                  </div>
+                </FilterGroup>
+              </div>
+            )}
           </Panel>
 
           <Panel className="p-4">
@@ -1128,17 +1184,18 @@ export default function FanqiePage() {
               const sourceBooks: TrendingItem[] = isWebnovel
                 ? (platform === 'heiyan' ? heiyanBooks : ishuguiBooks)
                 : (filteredBooks as unknown as TrendingItem[]);
+              const matchesQuery = (item: TrendingItem) => {
+                const q = query.trim().toLowerCase();
+                if (!q) return true;
+                const ex = (item.extra || {}) as Record<string, unknown>;
+                const hay = [item.title, ex.author, ex.intro,
+                  ...(Array.isArray(ex.tags) ? (ex.tags as string[]) : []),
+                  ...(Array.isArray(ex.tag_v3) ? (ex.tag_v3 as string[]) : []),
+                ].join(' ').toLowerCase();
+                return hay.includes(q);
+              };
               const filteredWebnovel = isWebnovel
-                ? sourceBooks.filter((item) => {
-                    const q = query.trim().toLowerCase();
-                    if (!q) return true;
-                    const ex = (item.extra || {}) as Record<string, unknown>;
-                    const hay = [item.title, ex.author, ex.intro,
-                      ...(Array.isArray(ex.tags) ? (ex.tags as string[]) : []),
-                      ...(Array.isArray(ex.tag_v3) ? (ex.tag_v3 as string[]) : []),
-                    ].join(' ').toLowerCase();
-                    return hay.includes(q);
-                  })
+                ? sourceBooks.filter(matchesQuery)
                 : (filteredBooks as unknown as TrendingItem[]);
 
               if (loading) {
@@ -1150,6 +1207,69 @@ export default function FanqiePage() {
                   : <EmptyState />;
               }
               if (isWebnovel) {
+                // ishugui: 按 gender × rank 分组 (男频 6 块 + 女频 6 块)
+                // heiyan: 按 shelf 分组 (4 个公开榜单)
+                if (platform === 'ishugui') {
+                  // 先按 gender 过滤, 再按 shelf 分组
+                  const genderLabel = ishuguiGender === 'male' ? '男频' : '女频';
+                  const rankFilterActive = ishuguiRankFilter !== '';
+                  const books = (filteredWebnovel as TrendingItem[]).filter((item) => {
+                    const ex = (item.extra || {}) as Record<string, unknown>;
+                    if (ex.gender !== genderLabel) return false;
+                    if (rankFilterActive) {
+                      const shelf = (ex.shelf as string) || '';
+                      const expectedShelf = ishuguiGender === 'male'
+                        ? `男生小说${ISHUGUI_RANK_LABELS[ishuguiRankFilter]?.label || ''}`
+                        : `女生小说${ISHUGUI_RANK_LABELS[ishuguiRankFilter]?.label || ''}`;
+                      if (shelf !== expectedShelf) return false;
+                    }
+                    return true;
+                  });
+
+                  // 按 shelf 分组
+                  const groups = new Map<string, TrendingItem[]>();
+                  books.forEach((item) => {
+                    const shelf = (item.extra?.shelf as string) || '其他';
+                    if (!groups.has(shelf)) groups.set(shelf, []);
+                    groups.get(shelf)!.push(item);
+                  });
+
+                  if (books.length === 0) {
+                    return <EmptyState title="该榜单暂无作品" />;
+                  }
+
+                  return (
+                    <div className="flex flex-col gap-4">
+                      {Array.from(groups.entries()).map(([shelf, items]) => {
+                        const rankKey = ISHUGUI_SHELF_TO_RANK[shelf] || '';
+                        const rankMeta = ISHUGUI_RANK_LABELS[rankKey];
+                        return (
+                          <div key={shelf}>
+                            <div className="mb-2 flex items-center gap-2 px-1">
+                              <span
+                                className="rounded-xs px-2 py-0.5 text-[12px] font-black"
+                                style={rankMeta ? { background: rankMeta.bg, color: rankMeta.color } : { background: '#F3F4F6', color: '#4B5563' }}
+                              >
+                                {rankMeta?.label || shelf}
+                              </span>
+                              <span className="text-[11px] text-gray-400">{items.length} 本</span>
+                            </div>
+                            <div className="fanqie-book-grid grid gap-2.5">
+                              {items.map((item) => (
+                                <WebnovelCard
+                                  key={item.id}
+                                  item={item}
+                                  platform={platform}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+                // heiyan: 单层, 直接 grid
                 return (
                   <div className="fanqie-book-grid grid gap-2.5">
                     {(filteredWebnovel as TrendingItem[]).map((item) => (

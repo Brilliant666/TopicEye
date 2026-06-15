@@ -1,6 +1,6 @@
 """
 七猫小说爬虫服务。
-使用 Playwright 浏览器提取 window.__NUXT__ 数据。
+httpx + py_mini_racer 提取 window.__NUXT__ 数据 (替代原 Playwright 方案)。
 """
 from __future__ import annotations
 

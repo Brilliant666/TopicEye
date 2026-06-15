@@ -6,6 +6,8 @@
 - 公开端点 (实测, 全部 HTTP 200, 无鉴权):
     GET /index.json                          # 首页 (banner + seoColumnVos)
     GET /ranking/{types}.json?types={types}  # 12 个 rank (见 ALL_RANKS)
+- 详情页 URL 模式 (实测): https://www.ishugui.com/book/{bookId}  ← **无 .html 后缀**
+  (.html 后缀实测 404, 不要加)
 - 12 个 rank (完整结构, 用户确认 [6 男频 + 6 女频]):
     男生 畅销/完本/新书/热读/好评/经典 (1-1/1-3/1-5/1-7/1-11/1-20)
     女生 畅销/完本/新书/热读/好评/经典 (2-2/2-4/2-6/2-8/2-12/2-21)
@@ -137,7 +139,7 @@ class IshuguiTrending(BaseTrendingScraper):
                 "title": (banner.get("name") or "").strip(),
                 "rank": global_rank,
                 "hot_value": max(1, 1000 - global_rank),
-                "url": f"https://www.ishugui.com/book/{book_id}.html",
+                "url": f"https://www.ishugui.com/book/{book_id}",
                 "hot_value_raw": "首页 banner",
                 "trend": "stable",
                 "cover_url": banner.get("pcUrl") or banner.get("wapUrl") or "",
@@ -243,7 +245,7 @@ class IshuguiTrending(BaseTrendingScraper):
             "title": name,
             "rank": rank,
             "hot_value": max(1, 1000 - rank),
-            "url": f"https://www.ishugui.com/book/{book_id}.html",
+            "url": f"https://www.ishugui.com/book/{book_id}",
             "hot_value_raw": rank_name,
             "trend": "stable",
             "cover_url": info.get("coverWap", ""),

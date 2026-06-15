@@ -74,6 +74,7 @@ async def _score_content_page(
     page_size: int,
     score_fn,
     sort_order: str = "desc",
+    visible_user_id: Optional[int] = None,
 ) -> dict:
     from app.services.scoring_inputs import build_scoring_inputs
 
@@ -83,7 +84,7 @@ async def _score_content_page(
         exclude_source_types=exclude_source_types,
         time_cutoff=time_cutoff,
         limit=_SCORING_BATCH_SIZE,
-        visible_user_id=current_user.id if current_user is not None else None,
+        visible_user_id=visible_user_id,
     )
     if not scored_items:
         return _empty_list_response(page, page_size)
@@ -196,6 +197,7 @@ async def list_contents(
                 page_size=page_size,
                 score_fn=score_items,
                 sort_order=sort_order,
+                visible_user_id=current_user.id if current_user is not None else None,
             )
 
         # ── Low-follower viral discovery path ────────────────────────────────
@@ -211,6 +213,7 @@ async def list_contents(
                 page=page,
                 page_size=page_size,
                 score_fn=score_low_follower_viral,
+                visible_user_id=current_user.id if current_user is not None else None,
             )
 
         # ── Standard SQL sort path ─────────────────────────────────────────

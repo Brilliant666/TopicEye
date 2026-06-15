@@ -44,6 +44,9 @@ class TrendingSource(str, enum.Enum):
     NETEASE = "netease"
     V2EX = "v2ex"
     SOHU = "sohu"
+    # 网文平台榜单（黑岩/点众，公开 API）
+    HEIYAN = "heiyan"
+    ISHUGUI = "ishugui"
 
 
 class TrendingCategory(str, enum.Enum):
@@ -52,6 +55,7 @@ class TrendingCategory(str, enum.Enum):
     FINANCE = "finance"
     ENTERTAINMENT = "entertainment"
     COMMUNITY = "community"
+    WEBNOVEL = "webnovel"
 
 
 class TrendingItem(Base):

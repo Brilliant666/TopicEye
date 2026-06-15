@@ -6,7 +6,8 @@
 - 暴露端点:
     GET /book/cdn/home?pageId=1663471786814947329     # 书城首页 (4 个 shelves, 27 本)
     GET /book/cdn/shelf/page?shelfId=...&pageNo=...   # 单榜单分页 (5th shelf「好书共赏」)
-    GET /search/new/all?pageNo=N&pageSize=20          # 书库全量 (10 页, 183 本, sortName 现言/古言/...)
+    GET /search/new/all?page=N&pageSize=20         # 书库全量 (10 页, 183 本, sortName 现言/古言/...
+                                                  #   ★ page 是 Spring Data 0-indexed, 不是 pageNo)
 - 失败模式:
     * 反爬: 自定义头缺失 → code=90001「业务渠道不存在」(实测)
     * WAF: 偶尔返回 405 / 🖕🖕🖕🖕, 走 3 次退避重试, 仍失败则降级只抓 home.
@@ -92,18 +93,28 @@ class HeiyanTrending(BaseTrendingScraper):
         self,
         client: httpx.AsyncClient,
         seen: Set[str],
-        max_pages: int = 10,
+        max_pages: int = 12,
         page_size: int = 20,
     ) -> List[TrendingEntry]:
-        """抓 /search/new/all 全量分页. 失败/0 records 立即停, 防御性 10 页上限.
+        """抓 /search/new/all 全量分页. 失败/0 records 立即停, 防御性 12 页上限.
+
+        API quirks (实测):
+        * 分页参数是 `page` (Spring Data 0-indexed), **不是** `pageNo`.
+          之前误用 pageNo 导致所有页返回相同第 1 页, 只抓到 20 本.
+        * `page=0` 与 `page=1` 实测返回相同内容 (后端兼容 quirk).
+          用 seen: Set[book_id] 全局去重, 重复页自动跳过.
+        * totalPages=10 时 page=0..9 有效, page=10 仍返回 3 条 (边界 quirk),
+          page=11 返空 → break.
+
+        终止靠 content 空 + max_pages 上限, 不依赖 totalPages (该字段在边界 quirk 下不可靠).
 
         WAF/异常走 3 次退避重试; 全失败则降级返回空 list, 不 throw.
         """
         entries: List[TrendingEntry] = []
         rank_pos = 0
 
-        for page in range(1, max_pages + 1):
-            url = f"{self.BASE}/search/new/all?pageNo={page}&pageSize={page_size}"
+        for page in range(0, max_pages):
+            url = f"{self.BASE}/search/new/all?page={page}&pageSize={page_size}"
             payload = await self._safe_get_json(client, url, context=f"search/all p{page}")
             if payload is None:
                 logger.warning("heiyan search/all: aborting at page %d after retries", page)
@@ -120,10 +131,6 @@ class HeiyanTrending(BaseTrendingScraper):
                     rank_pos += 1
                     entry["rank"] = rank_pos
                     entries.append(entry)
-
-            total_pages = data.get("totalPages")
-            if total_pages is not None and page >= int(total_pages):
-                break
 
             await asyncio.sleep(self.THROTTLE_SECONDS)
 

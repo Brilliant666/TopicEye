@@ -141,37 +141,44 @@ def test_build_search_entry_shelf_metadata():
 
 # ── _fetch_search_all_pages 分页 ─────────────────────────────
 @pytest.mark.asyncio
-async def test_fetch_search_all_stops_at_total_pages():
-    """totalPages=2 抓 2 页后停, 不抓第 3 页."""
+async def test_fetch_search_all_stops_on_empty_page():
+    """page 2 返空 content → 立即停, 不抓 page 3. (终止靠 content 空, 不靠 totalPages)"""
     scraper = HeiyanTrending()
-    p1 = _ok_payload([_book("a"), _book("b")], total_pages=2, total_elements=2)
-    p2 = _ok_payload([_book("c")], total_pages=2, total_elements=2)
+    p0 = _ok_payload([_book("a"), _book("b")], total_pages=10)
+    p1 = _ok_payload([_book("c")], total_pages=10)
+    p2 = _ok_payload([])  # 空 → 终止
     client = FakeClient([
-        ("pageNo=1", p1),
-        ("pageNo=2", p2),
+        ("page=0", p0),
+        ("page=1", p1),
+        ("page=2", p2),
     ])
     seen: set[str] = set()
-    entries = await scraper._fetch_search_all_pages(client, seen, max_pages=10)
+    entries = await scraper._fetch_search_all_pages(client, seen, max_pages=12)
     assert len(entries) == 3
     assert [e["extra"]["book_id"] for e in entries] == ["a", "b", "c"]
-    # 只调了 2 次
-    assert len(client.calls) == 2
+    # 调了 3 次 (page 0, 1, 2), page=2 空触发终止
+    assert len(client.calls) == 3
 
 
 @pytest.mark.asyncio
-async def test_fetch_search_all_stops_on_empty_page():
-    """page 2 返空 content → 立即停, 不调 page 3."""
+async def test_fetch_search_all_dedupes_repeated_page():
+    """模拟实测 quirk: page=0 与 page=1 返回相同内容, dedup 后只 1 份."""
     scraper = HeiyanTrending()
-    p1 = _ok_payload([_book("x")], total_pages=5, total_elements=20)
-    p2 = _ok_payload([])  # 空
+    p0 = _ok_payload([_book("dup"), _book("x")], total_pages=10)
+    p1 = _ok_payload([_book("dup"), _book("x")], total_pages=10)  # 与 p0 完全相同
+    p2 = _ok_payload([_book("y")], total_pages=10)
+    p3 = _ok_payload([])
     client = FakeClient([
-        ("pageNo=1", p1),
-        ("pageNo=2", p2),
+        ("page=0", p0),
+        ("page=1", p1),
+        ("page=2", p2),
+        ("page=3", p3),
     ])
     seen: set[str] = set()
-    entries = await scraper._fetch_search_all_pages(client, seen, max_pages=10)
-    assert len(entries) == 1
-    assert len(client.calls) == 2
+    entries = await scraper._fetch_search_all_pages(client, seen, max_pages=12)
+    # 3 本 (dup, x, y) - p1 重复被 dedup
+    assert len(entries) == 3
+    assert [e["extra"]["book_id"] for e in entries] == ["dup", "x", "y"]
 
 
 @pytest.mark.asyncio
@@ -179,9 +186,13 @@ async def test_fetch_search_all_dedupes_via_seen():
     """book_id 出现在 seen 里时跳过, rank 不递增."""
     scraper = HeiyanTrending()
     seen = {"shared"}
-    p1 = _ok_payload([_book("shared"), _book("new1")], total_pages=1)
-    client = FakeClient([("pageNo=1", p1)])
-    entries = await scraper._fetch_search_all_pages(client, seen, max_pages=10)
+    p0 = _ok_payload([_book("shared"), _book("new1")], total_pages=10)
+    p1 = _ok_payload([])
+    client = FakeClient([
+        ("page=0", p0),
+        ("page=1", p1),
+    ])
+    entries = await scraper._fetch_search_all_pages(client, seen, max_pages=12)
     assert len(entries) == 1
     assert entries[0]["extra"]["book_id"] == "new1"
     assert entries[0]["rank"] == 1  # 跳过 shared, new1 是合并去重后第 1 个
@@ -191,17 +202,20 @@ async def test_fetch_search_all_dedupes_via_seen():
 async def test_fetch_search_all_retries_on_exception():
     """第 1/2 次抛异常, 第 3 次成功 → 返回数据 (验证 3 次重试)."""
     scraper = HeiyanTrending()
-    p1 = _ok_payload([_book("ok")], total_pages=1)
+    p0 = _ok_payload([_book("ok")], total_pages=10)
+    p1 = _ok_payload([])
     client = FakeClient([
-        ("pageNo=1", RuntimeError("conn reset")),
-        ("pageNo=1", RuntimeError("timeout")),
-        ("pageNo=1", p1),
+        ("page=0", RuntimeError("conn reset")),
+        ("page=0", RuntimeError("timeout")),
+        ("page=0", p0),
+        ("page=1", p1),
     ])
     seen: set[str] = set()
-    entries = await scraper._fetch_search_all_pages(client, seen, max_pages=10)
+    entries = await scraper._fetch_search_all_pages(client, seen, max_pages=12)
     assert len(entries) == 1
     assert entries[0]["extra"]["book_id"] == "ok"
-    assert len(client.calls) == 3
+    # page=0 重试 3 次 + page=1 终止 = 4 次调用
+    assert len(client.calls) == 4
 
 
 @pytest.mark.asyncio
@@ -209,11 +223,11 @@ async def test_fetch_search_all_returns_empty_after_all_retries_fail():
     """3 次重试都失败 → 返回 [], 不 throw."""
     scraper = HeiyanTrending()
     client = FakeClient([
-        ("pageNo=1", RuntimeError("e1")),
-        ("pageNo=1", RuntimeError("e2")),
-        ("pageNo=1", RuntimeError("e3")),
+        ("page=0", RuntimeError("e1")),
+        ("page=0", RuntimeError("e2")),
+        ("page=0", RuntimeError("e3")),
     ])
     seen: set[str] = set()
-    entries = await scraper._fetch_search_all_pages(client, seen, max_pages=10)
+    entries = await scraper._fetch_search_all_pages(client, seen, max_pages=12)
     assert entries == []
     assert len(client.calls) == 3

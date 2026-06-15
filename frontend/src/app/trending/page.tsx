@@ -38,6 +38,7 @@ const CATEGORIES = [
   { value: 'hot', label: '热点' },
   { value: 'tech', label: '科技' },
   { value: 'finance', label: '财经' },
+  { value: 'webnovel', label: '网文' },
 ] as const;
 
 const SOURCE_BRAND: Record<string, { label: string; color: string; bg: string }> = {
@@ -61,6 +62,8 @@ const SOURCE_BRAND: Record<string, { label: string; color: string; bg: string }>
   sohu:        { label: '搜狐',     color: '#D8503C', bg: '#FDF0EF' },
   hupu:        { label: '虎扑',     color: '#D43030', bg: '#FDF0F0' },
   kr36:        { label: '36氪',     color: '#0080FF', bg: '#ECF3FF' },
+  heiyan:      { label: '黑岩',     color: '#A855F7', bg: '#F5F0FF' },
+  ishugui:     { label: '点众',     color: '#0EA5E9', bg: '#EBF8FF' },
 };
 
 function sourceBrand(source: string) {
@@ -75,7 +78,73 @@ const CATEGORY_COLORS: Record<string, { bgClass: string; textClass: string; bord
   hot: { bgClass: 'bg-primary-light', textClass: 'text-primary', borderClass: 'border-primary-border' },
   tech: { bgClass: 'bg-teal-light', textClass: 'text-teal', borderClass: 'border-teal-border' },
   finance: { bgClass: 'bg-amber-light', textClass: 'text-amber', borderClass: 'border-amber-border' },
+  webnovel: { bgClass: 'bg-purple-light', textClass: 'text-purple', borderClass: 'border-purple-border' },
 };
+
+/** 是否为网文类目 (走 bookId/cover/author/tags 字段而非纯 hot_value) */
+function isWebnovelSource(source: string): boolean {
+  return source === 'heiyan' || source === 'ishugui';
+}
+
+/** 网文 item 卡片: 取 extra 里的封面/作者/字数/标签做信息密度更高的展示 */
+function WebnovelItemRow({ item, rank }: { item: TrendingItem; rank: number }) {
+  const extra = (item.extra || {}) as Record<string, unknown>;
+  const author = (extra.author as string) || '';
+  const words = (extra.words_str as string) || (extra.total_word_size as string) || '';
+  const tags = Array.isArray(extra.tags)
+    ? (extra.tags as unknown[]).map(String)
+    : Array.isArray(extra.tag_v3)
+      ? (extra.tag_v3 as unknown[]).map(String)
+      : [];
+  const shelf = (extra.shelf as string) || item.hot_value_raw || '';
+  const score = extra.book_score != null ? String(extra.book_score) : '';
+  const isShort = (extra.type as number) === 1 || (extra.words as number) <= 30000;
+
+  return (
+    <a
+      href={item.url || '#'}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cx(
+        'flex items-start gap-2.5 border-b border-gray-100 px-3.5 py-2 no-underline transition hover:bg-purple-light',
+        rank <= 3 ? 'bg-gray-50' : 'bg-white',
+      )}
+    >
+      <span className={cx(
+        'mt-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-xs font-mono text-[11px] font-black',
+        rank === 1 ? 'bg-gradient-to-br from-purple to-[#C084FC] text-white'
+          : rank === 2 ? 'bg-gradient-to-br from-amber to-[#FFB870] text-white'
+            : rank === 3 ? 'bg-gradient-to-br from-[#FFD59E] to-[#FFE0B2] text-white'
+              : 'bg-gray-100 text-gray-500',
+      )}>
+        {rank}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[12.5px] font-black leading-snug text-gray-900">
+          {item.title}
+        </div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-gray-500">
+          {author && <span>{author}</span>}
+          {words && <span>· {words}</span>}
+          {isShort && <span className="rounded-xs bg-purple-light px-1 py-px font-bold text-purple">短篇</span>}
+          {score && <span className="text-amber">★ {score}</span>}
+        </div>
+        {tags.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {tags.slice(0, 3).map((t, i) => (
+              <span key={i} className="rounded-xs bg-gray-100 px-1 py-px text-[9px] text-gray-600">
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <span className="mt-0.5 shrink-0 whitespace-nowrap text-[9px] text-gray-400">
+        {shelf}
+      </span>
+    </a>
+  );
+}
 
 const TREND_ICONS: Record<string, LucideIcon> = {
   up: ArrowUp, down: ArrowDown, new: Star, stable: ArrowRight,
@@ -747,7 +816,12 @@ function TrendingPage() {
                     </div>
 
                     <div className="max-h-[460px] overflow-y-auto [scrollbar-color:#D1D5DB_transparent] [scrollbar-width:thin]">
-                      {srcItems.map((item, idx) => (
+                      {srcItems.map((item, idx) => {
+                        const rank = idx + 1;
+                        if (isWebnovelSource(item.source)) {
+                          return <WebnovelItemRow key={item.id} item={item} rank={rank} />;
+                        }
+                        return (
                         <a
                           key={item.id}
                           href={item.url || '#'}
@@ -777,7 +851,8 @@ function TrendingPage() {
                           )}
                           <TrendBadge trend={item.trend} />
                         </a>
-                      ))}
+                        );
+                      })}
                     </div>
                   </Panel>
                 );

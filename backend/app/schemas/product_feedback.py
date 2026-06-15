@@ -71,45 +71,42 @@ class IssueFeedbackListResponse(BaseModel):
     fixed_count: int
 
 
-class ProductUpdateCreate(BaseModel):
+# ── Product updates: 1 version = 1 record, items[] 装多条更新 ────────────────
+
+class ProductUpdateEntry(BaseModel):
+    """版本里的一项更新。kind 仅决定展示图标 (release/improvement/fix/roadmap)。"""
     title: str = Field(min_length=2, max_length=200)
     description: str = Field(min_length=5, max_length=5000)
-    kind: ProductUpdateKind = ProductUpdateKind.roadmap
-    status: ProductUpdateStatus = ProductUpdateStatus.planned
-    version: Optional[str] = Field(default=None, max_length=50)
-    target_date: Optional[date] = None
-    shipped_at: Optional[datetime] = None
+    kind: ProductUpdateKind = ProductUpdateKind.improvement
 
     @field_validator("title", "description", mode="before")
     @classmethod
-    def clean_required_text(cls, value: str) -> str:
+    def clean_text(cls, value: str) -> str:
         if not isinstance(value, str):
             return value
         return value.strip()
 
+
+class ProductUpdateCreate(BaseModel):
+    """创建一个版本记录。items 必填，至少 1 条。"""
+    version: str = Field(min_length=1, max_length=50)
+    status: ProductUpdateStatus = ProductUpdateStatus.planned
+    target_date: Optional[date] = None
+    shipped_at: Optional[datetime] = None
+    items: list[ProductUpdateEntry] = Field(min_length=1)
+
     @field_validator("version", mode="before")
     @classmethod
-    def clean_version(cls, value: Optional[str]) -> Optional[str]:
+    def clean_version(cls, value: str) -> str:
         return _clean_text(value)
 
 
 class ProductUpdatePatch(BaseModel):
-    title: Optional[str] = Field(default=None, min_length=2, max_length=200)
-    description: Optional[str] = Field(default=None, min_length=5, max_length=5000)
-    kind: Optional[ProductUpdateKind] = None
+    version: Optional[str] = Field(default=None, min_length=1, max_length=50)
     status: Optional[ProductUpdateStatus] = None
-    version: Optional[str] = Field(default=None, max_length=50)
     target_date: Optional[date] = None
     shipped_at: Optional[datetime] = None
-
-    @field_validator("title", "description", mode="before")
-    @classmethod
-    def clean_optional_required_text(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        if not isinstance(value, str):
-            return value
-        return value.strip()
+    items: Optional[list[ProductUpdateEntry]] = Field(default=None, min_length=1)
 
     @field_validator("version", mode="before")
     @classmethod
@@ -118,14 +115,13 @@ class ProductUpdatePatch(BaseModel):
 
 
 class ProductUpdateResponse(BaseModel):
+    """1 个版本对应 1 条记录; 该版本的多项更新挂在 items[] 上."""
     id: int
-    title: str
-    description: str
-    kind: ProductUpdateKind
+    version: str
     status: ProductUpdateStatus
-    version: Optional[str] = None
     target_date: Optional[date] = None
     shipped_at: Optional[datetime] = None
+    items: list[ProductUpdateEntry]
     created_by_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime

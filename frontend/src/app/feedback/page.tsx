@@ -599,21 +599,32 @@ function UpdateList({
 
   return (
     <div className="space-y-3">
-      {items.map((item) => (
-        <div key={item.id} className="rounded-sm border border-gray-200 bg-white p-3.5">
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            <UpdateBadge status={item.status} />
-            <Badge tone={item.kind === 'fix' ? 'amber' : item.kind === 'release' ? 'primary' : 'neutral'}>
-              {UPDATE_KIND_LABELS[item.kind]}
-            </Badge>
-            {item.version && <Badge tone="purple">{item.version}</Badge>}
+      {items.map((version) => (
+        <div key={version.id} className="rounded-sm border border-gray-200 bg-white p-3.5">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <UpdateBadge status={version.status} />
+            <Badge tone="purple">{version.version}</Badge>
+            <span className="text-[11px] font-bold text-gray-500">
+              {version.items.length} 项更新
+            </span>
             <span className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-400">
               <Clock3 size={12} />
-              {item.status === 'shipped' ? formatTime(item.shipped_at) : formatDate(item.target_date)}
+              {version.status === 'shipped' ? formatTime(version.shipped_at) : formatDate(version.target_date)}
             </span>
           </div>
-          <div className="text-sm font-black leading-6 text-gray-900">{item.title}</div>
-          <p className="mt-1 text-[13px] leading-6 text-gray-500">{item.description}</p>
+          <ul className="space-y-2.5">
+            {version.items.map((entry, idx) => (
+              <li key={idx} className="border-l-2 border-gray-100 pl-3">
+                <div className="mb-1 flex items-center gap-2">
+                  <Badge tone={entry.kind === 'fix' ? 'amber' : entry.kind === 'release' ? 'primary' : entry.kind === 'improvement' ? 'teal' : 'neutral'}>
+                    {UPDATE_KIND_LABELS[entry.kind]}
+                  </Badge>
+                  <span className="text-sm font-black leading-6 text-gray-900">{entry.title}</span>
+                </div>
+                <p className="text-[13px] leading-6 text-gray-500">{entry.description}</p>
+              </li>
+            ))}
+          </ul>
         </div>
       ))}
     </div>

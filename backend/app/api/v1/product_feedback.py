@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import case as sa_case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_admin_user, get_current_user, get_optional_current_user
@@ -27,7 +27,6 @@ from app.schemas.product_feedback import (
     ProductUpdatePatch,
     ProductUpdateResponse,
 )
-from app.services.product_updates import list_builtin_product_updates
 
 router = APIRouter(prefix="/product-feedback", tags=["product-feedback"])
 
@@ -197,18 +196,49 @@ async def update_issue_feedback(
     return _issue_response(issue, reporter)
 
 
+# ── Product updates: 1 version = 1 record, items[] 装该版本的多条更新 ────────
+# 数据全部在 DB (product_updates 表), 通过 alembic migration seed.
+# 历史 BUILTIN_PRODUCT_UPDATES 已废弃, 避免数据/代码双源.
+
 @router.get("/updates", response_model=ProductUpdateListResponse)
 async def list_product_updates(
     kind: Optional[ProductUpdateKind] = Query(None),
     status: Optional[ProductUpdateStatus] = Query(None),
     limit: int = Query(100, ge=1, le=300),
     offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
 ):
-    items, total = list_builtin_product_updates(kind=kind, status=status, limit=limit, offset=offset)
-    return ProductUpdateListResponse(
-        items=items,
-        total=total,
+    """从 DB 查 product_updates. items 是 JSON 数组, 无法在 SQL 里筛内部字段,
+    kind 过滤走 Python."""
+    filters = []
+    if status is not None:
+        filters.append(ProductUpdate.status == status)
+
+    total = await db.scalar(select(func.count(ProductUpdate.id)).where(*filters))
+    result = await db.execute(
+        select(ProductUpdate)
+        .where(*filters)
+        .order_by(
+            # shipped 在前 (1), 非 shipped 在后 (0); 同档按 shipped_at/updated_at 倒序
+            sa_case(
+                (ProductUpdate.status == ProductUpdateStatus.shipped, 1),
+                else_=0,
+            ).desc(),
+            ProductUpdate.shipped_at.desc().nullslast(),
+            ProductUpdate.updated_at.desc(),
+        )
+        .limit(limit)
+        .offset(offset)
     )
+    items: list[ProductUpdateResponse] = []
+    for row in result.scalars().all():
+        resp = ProductUpdateResponse.model_validate(row)
+        if kind is not None and not any(e.kind == kind for e in resp.items):
+            continue
+        items.append(resp)
+
+    # 注意: total 是 DB 计数, kind 过滤后 Python 端可能更少; 这里只对 status 精确
+    return ProductUpdateListResponse(items=items, total=int(total or 0))
 
 
 @router.post("/updates", response_model=ProductUpdateResponse, status_code=201)
@@ -222,13 +252,11 @@ async def create_product_update(
         shipped_at = datetime.utcnow()
 
     item = ProductUpdate(
-        title=data.title,
-        description=data.description,
-        kind=data.kind,
-        status=data.status,
         version=data.version,
+        status=data.status,
         target_date=data.target_date,
         shipped_at=shipped_at,
+        items=[entry.model_dump(mode="json") for entry in data.items],
         created_by_id=current_admin.id,
     )
     db.add(item)
@@ -249,10 +277,16 @@ async def update_product_update(
         raise HTTPException(status_code=404, detail="Product update not found")
 
     changes = data.model_dump(exclude_unset=True)
-    for field, value in changes.items():
-        if field in {"title", "description"} and value is None:
-            continue
-        setattr(item, field, value)
+    if "version" in changes:
+        item.version = changes["version"]
+    if "status" in changes:
+        item.status = changes["status"]
+    if "target_date" in changes:
+        item.target_date = changes["target_date"]
+    if "items" in changes and changes["items"] is not None:
+        item.items = changes["items"]
+    if "shipped_at" in changes:
+        item.shipped_at = changes["shipped_at"]
     if data.status == ProductUpdateStatus.shipped and item.shipped_at is None:
         item.shipped_at = datetime.utcnow()
     if data.status is not None and data.status != ProductUpdateStatus.shipped and "shipped_at" not in changes:
@@ -262,3 +296,19 @@ async def update_product_update(
     await db.flush()
     await db.refresh(item)
     return item
+
+
+@router.delete("/updates/{update_id}", status_code=204)
+async def delete_product_update(
+    update_id: int,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(get_current_admin_user),
+):
+    """删除管理员在 DB 中创建的 ProductUpdate (builtin 不可删)."""
+    if update_id <= 0:
+        raise HTTPException(status_code=400, detail="Builtin updates cannot be deleted")
+    item = await db.get(ProductUpdate, update_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Product update not found")
+    await db.delete(item)
+    await db.flush()

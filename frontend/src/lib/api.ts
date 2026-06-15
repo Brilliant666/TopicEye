@@ -1121,15 +1121,20 @@ export interface IssueFeedbackListResponse {
   fixed_count: number;
 }
 
-export interface ProductUpdateItem {
-  id: number;
+export interface ProductUpdateEntry {
   title: string;
   description: string;
   kind: ProductUpdateKind;
+}
+
+export interface ProductUpdateItem {
+  /** 1 个版本 = 1 记录; items[] 装该版本的全部更新 */
+  id: number;
+  version: string;
   status: ProductUpdateStatus;
-  version?: string | null;
   target_date?: string | null;
   shipped_at?: string | null;
+  items: ProductUpdateEntry[];
   created_by_id?: number | null;
   created_at: string;
   updated_at: string;
@@ -1210,12 +1215,11 @@ export const productFeedbackApi = {
   },
 
   createUpdate(data: {
-    title: string;
-    description: string;
-    kind: ProductUpdateKind;
+    version: string;
     status: ProductUpdateStatus;
-    version?: string | null;
     target_date?: string | null;
+    shipped_at?: string | null;
+    items: ProductUpdateEntry[];
   }): Promise<ProductUpdateItem> {
     return request('/product-feedback/updates', {
       method: 'POST',
@@ -1224,18 +1228,20 @@ export const productFeedbackApi = {
   },
 
   updateProductUpdate(id: number, data: Partial<{
-    title: string;
-    description: string;
-    kind: ProductUpdateKind;
+    version: string;
     status: ProductUpdateStatus;
-    version: string | null;
     target_date: string | null;
     shipped_at: string | null;
+    items: ProductUpdateEntry[];
   }>): Promise<ProductUpdateItem> {
     return request(`/product-feedback/updates/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     });
+  },
+
+  deleteProductUpdate(id: number): Promise<void> {
+    return request(`/product-feedback/updates/${id}`, { method: 'DELETE' });
   },
 };
 

@@ -19,8 +19,8 @@ class TopicGroup(Base):
     summary = Column(Text, nullable=True, comment="话题一句话摘要")
     content_count = Column(Integer, default=0, comment="话题下内容数")
     best_score = Column(Float, default=0.0, comment="话题内最高精选分")
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # Relationships
     items = relationship(

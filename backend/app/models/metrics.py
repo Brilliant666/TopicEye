@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Integer, Float, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -19,6 +19,6 @@ class ContentMetrics(Base):
     followers_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0)
     engagement_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True, default=0.0)
     explosion_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True, default=0.0)
-    snapshot_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    snapshot_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     content: Mapped["ContentItem"] = relationship(back_populates="metrics")

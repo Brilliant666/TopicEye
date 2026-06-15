@@ -7,7 +7,7 @@ render trend charts without re-computing from raw content every time.
 
 from __future__ import annotations
 
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Optional
 
 from sqlalchemy import String, Integer, Float, Date, DateTime, JSON
@@ -41,5 +41,5 @@ class TopicTrend(Base):
     top_items: Mapped[Optional[str]] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )

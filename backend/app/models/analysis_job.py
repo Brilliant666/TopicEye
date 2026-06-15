@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import DateTime, Index, JSON, String, Text
@@ -18,9 +18,9 @@ class AnalysisJobRecord(Base):
     skipped_inflight_ids: Mapped[list[int]] = mapped_column(JSON, nullable=False, default=list)
     analyzed_ids: Mapped[list[int]] = mapped_column(JSON, nullable=False, default=list)
     failed_ids: Mapped[list[int]] = mapped_column(JSON, nullable=False, default=list)
-    queued_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     __table_args__ = (

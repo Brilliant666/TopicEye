@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Optional
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, JSON, Boolean, Float, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -27,8 +27,8 @@ class ContentItem(Base):
     platform: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     owner_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="冗余 source.owner_user_id；NULL=公共内容池")
     author: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    crawled_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    crawled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     raw_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -44,8 +44,8 @@ class ContentItem(Base):
     duplicate_of: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("content_items.id", ondelete="SET NULL"), nullable=True, comment="Points to canonical item if duplicate")
     similarity_score: Mapped[Optional[float]] = mapped_column(Float, default=0.0, comment="Similarity score to group representative")
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("ix_content_items_owner", "owner_user_id"),

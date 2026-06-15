@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Boolean, Integer, Float, Text, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -46,6 +46,6 @@ class AiAnalysis(Base):
     # ── Round-2 enrichment fields ──
     enrichment_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="pending")  # pending|completed|error
     enrichment: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # background/related_angles/why_matters/creator_tips
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     content: Mapped["ContentItem"] = relationship(back_populates="analyses")

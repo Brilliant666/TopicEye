@@ -11,7 +11,7 @@ TrendingSnapshot — 趋势雷达历史快照。
 from __future__ import annotations
 
 import enum
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Optional, List
 
 from sqlalchemy import String, Integer, DateTime, Date, JSON
@@ -72,7 +72,7 @@ class TrendingItem(Base):
     trend: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # up/down/new/stable
     cover_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
     extra: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    fetched_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     batch_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
 
 
@@ -91,4 +91,4 @@ class TrendingSnapshot(Base):
     category: Mapped[str] = mapped_column(String(20), nullable=False, default="hot")
     items: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
     total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    fetched_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))

@@ -21,8 +21,8 @@ class FanqieCategory(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)  # "西方奇幻"
     group: Mapped[str] = mapped_column(String(20), nullable=False)  # "male" / "female"
     display_order: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
 
     __table_args__ = (
         Index("ix_fanqie_cat_group", "group"),
@@ -47,7 +47,7 @@ class FanqieBook(Base):
     last_chapter_update_time: Mapped[Optional[int]] = mapped_column(Integer)
     current_pos: Mapped[int] = mapped_column(Integer, default=0)  # 榜单排名
     rank_type: Mapped[str] = mapped_column(String(30), nullable=False)  # male_reading / male_new / female_reading / female_new
-    crawled_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    crawled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
 
     # 四个榜单各一个 pos
     male_reading_pos: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -75,7 +75,7 @@ class FanqieRankSnapshot(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)  # 当日排名
     read_count: Mapped[Optional[str]] = mapped_column(String(50))
     word_number: Mapped[Optional[str]] = mapped_column(String(50))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now())
 
     __table_args__ = (
         Index("ix_snap_date_type", "snapshot_date", "rank_type"),

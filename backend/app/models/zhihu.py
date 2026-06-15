@@ -68,10 +68,10 @@ class ZhihuAlbum(Base):
     # 排名变化（与上次快照比，涨则为正，降则为负）
     rank_pos_diff: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # 创建时间
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
     # 更新时间
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
     __table_args__ = (
@@ -111,7 +111,7 @@ class ZhihuCategory(Base):
     parent_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     sort: Mapped[int] = mapped_column(Integer, default=0)
     artwork: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (Index('ix_zhihu_cat_parent', 'parent_id', 'sort'),)
 
@@ -126,4 +126,4 @@ class ZhihuRankSnapshot(Base):
     category1_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     category2_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     total_count: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)

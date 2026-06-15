@@ -3,7 +3,7 @@ Daily Report model — AI-generated daily briefing for creators.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import String, Text, DateTime, Integer, ForeignKey, Index, UniqueConstraint
@@ -31,10 +31,10 @@ class DailyReport(Base):
     report_date: Mapped[str] = mapped_column(String(10), nullable=False, index=True)  # YYYY-MM-DD
     weekday: Mapped[str] = mapped_column(String(10), nullable=False)  # 周一~周日
     edition: Mapped[str] = mapped_column(String(20), default="snapshot", nullable=False, index=True)
-    generated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-    window_start: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    window_end: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    cutoff_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    window_start: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    window_end: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    cutoff_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
     source_scope: Mapped[str] = mapped_column(String(20), default="curated", nullable=False)
     source_item_ids: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
@@ -61,5 +61,5 @@ class DailyReport(Base):
 
     status: Mapped[str] = mapped_column(String(20), default="PENDING")  # PENDING / GENERATING / DONE / ERROR
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

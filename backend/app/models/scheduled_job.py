@@ -5,7 +5,7 @@ Two tables:
   - scheduled_jobs: task config (name, cron, enabled, timeout …)
   - job_execution_logs: every run (start, end, status, duration, result)
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -29,10 +29,10 @@ class ScheduledJob(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     timeout_seconds: Mapped[int] = mapped_column(Integer, default=300, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_run_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("ix_scheduled_jobs_enabled", "enabled"),
@@ -49,14 +49,14 @@ class JobExecutionLog(Base):
     job_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False,
                                         comment="RUNNING / SUCCESS / FAILED / TIMEOUT / SKIPPED")
-    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, comment="执行耗时(毫秒)")
     result_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="成功时输出摘要")
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="失败时错误信息")
     trigger_type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True,
                                                       comment="scheduler / manual")
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("ix_job_exec_logs_job_key_started", "job_key", "started_at"),

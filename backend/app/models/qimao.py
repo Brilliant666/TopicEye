@@ -43,7 +43,7 @@ class QimaoBook(Base):
     date_type: Mapped[str] = mapped_column(String(10), nullable=False)            # ""/"day"/"month"
     position: Mapped[int] = mapped_column(Integer, nullable=False)              # 榜单内排名
 
-    crawled_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
+    crawled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=func.now(), nullable=False)
 
     __table_args__ = (
         Index("ix_qimao_channel_rank", "channel", "rank_type"),

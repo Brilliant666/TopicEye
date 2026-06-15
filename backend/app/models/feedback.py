@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Optional
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Integer, Float, Text, DateTime, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -44,7 +44,7 @@ class UserFeedback(Base):
     score_delta: Mapped[float] = mapped_column(Float, nullable=False)
     comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.utcnow
+        DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc)
     )
 
     user = relationship("User")

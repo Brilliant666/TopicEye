@@ -939,7 +939,7 @@ export default function FanqiePage() {
   const topItem = currentBooks[0];
   const heiyanContextLabel = heiyanShelfFilter === 'search_all'
     ? `书库全量${heiyanSortFilter ? ` · 分类=${HEIYAN_SORT_STYLE[heiyanSortFilter]?.label || heiyanSortFilter}` : ''}${heiyanTagFilter ? ` · 标签=${heiyanTagFilter}` : ''}`
-    : `推荐 · 4 个首页榜单（${['书城轮播图', '爆款力荐', '热门绝佳', '新书尝鲜'].map(s => HEIYAN_HOME_SHELF_LABELS[s] || s).join(' / ')}）${heiyanTagFilter ? ` · 标签=${heiyanTagFilter}` : ''}`;
+    : `推荐 · 4 个榜单${heiyanTagFilter ? ` · 标签=${heiyanTagFilter}` : ''}`;
   const contextLabel = platform === 'fanqie'
     ? `${GROUP_LABELS[groupTab].label} · ${RANK_TYPE_LABELS[rankTab].label}${currentCategory ? ` · ${currentCategory.name}` : ''}`
     : platform === 'qimao'

@@ -27,8 +27,9 @@ from . import BaseTrendingScraper, register_trending, TrendingEntry
 
 logger = logging.getLogger(__name__)
 
-# Next.js SSG 把 build_id 嵌在 _next/data/ 路径里. 兜底用.
-_BUILD_ID_RE = re.compile(r"/_next/data/([A-Za-z0-9_]+)/")
+# Next.js 把 build_id 嵌在 SSG HTML 的 self.__next_f.push([1,"...buildId\":\"<id>\"..."]) 块里.
+# 简单场景下还能用 _next/data/<id>/ 引用, 但更稳的形态是匹配 "buildId":"<id>".
+_BUILD_ID_RE = re.compile(r'buildId["\']?\s*:\s*["\']([A-Za-z0-9_]+)["\']')
 
 
 @register_trending("ishugui")

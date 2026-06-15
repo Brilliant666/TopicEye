@@ -19,6 +19,7 @@ Usage:
 """
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 import threading
@@ -358,7 +359,15 @@ class DuckDBAnalytics:
                 "avg_score": float(row[4]) if row[4] else 0.0,
                 "max_score": float(row[5]) if row[5] else 0.0,
                 "pick_count": row[6] or 0,
-                "top_items": row[7],
+                # topic_trends.top_items is a JSON string column in SQLite.
+                # The DuckDB ATTACH view returns the raw text, so we parse
+                # it here to honour the contract ``top_items: list[dict]``.
+                # If the stored value is corrupt or missing, fall back to [].
+                "top_items": (
+                    json.loads(row[7])
+                    if isinstance(row[7], str) and row[7]
+                    else (row[7] if isinstance(row[7], list) else [])
+                ),
             }
             for row in results
         ]

@@ -155,7 +155,7 @@ async def sync_and_analyze() -> None:
 async def cleanup_old_content() -> None:
     """Remove pending content older than 90 days."""
     logger.info("Scheduler: cleanup_old_content started")
-    cutoff = datetime.utcnow() - timedelta(days=90)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
 
     async with async_session() as db:
         content_repo = ContentRepo(db)

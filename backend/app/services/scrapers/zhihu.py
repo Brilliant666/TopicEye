@@ -220,8 +220,7 @@ class ZhihuScraper(BaseScraper):
             "summary": summary,
             "raw_content": raw_content if raw_content else None,
             "tags": tags,
-            # content.published_at 列是 TIMESTAMP WITHOUT TIME ZONE (naive), 必须去 tzinfo
-            "published_at": datetime.now(timezone.utc).replace(tzinfo=None),
+            "published_at": datetime.now(timezone.utc),
             "cover_url": thumbnail,
             # Zhihu-specific metadata stored for scoring engine
             "_zhihu_meta": {

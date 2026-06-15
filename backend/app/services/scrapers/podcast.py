@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -133,7 +133,7 @@ class PodcastScraper(BaseScraper):
 
         for entry in feed.entries:
             published = entry.get("published_parsed") or entry.get("updated_parsed")
-            published_at = datetime(*published[:6]) if published else datetime.utcnow()
+            published_at = datetime(*published[:6]) if published else datetime.now(timezone.utc)
             # Podcast cover art: itunes:image or enclosure
             cover_url = ""
             if "itunes_image" in entry:

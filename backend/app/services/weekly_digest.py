@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -30,7 +30,7 @@ DIGEST_GENERATING_STALE_AFTER = timedelta(minutes=10)
 
 
 def _utc_now() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 def _get_week_range(reference_date: Optional[date] = None) -> tuple[str, str, str, str]:

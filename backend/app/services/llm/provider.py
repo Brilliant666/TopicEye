@@ -16,7 +16,7 @@ import logging
 import time
 import asyncio
 from typing import Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import threading
 
 from litellm import completion
@@ -180,7 +180,7 @@ class ModelFailover:
     def on_failure(self, key: str, *, reset_at: Optional[datetime] = None, cooldown_seconds: int = 300):
         """Called when a model fails. Pass reset_at if the provider supplied one."""
         cooldown = max(cooldown_seconds or 300, 1)
-        effective_reset = reset_at or (datetime.utcnow() + timedelta(seconds=cooldown))
+        effective_reset = reset_at or (datetime.now(timezone.utc) + timedelta(seconds=cooldown))
         with self._lock:
             self._cooldowns[key] = effective_reset
         logger.warning("ModelFailover: %s degraded until %s", key, effective_reset)
@@ -203,7 +203,7 @@ class ModelFailover:
             reset_at = self._cooldowns.get(key)
             if not reset_at:
                 return False
-            if datetime.utcnow() < reset_at:
+            if datetime.now(timezone.utc) < reset_at:
                 return True
             logger.info("ModelFailover: cooldown passed, trying %s", key)
             self._cooldowns.pop(key, None)

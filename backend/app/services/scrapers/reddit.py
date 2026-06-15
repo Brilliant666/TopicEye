@@ -229,8 +229,7 @@ class RedditScraper(BaseScraper):
         url = discussion_url if is_self else post.get("url", discussion_url)
         author = post.get("author", "unknown")
         created_utc = post.get("created_utc", 0)
-        # content.published_at 列是 TIMESTAMP WITHOUT TIME ZONE (naive), 必须去 tzinfo
-        published_at = datetime.fromtimestamp(created_utc, tz=timezone.utc).replace(tzinfo=None)
+        published_at = datetime.fromtimestamp(created_utc, tz=timezone.utc)
 
         # Build content body
         parts: list[str] = []

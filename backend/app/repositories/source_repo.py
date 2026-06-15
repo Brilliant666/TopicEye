@@ -4,7 +4,7 @@ Repository for Source model operations.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Sequence
 
 from sqlalchemy import select
@@ -57,7 +57,7 @@ async def claim_source_sync(
     min_interval_seconds: int = 0,
 ) -> Source | None:
     """Acquire a cross-process source-sync lease via ``last_sync_at``."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     lease_cutoff = now - timedelta(seconds=max(int(lease_seconds), 1))
     interval_cutoff = now - timedelta(seconds=max(int(min_interval_seconds), 0))
 
@@ -73,9 +73,12 @@ async def claim_source_sync(
             return None
         if not source.enabled or source.status == SourceStatus.DISABLED:
             return None
-        if source.status == SourceStatus.SYNCING and source.last_sync_at is not None and source.last_sync_at > lease_cutoff:
+        # DB (SQLite) 读出 last_sync_at 可能是 naive, 统一 aware UTC 再比较
+        from app.core.db_backend import ensure_aware_utc
+        last_sync_aware = ensure_aware_utc(source.last_sync_at)
+        if source.status == SourceStatus.SYNCING and last_sync_aware is not None and last_sync_aware > lease_cutoff:
             return None
-        if min_interval_seconds > 0 and source.last_sync_at is not None and source.last_sync_at > interval_cutoff:
+        if min_interval_seconds > 0 and last_sync_aware is not None and last_sync_aware > interval_cutoff:
             return None
 
         source.last_sync_at = now

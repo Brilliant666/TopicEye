@@ -23,7 +23,7 @@ import json
 import logging
 from pathlib import Path
 import threading
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from app.core.config import settings
@@ -217,7 +217,7 @@ class DuckDBAnalytics:
         Returns items with adjusted_curation_score >= threshold.
         """
         conn = self._get_conn()
-        cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
         params: List[Any] = [cutoff]
         feedback_min = float(SCORING_CONFIG["feedback_score_min"])
         feedback_max = float(SCORING_CONFIG["feedback_score_max"])
@@ -406,7 +406,7 @@ class DuckDBAnalytics:
         """Return latest analyzed stats candidates with unified scorer results."""
         conn = self._get_conn()
         window = timedelta(hours=hours) if hours is not None else timedelta(days=days)
-        cutoff = (datetime.utcnow() - window).isoformat()
+        cutoff = (datetime.now(timezone.utc) - window).isoformat()
         rows = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},
             {self._feedback_scores_cte(conn)},
@@ -525,8 +525,8 @@ class DuckDBAnalytics:
     ) -> Dict[str, Any]:
         """Content overview KPI cards, computed in DuckDB."""
         conn = self._get_conn()
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
-        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         if scored_items is None:
             scored_items = self._query_stats_scored_items(days=days)
         threshold = self._stats_threshold_from_scored(scored_items)
@@ -569,7 +569,7 @@ class DuckDBAnalytics:
     ) -> Dict[str, Any]:
         """Source distribution, computed in DuckDB."""
         conn = self._get_conn()
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         if scored_items is None:
             scored_items = self._query_stats_scored_items(days=days)
         selected_counts = self._stats_selected_counts_by_source(
@@ -610,7 +610,7 @@ class DuckDBAnalytics:
     def query_stats_category_distribution(self, days: int = 7) -> Dict[str, Any]:
         """Category distribution, computed in DuckDB."""
         conn = self._get_conn()
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         rows = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},
             {IGNORED_CONTENT_CTE}
@@ -645,7 +645,7 @@ class DuckDBAnalytics:
     ) -> Dict[str, Any]:
         """Daily volume trend, computed in DuckDB."""
         conn = self._get_conn()
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         if scored_items is None:
             scored_items = self._query_stats_scored_items(days=days)
         selected_counts = self._stats_selected_counts_by_date(
@@ -714,7 +714,7 @@ class DuckDBAnalytics:
     def query_daily_stats(self) -> Dict[str, Any]:
         """Statistics for daily report generation."""
         conn = self._get_conn()
-        cutoff = (datetime.utcnow() - timedelta(hours=48)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
         scored_items = self._query_stats_scored_items(hours=48)
         risk_threshold = float(SCORING_CONFIG["risk_threshold"])
 
@@ -757,7 +757,7 @@ class DuckDBAnalytics:
         novel_platforms = self.query_stats_novel_platforms()
 
         conn = self._get_conn()
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
         # ── KPI row ────────────────────────────────────────────────────────
         kpi_row = conn.execute(f"""
@@ -854,7 +854,7 @@ class DuckDBAnalytics:
     def query_content_for_report(self, hours: int = 48) -> List[Dict[str, Any]]:
         """Fetch recently analyzed content for daily report generation."""
         conn = self._get_conn()
-        cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
 
         results = conn.execute(f"""
             WITH {LATEST_ANALYSIS_CTE},

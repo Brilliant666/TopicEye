@@ -1,7 +1,7 @@
 """Today-picks business logic backed by DuckDB analytical reads."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from typing import Optional
 
@@ -118,7 +118,7 @@ def _row_to_content_payload(row: dict, breakdown: ScoreBreakdown) -> dict:
         "source_weight": row.get("analysis_source_weight") or row.get("source_weight") or 0,
         "enrichment_status": row.get("enrichment_status") or "pending",
         "enrichment": enrichment,
-        "created_at": row.get("analysis_created_at") or row.get("created_at") or datetime.utcnow().isoformat(),
+        "created_at": row.get("analysis_created_at") or row.get("created_at") or datetime.now(timezone.utc).isoformat(),
         "adjusted_curation_score": score_breakdown["final_score"],
         "score_breakdown": score_breakdown,
     }

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import time
 from typing import Optional, Any
@@ -59,7 +59,7 @@ async def build_scoring_flow_payload(
     if cached:
         return cached[1]
 
-    time_cutoff = datetime.utcnow() - timedelta(hours=hours)
+    time_cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     ignored_ids = await IgnoredRepo(db).list_ignored_ids()
     content_repo = ContentRepo(db)
     window_counts = await build_window_counts(content_repo, ignored_ids, requested_hours=hours)
@@ -156,7 +156,7 @@ async def build_window_counts(
     requested_hours: Optional[int] = None,
 ) -> list[dict[str, int]]:
     """Count analyzed candidates for the debug window selector."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     counts: list[dict[str, int]] = []
     for hours in debug_window_hours(requested_hours):
         count = await content_repo.count_for_scoring(
@@ -173,7 +173,7 @@ async def build_collected_window_counts(
     requested_hours: Optional[int] = None,
 ) -> list[dict[str, int]]:
     """Count collected items for explaining pre-analysis gaps."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     counts: list[dict[str, int]] = []
     for hours in debug_window_hours(requested_hours):
         count = await content_repo.count_collected_for_scoring_window(
@@ -336,7 +336,7 @@ def build_diagnostics(
         "candidate_limit": limit,
         "sample_limit": sample_limit,
         "empty_reason": empty_reason,
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 

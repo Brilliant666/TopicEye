@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Literal, Optional
 
@@ -279,3 +280,20 @@ def _duckdb_sql_literal(value: str) -> str:
 
 def _render_url(url: URL) -> str:
     return url.render_as_string(hide_password=False)
+
+
+def ensure_aware_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """把从 DB 读出的 datetime 规范成 aware UTC.
+
+    背景: PG 列改 TIMESTAMP WITH TIME ZONE 后读出是 aware;
+    SQLite 端 DateTime(timezone=True) 仍丢 tzinfo, 读出是 naive.
+    代码层 (datetime.now(timezone.utc)) 是 aware, 跟 naive 混用比较会抛
+    TypeError. 在比较点统一调这个 helper 把 naive 当 UTC 处理.
+
+    输入 None 返回 None; 输入 aware 转 UTC; 输入 naive 假设已经是 UTC 加 tzinfo.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)

@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -27,7 +27,7 @@ async def _session_factory():
 @pytest.mark.asyncio
 async def test_analysis_repository_reads_and_filters_latest_rows_only():
     engine, session_factory = await _session_factory()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with session_factory() as db:
         db.add(ContentItem(id=1, title="测试内容", url="https://example.com/1"))
         db.add_all([
@@ -69,7 +69,7 @@ async def test_analysis_repository_reads_and_filters_latest_rows_only():
 @pytest.mark.asyncio
 async def test_pending_enrichment_uses_unified_scorer_not_raw_curation_score():
     engine, session_factory = await _session_factory()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with session_factory() as db:
         db.add_all([
             ContentItem(
@@ -134,7 +134,7 @@ async def test_pending_enrichment_uses_unified_scorer_not_raw_curation_score():
 @pytest.mark.asyncio
 async def test_pending_enrichment_claim_marks_processing_and_skips_reclaim():
     engine, session_factory = await _session_factory()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with session_factory() as db:
         db.add(
             ContentItem(
@@ -182,7 +182,7 @@ async def test_pending_enrichment_claim_marks_processing_and_skips_reclaim():
 @pytest.mark.asyncio
 async def test_single_enrichment_claim_marks_latest_processing_and_skips_reclaim():
     engine, session_factory = await _session_factory()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with session_factory() as db:
         db.add(
             ContentItem(
@@ -232,7 +232,7 @@ async def test_single_enrichment_claim_marks_latest_processing_and_skips_reclaim
 @pytest.mark.asyncio
 async def test_pending_enrichment_claim_retries_sqlite_write_lock(monkeypatch):
     engine, session_factory = await _session_factory()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     calls = {"begin": 0}
 
     async def flaky_begin_immediate(_db):
@@ -287,7 +287,7 @@ async def test_pending_enrichment_claim_retries_sqlite_write_lock(monkeypatch):
 @pytest.mark.asyncio
 async def test_pending_enrichment_claim_uses_skip_locked_for_postgresql(monkeypatch):
     engine, session_factory = await _session_factory()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     calls = {"skip_locked": 0}
 
     class FakeProfile:
@@ -380,7 +380,7 @@ async def test_creation_plan_uses_latest_analysis_prompt_material(monkeypatch):
 
     monkeypatch.setattr(creation, "call_llm_json", fake_call_llm_json)
     engine, session_factory = await _session_factory()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with session_factory() as db:
         db.add(
             ContentItem(
@@ -440,7 +440,7 @@ async def test_clustering_uses_one_latest_analysis_per_content(monkeypatch):
     monkeypatch.setattr(topic_clustering, "_name_clusters", fake_name_clusters)
     monkeypatch.setattr(topic_clustering, "_dedup_candidate_clusters", fake_dedup_candidate_clusters)
     engine, session_factory = await _session_factory()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with session_factory() as db:
         for content_id in (1, 2):
             db.add(
@@ -492,7 +492,7 @@ async def test_clustering_topic_best_score_uses_unified_scorer(monkeypatch):
     monkeypatch.setattr(topic_clustering, "call_llm_json", fake_call_llm_json)
     monkeypatch.setattr(topic_clustering, "_dedup_candidate_clusters", fake_dedup_candidate_clusters)
     engine, session_factory = await _session_factory()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with session_factory() as db:
         db.add_all([
             ContentItem(

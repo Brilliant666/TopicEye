@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import httpx
@@ -38,7 +38,7 @@ async def test_analysis_and_notifications_require_login(monkeypatch):
                 source_name="测试信源",
                 source_type="RSS",
                 status=ContentStatus.PENDING,
-                crawled_at=datetime.utcnow(),
+                crawled_at=datetime.now(timezone.utc),
             )
         )
         db.add(

@@ -328,7 +328,7 @@ async def _fetch_and_save_albums(
             rec['category1_name'] = category1
             rec['category2_name'] = category2
             rec['position'] = pos
-            rec['updated_at'] = datetime.now(timezone.utc).replace(tzinfo=None)
+            rec['updated_at'] = datetime.now(timezone.utc)
 
             await db.execute(_upsert_zhihu_album_statement(rec))
         await db.commit()

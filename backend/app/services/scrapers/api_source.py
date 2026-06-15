@@ -19,7 +19,7 @@ source_config examples:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
@@ -64,14 +64,16 @@ def _parse_datetime(value: Any) -> datetime:
         timestamp = float(value)
         if timestamp > 10_000_000_000:
             timestamp = timestamp / 1000
-        return datetime.utcfromtimestamp(timestamp)
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc)
     if isinstance(value, str) and value.strip():
         normalized = value.strip().replace("Z", "+00:00")
         try:
-            return datetime.fromisoformat(normalized).replace(tzinfo=None)
+            dt = datetime.fromisoformat(normalized)
+            # 统一 aware UTC: 无 tzinfo 的视为 UTC
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
         except ValueError:
             pass
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 def _to_list(payload: Any, items_path: Optional[str]) -> list[dict]:

@@ -15,7 +15,7 @@ import functools
 import logging
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable, Optional
 
 from sqlalchemy import select
@@ -67,7 +67,7 @@ async def _upsert_job_config(job_key: str, name: str, description: str = "") -> 
 async def _claim_job_run(job_key: str, name: str, description: str, timeout: int) -> bool:
     """Acquire a cross-process lease for a scheduled job run."""
     for attempt in range(3):
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         async with async_session() as db:
             async def _claim() -> bool:
                 await begin_immediate_for_sqlite(db)
@@ -131,7 +131,7 @@ async def _create_log(job_key: str, trigger_type: str = "scheduler") -> int:
         log = JobExecutionLog(
             job_key=job_key,
             status="RUNNING",
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(timezone.utc),
             trigger_type=trigger_type,
         )
         db.add(log)
@@ -151,7 +151,7 @@ async def _finish_log(log_id: int, status: str, result_summary: str = "",
         if not log:
             return
         log.status = status
-        log.finished_at = datetime.utcnow()
+        log.finished_at = datetime.now(timezone.utc)
         log.duration_ms = duration_ms
         if result_summary:
             log.result_summary = result_summary[:2000]
@@ -168,7 +168,7 @@ async def _update_job_last_run(job_key: str, status: str) -> None:
         )
         job = existing.scalar_one_or_none()
         if job:
-            job.last_run_at = datetime.utcnow()
+            job.last_run_at = datetime.now(timezone.utc)
             job.last_status = status
             await db.commit()
 

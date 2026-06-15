@@ -5,7 +5,7 @@ Repository for AppSetting — simple key/value store.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -36,7 +36,7 @@ class SettingRepository(BaseRepository[AppSetting]):
 
         if row is not None:
             row.value = value
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(timezone.utc)
             await self.db.flush()
             await self.db.refresh(row)
             return row

@@ -4,7 +4,7 @@ import asyncio
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -161,7 +161,7 @@ async def create_analysis_job(content_ids: list[int]) -> AnalysisJob:
     """Register an analysis background job and deduplicate in-flight content IDs."""
     unique_ids = list(dict.fromkeys(content_ids))
     async with _lock:
-        _release_expired_active_ids(datetime.utcnow())
+        _release_expired_active_ids(datetime.now(timezone.utc))
         queued_ids = [content_id for content_id in unique_ids if content_id not in _active_content_ids]
         skipped_ids = [content_id for content_id in unique_ids if content_id in _active_content_ids]
         job = AnalysisJob(
@@ -169,7 +169,7 @@ async def create_analysis_job(content_ids: list[int]) -> AnalysisJob:
             content_ids=queued_ids,
             skipped_inflight_ids=skipped_ids,
             status="QUEUED" if queued_ids else "SKIPPED",
-            finished_at=None if queued_ids else datetime.utcnow(),
+            finished_at=None if queued_ids else datetime.now(timezone.utc),
         )
         _jobs[job.job_id] = job
         _active_content_ids.update(queued_ids)
@@ -184,7 +184,7 @@ async def mark_analysis_job_running(job_id: str) -> None:
         job = _jobs.get(job_id)
         if job and job.status == "QUEUED":
             job.status = "RUNNING"
-            job.started_at = datetime.utcnow()
+            job.started_at = datetime.now(timezone.utc)
             job_to_persist = job
     if job_to_persist is not None:
         await _persist_job_snapshot(job_to_persist)
@@ -207,7 +207,7 @@ async def finish_analysis_job(
         job.analyzed_ids = analyzed
         job.failed_ids = failed
         job.error_message = error_message[:1000] if error_message else None
-        job.finished_at = datetime.utcnow()
+        job.finished_at = datetime.now(timezone.utc)
         if error_message:
             job.status = "FAILED"
         elif failed and analyzed:

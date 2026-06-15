@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 import asyncio
 
@@ -47,7 +47,7 @@ async def _session_factory():
 @pytest.mark.asyncio
 async def test_list_pending_for_analysis_filters_recent_pending_items():
     engine, session_factory = await _session_factory()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     async with session_factory() as db:
         db.add_all([
@@ -124,7 +124,7 @@ async def test_claim_pending_analysis_ids_marks_items_analyzing_before_workers_r
                 title="待认领内容",
                 url="https://example.com/claim-pending",
                 status=ContentStatus.PENDING,
-                crawled_at=datetime.utcnow(),
+                crawled_at=datetime.now(timezone.utc),
             )
         )
         await db.commit()
@@ -161,7 +161,7 @@ async def test_claim_pending_analysis_ids_retries_sqlite_write_lock(monkeypatch)
                 title="锁重试认领内容",
                 url="https://example.com/claim-lock-retry",
                 status=ContentStatus.PENDING,
-                crawled_at=datetime.utcnow(),
+                crawled_at=datetime.now(timezone.utc),
             )
         )
         await db.commit()
@@ -203,14 +203,14 @@ async def test_claim_pending_analysis_ids_uses_skip_locked_for_postgresql(monkey
                 title="Postgres 并发认领一",
                 url="https://example.com/postgres-claim-1",
                 status=ContentStatus.PENDING,
-                crawled_at=datetime.utcnow(),
+                crawled_at=datetime.now(timezone.utc),
             ),
             ContentItem(
                 id=2,
                 title="Postgres 并发认领二",
                 url="https://example.com/postgres-claim-2",
                 status=ContentStatus.PENDING,
-                crawled_at=datetime.utcnow() - timedelta(minutes=1),
+                crawled_at=datetime.now(timezone.utc) - timedelta(minutes=1),
             ),
         ])
         await db.commit()
@@ -241,7 +241,7 @@ async def test_analyze_pending_defaults_to_background_queue(monkeypatch):
                 title="最近待后台分析内容",
                 url="https://example.com/background-queue",
                 status=ContentStatus.PENDING,
-                crawled_at=datetime.utcnow(),
+                crawled_at=datetime.now(timezone.utc),
             )
         )
         await db.commit()
@@ -292,7 +292,7 @@ async def test_analyze_pending_deduplicates_inflight_background_jobs(monkeypatch
                 title="重复提交的后台分析内容",
                 url="https://example.com/background-queue-dedupe",
                 status=ContentStatus.PENDING,
-                crawled_at=datetime.utcnow(),
+                crawled_at=datetime.now(timezone.utc),
             )
         )
         await db.commit()
@@ -434,14 +434,14 @@ async def test_background_analysis_releases_failed_claims(monkeypatch):
                 title="后台成功内容",
                 url="https://example.com/background-success",
                 status=ContentStatus.ANALYZING,
-                crawled_at=datetime.utcnow(),
+                crawled_at=datetime.now(timezone.utc),
             ),
             ContentItem(
                 id=2,
                 title="后台失败释放内容",
                 url="https://example.com/background-release-failed",
                 status=ContentStatus.ANALYZING,
-                crawled_at=datetime.utcnow(),
+                crawled_at=datetime.now(timezone.utc),
             ),
         ])
         await db.commit()
@@ -485,14 +485,14 @@ async def test_background_analysis_releases_claims_on_batch_exception(monkeypatc
                 title="后台异常释放一",
                 url="https://example.com/background-exception-release-1",
                 status=ContentStatus.ANALYZING,
-                crawled_at=datetime.utcnow(),
+                crawled_at=datetime.now(timezone.utc),
             ),
             ContentItem(
                 id=2,
                 title="后台异常释放二",
                 url="https://example.com/background-exception-release-2",
                 status=ContentStatus.ANALYZING,
-                crawled_at=datetime.utcnow(),
+                crawled_at=datetime.now(timezone.utc),
             ),
         ])
         await db.commit()
@@ -526,7 +526,7 @@ async def test_analysis_job_inflight_ttl_releases_stuck_ids(monkeypatch):
     monkeypatch.setattr(analysis_jobs.settings, "ANALYSIS_JOB_INFLIGHT_TTL_SECONDS", 60)
 
     first = await create_analysis_job([1])
-    first.queued_at = datetime.utcnow() - timedelta(seconds=90)
+    first.queued_at = datetime.now(timezone.utc) - timedelta(seconds=90)
     second = await create_analysis_job([1])
 
     expired = await get_analysis_job(first.job_id)
@@ -568,14 +568,14 @@ async def test_analyze_pending_sync_uses_concurrent_analysis(monkeypatch):
                 title="最近待同步分析一",
                 url="https://example.com/sync-concurrent-1",
                 status=ContentStatus.PENDING,
-                crawled_at=datetime.utcnow(),
+                crawled_at=datetime.now(timezone.utc),
             ),
             ContentItem(
                 id=2,
                 title="最近待同步分析二",
                 url="https://example.com/sync-concurrent-2",
                 status=ContentStatus.PENDING,
-                crawled_at=datetime.utcnow() - timedelta(minutes=1),
+                crawled_at=datetime.now(timezone.utc) - timedelta(minutes=1),
             ),
         ])
         await db.commit()
@@ -1116,7 +1116,7 @@ async def test_analyze_batch_retries_stale_analyzing_content(monkeypatch):
                 source_type="RSS",
                 platform="rsshub",
                 status=ContentStatus.ANALYZING,
-                updated_at=datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES + 5),
+                updated_at=datetime.now(timezone.utc) - timedelta(minutes=ANALYSIS_STALE_MINUTES + 5),
                 raw_content="这是一条分析中状态超时的内容，应当重新进入算法分析流程。",
             )
         )
@@ -1151,7 +1151,7 @@ async def test_analyze_batch_retries_stale_error_content(monkeypatch):
                 source_type="RSS",
                 platform="rsshub",
                 status=ContentStatus.ERROR,
-                updated_at=datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES + 5),
+                updated_at=datetime.now(timezone.utc) - timedelta(minutes=ANALYSIS_STALE_MINUTES + 5),
                 raw_content="这是一条之前分析失败的内容，冷却后应当重新进入算法分析流程。",
             )
         )
@@ -1175,7 +1175,7 @@ async def test_analysis_failure_sets_error_cooldown_timestamp(monkeypatch):
 
     monkeypatch.setattr(analysis, "call_llm_json", failing_llm)
     engine, session_factory = await _session_factory()
-    old_timestamp = datetime.utcnow() - timedelta(days=1)
+    old_timestamp = datetime.now(timezone.utc) - timedelta(days=1)
 
     async with session_factory() as db:
         db.add(
@@ -1215,7 +1215,7 @@ async def test_analyze_batch_skips_fresh_analyzing_content(monkeypatch):
                 title="刚开始分析任务",
                 url="https://example.com/fresh-analysis-task",
                 status=ContentStatus.ANALYZING,
-                updated_at=datetime.utcnow(),
+                updated_at=datetime.now(timezone.utc),
                 raw_content="这是一条刚进入分析中的内容，不应被重复抢占。",
             )
         )
@@ -1402,7 +1402,7 @@ async def test_analyze_single_rejects_fresh_analyzing_claim(monkeypatch):
                 title="正在分析的单条内容",
                 url="https://example.com/single-fresh-analyzing",
                 status=ContentStatus.ANALYZING,
-                updated_at=datetime.utcnow(),
+                updated_at=datetime.now(timezone.utc),
                 raw_content="用于验证单条分析接口不会绕过分析租约重复启动。",
             )
         )
@@ -1482,7 +1482,7 @@ async def test_analyze_single_failure_sets_error_cooldown_timestamp(monkeypatch)
 
     monkeypatch.setattr(analyses_api, "analyze_content", failing_analyze_content)
     engine, session_factory = await _session_factory()
-    old_timestamp = datetime.utcnow() - timedelta(days=1)
+    old_timestamp = datetime.now(timezone.utc) - timedelta(days=1)
 
     async with session_factory() as db:
         db.add(
@@ -1630,7 +1630,7 @@ def test_source_sync_semaphore_uses_configured_concurrency(monkeypatch):
 @pytest.mark.asyncio
 async def test_post_sync_drain_processes_backlog_and_stale_analyzing(monkeypatch):
     engine, session_factory = await _session_factory()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     monkeypatch.setattr(scheduler_module, "async_session", session_factory)
 
@@ -1717,7 +1717,7 @@ async def test_post_sync_drain_processes_backlog_and_stale_analyzing(monkeypatch
 @pytest.mark.asyncio
 async def test_post_sync_drain_uses_configured_default_batch_size(monkeypatch):
     engine, session_factory = await _session_factory()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     calls = []
 
     monkeypatch.setattr(scheduler_module, "async_session", session_factory)
@@ -1796,14 +1796,14 @@ async def test_post_sync_drain_releases_claims_after_batch_timeout(monkeypatch):
                 title="超时释放一",
                 url="https://example.com/timeout-release-1",
                 status=ContentStatus.PENDING,
-                crawled_at=datetime.utcnow(),
+                crawled_at=datetime.now(timezone.utc),
             ),
             ContentItem(
                 id=2,
                 title="超时释放二",
                 url="https://example.com/timeout-release-2",
                 status=ContentStatus.PENDING,
-                crawled_at=datetime.utcnow() - timedelta(minutes=1),
+                crawled_at=datetime.now(timezone.utc) - timedelta(minutes=1),
             ),
         ])
         await db.commit()
@@ -1947,7 +1947,7 @@ async def test_sync_single_source_skips_active_sync_lease(monkeypatch):
                 url="https://example.com/busy.xml",
                 enabled=True,
                 status="syncing",
-                last_sync_at=datetime.utcnow(),
+                last_sync_at=datetime.now(timezone.utc),
             )
         )
         await db.commit()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -59,7 +59,7 @@ async def claim_user_integration_sync(
     lease_seconds: int,
 ) -> Optional[UserIntegration]:
     """Acquire a per-user integration sync lease."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     lease_cutoff = now - timedelta(seconds=max(int(lease_seconds), 1))
 
     async def _claim() -> Optional[UserIntegration]:
@@ -96,10 +96,10 @@ async def mark_user_integration_sync_error(
     *,
     message: str,
 ) -> None:
-    integration.last_sync_at = datetime.utcnow()
+    integration.last_sync_at = datetime.now(timezone.utc)
     integration.last_sync_status = "error"
     integration.last_sync_error = message[:500]
-    integration.updated_at = datetime.utcnow()
+    integration.updated_at = datetime.now(timezone.utc)
     await db.flush()
 
 
@@ -112,7 +112,7 @@ async def upsert_user_integration(
     config: Optional[dict[str, Any]] = None,
 ) -> UserIntegration:
     integration = await get_user_integration(db, user_id=user_id, provider=provider)
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     encrypted_api_key = encrypt_secret(api_key)
     if integration:
         integration.api_key = encrypted_api_key
@@ -149,7 +149,7 @@ async def clear_user_integration(
     integration.api_key = None
     integration.config = {}
     _reset_sync_state(integration)
-    integration.updated_at = datetime.utcnow()
+    integration.updated_at = datetime.now(timezone.utc)
     await db.flush()
     return True
 

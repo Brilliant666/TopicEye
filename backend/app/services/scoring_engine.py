@@ -13,7 +13,7 @@ All tuning constants live in the CONFIG dict at the top for easy adjustment.
 from __future__ import annotations
 
 import math
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 
@@ -252,12 +252,15 @@ def _compute_time_decay(item: ScoringInput, now: Optional[datetime] = None) -> f
     """Exponential time decay: fresher content gets higher score."""
     cfg = CONFIG
     if now is None:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
     # Use published_at if available, otherwise crawled_at
     t = item.published_at or item.crawled_at or now
     if isinstance(t, str):
         t = datetime.fromisoformat(t.replace("Z", ""))
+    # DB (SQLite) 读出可能是 naive, 统一 aware UTC 再跟 now 比
+    from app.core.db_backend import ensure_aware_utc
+    t = ensure_aware_utc(t) or now
 
     hours = max(0, (now - t).total_seconds() / 3600)
     decay = math.exp(-cfg["time_decay_lambda"] * hours)
@@ -307,7 +310,7 @@ def score_items(items: list[ScoringInput]) -> list[tuple[ScoreBreakdown, Scoring
     Returns list of (ScoreBreakdown, ScoringInput) sorted by final_score desc.
     """
     cfg = CONFIG
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # Phase 1: Filter extreme-risk items
     safe_items = [it for it in items if (it.risk_score or 0) <= cfg["risk_threshold"]]
@@ -403,7 +406,7 @@ def score_low_follower_viral(
 
     High LFV = high virality/quality + low source authority (obscure creator)
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     cfg = CONFIG
     results: list[tuple[ScoreBreakdown, ScoringInput]] = []
 

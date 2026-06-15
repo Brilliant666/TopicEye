@@ -175,20 +175,19 @@ class TwitterRSSScraper(BaseScraper):
 
         # Published date
         # 注意: content.published_at 列是 TIMESTAMP WITHOUT TIME ZONE (naive).
-        # PG 严格区分 naive/aware, 必须转 naive UTC 才能写入.
         published_at = None
         if hasattr(entry, "published_parsed") and entry.published_parsed:
             try:
-                published_at = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc).replace(tzinfo=None)
+                published_at = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
             except Exception:
                 pass
         if published_at is None and hasattr(entry, "updated_parsed") and entry.updated_parsed:
             try:
-                published_at = datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc).replace(tzinfo=None)
+                published_at = datetime(*entry.updated_parsed[:6], tzinfo=timezone.utc)
             except Exception:
                 pass
         if published_at is None:
-            published_at = datetime.utcnow()
+            published_at = datetime.now(timezone.utc)
 
         # Tags
         tags = []

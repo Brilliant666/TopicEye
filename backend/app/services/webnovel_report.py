@@ -4,7 +4,7 @@ Webnovel report service — weekly history and rank movement analysis.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional, Any
 
 from sqlalchemy import func, select
@@ -292,7 +292,7 @@ async def build_weekly_webnovel_report(db: AsyncSession, days: int = 7) -> dict:
             "days": safe_days,
             "label": f"{start.month}月{start.day}日 ~ {today.month}月{today.day}日",
         },
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "summary": {
             "total_items": fanqie_count + qimao_count + zhihu_count,
             "snapshot_days": len(fanqie_history["snapshot_dates"]),

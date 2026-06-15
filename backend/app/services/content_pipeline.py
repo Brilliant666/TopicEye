@@ -12,7 +12,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote, urlparse
 
@@ -312,18 +312,18 @@ async def _register_new_categories(
 
 def _update_source_status(source: Source, status: SourceStatus) -> None:
     """Set source sync metadata."""
-    source.last_sync_at = datetime.utcnow()
+    source.last_sync_at = datetime.now(timezone.utc)
     source.status = status
     source.sync_error = None
-    source.updated_at = datetime.utcnow()
+    source.updated_at = datetime.now(timezone.utc)
 
 
 def _update_source_error(source: Source, message: str) -> None:
     """Record a failed sync attempt without causing immediate retry loops."""
-    source.last_sync_at = datetime.utcnow()
+    source.last_sync_at = datetime.now(timezone.utc)
     source.status = SourceStatus.ERROR
     source.sync_error = redact_source_sync_error(message)[:500]
-    source.updated_at = datetime.utcnow()
+    source.updated_at = datetime.now(timezone.utc)
 
 
 def redact_source_sync_error(message: str) -> str:

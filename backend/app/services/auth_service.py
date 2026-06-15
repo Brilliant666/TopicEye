@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import base64
 import hashlib
 import hmac
@@ -113,7 +113,7 @@ async def ensure_admin_user(
         user.display_name = display_name
         changed = True
     if changed:
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         await db.flush()
         await db.refresh(user)
     return user
@@ -133,7 +133,7 @@ async def create_session(db: AsyncSession, user: User, *, days: int = 30) -> tup
     session = UserSession(
         user_id=user.id,
         token_hash=hash_token(token),
-        expires_at=datetime.utcnow() + timedelta(days=days),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=days),
     )
 
     async def insert_session() -> UserSession:
@@ -147,7 +147,7 @@ async def create_session(db: AsyncSession, user: User, *, days: int = 30) -> tup
 
 
 async def get_user_for_token(db: AsyncSession, token: str) -> Optional[User]:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     result = await db.execute(
         select(UserSession.id, User.id)
         .join(User, User.id == UserSession.user_id)
@@ -175,6 +175,6 @@ async def revoke_token(db: AsyncSession, token: str) -> bool:
     session = result.scalar_one_or_none()
     if not session:
         return False
-    session.revoked_at = datetime.utcnow()
+    session.revoked_at = datetime.now(timezone.utc)
     await db.flush()
     return True

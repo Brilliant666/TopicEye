@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Sequence, Union
 
 from sqlalchemy import delete, func, or_, select, update
@@ -69,7 +69,7 @@ class FavoriteRepo:
             for key, value in payload.items():
                 if value is not None and hasattr(existing, key):
                     setattr(existing, key, value)
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = datetime.now(timezone.utc)
             await self.db.flush()
             await self.db.refresh(existing)
             await self._sync_content_flag(existing, True)
@@ -161,7 +161,7 @@ class FavoriteRepo:
                 setattr(item, key, value)
         if payload.get("status") and payload["status"] != original_status:
             item.position = await self.next_position_for_status(payload["status"])
-        item.updated_at = datetime.utcnow()
+        item.updated_at = datetime.now(timezone.utc)
         await self.db.flush()
         await self.db.refresh(item)
         return item
@@ -267,7 +267,7 @@ class FavoriteRepo:
         if missing_ids:
             raise LookupError(f"Favorite not found: {missing_ids[0]}")
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         updated: list[FavoriteItem] = []
         for status, column_ids in columns:
             for index, item_id in enumerate(column_ids):
@@ -319,7 +319,7 @@ class FavoriteRepo:
         tail_items = list(tail_result.scalars().all())
         ordered_items = [by_id[item_id] for item_id in unique_ids] + tail_items
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for index, item in enumerate(ordered_items):
             item.status = status
             item.position = (index + 1) * 1000
@@ -373,7 +373,7 @@ class FavoriteRepo:
         await self.db.execute(
             update(ContentItem)
             .where(ContentItem.id == item.target_id)
-            .values(is_favorited=is_favorited, updated_at=datetime.utcnow())
+            .values(is_favorited=is_favorited, updated_at=datetime.now(timezone.utc))
         )
 
     async def _merge_content_snapshot(self, payload: dict) -> dict:

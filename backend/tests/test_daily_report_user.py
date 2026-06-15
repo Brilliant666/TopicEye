@@ -11,7 +11,7 @@ Covers the owner_user_id plumbing through:
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -76,8 +76,8 @@ async def _make_private_source(
         weight=3,
         sort_order=0,
         enabled=True,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
     )
     db.add(src)
     await db.flush()
@@ -203,16 +203,16 @@ async def test_get_latest_today_report_filters_by_owner():
     async with sf() as db:
         # Public report (owner=None)
         db.add(DailyReport(
-            report_date=iso, weekday="X", edition="snapshot", generated_at=datetime.utcnow(),
-            window_start=datetime.utcnow(), window_end=datetime.utcnow(),
-            cutoff_at=datetime.utcnow(), status="DONE", topic_count=1, content_count=1,
+            report_date=iso, weekday="X", edition="snapshot", generated_at=datetime.now(timezone.utc),
+            window_start=datetime.now(timezone.utc), window_end=datetime.now(timezone.utc),
+            cutoff_at=datetime.now(timezone.utc), status="DONE", topic_count=1, content_count=1,
             analyzed_count=1, owner_user_id=None,
         ))
         # User A's report
         db.add(DailyReport(
-            report_date=iso, weekday="X", edition="snapshot", generated_at=datetime.utcnow(),
-            window_start=datetime.utcnow(), window_end=datetime.utcnow(),
-            cutoff_at=datetime.utcnow(), status="DONE", topic_count=1, content_count=1,
+            report_date=iso, weekday="X", edition="snapshot", generated_at=datetime.now(timezone.utc),
+            window_start=datetime.now(timezone.utc), window_end=datetime.now(timezone.utc),
+            cutoff_at=datetime.now(timezone.utc), status="DONE", topic_count=1, content_count=1,
             analyzed_count=1, owner_user_id=10,
         ))
         await db.commit()
@@ -318,7 +318,7 @@ async def test_me_today_generates_user_owned_report(tmp_path):
         return [], []
     orig_local_now2 = daily_report_svc._local_now
     daily_report_svc._fetch_report_inputs = fake_inputs
-    daily_report_svc._local_now = lambda: datetime.utcnow()
+    daily_report_svc._local_now = lambda: datetime.now(timezone.utc)
 
     try:
         transport = ASGITransport(app=app)
@@ -349,21 +349,21 @@ async def test_me_dates_lists_only_user_owned(tmp_path):
         await _make_user(db, id=10, plan="pro")
         await _make_user(db, id=11, plan="pro")
         db.add(DailyReport(
-            report_date=iso, weekday="X", edition="snapshot", generated_at=datetime.utcnow(),
-            window_start=datetime.utcnow(), window_end=datetime.utcnow(),
-            cutoff_at=datetime.utcnow(), status="DONE", topic_count=1, content_count=1,
+            report_date=iso, weekday="X", edition="snapshot", generated_at=datetime.now(timezone.utc),
+            window_start=datetime.now(timezone.utc), window_end=datetime.now(timezone.utc),
+            cutoff_at=datetime.now(timezone.utc), status="DONE", topic_count=1, content_count=1,
             analyzed_count=1, owner_user_id=10,
         ))
         db.add(DailyReport(
-            report_date=iso, weekday="X", edition="snapshot", generated_at=datetime.utcnow(),
-            window_start=datetime.utcnow(), window_end=datetime.utcnow(),
-            cutoff_at=datetime.utcnow(), status="DONE", topic_count=1, content_count=1,
+            report_date=iso, weekday="X", edition="snapshot", generated_at=datetime.now(timezone.utc),
+            window_start=datetime.now(timezone.utc), window_end=datetime.now(timezone.utc),
+            cutoff_at=datetime.now(timezone.utc), status="DONE", topic_count=1, content_count=1,
             analyzed_count=1, owner_user_id=11,
         ))
         db.add(DailyReport(
-            report_date=iso, weekday="X", edition="snapshot", generated_at=datetime.utcnow(),
-            window_start=datetime.utcnow(), window_end=datetime.utcnow(),
-            cutoff_at=datetime.utcnow(), status="DONE", topic_count=1, content_count=1,
+            report_date=iso, weekday="X", edition="snapshot", generated_at=datetime.now(timezone.utc),
+            window_start=datetime.now(timezone.utc), window_end=datetime.now(timezone.utc),
+            cutoff_at=datetime.now(timezone.utc), status="DONE", topic_count=1, content_count=1,
             analyzed_count=1, owner_user_id=None,  # public
         ))
         await db.commit()

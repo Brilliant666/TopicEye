@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 import re
 from typing import Any, Dict, Optional, Union
 from urllib.parse import quote
@@ -95,7 +95,7 @@ def normalize_weread_entries(payload: Any) -> list[dict[str, Any]]:
             "summary": note[:1000],
             "raw_content": note or title,
             "cover_url": raw.get("cover") or raw.get("cover_url") or raw.get("coverUrl"),
-            "published_at": datetime.utcnow(),
+            "published_at": datetime.now(timezone.utc),
         })
     return entries
 
@@ -161,7 +161,7 @@ async def sync_weread_materials(
 
     source = await ensure_weread_source(db)
     fetched = new = duplicates = 0
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     try:
         entries = await fetch_weread_materials(resolved_api_key, limit=limit)
         fetched = len(entries)

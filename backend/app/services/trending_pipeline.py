@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Union
 
 import httpx
@@ -33,7 +33,7 @@ async def sync_trending_source(source_name: str, db: AsyncSession) -> Dict[str, 
         return {"fetched": 0}
 
     scraper = scraper_cls()
-    batch_id = f"{source_name}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    batch_id = f"{source_name}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
 
     try:
         proxy_url = os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
@@ -66,7 +66,7 @@ async def sync_trending_source(source_name: str, db: AsyncSession) -> Dict[str, 
                 trend=entry.get("trend"),
                 cover_url=entry.get("cover_url"),
                 extra=entry.get("extra"),
-                fetched_at=datetime.utcnow(),
+                fetched_at=datetime.now(timezone.utc),
                 batch_id=batch_id,
             )
             db.add(item)

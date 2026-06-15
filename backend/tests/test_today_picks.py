@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import FastAPI
@@ -28,7 +28,7 @@ def _failing_session_factory():
 
 
 def _duckdb_rows():
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     crawled_at = (now - timedelta(hours=2)).isoformat()
     return [
         {

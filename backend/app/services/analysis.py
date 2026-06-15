@@ -12,7 +12,7 @@ import json
 import logging
 import re
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 from sqlalchemy import select, update
@@ -521,7 +521,7 @@ async def analyze_batch(
 ) -> list[AiAnalysis]:
     """Analyze multiple content items sequentially (respecting rate limits)."""
     results = []
-    stale_cutoff = datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES)
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=ANALYSIS_STALE_MINUTES)
 
     result = await db.execute(
         select(ContentItem).where(
@@ -575,7 +575,7 @@ async def analyze_one_claimed(
     raise_on_failure: bool = False,
 ) -> Optional[AiAnalysis]:
     """Claim and analyze one pending or stale analyzing item."""
-    stale_cutoff = datetime.utcnow() - timedelta(minutes=ANALYSIS_STALE_MINUTES)
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=ANALYSIS_STALE_MINUTES)
     try:
         if not assume_claimed:
             async def _mark_analyzing() -> bool:
@@ -583,7 +583,7 @@ async def analyze_one_claimed(
                     update(ContentItem)
                     .where(ContentItem.id == content_id)
                     .where(_analysis_retryable_status_filter(stale_cutoff))
-                    .values(status=ContentStatus.ANALYZING, updated_at=datetime.utcnow())
+                    .values(status=ContentStatus.ANALYZING, updated_at=datetime.now(timezone.utc))
                 )
                 await db.commit()
                 return result.rowcount > 0
@@ -620,7 +620,7 @@ async def analyze_one_claimed(
             content = await db.get(ContentItem, content_id)
             if content is not None:
                 content.status = ContentStatus.ERROR
-                content.updated_at = datetime.utcnow()
+                content.updated_at = datetime.now(timezone.utc)
                 await db.commit()
         except Exception as status_error:
             await db.rollback()

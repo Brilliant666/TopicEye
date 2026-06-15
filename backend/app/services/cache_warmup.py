@@ -136,7 +136,7 @@ async def warmup_content_favorites(db) -> None:
 
 async def warmup_content_list(db) -> None:
     from app.repositories.ignored_repo import IgnoredRepo
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     params = home_content_list_cache_params()
     ignored_ids = await IgnoredRepo(db).list_ignored_ids()
@@ -148,7 +148,7 @@ async def warmup_content_list(db) -> None:
         sort_order=params.sort_order,
         exclude_ids=ignored_ids,
         exclude_source_types={"DouyinHot"},
-        time_cutoff=datetime.utcnow() - timedelta(hours=params.hours or 48),
+        time_cutoff=datetime.now(timezone.utc) - timedelta(hours=params.hours or 48),
     )
     payload = {
         "items": [content_with_latest_analysis(item) for item in items],

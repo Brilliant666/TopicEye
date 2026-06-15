@@ -2,7 +2,7 @@
 from __future__ import annotations
 import json
 from typing import Optional, Set
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -178,7 +178,7 @@ async def list_contents(
 
         time_cutoff = None
         if hours:
-            time_cutoff = datetime.utcnow() - timedelta(hours=hours)
+            time_cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
         ignored_ids = await IgnoredRepo(db).list_ignored_ids()
         exclude_source_types = None if include_trend_sources else _TREND_SOURCE_TYPES

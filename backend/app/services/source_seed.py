@@ -74,7 +74,7 @@ def normalize_seed_source(raw: dict[str, Any]) -> dict[str, Any]:
         "fetch_interval_minutes": int(raw.get("fetch_interval_minutes", 60)),
         "enabled": enabled,
         "status": SourceStatus.ACTIVE if enabled else SourceStatus.DISABLED,
-        "last_sync_at": datetime.now(UTC).replace(tzinfo=None),
+        "last_sync_at": datetime.now(UTC),
     }
 
 
@@ -91,7 +91,7 @@ async def seed_default_sources(db: AsyncSession, *, seed_path: Path = DEFAULT_SO
     max_order = int(await db.scalar(select(func.max(Source.sort_order))) or 0)
     next_order = max_order + 10
     created = 0
-    seeded_at = datetime.now(UTC).replace(tzinfo=None)
+    seeded_at = datetime.now(UTC)
     for source in existing_sources:
         if source.last_sync_at is None:
             source.last_sync_at = seeded_at

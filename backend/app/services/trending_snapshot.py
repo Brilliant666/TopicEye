@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional, List, Dict
 
 from sqlalchemy import select, delete, and_, func
@@ -29,7 +29,7 @@ SNAPSHOT_HOURS = [8, 12, 18, 22]
 
 def _current_snapshot_hour() -> int:
     """返回当前应该存到哪个快照时间点。"""
-    now_hour = datetime.utcnow().hour
+    now_hour = datetime.now(timezone.utc).hour
     # 找到 <= now_hour 的最大快照点
     for h in reversed(SNAPSHOT_HOURS):
         if now_hour >= h:
@@ -85,7 +85,7 @@ async def save_snapshot(db: AsyncSession, source: str) -> int:
     if record:
         record.items = items_json
         record.total_count = len(items_json)
-        record.fetched_at = datetime.utcnow()
+        record.fetched_at = datetime.now(timezone.utc)
         logger.info("save_snapshot: updated source=%s date=%s hour=%d count=%d",
                      source, today, hour, len(items_json))
     else:
@@ -96,7 +96,7 @@ async def save_snapshot(db: AsyncSession, source: str) -> int:
             category=items[0].category if items else "hot",
             items=items_json,
             total_count=len(items_json),
-            fetched_at=datetime.utcnow(),
+            fetched_at=datetime.now(timezone.utc),
         )
         db.add(record)
         logger.info("save_snapshot: created source=%s date=%s hour=%d count=%d",

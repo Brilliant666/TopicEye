@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 
 import pytest
@@ -22,7 +22,7 @@ async def _session_factory():
 @pytest.mark.asyncio
 async def test_enrich_batch_runs_with_bounded_concurrency(monkeypatch):
     engine, session_factory = await _session_factory()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     async with session_factory() as db:
         db.add_all([
             ContentItem(

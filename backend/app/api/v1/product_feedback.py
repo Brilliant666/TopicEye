@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -186,10 +186,10 @@ async def update_issue_feedback(
     if data.status is not None:
         issue.status = data.status
         if data.status == IssueFeedbackStatus.fixed:
-            issue.fixed_at = issue.fixed_at or datetime.utcnow()
+            issue.fixed_at = issue.fixed_at or datetime.now(timezone.utc)
         else:
             issue.fixed_at = None
-    issue.updated_at = datetime.utcnow()
+    issue.updated_at = datetime.now(timezone.utc)
 
     await db.flush()
     await db.refresh(issue)
@@ -249,7 +249,7 @@ async def create_product_update(
 ):
     shipped_at = data.shipped_at
     if data.status == ProductUpdateStatus.shipped and shipped_at is None:
-        shipped_at = datetime.utcnow()
+        shipped_at = datetime.now(timezone.utc)
 
     item = ProductUpdate(
         version=data.version,
@@ -288,10 +288,10 @@ async def update_product_update(
     if "shipped_at" in changes:
         item.shipped_at = changes["shipped_at"]
     if data.status == ProductUpdateStatus.shipped and item.shipped_at is None:
-        item.shipped_at = datetime.utcnow()
+        item.shipped_at = datetime.now(timezone.utc)
     if data.status is not None and data.status != ProductUpdateStatus.shipped and "shipped_at" not in changes:
         item.shipped_at = None
-    item.updated_at = datetime.utcnow()
+    item.updated_at = datetime.now(timezone.utc)
 
     await db.flush()
     await db.refresh(item)

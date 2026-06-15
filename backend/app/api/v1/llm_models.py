@@ -21,7 +21,7 @@ import json
 import re
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Optional
 
@@ -572,7 +572,7 @@ async def get_usage_summary(
     _admin: User = Depends(get_current_admin_user),
 ):
     """Summarize token usage and estimated cost from request-level LLM call logs."""
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
     result = await db.execute(
         select(LlmCallLog, LlmModel)
         .join(LlmModel, LlmCallLog.model_id == LlmModel.id, isouter=True)
@@ -994,7 +994,7 @@ async def run_evaluation(req: EvalRunRequest, db: AsyncSession = Depends(get_db)
     prompt_text = prompt_template.format(title=sample["title"], content=sample["content"])
 
     # Create eval run
-    eval_run_id = f"eval_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
+    eval_run_id = f"eval_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
 
     evaluations = []
     async def _create_records():

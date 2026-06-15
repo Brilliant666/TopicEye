@@ -150,8 +150,7 @@ class TwitterScraper(BaseScraper):
 
             if published_at.tzinfo is None:
                 published_at = published_at.replace(tzinfo=timezone.utc)
-            # content.published_at 列是 TIMESTAMP WITHOUT TIME ZONE (naive), 必须去 tzinfo
-            published_at = published_at.replace(tzinfo=None)
+            published_at = published_at
 
             text = raw.get("full_text") or raw.get("text") or ""
             if not text:

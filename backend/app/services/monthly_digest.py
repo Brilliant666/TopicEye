@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import logging
 from calendar import monthrange
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -31,7 +31,7 @@ DIGEST_GENERATING_STALE_AFTER = timedelta(minutes=10)
 
 
 def _utc_now() -> datetime:
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 def _get_month_range(reference_date: Optional[date] = None) -> tuple[str, str, str, str]:

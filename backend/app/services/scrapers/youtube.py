@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -112,7 +112,7 @@ class YouTubeScraper(BaseScraper):
 
         for entry in feed.entries:
             published = entry.get("published_parsed") or entry.get("updated_parsed")
-            published_at = datetime(*published[:6]) if published else datetime.utcnow()
+            published_at = datetime(*published[:6]) if published else datetime.now(timezone.utc)
             # Atom feed uses <author><name>; feedparser surfaces as entry.author
             author = entry.get("author", "")
             # cover_url from media:thumbnail / media:group

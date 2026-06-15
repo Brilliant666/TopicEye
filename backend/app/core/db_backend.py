@@ -93,7 +93,11 @@ def sync_database_url(url: str) -> str:
     if backend == "sqlite":
         return _render_url(parsed.set(drivername="sqlite"))
     if backend == "postgresql":
-        return _render_url(parsed.set(drivername="postgresql"))
+        # Alembic uses a sync engine and needs the sync driver. ``asyncpg`` is
+        # async-only and incompatible with ``create_engine``; use ``psycopg``
+        # (the project pins ``psycopg[binary]==3.2.13``) for migrations and
+        # the runtime sync paths (lock acquisition, etc.).
+        return _render_url(parsed.set(drivername="postgresql+psycopg"))
     return _render_url(parsed)
 
 

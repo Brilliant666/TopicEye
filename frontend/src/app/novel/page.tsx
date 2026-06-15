@@ -858,9 +858,9 @@ export default function FanqiePage() {
     : platform === 'qimao'
       ? `${QIMAO_CHANNEL_LABELS[qimaoChannel].label} · ${QIMAO_RANK_LABELS[qimaoRank].label}`
       : platform === 'heiyan'
-        ? `书城 · 4 个公开榜单`
+        ? `书城首页 · 4 个推荐位（书城轮播 / 爆款力荐 / 热门绝佳 / 新书尝鲜）`
         : platform === 'ishugui'
-          ? `${ishuguiGender === 'male' ? '男频' : '女频'}${ishuguiRankFilter ? ` · ${ISHUGUI_RANK_LABELS[ishuguiRankFilter]?.label || ''}` : ' · 6 个榜单'}`
+          ? `${ishuguiGender === 'male' ? '男频' : '女频'} · ${ishuguiRankFilter ? (ISHUGUI_RANK_LABELS[ishuguiRankFilter]?.label || '') : '全部 6 个榜单（畅销/完本/新书/热读/好评/经典）'}`
           : `故事 · ${ZHIHU_SORT_LABELS[zhihuSort].label}${zhihuSubcat ? ` · ${zhihuSubcat}` : ''}`;
 
   const handleSync = async () => {

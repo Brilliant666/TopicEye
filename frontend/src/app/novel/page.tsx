@@ -101,6 +101,25 @@ const ISHUGUI_SHELF_TO_RANK: Record<string, string> = {
   '女生小说经典榜': 'classic',
 };
 
+/** 黑岩 sortName 分类 (对应 /search/new/all 的 sortName 字段) */
+const HEIYAN_SORT_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  '':       { label: '全部', color: '#4B5563', bg: '#F3F4F6' },
+  '现言':   { label: '现言', color: '#9333EA', bg: '#F3E8FF' },
+  '古言':   { label: '古言', color: '#B45309', bg: '#FEF3C7' },
+  '世情':   { label: '世情', color: '#0F766E', bg: '#CCFBF1' },
+  '现实':   { label: '现实', color: '#1F2937', bg: '#E5E7EB' },
+  '豪门':   { label: '豪门', color: '#9F1239', bg: '#FFE4E6' },
+  '重生':   { label: '重生', color: '#7C3AED', bg: '#EDE9FE' },
+  '穿越':   { label: '穿越', color: '#0369A1', bg: '#E0F2FE' },
+  '其他':   { label: '其他', color: '#6B7280', bg: '#F3F4F6' },
+};
+
+/** 黑岩 tag chip 列表 (按出现频次排序) */
+const HEIYAN_TAG_CHIPS = [
+  '复仇', '爽文', '穿越', '虐恋', '婚恋', '现言', '古言',
+  '绿帽文', '反转', '重生', '男二上位', '豪门', '情感', '成长', '都市',
+] as const;
+
 const QIMAO_CHANNEL_LABELS = {
   boy: { label: '男频', color: '#2563EB', bg: '#EFF6FF' },
   girl: { label: '女频', color: '#E11D48', bg: '#FFF1F2' },
@@ -676,6 +695,11 @@ export default function FanqiePage() {
   const [ishuguiGender, setIshuguiGender] = useState<'male' | 'female'>('male');
   const [ishuguiRankFilter, setIshuguiRankFilter] = useState<string>('');  // 空=全部
 
+  // 黑岩过滤: 来源 (推荐 vs 书库全量) + sortName 分类 + tags
+  const [heiyanShelfFilter, setHeiyanShelfFilter] = useState<'home' | 'search_all'>('home');
+  const [heiyanSortFilter, setHeiyanSortFilter] = useState<string>('');  // sortName, ''=全部
+  const [heiyanTagFilter, setHeiyanTagFilter] = useState<string>('');    // tag, ''=全部
+
   const fetchWeeklyReport = useCallback(async () => {
     setWeeklyLoading(true);
     setError(null);
@@ -853,12 +877,15 @@ export default function FanqiePage() {
 
   const risingCount = currentBooks.filter((item) => (getPositionChange(item) || 0) > 0).length;
   const topItem = currentBooks[0];
+  const heiyanContextLabel = heiyanShelfFilter === 'search_all'
+    ? `书库全量 · 183 本${heiyanSortFilter ? ` · 分类=${HEIYAN_SORT_LABELS[heiyanSortFilter]?.label || heiyanSortFilter}` : ''}${heiyanTagFilter ? ` · 标签=${heiyanTagFilter}` : ''}`
+    : `推荐 · 4 个首页榜单（书城轮播 / 爆款力荐 / 热门绝佳 / 新书尝鲜）${heiyanSortFilter ? ` · 分类=${HEIYAN_SORT_LABELS[heiyanSortFilter]?.label || heiyanSortFilter}` : ''}${heiyanTagFilter ? ` · 标签=${heiyanTagFilter}` : ''}`;
   const contextLabel = platform === 'fanqie'
     ? `${GROUP_LABELS[groupTab].label} · ${RANK_TYPE_LABELS[rankTab].label}${currentCategory ? ` · ${currentCategory.name}` : ''}`
     : platform === 'qimao'
       ? `${QIMAO_CHANNEL_LABELS[qimaoChannel].label} · ${QIMAO_RANK_LABELS[qimaoRank].label}`
       : platform === 'heiyan'
-        ? `书城首页 · 4 个推荐位（书城轮播 / 爆款力荐 / 热门绝佳 / 新书尝鲜）`
+        ? heiyanContextLabel
         : platform === 'ishugui'
           ? `${ishuguiGender === 'male' ? '男频' : '女频'} · ${ishuguiRankFilter ? (ISHUGUI_RANK_LABELS[ishuguiRankFilter]?.label || '') : '全部 6 个榜单（畅销/完本/新书/热读/好评/经典）'}`
           : `故事 · ${ZHIHU_SORT_LABELS[zhihuSort].label}${zhihuSubcat ? ` · ${zhihuSubcat}` : ''}`;
@@ -1092,6 +1119,45 @@ export default function FanqiePage() {
               </div>
             )}
 
+            {platform === 'heiyan' && (
+              <div className="flex flex-col gap-3.5">
+                <FilterGroup title="来源">
+                  <FilterChip active={heiyanShelfFilter === 'home'} color="#A855F7" onClick={() => setHeiyanShelfFilter('home')}>推荐</FilterChip>
+                  <FilterChip active={heiyanShelfFilter === 'search_all'} color="#7C3AED" onClick={() => setHeiyanShelfFilter('search_all')}>书库全量</FilterChip>
+                </FilterGroup>
+                <FilterGroup title="分类">
+                  <div className="grid w-full grid-cols-2 gap-1.5">
+                    {(Object.entries(HEIYAN_SORT_LABELS) as Array<[string, typeof HEIYAN_SORT_LABELS[string]]>).map(([key, value]) => (
+                      <FilterChip
+                        key={key || 'all'}
+                        active={heiyanSortFilter === key}
+                        color={value.color}
+                        onClick={() => setHeiyanSortFilter(key)}
+                        className="justify-center"
+                      >
+                        {value.label}
+                      </FilterChip>
+                    ))}
+                  </div>
+                </FilterGroup>
+                <FilterGroup title="标签">
+                  <div className="flex flex-wrap gap-1.5">
+                    <FilterChip active={heiyanTagFilter === ''} color="#4B5563" onClick={() => setHeiyanTagFilter('')}>全部</FilterChip>
+                    {HEIYAN_TAG_CHIPS.map((tag) => (
+                      <FilterChip
+                        key={tag}
+                        active={heiyanTagFilter === tag}
+                        color="#A855F7"
+                        onClick={() => setHeiyanTagFilter(tag)}
+                      >
+                        {tag}
+                      </FilterChip>
+                    ))}
+                  </div>
+                </FilterGroup>
+              </div>
+            )}
+
             {platform === 'ishugui' && (
               <div className="flex flex-col gap-3.5">
                 <FilterGroup title="频道">
@@ -1269,18 +1335,77 @@ export default function FanqiePage() {
                     </div>
                   );
                 }
-                // heiyan: 单层, 直接 grid
-                return (
-                  <div className="fanqie-book-grid grid gap-2.5">
-                    {(filteredWebnovel as TrendingItem[]).map((item) => (
-                      <WebnovelCard
-                        key={item.id}
-                        item={item}
-                        platform={platform}
-                      />
-                    ))}
-                  </div>
-                );
+                // heiyan: 来源 (推荐 vs 书库全量) + 分类 (sortName) + 标签 (tag) 三组过滤
+                // 推荐: 维持 4 个 home shelf 分组
+                // 书库全量: 按 sortName 分组
+                if (platform === 'heiyan') {
+                  const shelfFilterActive = heiyanShelfFilter === 'home';
+                  const books = (filteredWebnovel as TrendingItem[]).filter((item) => {
+                    const ex = (item.extra || {}) as Record<string, unknown>;
+                    const isSearchAll = ex.shelf === '书库全量';
+                    if (shelfFilterActive && isSearchAll) return false;
+                    if (!shelfFilterActive && !isSearchAll) return false;
+                    if (heiyanSortFilter) {
+                      if ((ex.sortName as string) !== heiyanSortFilter) return false;
+                    }
+                    if (heiyanTagFilter) {
+                      const tags = Array.isArray(ex.tags) ? (ex.tags as string[]) : [];
+                      if (!tags.includes(heiyanTagFilter)) return false;
+                    }
+                    return true;
+                  });
+
+                  if (books.length === 0) {
+                    return <EmptyState title="没有匹配的作品" desc="试试调整来源 / 分类 / 标签组合" />;
+                  }
+
+                  // 推荐: 按 shelf 分组 (书城轮播 / 爆款力荐 / 热门绝佳 / 新书尝鲜)
+                  // 书库全量: 按 sortName 分组
+                  const groupKey = shelfFilterActive ? 'shelf' : 'sortName';
+                  const groups = new Map<string, TrendingItem[]>();
+                  books.forEach((item) => {
+                    const ex = (item.extra || {}) as Record<string, unknown>;
+                    const key = ((ex[groupKey] as string) || '其他').trim() || '其他';
+                    if (!groups.has(key)) groups.set(key, []);
+                    groups.get(key)!.push(item);
+                  });
+
+                  return (
+                    <div className="flex flex-col gap-4">
+                      {Array.from(groups.entries()).map(([group, items]) => {
+                        const sortMeta = !shelfFilterActive
+                          ? (HEIYAN_SORT_LABELS[group] || HEIYAN_SORT_LABELS['其他'])
+                          : null;
+                        return (
+                          <div key={group}>
+                            <div className="mb-2 flex items-center gap-2 px-1">
+                              <span
+                                className="rounded-xs px-2 py-0.5 text-[12px] font-black"
+                                style={
+                                  sortMeta
+                                    ? { background: sortMeta.bg, color: sortMeta.color }
+                                    : { background: '#F5F0FF', color: '#A855F7' }
+                                }
+                              >
+                                {sortMeta?.label || group}
+                              </span>
+                              <span className="text-[11px] text-gray-400">{items.length} 本</span>
+                            </div>
+                            <div className="fanqie-book-grid grid gap-2.5">
+                              {items.map((item) => (
+                                <WebnovelCard
+                                  key={item.id}
+                                  item={item}
+                                  platform={platform}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }
               }
               return (
                 <div className="fanqie-book-grid grid gap-2.5">

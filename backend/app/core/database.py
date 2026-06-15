@@ -33,6 +33,16 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor.close()
 
 
+# PG session 强制 UTC, 保证 aware datetime 写入/读取行为可预测
+@event.listens_for(engine.sync_engine, "connect")
+def set_pg_timezone(dbapi_connection, connection_record):
+    if not database_profile.is_postgresql:
+        return
+    cursor = dbapi_connection.cursor()
+    cursor.execute("SET TIME ZONE 'UTC'")
+    cursor.close()
+
+
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

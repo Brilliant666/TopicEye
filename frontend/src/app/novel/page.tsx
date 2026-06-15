@@ -117,6 +117,15 @@ const HEIYAN_SORT_STYLE: Record<string, { label: string; color: string; bg: stri
 };
 const HEIYAN_SORT_FALLBACK = HEIYAN_SORT_STYLE['其他'];
 
+/** 黑岩 home (推荐) shelf 名 → UI 显示名映射.
+ *  后端继续存原始 shelf 名, 前端展示时转换. 便于平台改名时只改一处.
+ *  不在本表中的 shelf 名原样显示.
+ */
+const HEIYAN_HOME_SHELF_LABELS: Record<string, string> = {
+  '书城轮播图': '编辑精选',
+  // 爆款力荐 / 热门绝佳 / 新书尝鲜 维持原名
+};
+
 /** 长短篇 (book.type) 配色: 当前数据 100% 是 1 (短篇), 3 (长篇) 暂未观察到.
  *  保留配色表, 后续若抓到长篇可直接用.
  */
@@ -704,6 +713,8 @@ export default function FanqiePage() {
   const [heiyanShelfFilter, setHeiyanShelfFilter] = useState<'home' | 'search_all'>('home');
   const [heiyanSortFilter, setHeiyanSortFilter] = useState<string>('');  // sortName, ''=全部
   const [heiyanTagFilter, setHeiyanTagFilter] = useState<string>('');    // tag, ''=全部
+  // 标签面板默认折叠 (15 个 tag 视觉噪音大, 按需展开)
+  const [heiyanTagsExpanded, setHeiyanTagsExpanded] = useState(false);
 
   // 切到「推荐」时, sortName 字段不存在, 自动清空 (避免 UI 残留显示已选)
   useEffect(() => {
@@ -928,7 +939,7 @@ export default function FanqiePage() {
   const topItem = currentBooks[0];
   const heiyanContextLabel = heiyanShelfFilter === 'search_all'
     ? `书库全量${heiyanSortFilter ? ` · 分类=${HEIYAN_SORT_STYLE[heiyanSortFilter]?.label || heiyanSortFilter}` : ''}${heiyanTagFilter ? ` · 标签=${heiyanTagFilter}` : ''}`
-    : `推荐 · 4 个首页榜单（书城轮播 / 爆款力荐 / 热门绝佳 / 新书尝鲜）${heiyanTagFilter ? ` · 标签=${heiyanTagFilter}` : ''}`;
+    : `推荐 · 4 个首页榜单（${['书城轮播图', '爆款力荐', '热门绝佳', '新书尝鲜'].map(s => HEIYAN_HOME_SHELF_LABELS[s] || s).join(' / ')}）${heiyanTagFilter ? ` · 标签=${heiyanTagFilter}` : ''}`;
   const contextLabel = platform === 'fanqie'
     ? `${GROUP_LABELS[groupTab].label} · ${RANK_TYPE_LABELS[rankTab].label}${currentCategory ? ` · ${currentCategory.name}` : ''}`
     : platform === 'qimao'
@@ -1203,21 +1214,31 @@ export default function FanqiePage() {
                   </FilterGroup>
                 )}
                 {heiyanAvailableTags.length > 0 && (
-                  <FilterGroup title="标签">
-                    <div className="flex flex-wrap gap-1.5">
-                      <FilterChip active={heiyanTagFilter === ''} color="#4B5563" onClick={() => setHeiyanTagFilter('')}>全部</FilterChip>
-                      {heiyanAvailableTags.map(({ key, count }) => (
-                        <FilterChip
-                          key={key}
-                          active={heiyanTagFilter === key}
-                          color="#A855F7"
-                          onClick={() => setHeiyanTagFilter(key)}
-                        >
-                          {key} ({count})
-                        </FilterChip>
-                      ))}
-                    </div>
-                  </FilterGroup>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setHeiyanTagsExpanded(v => !v)}
+                      className="mb-2 flex w-full items-center justify-between text-[11px] font-extrabold text-gray-500 hover:text-gray-700"
+                    >
+                      <span>标签{heiyanTagFilter ? ` · ${heiyanTagFilter}` : ` (${heiyanAvailableTags.length})`}</span>
+                      <span className="text-[10px] text-gray-400">{(heiyanTagsExpanded || heiyanTagFilter) ? '收起 ▲' : '展开 ▼'}</span>
+                    </button>
+                    {(heiyanTagsExpanded || heiyanTagFilter) && (
+                      <div className="flex w-full flex-wrap gap-1.5">
+                        <FilterChip active={heiyanTagFilter === ''} color="#4B5563" onClick={() => setHeiyanTagFilter('')}>全部</FilterChip>
+                        {heiyanAvailableTags.map(({ key, count }) => (
+                          <FilterChip
+                            key={key}
+                            active={heiyanTagFilter === key}
+                            color="#A855F7"
+                            onClick={() => setHeiyanTagFilter(key)}
+                          >
+                            {key} ({count})
+                          </FilterChip>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -1441,6 +1462,9 @@ export default function FanqiePage() {
                         const sortMeta = !shelfFilterActive
                           ? (HEIYAN_SORT_STYLE[group] || HEIYAN_SORT_FALLBACK)
                           : null;
+                        // 推荐 shelf 名走映射表 (书城轮播图 → 编辑精选), 书库全量 sortName 直接显示
+                        const displayLabel = sortMeta?.label
+                          || (shelfFilterActive ? (HEIYAN_HOME_SHELF_LABELS[group] || group) : (group || '其他'));
                         return (
                           <div key={group}>
                             <div className="mb-2 flex items-center gap-2 px-1">
@@ -1452,7 +1476,7 @@ export default function FanqiePage() {
                                     : { background: '#F5F0FF', color: '#A855F7' }
                                 }
                               >
-                                {sortMeta?.label || group}
+                                {displayLabel}
                               </span>
                               <span className="text-[11px] text-gray-400">{items.length} 本</span>
                             </div>

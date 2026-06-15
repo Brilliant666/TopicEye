@@ -101,9 +101,11 @@ const ISHUGUI_SHELF_TO_RANK: Record<string, string> = {
   '女生小说经典榜': 'classic',
 };
 
-/** 黑岩 sortName 分类 (对应 /search/new/all 的 sortName 字段) */
-const HEIYAN_SORT_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  '':       { label: '全部', color: '#4B5563', bg: '#F3F4F6' },
+/** 黑岩 sortName 分类的颜色/标签兜底表 (key=sortName, value=配色).
+ *  不再是「候选 chip 列表」, 实际 chip 由 useMemo 从数据中动态生成.
+ *  未在本表中的 sortName (如未来平台新增分类) 用灰色兜底, 不报错.
+ */
+const HEIYAN_SORT_STYLE: Record<string, { label: string; color: string; bg: string }> = {
   '现言':   { label: '现言', color: '#9333EA', bg: '#F3E8FF' },
   '古言':   { label: '古言', color: '#B45309', bg: '#FEF3C7' },
   '世情':   { label: '世情', color: '#0F766E', bg: '#CCFBF1' },
@@ -113,12 +115,15 @@ const HEIYAN_SORT_LABELS: Record<string, { label: string; color: string; bg: str
   '穿越':   { label: '穿越', color: '#0369A1', bg: '#E0F2FE' },
   '其他':   { label: '其他', color: '#6B7280', bg: '#F3F4F6' },
 };
+const HEIYAN_SORT_FALLBACK = HEIYAN_SORT_STYLE['其他'];
 
-/** 黑岩 tag chip 列表 (按出现频次排序) */
-const HEIYAN_TAG_CHIPS = [
-  '复仇', '爽文', '穿越', '虐恋', '婚恋', '现言', '古言',
-  '绿帽文', '反转', '重生', '男二上位', '豪门', '情感', '成长', '都市',
-] as const;
+/** 长短篇 (book.type) 配色: 当前数据 100% 是 1 (短篇), 3 (长篇) 暂未观察到.
+ *  保留配色表, 后续若抓到长篇可直接用.
+ */
+const HEIYAN_TYPE_STYLE: Record<string, { label: string; color: string; bg: string }> = {
+  '1': { label: '短篇', color: '#0F766E', bg: '#CCFBF1' },
+  '3': { label: '长篇', color: '#9F1239', bg: '#FFE4E6' },
+};
 
 const QIMAO_CHANNEL_LABELS = {
   boy: { label: '男频', color: '#2563EB', bg: '#EFF6FF' },
@@ -700,6 +705,50 @@ export default function FanqiePage() {
   const [heiyanSortFilter, setHeiyanSortFilter] = useState<string>('');  // sortName, ''=全部
   const [heiyanTagFilter, setHeiyanTagFilter] = useState<string>('');    // tag, ''=全部
 
+  // 切到「推荐」时, sortName 字段不存在, 自动清空 (避免 UI 残留显示已选)
+  useEffect(() => {
+    if (heiyanShelfFilter === 'home' && heiyanSortFilter !== '') {
+      setHeiyanSortFilter('');
+    }
+  }, [heiyanShelfFilter, heiyanSortFilter]);
+
+  // 黑岩 chip 面板数据: 从当前 heiyanBooks 动态聚合, 不再硬编码
+  // 推荐 (home) 没有 sortName 字段 → availableSortNames 为空
+  // 标签在两个 shelf 上都从数据中取 top 15 (不重叠: 当前 shelf 看不到另一 shelf 的 tags)
+  const heiyanAvailableSorts = useMemo(() => {
+    if (heiyanShelfFilter !== 'search_all') return [] as Array<{ key: string; count: number }>;
+    const counter: Record<string, number> = {};
+    for (const item of heiyanBooks) {
+      const ex = (item.extra || {}) as Record<string, unknown>;
+      if (ex.shelf !== '书库全量') continue;
+      const sn = ((ex.sortName as string) || '').trim();
+      if (!sn) continue;
+      counter[sn] = (counter[sn] || 0) + 1;
+    }
+    return Object.entries(counter)
+      .sort((a, b) => b[1] - a[1])
+      .map(([key, count]) => ({ key, count }));
+  }, [heiyanBooks, heiyanShelfFilter]);
+
+  const heiyanAvailableTags = useMemo(() => {
+    const target = heiyanShelfFilter === 'search_all' ? '书库全量' : null;  // null=除书库全量外
+    const counter: Record<string, number> = {};
+    for (const item of heiyanBooks) {
+      const ex = (item.extra || {}) as Record<string, unknown>;
+      const isSearchAll = ex.shelf === '书库全量';
+      if (target === '书库全量' && !isSearchAll) continue;
+      if (target === null && isSearchAll) continue;
+      const tags = Array.isArray(ex.tags) ? (ex.tags as string[]) : [];
+      for (const t of tags) {
+        if (t) counter[t] = (counter[t] || 0) + 1;
+      }
+    }
+    return Object.entries(counter)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15)
+      .map(([key, count]) => ({ key, count }));
+  }, [heiyanBooks, heiyanShelfFilter]);
+
   const fetchWeeklyReport = useCallback(async () => {
     setWeeklyLoading(true);
     setError(null);
@@ -878,8 +927,8 @@ export default function FanqiePage() {
   const risingCount = currentBooks.filter((item) => (getPositionChange(item) || 0) > 0).length;
   const topItem = currentBooks[0];
   const heiyanContextLabel = heiyanShelfFilter === 'search_all'
-    ? `书库全量 · 183 本${heiyanSortFilter ? ` · 分类=${HEIYAN_SORT_LABELS[heiyanSortFilter]?.label || heiyanSortFilter}` : ''}${heiyanTagFilter ? ` · 标签=${heiyanTagFilter}` : ''}`
-    : `推荐 · 4 个首页榜单（书城轮播 / 爆款力荐 / 热门绝佳 / 新书尝鲜）${heiyanSortFilter ? ` · 分类=${HEIYAN_SORT_LABELS[heiyanSortFilter]?.label || heiyanSortFilter}` : ''}${heiyanTagFilter ? ` · 标签=${heiyanTagFilter}` : ''}`;
+    ? `书库全量${heiyanSortFilter ? ` · 分类=${HEIYAN_SORT_STYLE[heiyanSortFilter]?.label || heiyanSortFilter}` : ''}${heiyanTagFilter ? ` · 标签=${heiyanTagFilter}` : ''}`
+    : `推荐 · 4 个首页榜单（书城轮播 / 爆款力荐 / 热门绝佳 / 新书尝鲜）${heiyanTagFilter ? ` · 标签=${heiyanTagFilter}` : ''}`;
   const contextLabel = platform === 'fanqie'
     ? `${GROUP_LABELS[groupTab].label} · ${RANK_TYPE_LABELS[rankTab].label}${currentCategory ? ` · ${currentCategory.name}` : ''}`
     : platform === 'qimao'
@@ -1125,36 +1174,51 @@ export default function FanqiePage() {
                   <FilterChip active={heiyanShelfFilter === 'home'} color="#A855F7" onClick={() => setHeiyanShelfFilter('home')}>推荐</FilterChip>
                   <FilterChip active={heiyanShelfFilter === 'search_all'} color="#7C3AED" onClick={() => setHeiyanShelfFilter('search_all')}>书库全量</FilterChip>
                 </FilterGroup>
-                <FilterGroup title="分类">
-                  <div className="grid w-full grid-cols-2 gap-1.5">
-                    {(Object.entries(HEIYAN_SORT_LABELS) as Array<[string, typeof HEIYAN_SORT_LABELS[string]]>).map(([key, value]) => (
+                {heiyanShelfFilter === 'search_all' && heiyanAvailableSorts.length > 0 && (
+                  <FilterGroup title={`分类 (${heiyanAvailableSorts.length})`}>
+                    <div className="grid w-full grid-cols-2 gap-1.5">
                       <FilterChip
-                        key={key || 'all'}
-                        active={heiyanSortFilter === key}
-                        color={value.color}
-                        onClick={() => setHeiyanSortFilter(key)}
+                        active={heiyanSortFilter === ''}
+                        color="#4B5563"
+                        onClick={() => setHeiyanSortFilter('')}
                         className="justify-center"
                       >
-                        {value.label}
+                        全部
                       </FilterChip>
-                    ))}
-                  </div>
-                </FilterGroup>
-                <FilterGroup title="标签">
-                  <div className="flex flex-wrap gap-1.5">
-                    <FilterChip active={heiyanTagFilter === ''} color="#4B5563" onClick={() => setHeiyanTagFilter('')}>全部</FilterChip>
-                    {HEIYAN_TAG_CHIPS.map((tag) => (
-                      <FilterChip
-                        key={tag}
-                        active={heiyanTagFilter === tag}
-                        color="#A855F7"
-                        onClick={() => setHeiyanTagFilter(tag)}
-                      >
-                        {tag}
-                      </FilterChip>
-                    ))}
-                  </div>
-                </FilterGroup>
+                      {heiyanAvailableSorts.map(({ key, count }) => {
+                        const style = HEIYAN_SORT_STYLE[key] || HEIYAN_SORT_FALLBACK;
+                        return (
+                          <FilterChip
+                            key={key}
+                            active={heiyanSortFilter === key}
+                            color={style.color}
+                            onClick={() => setHeiyanSortFilter(key)}
+                            className="justify-center"
+                          >
+                            {style.label} ({count})
+                          </FilterChip>
+                        );
+                      })}
+                    </div>
+                  </FilterGroup>
+                )}
+                {heiyanAvailableTags.length > 0 && (
+                  <FilterGroup title="标签">
+                    <div className="flex flex-wrap gap-1.5">
+                      <FilterChip active={heiyanTagFilter === ''} color="#4B5563" onClick={() => setHeiyanTagFilter('')}>全部</FilterChip>
+                      {heiyanAvailableTags.map(({ key, count }) => (
+                        <FilterChip
+                          key={key}
+                          active={heiyanTagFilter === key}
+                          color="#A855F7"
+                          onClick={() => setHeiyanTagFilter(key)}
+                        >
+                          {key} ({count})
+                        </FilterChip>
+                      ))}
+                    </div>
+                  </FilterGroup>
+                )}
               </div>
             )}
 
@@ -1345,8 +1409,9 @@ export default function FanqiePage() {
                     const isSearchAll = ex.shelf === '书库全量';
                     if (shelfFilterActive && isSearchAll) return false;
                     if (!shelfFilterActive && !isSearchAll) return false;
-                    if (heiyanSortFilter) {
-                      if ((ex.sortName as string) !== heiyanSortFilter) return false;
+                    // 防御: 推荐数据没有 sortName, 跳过该过滤 (UI 也会自动清空)
+                    if (heiyanSortFilter && !shelfFilterActive) {
+                      if (((ex.sortName as string) || '') !== heiyanSortFilter) return false;
                     }
                     if (heiyanTagFilter) {
                       const tags = Array.isArray(ex.tags) ? (ex.tags as string[]) : [];
@@ -1374,7 +1439,7 @@ export default function FanqiePage() {
                     <div className="flex flex-col gap-4">
                       {Array.from(groups.entries()).map(([group, items]) => {
                         const sortMeta = !shelfFilterActive
-                          ? (HEIYAN_SORT_LABELS[group] || HEIYAN_SORT_LABELS['其他'])
+                          ? (HEIYAN_SORT_STYLE[group] || HEIYAN_SORT_FALLBACK)
                           : null;
                         return (
                           <div key={group}>

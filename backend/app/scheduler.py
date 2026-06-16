@@ -424,8 +424,34 @@ async def _release_inflight_analysis_claims(content_ids: list[int]) -> int:
 
 
 async def _rescan_sources() -> None:
-    """Every 10 minutes: sync scheduler job list with enabled sources from DB."""
+    """Every 10 minutes: sync scheduler job list with enabled sources from DB.
+
+    Also self-heals sources stuck in SYNCING past their lease — this happens
+    when a sync job was killed (SIGTERM / crash) after claim_sync committed
+    status=SYNCING but before ingest completed.
+    """
     async with async_session() as db:
+        # ── Self-heal: reset stale SYNCING sources ──
+        stale_cutoff = datetime.now(timezone.utc) - timedelta(
+            seconds=int(settings.SOURCE_SYNC_TIMEOUT_SECONDS) * 3
+        )
+        from sqlalchemy import update as sa_update
+        from app.models.source import Source, SourceStatus
+        heal_result = await db.execute(
+            sa_update(Source)
+            .where(
+                Source.status == SourceStatus.SYNCING,
+                Source.last_sync_at < stale_cutoff,
+            )
+            .values(status=SourceStatus.ACTIVE, sync_error="auto-reset from stale SYNCING")
+        )
+        healed = heal_result.rowcount
+        if healed:
+            await db.commit()
+            logger.warning(
+                "Scheduler: self-healed %d source(s) stuck in SYNCING (>3x lease)", healed,
+            )
+
         source_repo = SourceRepository(db)
         sources = await source_repo.get_enabled_sources()
 

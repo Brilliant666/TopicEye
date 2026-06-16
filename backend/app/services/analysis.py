@@ -430,6 +430,7 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
             final_model = prescreen_model
             result = _analysis_result_from_prescreen(content, prescreen, lang=lang)
 
+    fallback_used = False
     if result is None:
         result, final_metadata = await _call_llm_json_with_metadata(
             messages,
@@ -446,6 +447,7 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
                 str(result)[:200],
             )
             result = _local_analysis_result(content, lang=lang)
+            fallback_used = True
     result = _normalize_analysis_result(result)
 
     # Extract scores
@@ -500,6 +502,11 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
         escalation_reason=escalation_reason,
         prescreen_confidence=prescreen_confidence,
         prescreen_score=prescreen_score,
+        summary_source=(
+            "local_fallback" if fallback_used
+            else "llm_lite" if analysis_mode == "lite_only"
+            else "llm_pro"
+        ),
     )
 
     db.add(analysis)

@@ -41,6 +41,8 @@ class AiAnalysisResponse(BaseModel):
     # Round-2 enrichment fields
     enrichment_status: Optional[str] = "pending"
     enrichment: Optional[Any] = None
+    # Summary provenance (llm_pro | llm_lite | local_fallback)
+    summary_source: Optional[str] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

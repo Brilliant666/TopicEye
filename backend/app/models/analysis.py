@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Optional
 from datetime import datetime, timezone
-from sqlalchemy import Boolean, Integer, Float, Text, DateTime, ForeignKey, JSON
+from sqlalchemy import Boolean, Integer, Float, String, Text, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
@@ -46,6 +46,11 @@ class AiAnalysis(Base):
     # ── Round-2 enrichment fields ──
     enrichment_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="pending")  # pending|completed|error
     enrichment: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # background/related_angles/why_matters/creator_tips
+    # ── Summary provenance ──
+    # llm_pro = Pro 模型直接生成（pro_only / cascade 中 escalated）
+    # llm_lite = Lite 模型生成（cascade 模式 lite_only 命中）
+    # local_fallback = LLM 失败后本地兜底（_local_analysis_result）
+    summary_source: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
     content: Mapped["ContentItem"] = relationship(back_populates="analyses")

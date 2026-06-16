@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.sqlite_retry import retry_sqlite_locked
-from app.models.user import User, UserSession
+from app.models.user import User, UserSession, UserApiToken
 
 _HASH_ALGORITHM = "pbkdf2_sha256"
 _HASH_ITERATIONS = 260_000
@@ -147,21 +147,51 @@ async def create_session(db: AsyncSession, user: User, *, days: int = 30) -> tup
 
 
 async def get_user_for_token(db: AsyncSession, token: str) -> Optional[User]:
+    """Resolve a Bearer token to a User. Tries UserSession first, then UserApiToken."""
     now = datetime.now(timezone.utc)
+    token_h = hash_token(token)
+
+    # 1. Try session token (浏览器登录会话)
     result = await db.execute(
         select(UserSession.id, User.id)
         .join(User, User.id == UserSession.user_id)
         .where(
-            UserSession.token_hash == hash_token(token),
+            UserSession.token_hash == token_h,
             UserSession.revoked_at.is_(None),
             UserSession.expires_at > now,
             User.is_active.is_(True),
         )
     )
     row = result.first()
-    if not row:
+    if row:
+        _, user_id = row
+        return await db.get(User, user_id)
+
+    # 2. Fallback to API token (脚本/CI 场景)
+    api_result = await db.execute(
+        select(UserApiToken.id, UserApiToken.user_id)
+        .join(User, User.id == UserApiToken.user_id)
+        .where(
+            UserApiToken.token_hash == token_h,
+            UserApiToken.revoked_at.is_(None),
+            User.is_active.is_(True),
+        )
+    )
+    api_row = api_result.first()
+    if not api_row:
         return None
-    _, user_id = row
+    # 过期检查（API token 可选过期）
+    token_id, user_id = api_row
+    api_token = await db.get(UserApiToken, token_id)
+    if api_token and api_token.expires_at and api_token.expires_at <= now:
+        return None
+    # 更新 last_used_at（best-effort，失败不阻塞）
+    if api_token:
+        try:
+            api_token.last_used_at = now
+            await db.flush()
+        except Exception:
+            await db.rollback()
     return await db.get(User, user_id)
 
 
@@ -176,5 +206,82 @@ async def revoke_token(db: AsyncSession, token: str) -> bool:
     if not session:
         return False
     session.revoked_at = datetime.now(timezone.utc)
+    await db.flush()
+    return True
+
+
+# ── User API tokens (脚本/CI 场景) ───────────────────────────────────
+
+_API_TOKEN_BYTES = 32  # 256-bit raw → urlsafe base64 ≈ 43 chars
+
+
+def new_api_token() -> str:
+    """生成一个新的随机 API token (urlsafe)。"""
+    return secrets.token_urlsafe(_API_TOKEN_BYTES)
+
+
+async def create_api_token(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    name: str,
+    expires_at: Optional[datetime] = None,
+) -> tuple[str, UserApiToken]:
+    """创建一个 API token。返回 (明文 token, record)。
+
+    明文 token 只在创建时返回一次，后续无法恢复（只存 hash）。
+    """
+    raw = new_api_token()
+    record = UserApiToken(
+        user_id=user_id,
+        name=name[:100],
+        token_hash=hash_token(raw),
+        token_prefix=hash_token(raw)[:8],
+        expires_at=expires_at,
+    )
+    db.add(record)
+    await db.flush()
+    await db.refresh(record)
+    return raw, record
+
+
+async def list_api_tokens(db: AsyncSession, user_id: int) -> list[UserApiToken]:
+    """列出该用户所有 API token（含已撤销，按创建时间倒序）。"""
+    result = await db.execute(
+        select(UserApiToken)
+        .where(UserApiToken.user_id == user_id)
+        .order_by(UserApiToken.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def revoke_api_token(db: AsyncSession, *, user_id: int, token_id: int) -> bool:
+    """撤销指定 API token（per-user 校验：只能撤自己的）。"""
+    result = await db.execute(
+        select(UserApiToken).where(
+            UserApiToken.id == token_id,
+            UserApiToken.user_id == user_id,
+        )
+    )
+    record = result.scalar_one_or_none()
+    if not record or record.revoked_at is not None:
+        return False
+    record.revoked_at = datetime.now(timezone.utc)
+    await db.flush()
+    return True
+
+
+async def delete_api_token(db: AsyncSession, *, user_id: int, token_id: int) -> bool:
+    """删除指定 API token（per-user 校验）。"""
+    result = await db.execute(
+        select(UserApiToken).where(
+            UserApiToken.id == token_id,
+            UserApiToken.user_id == user_id,
+        )
+    )
+    record = result.scalar_one_or_none()
+    if not record:
+        return False
+    await db.delete(record)
     await db.flush()
     return True

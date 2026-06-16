@@ -11,6 +11,7 @@ from app.api.v1.categories import router as categories_router
 from app.api.v1.stats import router as stats_router
 from app.api.v1.stats_jobs import router as stats_jobs_router
 from app.api.v1.sources_health import router as sources_health_router
+from app.api.v1.metrics import router as metrics_router
 from app.api.v1.feedback import router as feedback_router
 from app.api.v1.product_feedback import router as product_feedback_router
 from app.api.v1.weekly_digests import router as weekly_digests_router
@@ -47,6 +48,7 @@ router.include_router(categories_router)
 router.include_router(stats_router)
 router.include_router(stats_jobs_router)
 router.include_router(sources_health_router)
+router.include_router(metrics_router)
 router.include_router(feedback_router)
 router.include_router(product_feedback_router)
 router.include_router(weekly_digests_router)

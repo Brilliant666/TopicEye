@@ -37,6 +37,29 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 _cache_warmup_task: Optional[asyncio.Task] = None
 
+# ── Request-scoped ID (contextvar, safe for asyncio) ──
+import contextvars
+import uuid as _uuid
+
+_request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
+
+
+def get_request_id() -> str:
+    """Current request ID (for logging / error responses). '- ' if outside a request."""
+    return _request_id_ctx.get()
+
+
+class RequestIdFilter(logging.Filter):
+    """Inject request_id into every LogRecord for structured logging."""
+
+    def filter(self, record):
+        record.request_id = _request_id_ctx.get()
+        return True
+
+
+# Apply filter globally so all loggers get request_id
+logging.getLogger().addFilter(RequestIdFilter())
+
 
 class ProcessTimeHeaderMiddleware:
     def __init__(self, app):
@@ -47,6 +70,16 @@ class ProcessTimeHeaderMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # Extract or generate request ID (allows upstream propagation)
+        req_id = "-"
+        for h_key, h_val in scope.get("headers", []):
+            if h_key == b"x-request-id":
+                req_id = h_val.decode("ascii", errors="replace")
+                break
+        if not req_id or req_id == "-":
+            req_id = _uuid.uuid4().hex[:12]
+        token = _request_id_ctx.set(req_id)
+
         started_at = time.perf_counter()
 
         async def send_with_process_time(message):
@@ -55,9 +88,15 @@ class ProcessTimeHeaderMiddleware:
                 message.setdefault("headers", []).append(
                     (b"x-process-time-ms", f"{elapsed_ms:.3f}".encode("ascii"))
                 )
+                message["headers"].append(
+                    (b"x-request-id", req_id.encode("ascii"))
+                )
             await send(message)
 
-        await self.app(scope, receive, send_with_process_time)
+        try:
+            await self.app(scope, receive, send_with_process_time)
+        finally:
+            _request_id_ctx.reset(token)
 
 
 def should_retry_stats_warmup(errors: list[str]) -> bool:

@@ -109,6 +109,7 @@ def _upsert_zhihu_album_statement(rec: dict):
             category1_name=stmt.excluded.category1_name,
             category2_name=stmt.excluded.category2_name,
             position=stmt.excluded.position,
+            rank_pos_diff=stmt.excluded.rank_pos_diff,
             updated_at=stmt.excluded.updated_at,
         )
     )
@@ -316,8 +317,13 @@ async def _fetch_and_save_albums(
     sort_type: str,
     category1: str,
     category2: str,
+    prev_positions: Optional[dict[str, int]] = None,
 ) -> int:
-    """将 album item 列表写入数据库。返回条数。"""
+    """将 album item 列表写入数据库。返回条数。
+
+    prev_positions: 上次同步的 {business_id: position}（注意 key 需与 sort_type 同 scope），
+    用于计算 rank_pos_diff = prev_pos - cur_pos（正=上升）。为空则不计算 diff。
+    """
     if not items:
         return 0
 
@@ -328,6 +334,11 @@ async def _fetch_and_save_albums(
             rec['category1_name'] = category1
             rec['category2_name'] = category2
             rec['position'] = pos
+            prev_pos = (prev_positions or {}).get(str(item.get('business_id', '')))
+            if prev_pos is not None:
+                rec['rank_pos_diff'] = prev_pos - pos
+            else:
+                rec['rank_pos_diff'] = None
             rec['updated_at'] = datetime.now(timezone.utc)
 
             await db.execute(_upsert_zhihu_album_statement(rec))
@@ -400,6 +411,18 @@ async def sync_zhihu_ranks() -> dict:
     cat_count = len(records)
     logger.info(f'Zhihu story categories saved: {cat_count}')
 
+    # 在删除旧数据前，先快照旧的 (business_id, sort_type) -> position 映射，
+    # 作为本次同步计算 rank_pos_diff 的基线（正=上升，负=下降）。
+    prev_positions: dict[tuple[str, str], int] = {}
+    async with async_session() as db:
+        rows = await db.execute(
+            select(ZhihuAlbum.business_id, ZhihuAlbum.sort_type, ZhihuAlbum.position)
+            .where(ZhihuAlbum.category1_name == '故事')
+            .where(ZhihuAlbum.position != None)  # noqa: E711
+        )
+        for bid, stype, pos in rows.all():
+            prev_positions[(str(bid), str(stype))] = int(pos)
+
     async with async_session() as db:
         await db.execute(
             delete(ZhihuAlbum).where(ZhihuAlbum.category1_name == '故事')
@@ -415,7 +438,10 @@ async def sync_zhihu_ranks() -> dict:
     ]
     for cat_id, sort_label, sort_type in combos:
         items = await _fetch_api(sort_type, limit=20, category_id=cat_id)
-        n = await _fetch_and_save_albums(items, storage_sort_type(sort_type, cat_id), '故事', sort_label)
+        storage_st = storage_sort_type(sort_type, cat_id)
+        # 该 sort_type 下的旧 position 子映射
+        prev_sub = {bid: pos for (bid, st), pos in prev_positions.items() if st == storage_st}
+        n = await _fetch_and_save_albums(items, storage_st, '故事', sort_label, prev_positions=prev_sub)
         total += n
         await asyncio.sleep(0.8)
 
@@ -423,7 +449,9 @@ async def sync_zhihu_ranks() -> dict:
     for _, cat_id, subcat_name in STORY_SUBCATS:
         for sort_type in SORT_TYPES:
             items = await _fetch_api(sort_type, limit=20, category_id=cat_id)
-            n = await _fetch_and_save_albums(items, storage_sort_type(sort_type, cat_id), '故事', subcat_name)
+            storage_st = storage_sort_type(sort_type, cat_id)
+            prev_sub = {bid: pos for (bid, st), pos in prev_positions.items() if st == storage_st}
+            n = await _fetch_and_save_albums(items, storage_st, '故事', subcat_name, prev_positions=prev_sub)
             total += n
             await asyncio.sleep(0.8)
 

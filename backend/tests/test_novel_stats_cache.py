@@ -3,6 +3,27 @@ import pytest
 from app.services import fanqie_service, qimao_service, zhihu_service
 
 
+class _FakeAsyncResult:
+    """Minimal stand-in for a SQLAlchemy Result: enough to satisfy SELECT rows(),
+    scalar() etc., while letting DELETE/UPDATE statements silently ignore the
+    return value. Newer code paths under test may iterate result.all()."""
+
+    def all(self):
+        return []
+
+    def scalar(self):
+        return None
+
+    def scalars(self):
+        return self
+
+    def __iter__(self):
+        return iter([])
+
+    def __bool__(self):  # truthy result checks
+        return False
+
+
 class _FakeAsyncSession:
     async def __aenter__(self):
         return self
@@ -11,7 +32,7 @@ class _FakeAsyncSession:
         return False
 
     async def execute(self, _statement):
-        return None
+        return _FakeAsyncResult()
 
     async def commit(self):
         return None
@@ -81,7 +102,7 @@ async def test_zhihu_sync_invalidates_novel_platform_stats_cache(monkeypatch):
     async def fetch_api(_sort_type, limit=20, offset=0, category_id=None):
         return [{"business_id": f"{category_id}-{_sort_type}"}]
 
-    async def fetch_and_save_albums(items, _sort_type, _category1, _category2):
+    async def fetch_and_save_albums(items, _sort_type, _category1, _category2, prev_positions=None):
         return len(items)
 
     async def no_sleep(_seconds):

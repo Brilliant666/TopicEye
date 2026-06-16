@@ -22,6 +22,11 @@ class RSSScraper(BaseScraper):
 
     async def fetch(self, client: httpx.AsyncClient) -> list[dict[str, Any]]:
         resp = await client.get(self.url)
+        # Capture conditional request state so the pipeline can persist it on
+        # the Source row and send If-None-Match / If-Modified-Since next time.
+        self._latest_etag = resp.headers.get("etag")
+        self._latest_last_modified = resp.headers.get("last-modified")
+
         if resp.status_code == 304:
             logger.info("RSS feed not modified: %s", self.url)
             return []

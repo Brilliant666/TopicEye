@@ -119,10 +119,33 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
 
         # ── Step 2: Fetch ────────────────────────────────────────────
         client_kwargs = _build_http_client_kwargs(source.url)
+        # Inject conditional request headers so the server can return 304
+        # when the feed has not changed since last fetch. Scrapers that
+        # support it will see these in every client.get(); unsupported
+        # scrapers simply ignore the extra headers.
+        conditional_headers: dict[str, str] = {}
+        if source.etag:
+            conditional_headers["If-None-Match"] = source.etag
+        if source.last_modified:
+            conditional_headers["If-Modified-Since"] = source.last_modified
+        if conditional_headers:
+            client_kwargs["headers"] = conditional_headers
+
         fetch_started_at = time.perf_counter()
         async with httpx.AsyncClient(**client_kwargs) as client:
             entries = await scraper.fetch(client)
         fetched_count = len(entries)
+
+        # Persist the latest ETag / Last-Modified so the next fetch can use
+        # them. Only RSS scraper currently populates these (others leave the
+        # attributes absent); getattr keeps the read side scraper-agnostic.
+        new_etag = getattr(scraper, "_latest_etag", None)
+        new_last_modified = getattr(scraper, "_latest_last_modified", None)
+        if new_etag is not None or new_last_modified is not None:
+            if new_etag is not None:
+                source.etag = new_etag
+            if new_last_modified is not None:
+                source.last_modified = new_last_modified
         fetch_elapsed_ms = int((time.perf_counter() - fetch_started_at) * 1000)
 
         if not entries:

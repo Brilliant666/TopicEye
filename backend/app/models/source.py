@@ -52,6 +52,9 @@ class Source(Base):
     last_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     fetch_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
     sync_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # ── Conditional request state (HTTP If-None-Match / If-Modified-Since) ──
+    etag: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    last_modified: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     enabled: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

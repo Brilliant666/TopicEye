@@ -165,6 +165,25 @@ async def cleanup_old_content() -> None:
         return f"removed={removed}"
 
 
+@track_job("cleanup_old_notifications", name="清理30天前的站内通知", timeout=60,
+           description="删除30天前的 notifications（CASCADE 自动清 notification_reads）")
+async def cleanup_old_notifications() -> None:
+    """Remove notifications older than 30 days.
+
+    NotificationRead rows are cleaned automatically via ON DELETE CASCADE.
+    """
+    logger.info("Scheduler: cleanup_old_notifications started")
+    try:
+        from app.services.notification_service import cleanup_old_notifications as _cleanup
+        async with async_session() as db:
+            removed = await _cleanup(days=30)
+            await db.commit()
+        logger.info("Scheduler: cleanup_old_notifications removed %d records", removed)
+        return f"removed={removed}"
+    except Exception:
+        logger.exception("Scheduler: cleanup_old_notifications failed")
+
+
 @track_job("sync_trending", name="趋势雷达数据同步", timeout=120,
            description="每30分钟同步所有趋势信源数据")
 async def _sync_all_trending() -> None:
@@ -730,6 +749,15 @@ def start_scheduler() -> None:
         trigger=CronTrigger(hour=3, minute=0),
         id="cleanup_old_content",
         name="Cleanup old pending content",
+        replace_existing=True,
+    )
+
+    # Notifications cleanup at 03:30 (错开 03:00 避免和 content cleanup 抢 SQLite 写锁)
+    scheduler.add_job(
+        cleanup_old_notifications,
+        trigger=CronTrigger(hour=3, minute=30),
+        id="cleanup_old_notifications",
+        name="Cleanup old notifications",
         replace_existing=True,
     )
 

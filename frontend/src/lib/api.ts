@@ -1619,7 +1619,7 @@ export const fanqieApi = {
 };
 
 export interface WebnovelMovementItem {
-  platform: 'fanqie' | 'qimao' | 'zhihu';
+  platform: 'fanqie' | 'qimao' | 'zhihu' | 'heiyan' | 'ishugui';
   platform_label: string;
   title: string;
   author: string;
@@ -1651,7 +1651,7 @@ export interface WebnovelWeeklyReport {
     read_count_delta: number;
   };
   platforms: Array<{
-    platform: 'fanqie' | 'qimao' | 'zhihu';
+    platform: 'fanqie' | 'qimao' | 'zhihu' | 'heiyan' | 'ishugui';
     label: string;
     item_count: number;
     rising_count: number;

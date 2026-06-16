@@ -338,7 +338,7 @@ function WebnovelWeeklyPanel({ report, loading, onRefresh }: { report: WebnovelW
                     WEBNOVEL WEEKLY
                   </div>
                   <h2 className="m-0 text-[24px] font-black text-gray-900">网文周报</h2>
-                  <p className="mt-1 text-xs text-gray-500">{report.period.label} · {report.summary.snapshot_days} 天番茄历史快照</p>
+                  <p className="mt-1 text-xs text-gray-500">{report.period.label} · 覆盖 {report.platforms.length} 个平台 · {report.summary.snapshot_days} 天历史快照</p>
                 </div>
                 <Button type="button" variant="secondary" onClick={onRefresh}>
                   <RefreshCw size={15} />

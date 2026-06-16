@@ -18,14 +18,18 @@ from urllib.parse import quote, urlparse
 
 import httpx
 from sqlalchemy import select, text
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.source import Source, SourceType, SourceStatus
-from app.models.content import ContentItem, ContentStatus
 from app.core.config import settings
-from app.services.dedup import build_hash
+from app.core.database import database_profile
+from app.models.content import ContentItem, ContentStatus
+from app.models.source import Source, SourceType, SourceStatus
 from app.services.classifier import classify, extract_tags, classify_async
 from app.services.content_read_cache import invalidate_content_read_caches
+from app.services.dedup import build_hash
 from app.services.scrapers import get_scraper_cls
 
 logger = logging.getLogger(__name__)
@@ -139,7 +143,8 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
 
         result = await db.execute(
             select(ContentItem.content_hash).where(
-                ContentItem.content_hash.in_(incoming_hashes)
+                ContentItem.content_hash.in_(incoming_hashes),
+                ContentItem.source_id == source.id,
             )
         )
         existing_hashes = {row[0] for row in result.all()}
@@ -165,6 +170,7 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
         await _register_new_categories(db, [class_result for _, class_result in classified_entries])
 
         new_items: list[ContentItem] = []
+        metrics_records: list[dict | None] = []
         category_counts: dict[str, int] = {}
         for entry, class_result in classified_entries:
             title = entry.get("title", "")
@@ -172,6 +178,7 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
 
             category = class_result["category"]
             tags = class_result["tags"]
+            entry_hash = entry.get("_content_hash")  # per-entry hash (fix: was reusing outer-loop ch)
 
             item = ContentItem(
                 title=title,
@@ -183,7 +190,7 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
                 owner_user_id=source.owner_user_id,
                 author=entry.get("author"),
                 published_at=entry.get("published_at"),
-                content_hash=ch,
+                content_hash=entry_hash,
                 summary=summary or None,
                 raw_content=entry.get("raw_content") or None,
                 cover_url=entry.get("cover_url"),
@@ -192,20 +199,58 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
                 status=ContentStatus.PENDING,
             )
             new_items.append(item)
+            metrics_records.append(_build_metrics_record(entry))
             if category:
                 category_counts[category] = category_counts.get(category, 0) + 1
             new_count += 1
 
-            # ── Persist platform-specific metrics (Reddit, etc.) ──
-            _maybe_save_metrics(entry, item, db)
-
-        # Batch flush: single round-trip for all items this source
+        # ── Persist via dialect INSERT + ON CONFLICT DO NOTHING ──
+        # DB-layer dedup is the concurrency-safe backstop; SELECT IN above
+        # only optimises the happy path. RETURNING gives us the inserted
+        # ids so we can attach ContentMetrics without orphaning them.
         db_elapsed_ms = 0
         if new_items:
+            # dialect.insert does not trigger ORM `default=` callables, so
+            # populate NOT-NULL columns that have no server_default.
+            now = datetime.now(timezone.utc)
             for item in new_items:
-                db.add(item)
+                if item.crawled_at is None:
+                    item.crawled_at = now
+                if item.created_at is None:
+                    item.created_at = now
+                if item.updated_at is None:
+                    item.updated_at = now
+                if item.is_favorited is None:
+                    item.is_favorited = False
+                if item.similarity_score is None:
+                    item.similarity_score = 0.0
+
+            column_names = [c.name for c in ContentItem.__table__.columns]
+            new_records = [
+                {col: getattr(item, col) for col in column_names}
+                for item in new_items
+            ]
+            insert_stmt = _backend_insert(ContentItem).values(new_records)
+            insert_stmt = insert_stmt.on_conflict_do_nothing(
+                index_elements=["source_id", "content_hash"],
+            ).returning(ContentItem.id)
             db_started_at = time.perf_counter()
-            await db.flush()
+            result = await db.execute(insert_stmt)
+            inserted_ids = [row[0] for row in result.all()]
+
+            # Attach ContentMetrics to successfully inserted rows only.
+            from app.models.metrics import ContentMetrics
+
+            skipped_by_conflict = len(new_items) - len(inserted_ids)
+            if skipped_by_conflict:
+                duplicate_count += skipped_by_conflict
+                new_count -= skipped_by_conflict
+            for content_id, metrics_rec in zip(inserted_ids, metrics_records):
+                if metrics_rec is None:
+                    continue
+                metrics_rec["content_id"] = content_id
+                db.add(ContentMetrics(**metrics_rec))
+
             await _increment_category_counts(db, category_counts)
             invalidate_content_read_caches()
             db_elapsed_ms = int((time.perf_counter() - db_started_at) * 1000)
@@ -397,9 +442,27 @@ async def _increment_category_counts(db: AsyncSession, counts: dict[str, int]) -
 
 
 def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> None:
-    """Extract platform-specific metrics (e.g. _reddit_meta, _zhihu_meta) and persist as ContentMetrics."""
+    """Extract platform-specific metrics (e.g. _reddit_meta, _zhihu_meta) and persist as ContentMetrics.
+
+    Kept for backward-compat with callers that still have an item ORM instance;
+    new code paths should use ``_build_metrics_record`` + post-insert write
+    so that ``on_conflict_do_nothing`` skipping a row does not orphan metrics.
+    """
+    record = _build_metrics_record(entry)
+    if record is None:
+        return
     from app.models.metrics import ContentMetrics
 
+    record["content_id"] = item.id
+    db.add(ContentMetrics(**record))
+
+
+def _build_metrics_record(entry: dict) -> dict | None:
+    """Extract platform-specific metrics (e.g. _reddit_meta, _zhihu_meta) into a
+    plain dict ready to be persisted once the parent ContentItem has an id.
+
+    Returns None when the entry has no recognised metrics meta.
+    """
     # ── Reddit metrics ──
     reddit_meta = entry.get("_reddit_meta")
     if reddit_meta:
@@ -415,8 +478,7 @@ def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> Non
         if subscribers > 0:
             explosion_ratio = round(score / subscribers * 1000, 4)
 
-        metrics = ContentMetrics(
-            content=item,
+        return dict(
             likes=score,
             comments=num_comments,
             shares=0,
@@ -425,8 +487,6 @@ def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> Non
             engagement_rate=engagement_rate,
             explosion_ratio=explosion_ratio,
         )
-        db.add(metrics)
-        return
 
     # ── Zhihu metrics ──
     zhihu_meta = entry.get("_zhihu_meta")
@@ -448,8 +508,7 @@ def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> Non
         if rank > 0:
             explosion_ratio = round(1000.0 / rank, 4)
 
-        metrics = ContentMetrics(
-            content=item,
+        return dict(
             likes=hot_score,
             comments=0,
             shares=0,
@@ -458,8 +517,6 @@ def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> Non
             engagement_rate=round(float(hot_score) / 10000, 4) if hot_score > 0 else 0.0,
             explosion_ratio=explosion_ratio,
         )
-        db.add(metrics)
-        return
 
     # ── Douyin Hot metrics ──
     douyin_meta = entry.get("_douyin_hot_meta")
@@ -471,8 +528,7 @@ def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> Non
         if rank > 0:
             explosion_ratio = round(1000.0 / rank, 4)
 
-        metrics = ContentMetrics(
-            content=item,
+        return dict(
             likes=hot_score,
             comments=0,
             shares=0,
@@ -481,15 +537,11 @@ def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> Non
             engagement_rate=round(float(hot_score) / 10000, 4) if hot_score > 0 else 0.0,
             explosion_ratio=explosion_ratio,
         )
-        db.add(metrics)
-        return
 
     # ── Twitter RSS metrics ──
-    twitter_rss_meta = entry.get("_twitter_rss_meta")
-    if twitter_rss_meta:
+    if entry.get("_twitter_rss_meta"):
         # Basic metrics from xgo.ing RSS — limited data available
-        metrics = ContentMetrics(
-            content=item,
+        return dict(
             likes=0,
             comments=0,
             shares=0,
@@ -498,5 +550,16 @@ def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> Non
             engagement_rate=0.0,
             explosion_ratio=0.0,
         )
-        db.add(metrics)
-        return
+
+    return None
+
+
+def _backend_insert(model):
+    """Pick the dialect-appropriate INSERT for ``on_conflict_*`` upserts."""
+    if database_profile.is_sqlite:
+        return sqlite_insert(model)
+    if database_profile.is_postgresql:
+        return postgresql_insert(model)
+    raise RuntimeError(
+        f"Unsupported database backend for on_conflict upsert: {database_profile.backend}"
+    )

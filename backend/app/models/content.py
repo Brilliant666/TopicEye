@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Optional
 import enum
 from datetime import datetime, timezone
-from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, JSON, Boolean, Float, Index
+from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, JSON, Boolean, Float, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 from app.models.enum_types import value_enum
@@ -29,7 +29,7 @@ class ContentItem(Base):
     author: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     crawled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
-    content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    content_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     raw_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     cover_url: Mapped[Optional[str]] = mapped_column(String(1024), nullable=True)
@@ -50,6 +50,7 @@ class ContentItem(Base):
     __table_args__ = (
         Index("ix_content_items_owner", "owner_user_id"),
         Index("ix_content_items_owner_status", "owner_user_id", "status"),
+        UniqueConstraint("source_id", "content_hash", name="uq_content_items_source_hash"),
     )
 
     source: Mapped[Optional["Source"]] = relationship(back_populates="contents")

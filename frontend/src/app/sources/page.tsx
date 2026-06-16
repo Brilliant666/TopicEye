@@ -100,6 +100,7 @@ function SourceMapView({
   favoriteTargetPendingKeys,
   onEdit,
   onSync,
+  onToggleEnabled,
   onFavorite,
   onMove,
 }: {
@@ -115,6 +116,7 @@ function SourceMapView({
   favoriteTargetPendingKeys: Set<string>;
   onEdit: (source: BackendSource) => void;
   onSync: (id: number) => void;
+  onToggleEnabled: (source: BackendSource) => void;
   onFavorite: (source: BackendSource) => void;
   onMove: (source: BackendSource, targetTier: SourceTierKey, orderedIds: number[]) => void;
 }) {
@@ -230,6 +232,7 @@ function SourceMapView({
                     dropTarget={dropTarget}
                     onEdit={onEdit}
                     onSync={onSync}
+                    onToggleEnabled={onToggleEnabled}
                     onFavorite={onFavorite}
                     onDragOver={(event) => {
                       event.preventDefault();
@@ -276,6 +279,7 @@ function SourceMapCard({
   dropTarget,
   onEdit,
   onSync,
+  onToggleEnabled,
   onFavorite,
   onDragOver,
   onDrop,
@@ -291,6 +295,7 @@ function SourceMapCard({
   dropTarget: DropTarget | null;
   onEdit: (source: BackendSource) => void;
   onSync: (id: number) => void;
+  onToggleEnabled: (source: BackendSource) => void;
   onFavorite: (source: BackendSource) => void;
   onDragOver: React.DragEventHandler<HTMLDivElement>;
   onDrop: React.DragEventHandler<HTMLDivElement>;
@@ -367,6 +372,16 @@ function SourceMapCard({
         </Button>
         <Button type="button" variant="secondary" onClick={() => onEdit(source)} className="min-h-7 flex-1 px-2 py-1 text-[11px]">
           编辑
+        </Button>
+        <Button
+          type="button"
+          variant={source.enabled ? 'secondary' : 'primary'}
+          onClick={() => onToggleEnabled(source)}
+          disabled={sourceSyncing}
+          className="min-h-7 px-2 py-1 text-[11px]"
+          title={source.enabled ? '暂停此信源抓取' : '启用此信源抓取'}
+        >
+          {source.enabled ? '暂停' : '启用'}
         </Button>
       </div>
     </div>
@@ -759,6 +774,27 @@ export default function SourcesPage() {
     }
   };
 
+  // ─── Toggle source enabled (soft pause / resume) ───
+  const [togglingIds, setTogglingIds] = useState<Set<number>>(new Set());
+  const handleToggleEnabled = async (source: BackendSource) => {
+    if (togglingIds.has(source.id)) return;
+    const nextEnabled = !source.enabled;
+    try {
+      setTogglingIds((prev) => new Set(prev).add(source.id));
+      await sourcesApi.update(source.id, { enabled: nextEnabled });
+      await fetchSources();
+      await fetchSourceMap();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTogglingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(source.id);
+        return next;
+      });
+    }
+  };
+
   // ─── Delete source ───
   const handleDelete = async (id: number) => {
     if (!confirm('确定要删除此信源吗？')) return;
@@ -1091,6 +1127,7 @@ export default function SourcesPage() {
           favoriteTargetPendingKeys={favoriteTargetPendingKeys}
           onEdit={openEditModal}
           onSync={handleSync}
+          onToggleEnabled={handleToggleEnabled}
           onFavorite={handleToggleSourceFavorite}
           onMove={handleMoveSourceTier}
         />

@@ -452,6 +452,21 @@ async def _rescan_sources() -> None:
                 "Scheduler: self-healed %d source(s) stuck in SYNCING (>3x lease)", healed,
             )
 
+        # ── Alert: sources with status=ERROR (连续失败) ──
+        try:
+            from app.services.alerting import alert_source_failures
+            error_sources = (await db.execute(
+                select(Source.name, Source.source_type, Source.sync_error)
+                .where(Source.status == SourceStatus.ERROR, Source.enabled.is_(True))
+            )).all()
+            if error_sources:
+                await alert_source_failures([
+                    {"name": r[0], "source_type": r[1], "error": r[2] or ""}
+                    for r in error_sources
+                ])
+        except Exception:
+            logger.debug("Source failure alert skipped (non-fatal)", exc_info=True)
+
         source_repo = SourceRepository(db)
         sources = await source_repo.get_enabled_sources()
 

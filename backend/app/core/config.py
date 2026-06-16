@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     DUCKDB_MEMORY_LIMIT: str = "256MB"
     DUCKDB_EXTENSION_DIR: str = "./data/duckdb_extensions"
 
+    # ── Alerting ──
+    ALERT_WEBHOOK_URL: str = ""  # 飞书/钉钉/Slack incoming webhook URL
+
     # ── Startup behavior ──
     AUTO_CREATE_TABLES_ON_STARTUP: bool = True
     STARTUP_SEED_ENABLED: bool = True

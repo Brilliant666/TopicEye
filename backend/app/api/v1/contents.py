@@ -129,6 +129,7 @@ async def list_contents(
     source_type: Optional[str] = None, platform: Optional[str] = None,
     status: Optional[str] = None, category: Optional[str] = None,
     keyword: Optional[str] = None, source_id: Optional[int] = None,
+    q: Optional[str] = Query(None, description="全文搜索（跨 title + summary + raw_content 的 OR 匹配）"),
     include_trend_sources: bool = Query(False, description="Include榜单/趋势源 such as DouyinHot"),
     hours: Optional[int] = Query(None, description="Time range in hours, e.g. 24, 48, 168"),
     sort_by: str = Query("created_at",
@@ -222,7 +223,8 @@ async def list_contents(
             page=page, page_size=page_size,
             filters=filters or None, sort_by=sort_by, sort_order=sort_order,
             exclude_ids=ignored_ids, exclude_source_types=exclude_source_types, time_cutoff=time_cutoff,
-            visible_user_id=current_user.id if current_user is not None else None,)
+            visible_user_id=current_user.id if current_user is not None else None,
+            search_query=q,)
         payload = {"items": [content_with_latest_analysis(i, include_raw_content=include_raw_content) for i in items],
                    "total": total, "page": page, "page_size": page_size}
         if cache_params.cacheable and not include_raw_content:

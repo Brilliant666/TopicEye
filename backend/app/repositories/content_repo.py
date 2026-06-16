@@ -351,6 +351,7 @@ class ContentRepo(BaseRepository[ContentItem]):
         exclude_source_types: Optional[set[str]] = None,
         time_cutoff: Optional[datetime] = None,
         visible_user_id: Optional[int] = None,
+        search_query: Optional[str] = None,
     ) -> tuple[Sequence[ContentItem], int]:
         """Like list_paginated but eager-loads analyses relation.
 
@@ -384,6 +385,17 @@ class ContentRepo(BaseRepository[ContentItem]):
                 else:
                     stmt = stmt.where(col == value)
                     count_stmt = count_stmt.where(col == value)
+
+        # Full-text-ish search across title + summary + raw_content (OR)
+        if search_query:
+            pattern = f"%{search_query}%"
+            search_clause = or_(
+                self.model.title.ilike(pattern),
+                self.model.summary.ilike(pattern),
+                self.model.raw_content.ilike(pattern),
+            )
+            stmt = stmt.where(search_clause)
+            count_stmt = count_stmt.where(search_clause)
 
         # Exclude ignored item IDs
         if exclude_ids:

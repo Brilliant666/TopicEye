@@ -279,6 +279,10 @@ app.add_middleware(
 
 app.add_middleware(ProcessTimeHeaderMiddleware)
 
+# Rate limiting（内存滑动窗口，按 IP + 路径前缀分桶）
+from app.middleware.rate_limit import RateLimitMiddleware
+app.add_middleware(RateLimitMiddleware)
+
 # Mount v1 API routes
 app.include_router(v1_router)
 

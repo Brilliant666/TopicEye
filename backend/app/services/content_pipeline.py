@@ -451,22 +451,6 @@ async def _increment_category_counts(db: AsyncSession, counts: dict[str, int]) -
         )
 
 
-def _maybe_save_metrics(entry: dict, item: ContentItem, db: AsyncSession) -> None:
-    """Extract platform-specific metrics (e.g. _reddit_meta, _zhihu_meta) and persist as ContentMetrics.
-
-    Kept for backward-compat with callers that still have an item ORM instance;
-    new code paths should use ``_build_metrics_record`` + post-insert write
-    so that ``on_conflict_do_nothing`` skipping a row does not orphan metrics.
-    """
-    record = _build_metrics_record(entry)
-    if record is None:
-        return
-    from app.models.metrics import ContentMetrics
-
-    record["content_id"] = item.id
-    db.add(ContentMetrics(**record))
-
-
 def _build_metrics_record(entry: dict) -> dict | None:
     """Extract platform-specific metrics (e.g. _reddit_meta, _zhihu_meta) into a
     plain dict ready to be persisted once the parent ContentItem has an id.

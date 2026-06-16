@@ -78,12 +78,6 @@ class ContentRepo(BaseRepository[ContentItem]):
         )
         return result.scalar_one_or_none()
 
-    async def get_by_content_hash(self, content_hash: str) -> Optional[ContentItem]:
-        """Find a content item by its content hash (duplicate detection)."""
-        result = await self.db.execute(
-            select(self.model).where(self.model.content_hash == content_hash)
-        )
-        return result.scalar_one_or_none()
 
     async def get_with_analyses(self, id: int) -> Optional[ContentItem]:
         """Fetch a content item eagerly loaded with its AI analyses."""

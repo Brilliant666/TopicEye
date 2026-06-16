@@ -257,6 +257,42 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 @app.get("/health", tags=["health"])
 async def health_check():
+    """Alias for /health/ready (向后兼容)。"""
+    return await health_ready()
+
+
+@app.get("/health/live", tags=["health"])
+async def health_live():
+    """轻量存活检查（Docker healthcheck 用）。
+
+    只确认：进程能响应 HTTP + DB 连接可达。
+    不检查 DuckDB / scheduler / LLM——那些是就绪检查的事。
+    """
+    db_ok = True
+    db_error = None
+    try:
+        async with async_session() as db:
+            from sqlalchemy import text
+            await db.execute(text("SELECT 1"))
+    except Exception as exc:
+        db_ok = False
+        db_error = type(exc).__name__
+
+    if not db_ok:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "db": db_error},
+        )
+    return {"status": "alive", "service": "topiceye-backend"}
+
+
+@app.get("/health/ready", tags=["health"])
+async def health_ready():
+    """就绪检查（深度）。
+
+    检查 DB + DuckDB + scheduler 是否都正常。
+    用于"服务是否可以接收流量"的判断（部署/路由层）。
+    """
     diagnostics = database_diagnostics(database_profile)
     try:
         from app.services.duckdb_service import get_analytics
@@ -269,12 +305,24 @@ async def health_check():
             "error": redact_database_secrets(str(exc), database_profile),
         }
 
+    # scheduler 是否在跑
+    try:
+        from app.scheduler import scheduler as _scheduler
+        scheduler_running = _scheduler.running
+    except Exception:
+        scheduler_running = False
+
+    # 判定：DB OK 即 ready（DuckDB 有 fallback，scheduler 可能被配置禁用）
+    db_ok = diagnostics.get("oltp") is not None
+    overall = "ready" if db_ok else "not_ready"
+
     return {
-        "status": "ok",
+        "status": overall,
         "service": "topiceye-backend",
         "database": {
             "backend": database_profile.backend,
             **diagnostics,
             "duckdb": duckdb_status,
         },
+        "scheduler": {"running": scheduler_running},
     }

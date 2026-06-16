@@ -432,15 +432,30 @@ async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
 
     fallback_used = False
     if result is None:
-        result, final_metadata = await _call_llm_json_with_metadata(
-            messages,
-            temperature=0.25,
-            max_tokens=1500,
-            scene="content_analysis",
-            routing_group=_cascade_pro_routing_group(),
-        )
-        final_model = final_metadata.get("actual_model") or final_model
-        if not _valid_analysis_result(result):
+        try:
+            result, final_metadata = await _call_llm_json_with_metadata(
+                messages,
+                temperature=0.25,
+                max_tokens=1500,
+                scene="content_analysis",
+                routing_group=_cascade_pro_routing_group(),
+            )
+            final_model = final_metadata.get("actual_model") or final_model
+        except Exception as llm_exc:
+            # Only CircuitOpenError (breaker tripped) triggers fallback —
+            # other LLM failures (timeout, network, RuntimeError) still
+            # propagate up so the caller can record ERROR status + retry.
+            from app.services.llm.circuit_breaker import CircuitOpenError
+            if isinstance(llm_exc, CircuitOpenError):
+                logger.warning(
+                    "LLM circuit breaker open for content id=%d, using local fallback",
+                    content.id,
+                )
+                result = _local_analysis_result(content, lang=lang)
+                fallback_used = True
+            else:
+                raise
+        if not fallback_used and not _valid_analysis_result(result):
             logger.warning(
                 "LLM analysis result invalid for content id=%d, using local fallback: %s",
                 content.id,

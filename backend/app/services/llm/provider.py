@@ -460,6 +460,39 @@ async def call_llm_with_metadata(
     routing_group: str = "default",
 ) -> tuple[str, dict[str, Any]]:
     """Call LLM with automatic ordered failover and return the selected route metadata."""
+    # Circuit breaker: skip LLM call entirely when in OPEN state
+    from app.services.llm.circuit_breaker import get_llm_circuit_breaker
+    breaker = get_llm_circuit_breaker()
+    if not await breaker.allow_request():
+        from app.services.llm.circuit_breaker import CircuitOpenError
+        raise CircuitOpenError(
+            f"LLM circuit breaker OPEN (failures={breaker.status()['failure_count']}); "
+            f"callers should use fallback"
+        )
+
+    try:
+        result = await _call_llm_with_metadata_inner(
+            messages, temperature, max_tokens, scene, user_id, routing_group,
+        )
+        await breaker.record_success()
+        return result
+    except Exception as exc:
+        # Only count genuine LLM/API failures, not caller-side issues
+        from app.services.llm.circuit_breaker import CircuitOpenError
+        if not isinstance(exc, CircuitOpenError):
+            await breaker.record_failure()
+        raise
+
+
+async def _call_llm_with_metadata_inner(
+    messages: list,
+    temperature: float = 0.3,
+    max_tokens: int = 2000,
+    scene: str = "general",
+    user_id: int | None = None,
+    routing_group: str = "default",
+) -> tuple[str, dict[str, Any]]:
+    """Call LLM with automatic ordered failover and return the selected route metadata."""
     db_models = await _model_cache.get_route_models(routing_group, user_id=user_id)
     candidates = [_candidate_from_db_model(m, temperature, max_tokens) for m in db_models]
 

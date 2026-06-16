@@ -100,8 +100,8 @@ async def admin_api_client(monkeypatch) -> AsyncGenerator[tuple[httpx.AsyncClien
 @pytest.mark.asyncio
 async def test_management_apis_require_admin_role(admin_api_client):
     client, user_token, admin_token = admin_api_client
+    # 注意: GET /sources 已改为公开读 API (无 Depends), 不再属于管理接口
     endpoints = [
-        "/sources?page=1&page_size=1",
         "/settings/duckdb/status",
         "/models",
         "/scheduler/jobs",

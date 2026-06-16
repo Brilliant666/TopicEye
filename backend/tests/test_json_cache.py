@@ -70,7 +70,7 @@ def test_content_list_cache_key_and_invalidation():
     key = params.key
     assert key == (
         "contents:list:page=1&page_size=50&include_trend_sources=0"
-        "&sort_by=created_at&sort_order=desc&hours=48"
+        "&sort_by=created_at&sort_order=desc&user_id=&hours=48"
     )
 
     set_cached_json(key, {"items": [], "total": 0})

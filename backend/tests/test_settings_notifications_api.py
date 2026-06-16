@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.api.v1 import notifications as notifications_api
 from app.api.v1 import settings as settings_api
 from app.api.v1.auth import get_current_admin_user, get_current_user
+from app.core.database import database_profile
 from app.core.database import Base
 from app.core.db_backend import create_database_profile
 from app import main as app_main
@@ -136,7 +137,7 @@ async def test_duckdb_status_reports_database_diagnostics(
     payload = response.json()
     assert payload["status"] == "ok"
     assert payload["available"] is True
-    assert payload["database"]["oltp"]["backend"] == "sqlite"
+    assert payload["database"]["oltp"]["backend"] == database_profile.backend
     assert payload["database"]["analytics"]["backend"] == "duckdb"
     assert payload["database"]["analytics"]["attach_mode"] == "read_only"
     assert payload["note"] == "No sync needed; DuckDB reads the configured OLTP backend directly."

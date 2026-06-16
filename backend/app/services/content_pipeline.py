@@ -242,7 +242,13 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
                 if item.similarity_score is None:
                     item.similarity_score = 0.0
 
-            column_names = [c.name for c in ContentItem.__table__.columns]
+            # Exclude autoincrement PK from explicit values: PG rejects
+            # NULL on a SERIAL PK (NotNullViolationError) while SQLite silently
+            # generates a rowid. Excluding makes both backends auto-generate.
+            column_names = [
+                c.name for c in ContentItem.__table__.columns
+                if not (c.primary_key and c.autoincrement)
+            ]
             new_records = [
                 {col: getattr(item, col) for col in column_names}
                 for item in new_items

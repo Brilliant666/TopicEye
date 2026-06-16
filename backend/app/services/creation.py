@@ -202,12 +202,24 @@ async def generate_creation_plan(
             timeout=settings.CREATION_PLAN_TIMEOUT_SECONDS,
         )
         plan = _validate_creation_plan(plan, platform)
-        if isinstance(plan, dict) and "error" not in plan:
+        is_success = isinstance(plan, dict) and "error" not in plan
+        if is_success:
             plan["_meta"] = {
                 "content_id": content_id,
                 "platform": platform,
                 "platform_name": platform_config["name"],
             }
+        # 4. Persist plan history（成功 / 失败都写入，失败作为日志）
+        await _persist_creation_plan(
+            db,
+            user_id=user_id,
+            content_id=content_id,
+            content_title=content.title,
+            platform=platform,
+            platform_name=platform_config["name"],
+            plan=plan if is_success else {},
+            error=plan.get("error") if not is_success else None,
+        )
         return plan
     except asyncio.TimeoutError:
         logger.warning(
@@ -215,7 +227,60 @@ async def generate_creation_plan(
             content_id,
             settings.CREATION_PLAN_TIMEOUT_SECONDS,
         )
-        return {"error": f"创作方案生成超时，请稍后重试或切换更快的模型（>{settings.CREATION_PLAN_TIMEOUT_SECONDS}s）"}
+        error = f"创作方案生成超时，请稍后重试或切换更快的模型（>{settings.CREATION_PLAN_TIMEOUT_SECONDS}s）"
+        await _persist_creation_plan(
+            db,
+            user_id=user_id,
+            content_id=content_id,
+            content_title=content.title,
+            platform=platform,
+            platform_name=platform_config["name"],
+            plan={},
+            error=error,
+        )
+        return {"error": error}
     except Exception as e:
         logger.exception("Failed to generate creation plan for content %s", content_id)
+        await _persist_creation_plan(
+            db,
+            user_id=user_id,
+            content_id=content_id,
+            content_title=content.title,
+            platform=platform,
+            platform_name=platform_config["name"],
+            plan={},
+            error=str(e),
+        )
         return {"error": str(e)}
+
+
+async def _persist_creation_plan(
+    db: AsyncSession,
+    *,
+    user_id: int | None,
+    content_id: int,
+    content_title: str,
+    platform: str,
+    platform_name: str,
+    plan: dict,
+    error: str | None,
+) -> None:
+    """将创作方案持久化到 creation_plans 表（用户匿名时 user_id=NULL）。"""
+    from app.models.creation import CreationPlan
+
+    record = CreationPlan(
+        user_id=user_id,  # None 表示匿名（plan_allows_custom_ai=False 时）
+        content_id=content_id,
+        platform=platform,
+        platform_name=platform_name,
+        content_title_snapshot=content_title[:500],
+        plan=plan,
+        error=error,
+    )
+    db.add(record)
+    try:
+        await db.flush()
+    except Exception:
+        # 持久化失败不应阻塞主流程
+        logger.warning("Persist creation plan failed (non-fatal)", exc_info=True)
+        await db.rollback()

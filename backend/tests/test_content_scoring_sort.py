@@ -19,6 +19,7 @@ class FakeContentRepo:
         exclude_source_types,
         time_cutoff,
         limit,
+        visible_user_id=None,
     ):
         items = [
             _content_item(1, "high"),

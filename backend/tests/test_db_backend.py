@@ -52,7 +52,7 @@ def test_postgresql_profile_and_duckdb_attach_sql():
     assert profile.is_postgresql
     assert profile.url == "postgresql+asyncpg://topiceye:***@localhost:5432/topiceye".replace("***", "secret")
     assert async_database_url(url) == profile.url
-    assert sync_database_url(url).startswith("postgresql://")
+    assert sync_database_url(url).startswith("postgresql+psycopg://")
     assert duckdb_extension_name(profile) == "postgres"
     attach_sql = duckdb_attach_sql(profile)
     assert "TYPE postgres" in attach_sql
@@ -64,7 +64,7 @@ def test_postgresql_profile_and_duckdb_attach_sql():
     diagnostics = database_diagnostics(profile)
     assert diagnostics["oltp"]["backend"] == "postgresql"
     assert diagnostics["oltp"]["async_driver"] == "asyncpg"
-    assert diagnostics["oltp"]["sync_driver"] == "postgresql"
+    assert diagnostics["oltp"]["sync_driver"] == "postgresql+psycopg"
     assert diagnostics["oltp"]["sqlite_path"] is None
     assert diagnostics["analytics"] == {
         "backend": "duckdb",
@@ -82,7 +82,7 @@ def test_postgres_alias_profile_uses_asyncpg_and_duckdb_postgres_attach():
 
     assert database_backend(url) == "postgresql"
     assert profile.url == "postgresql+asyncpg://topiceye:secret@localhost:5432/topiceye"
-    assert profile.sync_url == "postgresql://topiceye:secret@localhost:5432/topiceye"
+    assert profile.sync_url == "postgresql+psycopg://topiceye:secret@localhost:5432/topiceye"
     assert profile.async_driver == "asyncpg"
     assert duckdb_extension_name(profile) == "postgres"
     assert "TYPE postgres" in duckdb_attach_sql(profile)

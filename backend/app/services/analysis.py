@@ -355,16 +355,22 @@ def _local_analysis_result(content: ContentItem, *, lang: str) -> dict[str, Any]
 
 
 def _analysis_retryable_status_filter(stale_cutoff: datetime):
-    """Return the status predicate for content eligible to enter analysis."""
+    """Return the status predicate for content eligible to enter analysis.
+
+    stale_cutoff 在内部转 naive UTC: SQLite aiosqlite 不支持 aware datetime 作参数,
+    PG 接受 naive (session 设 UTC). Python 层比较仍用 aware.
+    """
+    from app.core.db_backend import ensure_naive_utc
+    cutoff = ensure_naive_utc(stale_cutoff)
     return (
         (ContentItem.status == ContentStatus.PENDING)
         | (
             (ContentItem.status == ContentStatus.ANALYZING)
-            & (ContentItem.updated_at <= stale_cutoff)
+            & (ContentItem.updated_at <= cutoff)
         )
         | (
             (ContentItem.status == ContentStatus.ERROR)
-            & (ContentItem.updated_at <= stale_cutoff)
+            & (ContentItem.updated_at <= cutoff)
         )
     )
 

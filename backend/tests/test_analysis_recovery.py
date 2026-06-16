@@ -154,6 +154,13 @@ async def test_claim_pending_analysis_ids_retries_sqlite_write_lock(monkeypatch)
 
     monkeypatch.setattr("app.repositories.content_repo.begin_immediate_for_sqlite", flaky_begin_immediate)
 
+    # sqlite write lock 重试路径: 必须 is_sqlite=True 才会进 begin_immediate 分支
+    class FakeProfile:
+        is_sqlite = True
+        is_postgresql = False
+
+    monkeypatch.setattr("app.repositories.content_repo.database_profile", FakeProfile())
+
     async with session_factory() as db:
         db.add(
             ContentItem(

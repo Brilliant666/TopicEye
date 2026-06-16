@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy.exc import OperationalError
@@ -99,6 +99,13 @@ async def test_generate_monthly_digest_retries_sqlite_claim_lock(monkeypatch):
 
     monkeypatch.setattr(monthly_digest, "begin_immediate_for_sqlite", flaky_begin_immediate)
     monkeypatch.setattr(monthly_digest, "fetch_analyzed_content_with_expanded_window", fake_fetch)
+
+    # sqlite claim lock 重试路径: 必须 is_sqlite=True 才会进 begin_immediate 分支
+    class FakeProfile:
+        is_sqlite = True
+        is_postgresql = False
+
+    monkeypatch.setattr(monthly_digest, "database_profile", FakeProfile())
 
     async with session_factory() as db:
         digest = await generate_monthly_digest(db, reference_date=date(2026, 6, 8))

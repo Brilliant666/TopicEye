@@ -297,3 +297,19 @@ def ensure_aware_utc(dt: Optional[datetime]) -> Optional[datetime]:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
+
+
+def ensure_naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """把 datetime 转 naive UTC, 用于 SQL 查询参数.
+
+    背景: SQLite aiosqlite driver 不支持 aware datetime 作为 SQL 绑定参数,
+    会抛 TypeError. PG asyncpg 接受 naive (session 设 UTC 时按 UTC 解释).
+    所以所有 SQL where 条件里的 datetime 参数统一用 naive UTC.
+
+    Python 层比较 (now - t) 仍用 aware (ensure_aware_utc).
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt  # 已经是 naive
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)

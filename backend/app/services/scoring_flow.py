@@ -52,6 +52,7 @@ async def build_scoring_flow_payload(
     hours: int,
     limit: int,
     sample_limit: int = 80,
+    visible_user_id: Optional[int] = None,
 ) -> dict[str, Any]:
     """Return scoring funnel stages, candidate samples, and mix pressure data."""
     cache_key = (hours, limit, sample_limit)

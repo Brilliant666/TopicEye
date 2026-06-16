@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy.exc import OperationalError
@@ -140,9 +140,17 @@ async def test_generate_daily_report_retries_sqlite_claim_lock(monkeypatch):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    now = datetime(2026, 5, 27, 12, 0, 0)
+    now = datetime(2026, 5, 27, 12, 0, 0, tzinfo=timezone.utc)
     calls = {"begin": 0}
     monkeypatch.setattr(daily_report, "_local_now", lambda: now)
+
+    # sqlite claim lock 测试: FakeProfile 必须声明 is_sqlite=True
+    # 否则 daily_report 不会调 begin_immediate_for_sqlite (跟 is_sqlite gate)
+    class FakeProfile:
+        is_sqlite = True
+        is_postgresql = False
+
+    monkeypatch.setattr(daily_report, "database_profile", FakeProfile())
 
     async def flaky_begin_immediate(_db):
         calls["begin"] += 1

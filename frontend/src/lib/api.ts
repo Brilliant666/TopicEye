@@ -1037,6 +1037,60 @@ export const statsApi = {
   },
 };
 
+// ─── Job execution stats (job_execution_logs 聚合) ───
+
+export interface JobStatsByStatus {
+  status: string;
+  count: number;
+}
+
+export interface JobStatsByJobKey {
+  job_key: string;
+  runs: number;
+  success_count: number;
+  success_rate: number;
+  avg_duration_ms: number;
+  last_status: string | null;
+  last_run_at: string | null;
+  last_duration_ms: number | null;
+  last_error: string | null;
+}
+
+export interface JobStatsRecentFailure {
+  job_key: string;
+  status: string;
+  started_at: string | null;
+  duration_ms: number | null;
+  error_message: string | null;
+}
+
+export interface JobStatsResponse {
+  period: { days: number; start: string; end: string };
+  totals: {
+    total_runs: number;
+    success_count: number;
+    failed_count: number;
+    timeout_count: number;
+    skipped_count: number;
+    running_count: number;
+    success_rate: number;
+    avg_duration_ms: number;
+    max_duration_ms: number;
+  };
+  by_status: JobStatsByStatus[];
+  by_job_key: JobStatsByJobKey[];
+  recent_failures: JobStatsRecentFailure[];
+}
+
+export const statsJobsApi = {
+  get(days = 7, jobKey?: string): Promise<JobStatsResponse> {
+    const params = new URLSearchParams();
+    params.set('days', String(days));
+    if (jobKey) params.set('job_key', jobKey);
+    return request(`/stats/jobs?${params.toString()}`);
+  },
+};
+
 // ─── Trends API ───
 
 export interface TrendPoint {

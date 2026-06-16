@@ -14,7 +14,7 @@ import re
 import time
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import select, text
@@ -30,6 +30,7 @@ from app.models.source import Source, SourceType, SourceStatus
 from app.services.classifier import classify, extract_tags, classify_async
 from app.services.content_read_cache import invalidate_content_read_caches
 from app.services.dedup import build_hash
+from app.services.scraper_http import build_scraper_client_kwargs
 from app.services.scrapers import get_scraper_cls
 
 logger = logging.getLogger(__name__)
@@ -118,18 +119,11 @@ async def _ingest_from_source_inner(source: Source, db: AsyncSession) -> dict[st
         scraper = scraper_cls(source_url=source.url, source_config=source_config)
 
         # ── Step 2: Fetch ────────────────────────────────────────────
-        client_kwargs = _build_http_client_kwargs(source.url)
-        # Inject conditional request headers so the server can return 304
-        # when the feed has not changed since last fetch. Scrapers that
-        # support it will see these in every client.get(); unsupported
-        # scrapers simply ignore the extra headers.
-        conditional_headers: dict[str, str] = {}
-        if source.etag:
-            conditional_headers["If-None-Match"] = source.etag
-        if source.last_modified:
-            conditional_headers["If-Modified-Since"] = source.last_modified
-        if conditional_headers:
-            client_kwargs["headers"] = conditional_headers
+        client_kwargs = build_scraper_client_kwargs(
+            source.url,
+            etag=source.etag,
+            last_modified=source.last_modified,
+        )
 
         fetch_started_at = time.perf_counter()
         async with httpx.AsyncClient(**client_kwargs) as client:
@@ -418,19 +412,6 @@ def _source_error_secrets() -> list[str]:
             secrets.add(stripped)
             secrets.add(quote(stripped, safe=""))
     return sorted(secrets, key=len, reverse=True)
-
-
-def _build_http_client_kwargs(source_url: str) -> dict[str, Any]:
-    client_kwargs: dict[str, Any] = {"timeout": 30, "follow_redirects": True, "trust_env": False}
-    proxy_url = os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
-    if proxy_url and not _is_loopback_url(source_url):
-        client_kwargs["proxy"] = proxy_url
-    return client_kwargs
-
-
-def _is_loopback_url(source_url: str) -> bool:
-    host = (urlparse(source_url).hostname or "").lower()
-    return host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or host.startswith("127.")
 
 
 async def _get_active_category_names(db: AsyncSession) -> list[str]:

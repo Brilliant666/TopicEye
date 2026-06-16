@@ -1,0 +1,103 @@
+# =============================================================================
+# TopicEye 生产部署配置
+# =============================================================================
+#
+# 用法：
+#   docker compose -f docker-compose.prod.yml build
+#   docker compose -f docker-compose.prod.yml up -d
+#
+# 与 docker-compose.yml（开发配置）的关键差异：
+#   1. backend：无 bind mount（代码 bake 进镜像，不用 --reload）
+#   2. frontend：无 bind mount，用 npm run start（不是 dev）
+#   3. 所有服务加 healthcheck（镜像自带，compose 补充）
+#   4. resource limits（4C4G 服务器友好）
+#   5. postgres 加 healthcheck
+#   6. restart: unless-stopped 全部开启
+#
+# 镜像自带 HEALTHCHECK（见 Dockerfile），compose 层主要补 resource limits。
+#
+# 部署前检查：
+#   - .env 配置好（DATABASE_URL / LLM key / CORS_ORIGINS）
+#   - AUTO_CREATE_TABLES_ON_STARTUP=true（首次启动自动 migration）
+#   - DUCKDB_THREADS / DUCKDB_MEMORY_LIMIT 按机器调
+# =============================================================================
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    # 不 bind mount 源码（代码在镜像里）；只挂 data volume
+    volumes:
+      - backend-data:/app/data
+    environment:
+      - APP_ENV=production
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://topiceye:topiceye@postgres:5432/topiceye}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      - AUTO_CREATE_TABLES_ON_STARTUP=${AUTO_CREATE_TABLES_ON_STARTUP:-true}
+      - CACHE_WARMUP_ENABLED=${CACHE_WARMUP_ENABLED:-true}
+      - STARTUP_SEED_ENABLED=${STARTUP_SEED_ENABLED:-true}
+      - DUCKDB_THREADS=${DUCKDB_THREADS:-2}
+      - DUCKDB_MEMORY_LIMIT=${DUCKDB_MEMORY_LIMIT:-256MB}
+      - DUCKDB_EXTENSION_DIR=${DUCKDB_EXTENSION_DIR:-./data/duckdb_extensions}
+      - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-true}
+    # 不 override command：用 Dockerfile CMD（uvicorn 无 --reload）
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${BACKEND_MEM_LIMIT:-1g}
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-topiceye}
+      - POSTGRES_USER=${POSTGRES_USER:-topiceye}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-topiceye}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-topiceye}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_MEM_LIMIT:-512m}
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    # 不 bind mount 源码；只隔离 node_modules
+    volumes:
+      - frontend-node-modules:/app/node_modules
+    environment:
+      - BACKEND_API_URL=http://backend:8000
+      - NODE_ENV=production
+    # 不 override command：用 Dockerfile CMD（npm run start，不是 dev）
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: ${FRONTEND_MEM_LIMIT:-512m}
+
+volumes:
+  backend-data:
+  postgres-data:
+  frontend-node-modules:

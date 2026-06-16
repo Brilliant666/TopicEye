@@ -48,6 +48,7 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    stop_grace_period: 45s
     deploy:
       resources:
         limits:

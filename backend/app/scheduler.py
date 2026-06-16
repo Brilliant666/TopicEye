@@ -892,7 +892,19 @@ def start_scheduler() -> None:
 
 
 def shutdown_scheduler() -> None:
-    """Gracefully shut down the scheduler."""
+    """Gracefully shut down the scheduler.
+
+    wait=True lets in-flight jobs finish (up to APScheduler's internal
+    timeout), so SIGTERM during a source sync doesn't kill the task
+    mid-write (which is what left sources stuck in SYNCING status).
+    """
     if scheduler.running:
-        scheduler.shutdown(wait=False)
-        logger.info("Scheduler shut down")
+        try:
+            scheduler.shutdown(wait=True)
+            logger.info("Scheduler shut down gracefully (in-flight jobs completed)")
+        except Exception as exc:
+            # If wait=True hangs (e.g. a job stuck on a long network call),
+            # force shutdown so the container can still exit.
+            logger.warning("Graceful scheduler shutdown failed (%s), forcing", exc)
+            scheduler.shutdown(wait=False)
+            logger.info("Scheduler forced shutdown")

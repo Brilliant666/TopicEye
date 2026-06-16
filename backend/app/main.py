@@ -93,6 +93,15 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Startup schema migration skipped by config")
 
+    # Post-migration: ensure PG sequences are >= max(id).
+    # Historical data imports (COPY / explicit-id INSERT) can leave SERIAL
+    # sequences stale, causing UniqueViolationError on subsequent inserts.
+    try:
+        from app.core.sequence_health import ensure_sequences_synced
+        await ensure_sequences_synced()
+    except Exception as exc:
+        logger.warning("Sequence sync check failed (non-fatal): %s", exc)
+
     admin_email = (settings.ADMIN_EMAIL or "").strip()
     admin_password = settings.ADMIN_PASSWORD or ""
     if settings.ADMIN_SEED_ENABLED and admin_email and admin_password:

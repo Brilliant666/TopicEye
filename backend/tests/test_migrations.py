@@ -13,44 +13,9 @@ PostgreSQL instance and drops it afterwards.
 
 from __future__ import annotations
 
-import os
-import uuid
-
-import pytest
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.engine import make_url
 
 from app.core import migrations as migrations_mod
-
-
-def _sync_url(database: str | None = None) -> str:
-    """Sync (psycopg) URL of the test PG instance, optionally retargeting the database."""
-    url = make_url(os.environ["DATABASE_URL"]).set(drivername="postgresql+psycopg")
-    if database is not None:
-        url = url.set(database=database)
-    # str(url) 会把密码渲染成 ***，必须显式保留
-    return url.render_as_string(hide_password=False)
-
-
-@pytest.fixture
-def throwaway_pg_database(monkeypatch):
-    """一次性测试数据库：建库 → 指向 settings.DATABASE_URL → 用完删库。"""
-    db_name = f"mig_test_{uuid.uuid4().hex[:10]}"
-    admin = create_engine(_sync_url("postgres"), isolation_level="AUTOCOMMIT")
-    with admin.connect() as conn:
-        conn.execute(text(f'CREATE DATABASE "{db_name}"'))
-    admin.dispose()
-
-    test_url = _sync_url(db_name)
-    monkeypatch.setattr(migrations_mod.settings, "DATABASE_URL", test_url)
-    yield test_url
-
-    admin = create_engine(_sync_url("postgres"), isolation_level="AUTOCOMMIT")
-    with admin.connect() as conn:
-        conn.execute(text(f'REVOKE CONNECT ON DATABASE "{db_name}" FROM PUBLIC'))
-        conn.execute(text(f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_name}'"))
-        conn.execute(text(f'DROP DATABASE "{db_name}"'))
-    admin.dispose()
 
 
 def _table_names(db_url: str) -> set[str]:
@@ -115,3 +80,43 @@ def test_already_tracked_database_upgrades_idempotently(throwaway_pg_database) -
     migrations_mod.run_startup_migrations()
     assert _alembic_version(throwaway_pg_database) == version_after_first
     assert len(_table_names(throwaway_pg_database)) == table_count_after_first
+
+
+def test_unknown_legacy_revision_with_squash_schema_is_stamped(throwaway_pg_database) -> None:
+    """旧链指针 + schema 已达合并前 head → 自动 stamp 到 baseline，不跑 DDL。"""
+    from sqlalchemy import create_engine, text
+
+    migrations_mod.run_startup_migrations()
+    engine = create_engine(throwaway_pg_database)
+    with engine.begin() as conn:
+        # 模拟存量库：version 指针仍是 squash 前旧链 head
+        conn.execute(text("UPDATE alembic_version SET version_num = 'v2f3a4b5c6d7'"))
+    engine.dispose()
+
+    table_count_before = len(_table_names(throwaway_pg_database))
+    migrations_mod.run_startup_migrations()
+
+    # 指针被 stamp 回 baseline head，且没有重放任何 DDL
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    cfg = Config(str(migrations_mod._ALEMBIC_INI))
+    cfg.set_main_option("script_location", str(migrations_mod._BACKEND_DIR / "alembic"))
+    assert _alembic_version(throwaway_pg_database) == ScriptDirectory.from_config(cfg).get_current_head()
+    assert len(_table_names(throwaway_pg_database)) == table_count_before
+
+
+def test_unknown_legacy_revision_with_stale_schema_refuses_startup(throwaway_pg_database) -> None:
+    """旧链指针 + schema 未达合并前 head → 拒绝启动并给出明确指引。"""
+    import pytest as _pytest
+    from sqlalchemy import create_engine, text
+
+    migrations_mod.run_startup_migrations()
+    engine = create_engine(throwaway_pg_database)
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE content_items DROP COLUMN content_type"))
+        conn.execute(text("UPDATE alembic_version SET version_num = 'u1f2a3b4c5d6'"))
+    engine.dispose()
+
+    with _pytest.raises(RuntimeError, match="pre-squash-migrations"):
+        migrations_mod.run_startup_migrations()

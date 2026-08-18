@@ -146,6 +146,19 @@ Grafana 直接接 Prometheus data source，URL 填 `http://backend:8000/api/v1/m
 
 保留策略：`BACKUP_KEEP_COUNT=7`（可调），超出按修改时间淘汰最旧。
 
+#### 4.1.1 迁移基线说明（2026-08-18 squash）
+
+2026-08-18 之前的 54 个链式迁移已合并为单一 baseline（历史见 git tag
+`pre-squash-migrations`）。影响：
+
+- **存量库**：`alembic_version` 仍指向旧链 revision 时，启动会探测 schema
+  特征（`content_event_groups` 表 + `content_items.content_type` 列），
+  齐备则自动 `stamp` 到 baseline（无 DDL），不齐则**拒绝启动**并提示先用
+  `pre-squash-migrations` 版本完成升级。
+- **回滚语义变化**：baseline 的 `downgrade` 为 no-op，不再支持逐步回退；
+  回滚路径 = 备份恢复（`backup_db.sh`）。baseline 之后的增量迁移仍可逐步
+  `alembic downgrade`。
+
 ### 4.2 手动备份
 
 ```bash

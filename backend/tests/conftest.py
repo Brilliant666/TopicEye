@@ -200,3 +200,39 @@ async def reset_llm_provider_state():
         pass
 
     yield
+
+
+def _admin_sync_url(database: str = "postgres") -> str:
+    """Sync (psycopg) URL of the test PG instance for database administration."""
+    from sqlalchemy.engine import make_url
+
+    url = make_url(os.environ["DATABASE_URL"]).set(drivername="postgresql+psycopg").set(database=database)
+    return url.render_as_string(hide_password=False)
+
+
+@pytest.fixture
+def throwaway_pg_database(monkeypatch):
+    """一次性测试数据库：建库 → 指向 settings.DATABASE_URL → 用完删库。"""
+    import uuid
+    from urllib.parse import quote
+
+    from sqlalchemy import create_engine, text
+
+    from app.core import migrations as migrations_mod
+
+    db_name = f"mig_test_{uuid.uuid4().hex[:10]}"
+    admin = create_engine(_admin_sync_url(), isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f'CREATE DATABASE "{db_name}"'))
+    admin.dispose()
+
+    test_url = _admin_sync_url(quote(db_name))
+    monkeypatch.setattr(migrations_mod.settings, "DATABASE_URL", test_url)
+    yield test_url
+
+    admin = create_engine(_admin_sync_url(), isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f'REVOKE CONNECT ON DATABASE "{db_name}" FROM PUBLIC'))
+        conn.execute(text(f"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{db_name}'"))
+        conn.execute(text(f'DROP DATABASE "{db_name}"'))
+    admin.dispose()

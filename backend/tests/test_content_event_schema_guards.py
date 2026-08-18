@@ -1,206 +1,128 @@
+"""content_event 规范化守卫的数据库级测试。
+
+旧实现（2026-08-18 迁移合并前）在 sqlite 上模拟触发器语义；迁移 squash 到
+单一 baseline 后，这里直接在一次性 PostgreSQL 库上验证 baseline 产出的
+真实触发器：canonical 与 member 的互斥不变量。
+"""
+
 from __future__ import annotations
 
-import importlib.util
+import glob
 from datetime import UTC, datetime
-from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
-import sqlalchemy as sa
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
 
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-
-_MIGRATION_PATH = (
-    Path(__file__).parents[1] / "alembic" / "versions" / "20260729_1100_n0b1c2d3e4f5_create_content_events.py"
-)
+from app.core import migrations as migrations_mod
 
 
-def _load_migration():
-    spec = importlib.util.spec_from_file_location(
-        "content_event_schema_migration",
-        _MIGRATION_PATH,
+@pytest.fixture
+def guard_db(throwaway_pg_database):
+    """Baseline 建好 schema 的一次性 PG 库，返回同步 URL。"""
+    migrations_mod.run_startup_migrations()
+    return throwaway_pg_database
+
+
+def _seed(engine):
+    now = datetime.now(UTC).isoformat()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO sources (id, name, source_type, url, weight, sort_order, status, "
+                "fetch_interval_minutes, enabled, hidden, created_at, updated_at) "
+                f"VALUES (1, 'S', 'RSS', 'https://t/s', 3, 1, 'active', 60, true, false, '{now}', '{now}')"
+            )
+        )
+        for i in range(1, 6):
+            conn.execute(
+                text(
+                    "INSERT INTO content_items (id, title, url, source_id, content_hash, crawled_at, status, "
+                    "is_favorited, created_at, updated_at) "
+                    f"VALUES ({i}, 'c{i}', 'https://t/{i}', 1, 'hash{i}', '{now}', 'analyzed', false, "
+                    f"'{now}', '{now}')"
+                )
+            )
+
+
+def _group(gid: int, canonical: int, policy: str = "earliest") -> str:
+    now = datetime.now(UTC).isoformat()
+    return (
+        f"INSERT INTO content_event_groups (id, canonical_content_id, canonical_policy, "
+        f"first_occurrence_at, last_occurrence_at) VALUES ({gid}, {canonical}, '{policy}', '{now}', '{now}')"
     )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
-def _assert_integrity_error(connection, statement) -> None:
-    savepoint = connection.begin_nested()
+def _member(mid: int, gid: int, content: int) -> str:
+    return (
+        f"INSERT INTO content_event_members (id, event_group_id, content_id, confidence, match_method) "
+        f"VALUES ({mid}, {gid}, {content}, 0.9, 'semantic')"
+    )
+
+
+def _expect_integrity_error(conn, stmt: str) -> None:
+    # SIM117：两个上下文语义不同（异常断言 + 事务），保持嵌套
+    with pytest.raises(IntegrityError), conn.begin():
+        conn.execute(text(stmt))
+
+
+def test_pg_baseline_enforces_canonical_member_disjointness(guard_db):
+    engine = create_engine(guard_db)
     try:
-        with pytest.raises(IntegrityError):
-            connection.execute(statement)
+        _seed(engine)
+        with engine.connect() as conn:
+            # 1. canonical 内容不能再作为本组 member
+            conn.execute(text(_group(1, 1)))
+            conn.commit()
+            _expect_integrity_error(conn, _member(1, 1, 1))
+
+            # 2. 已是 member 的内容不能反向成为本组 canonical
+            conn.execute(text(_member(2, 1, 2)))
+            conn.commit()
+            _expect_integrity_error(conn, "UPDATE content_event_groups SET canonical_content_id = 2 WHERE id = 1")
+
+            # 3. 内容身份全局唯一：跨组也不能重复作为 member
+            conn.execute(text(_group(2, 3)))
+            conn.execute(text(_member(3, 2, 4)))
+            conn.commit()
+            _expect_integrity_error(conn, _member(4, 2, 1))
+            _expect_integrity_error(conn, "UPDATE content_event_members SET content_id = 1 WHERE id = 3")
+
+            # 4. 别组成员不能成为新组的 canonical（same-table 互斥）
+            _expect_integrity_error(conn, _group(3, 2))
+            _expect_integrity_error(conn, "UPDATE content_event_groups SET canonical_content_id = 2 WHERE id = 2")
     finally:
-        savepoint.rollback()
+        engine.dispose()
 
 
-def test_sqlite_migration_enforces_canonical_member_disjointness():
-    migration = _load_migration()
-    engine = sa.create_engine("sqlite://")
-    metadata = sa.MetaData()
-    users = sa.Table(
-        "users",
-        metadata,
-        sa.Column("id", sa.Integer, primary_key=True),
-    )
-    contents = sa.Table(
-        "content_items",
-        metadata,
-        sa.Column("id", sa.Integer, primary_key=True),
-    )
-
-    with engine.begin() as connection:
-        connection.exec_driver_sql("PRAGMA foreign_keys=ON")
-        metadata.create_all(connection)
-        migration.op = Operations(MigrationContext.configure(connection))
-        migration.upgrade()
-
-        connection.execute(users.insert().values(id=1))
-        connection.execute(
-            contents.insert(),
-            [{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}, {"id": 5}],
-        )
-        now = datetime.now(UTC)
-        groups = sa.table(
-            "content_event_groups",
-            sa.column("id"),
-            sa.column("canonical_content_id"),
-            sa.column("canonical_policy"),
-            sa.column("first_occurrence_at"),
-            sa.column("last_occurrence_at"),
-        )
-        members = sa.table(
-            "content_event_members",
-            sa.column("event_group_id"),
-            sa.column("content_id"),
-            sa.column("confidence"),
-            sa.column("match_method"),
-        )
-
-        connection.execute(
-            groups.insert().values(
-                id=1,
-                canonical_content_id=1,
-                canonical_policy="earliest",
-                first_occurrence_at=now,
-                last_occurrence_at=now,
-            )
-        )
-        _assert_integrity_error(
-            connection,
-            members.insert().values(
-                event_group_id=1,
-                content_id=1,
-                confidence=1.0,
-                match_method="exact",
-            ),
-        )
-
-        connection.execute(
-            members.insert().values(
-                event_group_id=1,
-                content_id=2,
-                confidence=0.9,
-                match_method="semantic",
-            )
-        )
-        _assert_integrity_error(
-            connection,
-            groups.update().where(groups.c.id == 1).values(canonical_content_id=2),
-        )
-
-        connection.execute(
-            groups.insert().values(
-                id=2,
-                canonical_content_id=3,
-                canonical_policy="earliest",
-                first_occurrence_at=now,
-                last_occurrence_at=now,
-            )
-        )
-        connection.execute(
-            members.insert().values(
-                event_group_id=2,
-                content_id=4,
-                confidence=0.8,
-                match_method="semantic",
-            )
-        )
-
-        # Content identity is global across event groups, not scoped per group.
-        _assert_integrity_error(
-            connection,
-            members.insert().values(
-                event_group_id=2,
-                content_id=1,
-                confidence=0.8,
-                match_method="semantic",
-            ),
-        )
-        _assert_integrity_error(
-            connection,
-            members.update().where(members.c.content_id == 4).values(content_id=1),
-        )
-        _assert_integrity_error(
-            connection,
-            groups.insert().values(
-                id=3,
-                canonical_content_id=2,
-                canonical_policy="earliest",
-                first_occurrence_at=now,
-                last_occurrence_at=now,
-            ),
-        )
-        _assert_integrity_error(
-            connection,
-            groups.update().where(groups.c.id == 2).values(canonical_content_id=2),
-        )
-        _assert_integrity_error(
-            connection,
-            groups.insert().values(
-                id=3,
-                canonical_content_id=5,
-                canonical_policy="score",
-                first_occurrence_at=now,
-                last_occurrence_at=now,
-            ),
-        )
-
-        migration.downgrade()
-        assert not sa.inspect(connection).has_table("content_event_members")
-        assert not sa.inspect(connection).has_table("content_event_groups")
+def test_baseline_ddl_defines_guard_function_and_triggers(guard_db):
+    engine = create_engine(guard_db)
+    try:
+        with engine.connect() as conn:
+            func = conn.execute(
+                text(
+                    "SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+                    "WHERE n.nspname = 'public' AND p.proname = 'enforce_content_event_canonical_member_disjoint'"
+                )
+            ).scalar()
+            triggers = conn.execute(
+                text(
+                    "SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "
+                    "WHERE t.tgname IN ('trg_content_event_member_not_canonical', 'trg_content_event_canonical_not_member') "
+                    "AND NOT t.tgisinternal"
+                )
+            ).scalar()
+        assert func is not None
+        assert triggers == 2
+    finally:
+        engine.dispose()
 
 
-def test_postgresql_migration_defines_symmetric_trigger_lifecycle():
-    migration = _load_migration()
-
-    class RecordingOperations:
-        def __init__(self):
-            self.executed: list[str] = []
-
-        def get_bind(self):
-            return SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
-
-        def execute(self, statement):
-            self.executed.append(str(statement))
-
-    operations = RecordingOperations()
-    migration.op = operations
-
-    migration._create_canonical_member_guards()
-    create_sql = "\n".join(operations.executed)
-    assert "CREATE FUNCTION enforce_content_event_canonical_member_disjoint" in create_sql
-    assert create_sql.count("FROM content_items") == 2
-    assert "FOR UPDATE" in create_sql
-    assert "BEFORE INSERT OR UPDATE OF event_group_id, content_id" in create_sql
-    assert "BEFORE INSERT OR UPDATE OF canonical_content_id" in create_sql
-
-    operations.executed.clear()
-    migration._drop_canonical_member_guards()
-    drop_sql = "\n".join(operations.executed)
-    assert "DROP TRIGGER IF EXISTS trg_content_event_member_not_canonical" in drop_sql
-    assert "DROP TRIGGER IF EXISTS trg_content_event_canonical_not_member" in drop_sql
-    assert "DROP FUNCTION IF EXISTS" in drop_sql
+def test_baseline_file_documents_noop_downgrade():
+    """squash 后 baseline 不支持逐步回滚：downgrade 必须显式 no-op。"""
+    path = glob.glob("alembic/versions/*baseline_squash*.py")
+    assert len(path) == 1, f"expected exactly one baseline migration, got {path}"
+    with open(path[0]) as fp:
+        content = fp.read()
+    assert "def downgrade() -> None:" in content
+    assert "no-op" in content

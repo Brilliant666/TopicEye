@@ -96,14 +96,52 @@ def _stamp_or_upgrade(cfg: Config, *, has_version_table: bool, has_app_tables: b
     command.stamp(cfg, "head")
 
 
+def _current_db_revision(sync_url: str) -> str | None:
+    """Read the version_num currently recorded in alembic_version (None if absent)."""
+    from sqlalchemy import create_engine, text
+
+    engine = create_engine(sync_url)
+    try:
+        with engine.connect() as conn:
+            return conn.execute(text("SELECT version_num FROM alembic_version")).scalar()
+    finally:
+        engine.dispose()
+
+
+def _squash_era_schema_present(sync_url: str) -> bool:
+    """Probe schema features introduced by the last pre-squash migrations.
+
+    2026-08-18 迁移合并（squash 到单 baseline）后，存量库的 alembic_version
+    仍指向旧链 revision。只有 schema 已达到旧链 head（content_event_groups
+    表 + content_items.content_type 列，均为合并前最后几个迁移引入）才允许
+    自动 stamp 到 baseline；否则拒绝启动，要求先部署合并前版本完成升级。
+    """
+    from sqlalchemy import create_engine, inspect, text
+
+    engine = create_engine(sync_url)
+    try:
+        if not inspect(engine).has_table("content_event_groups"):
+            return False
+        with engine.connect() as conn:
+            has_content_type = conn.execute(
+                text(
+                    "SELECT 1 FROM information_schema.columns "
+                    "WHERE table_name = 'content_items' AND column_name = 'content_type'"
+                )
+            ).scalar()
+        return bool(has_content_type)
+    finally:
+        engine.dispose()
+
+
 def run_startup_migrations() -> None:
     """Run Alembic migrations to bring the database to the latest revision.
 
     Safe to call on every startup. No-op side effects when already current.
 
     On PostgreSQL, acquires a session-level advisory lock (key 1) before
-    running upgrade to prevent multiple containers from racing on the
-    same migration.
+    running upgrade to prevent multiple containers from racing on
+    the same migration.
     """
     profile = create_database_profile(settings.DATABASE_URL)
     sync_url = profile.sync_url
@@ -117,6 +155,29 @@ def run_startup_migrations() -> None:
         logger.warning("Could not inspect database for alembic_version (%s); attempting upgrade head", exc)
         command.upgrade(cfg, "head")
         return
+
+    # 迁移合并兼容：version 表存在但指向不在当前链中的旧 revision（squash
+    # 前的链）。schema 特征齐 → stamp 到 baseline；不齐 → 拒绝启动。
+    legacy_pointer = False
+    if has_version_table:
+        from alembic.script import ScriptDirectory
+
+        known_revisions = {rev.revision for rev in ScriptDirectory.from_config(cfg).walk_revisions()}
+        current_revision = _current_db_revision(sync_url)
+        if current_revision not in known_revisions:
+            if _squash_era_schema_present(sync_url):
+                logger.warning(
+                    "alembic_version points to pre-squash revision %s with squash-era schema present "
+                    "— stamping to baseline head (no DDL will run)",
+                    current_revision,
+                )
+                legacy_pointer = True
+            else:
+                raise RuntimeError(
+                    f"alembic_version 指向迁移合并前的 revision {current_revision!r}，且 schema 尚未升级到合并前 head"
+                    f"（缺少 content_event_groups / content_items.content_type）。请先用 tag "
+                    "`pre-squash-migrations` 对应版本完成数据库升级，再部署本版本。"
+                )
 
     try:
         has_app_tables = _database_has_tables(sync_url) if not has_version_table else True
@@ -134,7 +195,12 @@ def run_startup_migrations() -> None:
         pg_lock_conn.execution_options(autocommit=True)
         pg_lock_conn.execute(__import__("sqlalchemy").text(f"SELECT pg_advisory_lock({_migration_lock_key})"))
     try:
-        _stamp_or_upgrade(cfg, has_version_table=has_version_table, has_app_tables=has_app_tables)
+        if legacy_pointer:
+            # purge：先清空 alembic_version（旧指针无法被解析成 stamp 路径），
+            # 再以 head 重新落指针；不产生任何 DDL。
+            command.stamp(cfg, "head", purge=True)
+        else:
+            _stamp_or_upgrade(cfg, has_version_table=has_version_table, has_app_tables=has_app_tables)
     finally:
         if pg_lock_conn is not None:
             try:

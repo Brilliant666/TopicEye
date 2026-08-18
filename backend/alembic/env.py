@@ -26,10 +26,13 @@ if str(_BACKEND_DIR) not in sys.path:
 # so autogenerate sees the full schema and create_all parity holds).
 import app.models  # noqa: F401, E402  — triggers models/__init__.py
 import app.models.analysis_job  # noqa: F401, E402
+import app.models.app_setting  # noqa: F401, E402
 import app.models.article_reader_event  # noqa: F401, E402
 import app.models.article_snapshot  # noqa: F401, E402
 import app.models.category  # noqa: F401, E402
+import app.models.creation  # noqa: F401, E402
 import app.models.daily_report  # noqa: F401, E402
+import app.models.email_verification  # noqa: F401, E402
 import app.models.fanqie  # noqa: F401, E402
 import app.models.favorite  # noqa: F401, E402
 import app.models.feedback  # noqa: F401, E402
@@ -37,6 +40,7 @@ import app.models.llm_model  # noqa: F401, E402
 import app.models.monthly_digest  # noqa: F401, E402
 import app.models.mother_topic  # noqa: F401, E402
 import app.models.notification  # noqa: F401, E402
+import app.models.pick_mark  # noqa: F401, E402
 import app.models.product_feedback  # noqa: F401, E402
 import app.models.qimao  # noqa: F401, E402
 import app.models.read_record  # noqa: F401, E402
@@ -44,6 +48,7 @@ import app.models.scheduled_job  # noqa: F401, E402
 import app.models.trending  # noqa: F401, E402
 import app.models.user  # noqa: F401, E402
 import app.models.user_integration  # noqa: F401, E402
+import app.models.webhook_delivery_log  # noqa: F401, E402
 import app.models.weekly_digest  # noqa: F401, E402
 import app.models.zhihu  # noqa: F401, E402
 from app.core.config import settings  # noqa: E402

@@ -9,12 +9,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 import app.models.analysis_job  # noqa: F401
+import app.models.app_setting  # noqa: F401
 import app.models.article_reader_event  # noqa: F401
 import app.models.article_snapshot  # noqa: F401
 import app.models.category  # noqa: F401
 
 # Ensure all models are imported for table creation
 import app.models.daily_report  # noqa: F401
+import app.models.email_verification  # noqa: F401
 import app.models.fanqie  # noqa: F401
 import app.models.favorite  # noqa: F401
 import app.models.feedback  # noqa: F401
@@ -24,6 +26,7 @@ import app.models.monthly_digest  # noqa: F401
 import app.models.mother_topic  # noqa: F401
 import app.models.notification  # noqa: F401
 import app.models.pick_mark  # noqa: F401
+import app.models.pick_mark  # noqa: F401
 import app.models.product_feedback  # noqa: F401
 import app.models.prompt_registry  # noqa: F401
 import app.models.qimao  # noqa: F401
@@ -32,6 +35,7 @@ import app.models.scheduled_job  # noqa: F401
 import app.models.trending  # noqa: F401
 import app.models.user  # noqa: F401
 import app.models.user_integration  # noqa: F401
+import app.models.webhook_delivery_log  # noqa: F401
 import app.models.weekly_digest  # noqa: F401
 import app.models.zhihu  # noqa: F401
 from app.api.v1.auth import get_current_admin_user

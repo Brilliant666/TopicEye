@@ -13,6 +13,7 @@ import app.models.app_setting  # noqa: F401
 import app.models.article_reader_event  # noqa: F401
 import app.models.article_snapshot  # noqa: F401
 import app.models.category  # noqa: F401
+import app.models.creation  # noqa: F401
 
 # Ensure all models are imported for table creation
 import app.models.daily_report  # noqa: F401
@@ -25,7 +26,6 @@ import app.models.metrics_snapshot  # noqa: F401
 import app.models.monthly_digest  # noqa: F401
 import app.models.mother_topic  # noqa: F401
 import app.models.notification  # noqa: F401
-import app.models.pick_mark  # noqa: F401
 import app.models.pick_mark  # noqa: F401
 import app.models.product_feedback  # noqa: F401
 import app.models.prompt_registry  # noqa: F401

@@ -380,7 +380,11 @@ def trigger_vector_rebuild(user_id: int) -> None:
     # Cancel any existing rebuild for this user (coalescing)
     existing = _rebuild_user_dedup.pop(user_id, None)
     if existing is not None and not existing.done():
-        existing.cancel()
+        # 任务可能属于已关闭的 loop（应用关闭后、或跨事件循环的测试进程）；
+        # 对死 loop 上的任务调用 cancel() 会在旧 loop 上 call_soon 抛错并打挂
+        # 当前请求，此时放弃合并、按无在途任务处理。
+        if not existing.get_loop().is_closed():
+            existing.cancel()
         _rebuild_tasks.discard(existing)
 
     task = loop.create_task(_rebuild())

@@ -6,6 +6,8 @@ import Sidebar from '@/components/Sidebar';
 import NotificationBell from '@/components/NotificationBell';
 import { AppProvider, useAuthContext, useFavoritesContext, useAppContext } from '@/providers/AppProvider';
 import type { PrefetchData } from '@/lib/server-prefetch';
+import RardarShell from '@/components/RardarShell';
+import { RARDAR_PRODUCT_MODE } from '@/lib/product-profile';
 
 // Backward compat: 38 个消费者从 @/components/ClientLayout 导入 useAppContext
 export { useAppContext };
@@ -68,6 +70,10 @@ function LayoutChrome({ children }: { children: React.ReactNode }) {
         {children}
       </main>
     );
+  }
+
+  if (RARDAR_PRODUCT_MODE) {
+    return <RardarShell>{children}</RardarShell>;
   }
 
   return (

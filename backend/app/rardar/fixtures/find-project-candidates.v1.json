@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "fixtureRevision": "find-candidates-poc-v1",
+  "capturedAt": "2026-08-24T08:00:00+08:00",
+  "candidates": [
+    {
+      "projectId": "p_100000000001",
+      "repository": "fxbin/TopicEye",
+      "summaryZh": "多源内容发现、分析、评分与运营后台一体化平台。",
+      "capabilities": ["多源内容采集", "PostgreSQL Job", "LLM 路由", "管理后台", "趋势分析"],
+      "technicalTags": ["FastAPI", "Next.js", "PostgreSQL", "LiteLLM"],
+      "license": "Apache-2.0",
+      "engineeringEvidence": [{"label": "TopicEye repository", "kind": "repository", "url": "https://github.com/fxbin/TopicEye"}]
+    },
+    {
+      "projectId": "p_100000000002",
+      "repository": "n8n-io/n8n",
+      "summaryZh": "可视化、自托管且连接器丰富的工作流自动化产品。",
+      "capabilities": ["工作流编排", "连接器", "定时任务", "人工审批"],
+      "technicalTags": ["TypeScript", "Node.js", "PostgreSQL"],
+      "license": "Sustainable Use License",
+      "engineeringEvidence": [{"label": "n8n repository", "kind": "repository", "url": "https://github.com/n8n-io/n8n"}]
+    },
+    {
+      "projectId": "p_100000000003",
+      "repository": "langchain-ai/langgraph",
+      "summaryZh": "适合实现持久、可恢复、有人工介入的 Agent 状态图运行时。",
+      "capabilities": ["Agent 编排", "持久状态", "重试", "人工介入"],
+      "technicalTags": ["Python", "TypeScript", "LangChain"],
+      "license": "MIT",
+      "engineeringEvidence": [{"label": "LangGraph repository", "kind": "repository", "url": "https://github.com/langchain-ai/langgraph"}]
+    },
+    {
+      "projectId": "p_100000000004",
+      "repository": "browser-use/browser-use",
+      "summaryZh": "面向浏览器任务的 Agent 组件，可作为网页证据采集模块参考。",
+      "capabilities": ["浏览器操作", "网页提取", "Agent 工具", "会话状态"],
+      "technicalTags": ["Python", "Playwright", "LLM"],
+      "license": "MIT",
+      "engineeringEvidence": [{"label": "browser-use repository", "kind": "repository", "url": "https://github.com/browser-use/browser-use"}]
+    },
+    {
+      "projectId": "p_100000000005",
+      "repository": "crewAIInc/crewAI",
+      "summaryZh": "面向多 Agent 角色与任务协作的框架，可参考任务分工模式。",
+      "capabilities": ["多 Agent", "角色任务", "流程编排", "工具调用"],
+      "technicalTags": ["Python", "LLM", "Agent"],
+      "license": "MIT",
+      "engineeringEvidence": [{"label": "CrewAI repository", "kind": "repository", "url": "https://github.com/crewAIInc/crewAI"}]
+    }
+  ]
+}

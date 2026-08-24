@@ -92,9 +92,9 @@ async def invalidate_model_cache() -> None:
     get_llm_cache().clear()
 
 
-def _cache_scope(routing_group: str, scene: str) -> str:
+def _cache_scope(routing_group: str, scene: str, reasoning_effort: str | None) -> str:
     """Build a cache namespace for the selected routing policy."""
-    return f"routing_group:{routing_group}|scene:{scene}"
+    return f"routing_group:{routing_group}|scene:{scene}|reasoning_effort:{reasoning_effort or 'default'}"
 
 
 class LlmCapacityUnavailableError(Exception):
@@ -117,6 +117,7 @@ async def call_llm_with_metadata(
     scene: str = "general",
     routing_group: str = "default",
     response_format: dict | None = None,
+    reasoning_effort: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Call LLM with automatic ordered failover and return the selected route metadata.
 
@@ -141,7 +142,7 @@ async def call_llm_with_metadata(
     from app.services.llm.response_cache import get_llm_cache
 
     cache = get_llm_cache()
-    cache_scope = _cache_scope(routing_group, scene)
+    cache_scope = _cache_scope(routing_group, scene, reasoning_effort)
     cached = cache.get(messages, temperature, max_tokens, model=cache_scope)
     if cached is not None:
         return cached, {"cache_hit": True}
@@ -154,6 +155,7 @@ async def call_llm_with_metadata(
             scene,
             routing_group,
             response_format=response_format,
+            reasoning_effort=reasoning_effort,
         )
         await breaker.record_success()
         cache.set(
@@ -186,6 +188,7 @@ async def _call_llm_with_metadata_inner(
     scene: str = "general",
     routing_group: str = "default",
     response_format: dict | None = None,
+    reasoning_effort: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Call LLM with automatic ordered failover and return the selected route metadata."""
     db_models = await _model_cache.get_route_models(routing_group)
@@ -207,7 +210,7 @@ async def _call_llm_with_metadata_inner(
 
         try:
             logger.info("Calling LLM candidate: %s", request_model)
-            response = await _call_with_retry(
+            call_args = (
                 messages,
                 request_model,
                 candidate["api_key"],
@@ -217,6 +220,11 @@ async def _call_llm_with_metadata_inner(
                 response_format,
                 model_config,
                 scene,
+            )
+            response = (
+                await _call_with_retry(*call_args, reasoning_effort=reasoning_effort)
+                if reasoning_effort
+                else await _call_with_retry(*call_args)
             )
             _failover.on_success(key)
             return response, _llm_call_metadata(model_config, request_model, routing_group, scene)
@@ -228,7 +236,7 @@ async def _call_llm_with_metadata_inner(
             # except block below so failover to the next candidate still works.
             logger.info("Model %s doesn't support response_format, retrying without", request_model)
             try:
-                response = await _call_with_retry(
+                call_args = (
                     messages,
                     request_model,
                     candidate["api_key"],
@@ -238,6 +246,11 @@ async def _call_llm_with_metadata_inner(
                     None,
                     model_config,
                     scene,
+                )
+                response = (
+                    await _call_with_retry(*call_args, reasoning_effort=reasoning_effort)
+                    if reasoning_effort
+                    else await _call_with_retry(*call_args)
                 )
                 _failover.on_success(key)
                 return response, _llm_call_metadata(model_config, request_model, routing_group, scene)
@@ -306,6 +319,7 @@ async def call_llm(
     max_tokens: int = 2000,
     scene: str = "general",
     routing_group: str = "default",
+    reasoning_effort: str | None = None,
 ) -> str:
     """Call LLM with automatic ordered failover."""
     response, _metadata = await call_llm_with_metadata(
@@ -314,6 +328,7 @@ async def call_llm(
         max_tokens=max_tokens,
         scene=scene,
         routing_group=routing_group,
+        reasoning_effort=reasoning_effort,
     )
     return response
 
@@ -328,6 +343,7 @@ async def call_llm_json_with_metadata(
     max_tokens: int = 2000,
     scene: str = "general",
     routing_group: str = "default",
+    reasoning_effort: str | None = None,
 ) -> tuple[dict[str, Any] | list[Any], dict[str, Any]]:
     """Call LLM, parse JSON response, and return selected route metadata.
 
@@ -346,6 +362,7 @@ async def call_llm_json_with_metadata(
             scene=scene,
             routing_group=routing_group,
             response_format=_JSON_RESPONSE_FORMAT,
+            reasoning_effort=reasoning_effort,
         )
 
         text = raw.strip()
@@ -386,6 +403,7 @@ async def call_llm_json(
     max_tokens: int = 2000,
     scene: str = "general",
     routing_group: str = "default",
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any] | list[Any]:
     """Call LLM and parse JSON response.
 
@@ -399,5 +417,6 @@ async def call_llm_json(
         max_tokens=max_tokens,
         scene=scene,
         routing_group=routing_group,
+        reasoning_effort=reasoning_effort,
     )
     return result

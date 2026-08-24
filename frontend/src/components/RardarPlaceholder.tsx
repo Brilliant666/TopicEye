@@ -1,0 +1,6 @@
+import Link from 'next/link';
+import { ArrowLeft, Construction, Layers3 } from 'lucide-react';
+
+export default function RardarPlaceholder({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
+  return <div className="mx-auto grid min-h-[calc(100dvh-4rem)] max-w-4xl place-items-center px-4 py-16"><section className="w-full rounded-[30px] border border-blue-100 bg-white p-8 text-center shadow-[0_24px_80px_rgba(37,99,235,0.08)] sm:p-14"><span className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-blue-50 text-blue-600"><Construction size={30} /></span><p className="mt-6 text-xs font-black uppercase tracking-[0.2em] text-blue-600">{eyebrow}</p><h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">{title}</h1><p className="mx-auto mt-4 max-w-xl text-sm leading-7 text-slate-500">{description}</p><div className="mt-7 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-bold text-amber-700"><Layers3 size={14} />诚实占位：本 POC 未实现此模块</div><div className="mt-8"><Link href="/" className="inline-flex items-center gap-2 text-sm font-black text-blue-600 hover:text-blue-800"><ArrowLeft size={15} />返回今日爆发榜</Link></div></section></div>;
+}

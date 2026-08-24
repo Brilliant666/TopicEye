@@ -10,6 +10,7 @@ import asyncio
 
 import pytest
 
+from app.services import interest_vector_service as vector_service
 from app.services.interest_vector_service import (
     _rebuild_tasks,
     _rebuild_user_dedup,
@@ -19,17 +20,22 @@ from app.services.interest_vector_service import (
 
 
 @pytest.mark.asyncio
-async def test_trigger_creates_tracked_task():
+async def test_trigger_creates_tracked_task(monkeypatch):
     """trigger_vector_rebuild registers the task in _rebuild_tasks."""
     _rebuild_tasks.clear()
     _rebuild_user_dedup.clear()
+
+    async def _complete_immediately(_db, _user_id):
+        return None
+
+    monkeypatch.setattr(vector_service, "rebuild_user_vector", _complete_immediately)
 
     trigger_vector_rebuild(999)
 
     assert len(_rebuild_tasks) == 1
     assert 999 in _rebuild_user_dedup
 
-    # Let the task run (it will fail to connect to DB, which is fine)
+    # Let the deterministic rebuild finish, independent of DB availability.
     await asyncio.sleep(0.1)
 
     # Task should self-remove from registry on completion

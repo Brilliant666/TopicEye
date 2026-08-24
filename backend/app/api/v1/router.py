@@ -25,6 +25,7 @@ from app.api.v1.oauth import router as oauth_router
 from app.api.v1.plans import router as plans_router
 from app.api.v1.product_feedback import router as product_feedback_router
 from app.api.v1.qimao import router as qimao_router
+from app.api.v1.rardar_poc import router as rardar_poc_router
 from app.api.v1.read_records import router as read_records_router
 from app.api.v1.scheduler import router as scheduler_router
 from app.api.v1.scoring import router as scoring_router
@@ -85,6 +86,7 @@ router.include_router(llm_models_router)
 router.include_router(llm_evaluations_router)
 router.include_router(favorites_router)
 router.include_router(read_records_router)
+router.include_router(rardar_poc_router)
 router.include_router(admin_prompts_router)
 router.include_router(admin_scoring_dashboard_router)
 router.include_router(admin_evidence_router)

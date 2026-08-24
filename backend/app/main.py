@@ -30,6 +30,7 @@ import app.models.pick_mark  # noqa: F401
 import app.models.product_feedback  # noqa: F401
 import app.models.prompt_registry  # noqa: F401
 import app.models.qimao  # noqa: F401
+import app.models.rardar_poc  # noqa: F401
 import app.models.read_record  # noqa: F401
 import app.models.scheduled_job  # noqa: F401
 import app.models.trending  # noqa: F401
@@ -243,6 +244,16 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(run_startup_migrations)
     else:
         logger.info("Startup schema migration skipped by config")
+
+    # Product-mode bootstrap is intentionally isolated and idempotent. It
+    # seeds only the deterministic mock route used by this POC; no API key or
+    # external provider is involved.
+    from app.core.product_profile import get_product_profile
+
+    if get_product_profile().enabled:
+        from app.rardar.bootstrap import ensure_rardar_poc_runtime
+
+        await ensure_rardar_poc_runtime()
 
     # Post-migration: ensure PG sequences are >= max(id).
     # Historical data imports (COPY / explicit-id INSERT) can leave SERIAL

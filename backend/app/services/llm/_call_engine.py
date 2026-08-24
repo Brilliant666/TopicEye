@@ -140,6 +140,7 @@ async def _call_llm_single(
     response_format: dict | None,
     model_config: Any = None,
     scene: str = "general",
+    reasoning_effort: str | None = None,
 ) -> str:
     """Make a single LLM call (no retry)."""
     from app.services.llm.provider import _litellm_extra_kwargs
@@ -175,14 +176,27 @@ async def _call_llm_single(
         kwargs["api_base"] = api_base
     if response_format:
         kwargs["response_format"] = response_format
+    if reasoning_effort:
+        kwargs["reasoning_effort"] = reasoning_effort
 
     logger.info("LLM call: model=%s, messages=%d", model, len(messages))
 
     start = time.monotonic()
     try:
         async with acquire_completion_slot(model_config, scene):
+            if getattr(model_config, "provider", None) == "mock_sub2api":
+                from app.services.llm.mock_sub2api import mock_sub2api_completion
+
+                completion = mock_sub2api_completion(
+                    messages=messages,
+                    model=model,
+                    scene=scene,
+                    reasoning_effort=reasoning_effort,
+                )
+            else:
+                completion = acompletion(**kwargs)
             response = await asyncio.wait_for(
-                acompletion(**kwargs),
+                completion,
                 timeout=completion_timeout,
             )
         duration_ms = int((time.monotonic() - start) * 1000)
@@ -270,6 +284,7 @@ async def _call_with_retry(
     response_format: dict | None,
     model_config: Any = None,
     scene: str = "general",
+    reasoning_effort: str | None = None,
 ) -> str:
     """Call LLM with a short retry on failure (not rate limit).
 
@@ -277,5 +292,14 @@ async def _call_with_retry(
     限流错误直接抛出，由 call_llm_with_metadata 的 failover 循环切换到下一个候选模型。
     """
     return await _call_llm_single(
-        messages, model, api_key, api_base, temperature, max_tokens, response_format, model_config, scene
+        messages,
+        model,
+        api_key,
+        api_base,
+        temperature,
+        max_tokens,
+        response_format,
+        model_config,
+        scene,
+        reasoning_effort,
     )

@@ -26,6 +26,8 @@ frontend/node_modules/
 frontend/.next/
 frontend/out/
 frontend/.env.local
+frontend/playwright-report/
+frontend/test-results/
 
 # Docker
 docker-data/
@@ -51,6 +53,8 @@ Thumbs.db
 docs/*
 !docs/screenshots/
 !docs/images/
+!docs/poc/
+!docs/poc/**
 
 # Test cache
 .pytest_cache/

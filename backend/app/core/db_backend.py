@@ -120,7 +120,9 @@ def duckdb_attach_sql(profile: DatabaseProfile, *, alias: str = "oltp_db") -> st
 
 
 def duckdb_extension_name(profile: DatabaseProfile) -> str:
-    return "postgres"
+    # DuckDB 1.2.x publishes the PostgreSQL extension artifact as
+    # ``postgres_scanner``; the ATTACH TYPE remains ``postgres``.
+    return "postgres_scanner"
 
 
 def _postgres_conninfo(url: URL) -> str:

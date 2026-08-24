@@ -28,10 +28,17 @@ const notoSerif = Noto_Serif_SC({
   variable: '--font-display',
 });
 
-export const metadata: Metadata = {
-  title: '选题雷达 · 创作者选题情报站',
-  description: 'AI 驱动的创作者选题推荐平台，帮你发现下一个爆款选题',
-};
+const rardarProductMode = process.env.RARDAR_PRODUCT_MODE === 'true';
+
+export const metadata: Metadata = rardarProductMode
+  ? {
+      title: 'Rardar · Developer Intelligence',
+      description: '用可审计事实发现爆发项目，并找到可以复用的开源能力。',
+    }
+  : {
+      title: '选题雷达 · 创作者选题情报站',
+      description: 'AI 驱动的创作者选题推荐平台，帮你发现下一个爆款选题',
+    };
 
 export default async function RootLayout({
   children,
@@ -41,7 +48,13 @@ export default async function RootLayout({
   // SSR 预取首屏数据（auth/me + feature-flags + 侧边栏计数），
   // 消除客户端 useEffect 串行拉取导致的白屏。
   // 后端不可达时返回 null，客户端 Provider 会 fallback 到 useEffect。
-  const initialData = await prefetchInitialData();
+  const initialData = rardarProductMode
+    ? {
+        user: null,
+        featureFlags: {},
+        counts: { todayPicks: 0, sourceCount: 0, favoriteTotal: 0 },
+      }
+    : await prefetchInitialData();
 
   return (
     <html lang="zh-CN" className={`${dmSans.variable} ${dmMono.variable} ${notoSerif.variable}`} suppressHydrationWarning>

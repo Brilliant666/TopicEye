@@ -7,6 +7,9 @@ const nextConfig = {
   reactStrictMode: true,
   compress: true,
   poweredByHeader: false,
+  env: {
+    NEXT_PUBLIC_RARDAR_PRODUCT_MODE: process.env.RARDAR_PRODUCT_MODE || 'false',
+  },
   allowedDevOrigins: ['localhost', '127.0.0.1', 'frontend.topiceye.orb.local'],
   turbopack: {
     root: path.resolve(__dirname),
@@ -50,7 +53,7 @@ const nextConfig = {
   },
 
   async rewrites() {
-    return [
+    const rewrites = [
       {
         source: '/api/:path*',
         destination: `${backendApiUrl}/api/:path*`,
@@ -71,6 +74,14 @@ const nextConfig = {
         destination: `${backendApiUrl}/health/:path*`,
       },
     ];
+    if (process.env.RARDAR_PRODUCT_MODE === 'true') {
+      return {
+        beforeFiles: [{ source: '/', destination: '/rardar-poc' }],
+        afterFiles: rewrites,
+        fallback: [],
+      };
+    }
+    return rewrites;
   },
 };
 

@@ -3,6 +3,7 @@ import { DM_Sans, DM_Mono, Noto_Serif_SC } from 'next/font/google';
 import './globals.css';
 import ClientLayout from '@/components/ClientLayout';
 import SkipToContent from '@/components/SkipToContent';
+import { activeProductProfile } from '@/lib/product-profile';
 import { prefetchInitialData } from '@/lib/server-prefetch';
 
 const dmSans = DM_Sans({
@@ -28,10 +29,15 @@ const notoSerif = Noto_Serif_SC({
   variable: '--font-display',
 });
 
-export const metadata: Metadata = {
-  title: '选题雷达 · 创作者选题情报站',
-  description: 'AI 驱动的创作者选题推荐平台，帮你发现下一个爆款选题',
-};
+export const metadata: Metadata = activeProductProfile.rardarEnabled
+  ? {
+      title: 'Rardar · Developer Intelligence',
+      description: '用可审计事实发现热点项目，并找到可以复用的开源能力。',
+    }
+  : {
+      title: '选题雷达 · 创作者选题情报站',
+      description: 'AI 驱动的创作者选题推荐平台，帮你发现下一个爆款选题',
+    };
 
 export default async function RootLayout({
   children,
@@ -44,7 +50,12 @@ export default async function RootLayout({
   const initialData = await prefetchInitialData();
 
   return (
-    <html lang="zh-CN" className={`${dmSans.variable} ${dmMono.variable} ${notoSerif.variable}`} suppressHydrationWarning>
+    <html
+      lang="zh-CN"
+      className={`${dmSans.variable} ${dmMono.variable} ${notoSerif.variable}`}
+      data-product-profile={activeProductProfile.key}
+      suppressHydrationWarning
+    >
       <body>
         <SkipToContent />
         <ClientLayout initialData={initialData}>{children}</ClientLayout>

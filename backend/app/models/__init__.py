@@ -31,6 +31,7 @@ from app.models.pick_mark import PickMark
 from app.models.product_feedback import IssueFeedback, ProductUpdate
 from app.models.prompt_registry import PromptRegistry
 from app.models.qimao import QimaoBook
+from app.models.rardar_poc import RardarAIRequest, RardarFindProjectJob
 from app.models.read_record import ReadRecord
 from app.models.scheduled_job import JobExecutionLog, ScheduledJob
 from app.models.source import Source
@@ -83,6 +84,8 @@ __all__ = [
     "WeReadStatsCache",
     "WebhookDeliveryLog",
     "ReadRecord",
+    "RardarAIRequest",
+    "RardarFindProjectJob",
     "ContentRelation",
     "RelationType",
     "ContentEvidenceMark",

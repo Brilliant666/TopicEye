@@ -41,7 +41,7 @@ async def admin_api_client(monkeypatch) -> AsyncGenerator[tuple[httpx.AsyncClien
                 "status": "ok",
                 "available": True,
                 "backend": "postgresql",
-                "extension": "postgres",
+                "extension": "postgres_scanner",
                 "attach_alias": "oltp_db",
                 "mode": "duckdb_attach_read_only",
                 "error": None,

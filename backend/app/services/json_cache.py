@@ -14,8 +14,8 @@ def get_cached_json(cache_key: str, *, ttl_seconds: float) -> tuple[bytes, float
     if not cached:
         return None
     cached_at, content = cached
-    age_seconds = time.monotonic() - cached_at
-    if age_seconds > ttl_seconds:
+    age_seconds = time.perf_counter() - cached_at
+    if age_seconds >= ttl_seconds:
         _CACHE.pop(cache_key, None)
         return None
     return content, age_seconds
@@ -27,8 +27,8 @@ def get_cached_value(cache_key: str, *, ttl_seconds: float) -> tuple[Any, float]
     if not cached:
         return None
     cached_at, content = cached
-    age_seconds = time.monotonic() - cached_at
-    if age_seconds > ttl_seconds:
+    age_seconds = time.perf_counter() - cached_at
+    if age_seconds >= ttl_seconds:
         _CACHE.pop(cache_key, None)
         return None
     return json.loads(content), age_seconds
@@ -36,7 +36,7 @@ def get_cached_value(cache_key: str, *, ttl_seconds: float) -> tuple[Any, float]
 
 def set_cached_json(cache_key: str, payload: Any) -> bytes:
     content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=_json_default).encode("utf-8")
-    _CACHE[cache_key] = (time.monotonic(), content)
+    _CACHE[cache_key] = (time.perf_counter(), content)
     return content
 
 

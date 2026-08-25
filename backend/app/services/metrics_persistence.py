@@ -8,8 +8,8 @@ cleaned up after 7 days.  Enables historical trend analysis beyond the
 from __future__ import annotations
 
 import logging
+import os
 import platform
-import resource
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, select
@@ -24,17 +24,63 @@ _RETENTION_DAYS = 7
 
 
 def _get_process_metrics() -> dict:
-    """Collect process-level metrics via ``resource.getrusage``.
+    """Collect process-level metrics on Unix and Windows.
 
     macOS reports ru_maxrss in bytes; Linux reports it in KB.
     """
-    rusage = resource.getrusage(resource.RUSAGE_SELF)
-    rss_mb = rusage.ru_maxrss / (1024 * 1024) if platform.system() == "Darwin" else rusage.ru_maxrss / 1024
+    if platform.system() == "Windows":
+        rss_mb = _windows_working_set_mb()
+        process_times = os.times()
+        cpu_user = process_times.user
+        cpu_system = process_times.system
+    else:
+        import resource
+
+        rusage = resource.getrusage(resource.RUSAGE_SELF)
+        rss_mb = rusage.ru_maxrss / (1024 * 1024) if platform.system() == "Darwin" else rusage.ru_maxrss / 1024
+        cpu_user = rusage.ru_utime
+        cpu_system = rusage.ru_stime
     return {
         "process_rss_mb": round(rss_mb, 1),
-        "process_cpu_user_s": round(rusage.ru_utime, 2),
-        "process_cpu_sys_s": round(rusage.ru_stime, 2),
+        "process_cpu_user_s": round(cpu_user, 2),
+        "process_cpu_sys_s": round(cpu_system, 2),
     }
+
+
+def _windows_working_set_mb() -> float:
+    """Return the current process working set without an extra dependency."""
+    import ctypes
+    from ctypes import wintypes
+
+    class ProcessMemoryCounters(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD),
+            ("page_fault_count", wintypes.DWORD),
+            ("peak_working_set_size", ctypes.c_size_t),
+            ("working_set_size", ctypes.c_size_t),
+            ("quota_peak_paged_pool_usage", ctypes.c_size_t),
+            ("quota_paged_pool_usage", ctypes.c_size_t),
+            ("quota_peak_non_paged_pool_usage", ctypes.c_size_t),
+            ("quota_non_paged_pool_usage", ctypes.c_size_t),
+            ("pagefile_usage", ctypes.c_size_t),
+            ("peak_pagefile_usage", ctypes.c_size_t),
+        ]
+
+    counters = ProcessMemoryCounters()
+    counters.cb = ctypes.sizeof(counters)
+    get_current_process = ctypes.windll.kernel32.GetCurrentProcess
+    get_current_process.restype = wintypes.HANDLE
+    get_process_memory_info = ctypes.windll.psapi.GetProcessMemoryInfo
+    get_process_memory_info.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(ProcessMemoryCounters),
+        wintypes.DWORD,
+    ]
+    get_process_memory_info.restype = wintypes.BOOL
+    handle = get_current_process()
+    if not get_process_memory_info(handle, ctypes.byref(counters), counters.cb):
+        raise OSError(ctypes.get_last_error(), "GetProcessMemoryInfo failed")
+    return counters.working_set_size / (1024 * 1024)
 
 
 def _collect_snapshot_fields() -> dict:

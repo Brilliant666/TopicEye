@@ -26,7 +26,7 @@ def test_postgresql_profile_and_duckdb_attach_sql():
     assert profile.url == "postgresql+asyncpg://topiceye:***@localhost:5432/topiceye".replace("***", "secret")
     assert async_database_url(url) == profile.url
     assert sync_database_url(url).startswith("postgresql+psycopg://")
-    assert duckdb_extension_name(profile) == "postgres"
+    assert duckdb_extension_name(profile) == "postgres_scanner"
     attach_sql = duckdb_attach_sql(profile)
     assert "TYPE postgres" in attach_sql
     assert "READ_ONLY" in attach_sql
@@ -42,7 +42,7 @@ def test_postgresql_profile_and_duckdb_attach_sql():
         "backend": "duckdb",
         "attach_source": "postgresql",
         "attach_mode": "read_only",
-        "extension": "postgres",
+        "extension": "postgres_scanner",
     }
     assert "secret" not in str(diagnostics)
 
@@ -56,7 +56,7 @@ def test_postgres_alias_profile_uses_asyncpg_and_duckdb_postgres_attach():
     assert profile.url == "postgresql+asyncpg://topiceye:secret@localhost:5432/topiceye"
     assert profile.sync_url == "postgresql+psycopg://topiceye:secret@localhost:5432/topiceye"
     assert profile.async_driver == "asyncpg"
-    assert duckdb_extension_name(profile) == "postgres"
+    assert duckdb_extension_name(profile) == "postgres_scanner"
     assert "TYPE postgres" in duckdb_attach_sql(profile)
 
 

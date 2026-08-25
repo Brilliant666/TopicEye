@@ -31,12 +31,12 @@ class RateLimiter:
         self.max_requests = max_requests
         self.window = window_seconds
         self._tokens = max_requests
-        self._last_refill = time.monotonic()
+        self._last_refill = time.perf_counter()
         self._lock = asyncio.Lock()
 
     async def acquire(self) -> None:
         async with self._lock:
-            now = time.monotonic()
+            now = time.perf_counter()
             elapsed = now - self._last_refill
             refill = int(elapsed / self.window * self.max_requests)
             if refill > 0:
@@ -48,7 +48,7 @@ class RateLimiter:
                 logger.warning("Rate limiter: waiting %.1fs", sleep_time)
                 await asyncio.sleep(sleep_time)
                 self._tokens = 1
-                self._last_refill = time.monotonic()
+                self._last_refill = time.perf_counter()
 
             self._tokens -= 1
 
@@ -60,14 +60,14 @@ class TokenRateLimiter:
         self.max_tokens = max(1, int(max_tokens))
         self.window_seconds = max(0.001, float(window_seconds))
         self._available = float(self.max_tokens)
-        self._last_refill = time.monotonic()
+        self._last_refill = time.perf_counter()
         self._lock = asyncio.Lock()
 
     async def acquire(self, tokens: int) -> None:
         required = min(max(1, int(tokens)), self.max_tokens)
         while True:
             async with self._lock:
-                now = time.monotonic()
+                now = time.perf_counter()
                 elapsed = now - self._last_refill
                 self._available = min(
                     float(self.max_tokens),
@@ -270,7 +270,7 @@ async def acquire_completion_slot(model_config: Any, scene: str) -> AsyncIterato
     from consuming all completions while preserving the existing global cap.
     """
     scope, pool_semaphore = _get_pool_completion_semaphore(model_config, scene)
-    started = time.monotonic()
+    started = time.perf_counter()
     await pool_semaphore.acquire()
     background_semaphore = _get_background_completion_semaphore() if _is_background_scene(scene) else None
     global_semaphore: asyncio.Semaphore | None = None
@@ -288,7 +288,7 @@ async def acquire_completion_slot(model_config: Any, scene: str) -> AsyncIterato
         pool_semaphore.release()
         raise
 
-    _pool_metrics.admitted(scope, time.monotonic() - started)
+    _pool_metrics.admitted(scope, time.perf_counter() - started)
     try:
         yield
     finally:

@@ -122,7 +122,7 @@ def test_baseline_file_documents_noop_downgrade():
     """squash 后 baseline 不支持逐步回滚：downgrade 必须显式 no-op。"""
     path = glob.glob("alembic/versions/*baseline_squash*.py")
     assert len(path) == 1, f"expected exactly one baseline migration, got {path}"
-    with open(path[0]) as fp:
+    with open(path[0], encoding="utf-8") as fp:
         content = fp.read()
     assert "def downgrade() -> None:" in content
     assert "no-op" in content

@@ -8,6 +8,14 @@ class Settings(BaseSettings):
     # ── Runtime ──
     APP_ENV: str = "development"
 
+    # ── Product profile ──
+    # Disabled by default so the upstream TopicEye product remains unchanged.
+    # The vertical Rardar POC is enabled explicitly in an isolated runtime.
+    RARDAR_PRODUCT_MODE: bool = False
+    RARDAR_FIXTURE_ROOT: str = ""
+    RARDAR_AI_ROUTING_GROUP: str = "rardar_poc"
+    RARDAR_FIND_WORKER_POLL_SECONDS: float = 0.25
+
     # ── Database ──
     # 留空则启动时报错；本地开发请在 .env 中设置（参考 .env.example）。
     DATABASE_URL: str = ""

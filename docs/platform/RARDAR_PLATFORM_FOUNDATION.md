@@ -17,7 +17,7 @@ The POC remains an evidence branch. This foundation neither merges it nor depend
 | Classification | Decision |
 | --- | --- |
 | `PROMOTE_NOW` | Strict centralized Product Profile; Rardar wordmark, header and six-item navigation; scoped blue-white tokens; responsive user shell; honest route empty states; Admin and default TopicEye compatibility boundary. |
-| `DEFER` | `RardarIntelligenceAdapter`; Explosion Board and Find Project APIs; durable Job; AI Runtime and Worker; real artifact loading; product diagnostics; source/report/scheduler integration. |
+| `DEFER` | Find Project APIs; durable Job; AI Runtime and Worker; product diagnostics; source/report/scheduler integration. The read-only Explosion Adapter was promoted in the follow-up documented by `RARDAR_INTELLIGENCE_ADAPTER.md`. |
 | `POC_ONLY` | Explosion A/B fixtures and pointer; Mock Sub2API and failure scenarios; two POC PostgreSQL tables; migration `4d8a71c9f201`; simulated Job progress/candidates; POC screenshots and diagnostics endpoints. |
 | `REJECT` | Scattered environment checks; duplicated or global Rardar colors; hard-coded fixture/data paths; fake projects, Star counts or Job states; mapping repositories into TopicEye content; POC-only compatibility bypasses. |
 
@@ -74,17 +74,17 @@ The shell carries the Rardar wordmark, horizontal desktop navigation, touch-size
 | legacy TopicEye content routes while Rardar is active | `REDIRECT` | The old page is not mounted inside Rardar chrome; the client returns to `/`. |
 | Rardar-only routes while TopicEye is active | `NOT_FOUND` | Route files remain installed but do not become TopicEye product pages. |
 
-Default TopicEye mode keeps the original root page, title, navigation, content routes, Admin, APIs, source management, reports, users and permissions. No Rardar business API is registered.
+Default TopicEye mode keeps the original root page, title, navigation, content routes, Admin, APIs, source management, reports, users and permissions. The Rardar Adapter route is not registered and no Rardar filesystem read occurs in this profile.
 
 ## Honest capability slots
 
-The foundation exposes three named insertion points without implementing them:
+The foundation created three named insertion points. The first is now implemented by a separate, reversible follow-up; the others remain empty:
 
-1. `Intelligence Adapter` — future versioned artifact reader.
+1. `Intelligence Adapter` — read-only audited Explosion Artifact reader; see `RARDAR_INTELLIGENCE_ADAPTER.md`.
 2. `Find Project Control Plane` — future RequirementProfile and durable Job boundary.
 3. `AI Runtime` — future queue, isolated Worker and locally validated AI artifact boundary.
 
-Every route states that its capability is not connected. There are no fixture projects, rankings, Star counts, simulated candidates, fake progress, network AI requests or database writes.
+The remaining empty routes state that their capability is not connected. Today now renders only verified Rardar facts; there are still no POC fixture projects, simulated candidates, fake progress, network AI requests or database writes.
 
 ## Code ownership and upstream sync hotspots
 
@@ -101,9 +101,9 @@ Rewritten for the formal foundation:
 - Rardar components and scoped design tokens;
 - all page content and honest empty states.
 
-Not adopted from the POC:
+Not adopted from the POC (the later formal Adapter was independently rewritten against real contracts):
 
-- artifact adapter, fixtures, API routes, provider/runtime, Worker, models, migration, repositories, Job UI and diagnostic UI.
+- POC artifact adapter and fixtures, provider/runtime, Worker, models, migration, repositories, Job UI and diagnostic UI.
 
 Likely upstream rebase conflict hotspots:
 
@@ -111,7 +111,7 @@ Likely upstream rebase conflict hotspots:
 - `frontend/src/components/ClientLayout.tsx`;
 - `frontend/next.config.js`;
 - `backend/app/core/config.py`;
-- future API route registration only when an adapter is deliberately introduced.
+- the deliberately introduced read-only Adapter route in `backend/app/api/v1/rardar.py`.
 
 The Apache-2.0 license and upstream history remain intact.
 

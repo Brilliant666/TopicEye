@@ -1,0 +1,2 @@
+backend/app/integrations/rardar/contracts/*.json text eol=lf
+backend/tests/fixtures/rardar_intelligence/**/*.json text eol=lf

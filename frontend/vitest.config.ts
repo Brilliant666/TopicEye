@@ -16,7 +16,7 @@ export default defineConfig({
     // 纯逻辑测试无需 DOM，node 环境启动更快。
     environment: 'node',
     globals: false,
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     coverage: {
       provider: 'v8',
       // 门禁只统计已写测试的纯逻辑模块，避免 100+ 个未测文件把阈值拖到 0。
@@ -27,6 +27,7 @@ export default defineConfig({
         'src/lib/navigation.ts',
         'src/lib/utils.ts',
         'src/lib/datetime.ts',
+        'src/lib/rardar-intelligence.ts',
       ],
       reporter: ['text', 'html', 'lcov'],
       reportsDirectory: './coverage',

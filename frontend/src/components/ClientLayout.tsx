@@ -4,7 +4,14 @@ import React, { useState, useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import NotificationBell from '@/components/NotificationBell';
+import RardarLegacyRouteRedirect from '@/components/RardarLegacyRouteRedirect';
+import RardarShell from '@/components/RardarShell';
 import { AppProvider, useAuthContext, useFavoritesContext, useAppContext } from '@/providers/AppProvider';
+import {
+  RARDAR_ROUTE_VISIBILITY,
+  activeProductProfile,
+  rardarRouteVisibility,
+} from '@/lib/product-profile';
 import type { PrefetchData } from '@/lib/server-prefetch';
 
 // Backward compat: 38 个消费者从 @/components/ClientLayout 导入 useAppContext
@@ -30,14 +37,31 @@ export default function ClientLayout({
   children: React.ReactNode;
   initialData: PrefetchData;
 }) {
+  const pathname = usePathname();
+
+  if (activeProductProfile.rardarEnabled) {
+    const visibility = rardarRouteVisibility(pathname);
+    if (visibility === RARDAR_ROUTE_VISIBILITY.ALLOW) {
+      return <RardarShell>{children}</RardarShell>;
+    }
+    if (visibility === RARDAR_ROUTE_VISIBILITY.REDIRECT) {
+      return (
+        <RardarShell>
+          <RardarLegacyRouteRedirect />
+        </RardarShell>
+      );
+    }
+    // Admin, login and OAuth remain on the TopicEye compatibility boundary.
+  }
+
   return (
     <AppProvider initialData={initialData}>
-      <LayoutChrome>{children}</LayoutChrome>
+      <TopicEyeLayoutChrome>{children}</TopicEyeLayoutChrome>
     </AppProvider>
   );
 }
 
-function LayoutChrome({ children }: { children: React.ReactNode }) {
+function TopicEyeLayoutChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { currentUser, authLoading, enabledFeatures, logout } = useAuthContext();
   const { topicCount, todayPicksCount, favoriteTotal, sourceCount } = useFavoritesContext();

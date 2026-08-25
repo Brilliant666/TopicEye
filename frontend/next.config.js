@@ -1,12 +1,22 @@
 /** @type {import('next').NextConfig} */
 const path = require('path');
+const {
+  RARDAR_INTERNAL_HOME,
+  resolveProductProfile,
+} = require('./product-profile.config');
 
 const backendApiUrl = process.env.BACKEND_API_URL || 'http://127.0.0.1:8102';
+const activeProductProfile = resolveProductProfile(process.env.RARDAR_PRODUCT_MODE);
 
 const nextConfig = {
   reactStrictMode: true,
   compress: true,
   poweredByHeader: false,
+  env: {
+    // The client receives only the normalized value validated above. Invalid
+    // server configuration fails while loading this build configuration.
+    NEXT_PUBLIC_RARDAR_PRODUCT_MODE: activeProductProfile.rardarEnabled ? 'true' : 'false',
+  },
   allowedDevOrigins: ['localhost', '127.0.0.1', 'frontend.topiceye.orb.local'],
   turbopack: {
     root: path.resolve(__dirname),
@@ -50,7 +60,7 @@ const nextConfig = {
   },
 
   async rewrites() {
-    return [
+    const rewrites = [
       {
         source: '/api/:path*',
         destination: `${backendApiUrl}/api/:path*`,
@@ -71,6 +81,14 @@ const nextConfig = {
         destination: `${backendApiUrl}/health/:path*`,
       },
     ];
+    if (activeProductProfile.rardarEnabled) {
+      return {
+        beforeFiles: [{ source: '/', destination: RARDAR_INTERNAL_HOME }],
+        afterFiles: rewrites,
+        fallback: [],
+      };
+    }
+    return rewrites;
   },
 };
 

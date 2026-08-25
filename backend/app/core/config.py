@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     # ── Runtime ──
     APP_ENV: str = "development"
 
+    # ── Product profile ──
+    # TopicEye remains the default. Rardar must be enabled explicitly with
+    # the literal value "true"; unknown values fail startup closed.
+    RARDAR_PRODUCT_MODE: bool = False
+
     # ── Database ──
     # 留空则启动时报错；本地开发请在 .env 中设置（参考 .env.example）。
     DATABASE_URL: str = ""
@@ -202,6 +207,21 @@ class Settings(BaseSettings):
     EVENT_NORMALIZATION_PREDICTION_AUDIT_MAX_BYTES: int = 65_536
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
+
+    @field_validator("RARDAR_PRODUCT_MODE", mode="before")
+    @classmethod
+    def _validate_rardar_product_mode(cls, value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized == "true":
+                return True
+            if normalized in {"", "false"}:
+                return False
+        raise ValueError('RARDAR_PRODUCT_MODE 必须为 "true" 或 "false"')
 
     @field_validator("DATABASE_URL")
     @classmethod

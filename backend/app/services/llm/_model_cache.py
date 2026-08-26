@@ -50,7 +50,19 @@ class ModelConfigCache:
         except Exception as e:
             logger.warning("ModelConfigCache refresh failed: %s", e)
 
-    async def get_route_models(self, routing_group: str = "default"):
+    async def get_route_models(
+        self,
+        routing_group: str = "default",
+        *,
+        fallback_to_any: bool = True,
+    ):
+        """Return enabled models for a route.
+
+        ``fallback_to_any`` preserves TopicEye's historical behaviour for
+        existing callers.  Boundaries that promise strict route isolation
+        (notably Rardar) set it to ``False`` so an absent route cannot borrow
+        a model from another business workload.
+        """
         now = time.monotonic()
         if now - self._last_refresh > 60:
             async with self._lock:
@@ -60,7 +72,7 @@ class ModelConfigCache:
         models = [m for m in self._route_models if (m.routing_group or "default") == group]
         if models:
             return models
-        return self._route_models
+        return self._route_models if fallback_to_any else []
 
 
 _model_cache = ModelConfigCache()

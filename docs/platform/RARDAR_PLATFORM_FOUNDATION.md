@@ -17,7 +17,7 @@ The POC remains an evidence branch. This foundation neither merges it nor depend
 | Classification | Decision |
 | --- | --- |
 | `PROMOTE_NOW` | Strict centralized Product Profile; Rardar wordmark, header and six-item navigation; scoped blue-white tokens; responsive user shell; honest route empty states; Admin and default TopicEye compatibility boundary. |
-| `DEFER` | Find Project APIs; durable Job; AI Runtime and Worker; product diagnostics; source/report/scheduler integration. The read-only Explosion Adapter was promoted in the follow-up documented by `RARDAR_INTELLIGENCE_ADAPTER.md`. |
+| `DEFER` | Find Project APIs; durable AI Job and Worker; AI business prompts/results; product diagnostics; source/report/scheduler integration. The read-only Explosion Adapter and the provider-neutral LLM control reuse boundary were promoted in separate follow-ups. |
 | `POC_ONLY` | Explosion A/B fixtures and pointer; Mock Sub2API and failure scenarios; two POC PostgreSQL tables; migration `4d8a71c9f201`; simulated Job progress/candidates; POC screenshots and diagnostics endpoints. |
 | `REJECT` | Scattered environment checks; duplicated or global Rardar colors; hard-coded fixture/data paths; fake projects, Star counts or Job states; mapping repositories into TopicEye content; POC-only compatibility bypasses. |
 
@@ -78,13 +78,13 @@ Default TopicEye mode keeps the original root page, title, navigation, content r
 
 ## Honest capability slots
 
-The foundation created three named insertion points. The first is now implemented by a separate, reversible follow-up; the others remain empty:
+The foundation created three named insertion points. The first and the provider-neutral part of the third now have separate, reversible follow-ups; product AI remains empty:
 
 1. `Intelligence Adapter` — read-only audited Explosion Artifact reader; see `RARDAR_INTELLIGENCE_ADAPTER.md`.
 2. `Find Project Control Plane` — future RequirementProfile and durable Job boundary.
-3. `AI Runtime` — future queue, isolated Worker and locally validated AI artifact boundary.
+3. `AI Runtime` — Rardar now has a minimal strict call boundary over TopicEye's existing LLM control plane; see `RARDAR_LLM_CONTROL_REUSE.md`. Real model configuration, queue, isolated Worker, prompts and AI artifacts remain deferred.
 
-The remaining empty routes state that their capability is not connected. Today now renders only verified Rardar facts; there are still no POC fixture projects, simulated candidates, fake progress, network AI requests or database writes.
+The remaining empty routes state that their capability is not connected. Today renders only verified Rardar facts; it does not call the new LLM boundary. There are still no POC fixture projects, simulated candidates, fake progress, real model configuration, network AI requests or database writes.
 
 ## Code ownership and upstream sync hotspots
 

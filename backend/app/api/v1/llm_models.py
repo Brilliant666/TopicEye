@@ -36,6 +36,7 @@ from app.core.database import async_session, get_db  # noqa: F401 — async_sess
 from app.models.llm_model import LlmModel
 from app.models.user import User
 from app.repositories.llm_model_repo import LlmModelRepository
+from app.services.llm.error_safety import safe_llm_error
 from app.services.llm.model_list_cache import (
     MODEL_LIST_CACHE_HEADER,
     get_cached_model_list,
@@ -681,17 +682,18 @@ async def test_model(model_id: int, db: AsyncSession = Depends(get_db)):
         }
     except Exception as e:
         duration_ms = int((time.monotonic() - start) * 1000)
+        safe_error = safe_llm_error(e)
         await record_llm_call_in_new_session(
             model=model,
             request_model=resolved_model,
             scene="model_test",
             status="FAILED",
             duration_ms=duration_ms,
-            error_message=str(e),
+            error_message=safe_error,
         )
         return {
             "status": "failed",
             "model_name": model.name,
-            "error": str(e),
+            "error": safe_error,
             "duration_ms": duration_ms,
         }

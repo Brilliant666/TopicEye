@@ -21,6 +21,7 @@ app.services.llm import call_llm / call_llm_json。
 from __future__ import annotations
 
 import asyncio  # noqa: F401  (kept for callers importing provider-level helpers)
+import hashlib
 import json
 import logging
 from typing import Any
@@ -42,6 +43,7 @@ from app.services.llm._rate_limit import (
     reset_model_rate_limiters,
     reset_token_rate_limiter,
 )
+from app.services.llm.error_safety import safe_llm_error
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +94,40 @@ async def invalidate_model_cache() -> None:
     get_llm_cache().clear()
 
 
-def _cache_scope(routing_group: str, scene: str) -> str:
-    """Build a cache namespace for the selected routing policy."""
-    return f"routing_group:{routing_group}|scene:{scene}"
+_REASONING_EFFORTS = frozenset({"medium", "high", "xhigh"})
+
+
+def normalize_reasoning_effort(reasoning_effort: str | None) -> str | None:
+    """Validate the provider-neutral effort contract before any model call."""
+    if reasoning_effort is None:
+        return None
+    if not isinstance(reasoning_effort, str) or reasoning_effort not in _REASONING_EFFORTS:
+        raise ValueError("reasoning_effort must be one of: medium, high, xhigh")
+    return reasoning_effort
+
+
+def _cache_scope(
+    routing_group: str,
+    scene: str,
+    *,
+    reasoning_effort: str | None = None,
+    cache_identity: str | None = None,
+    response_format: dict | None = None,
+) -> str:
+    """Build a non-secret cache namespace for the complete invocation policy."""
+    policy = json.dumps(
+        {
+            "routing_group": routing_group,
+            "scene": scene,
+            "reasoning_effort": reasoning_effort,
+            "cache_identity": cache_identity,
+            "response_format": response_format,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return f"llm-policy:{hashlib.sha256(policy.encode('utf-8')).hexdigest()}"
 
 
 class LlmCapacityUnavailableError(Exception):
@@ -110,13 +143,24 @@ class LlmCapacityUnavailableError(Exception):
         )
 
 
+class LlmRouteNotConfiguredError(RuntimeError):
+    """A strict business route has no enabled model configuration."""
+
+    def __init__(self, routing_group: str):
+        self.routing_group = routing_group
+        super().__init__(f"No enabled LLM models configured for strict route '{routing_group}'")
+
+
 async def call_llm_with_metadata(
     messages: list,
-    temperature: float = 0.3,
-    max_tokens: int = 2000,
+    temperature: float | None = 0.3,
+    max_tokens: int | None = 2000,
     scene: str = "general",
     routing_group: str = "default",
     response_format: dict | None = None,
+    reasoning_effort: str | None = None,
+    cache_identity: str | None = None,
+    strict_routing_group: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     """Call LLM with automatic ordered failover and return the selected route metadata.
 
@@ -125,6 +169,16 @@ async def call_llm_with_metadata(
     the failover loop retries that candidate without ``response_format``
     so JSON-mode callers still get a usable text response.
     """
+    reasoning_effort = normalize_reasoning_effort(reasoning_effort)
+    routing_group = (routing_group or "default").strip() or "default"
+
+    # Strict consumers must distinguish an absent route from an unavailable
+    # configured route, even if a stale circuit state happens to be open.
+    if strict_routing_group:
+        strict_models = await _model_cache.get_route_models(routing_group, fallback_to_any=False)
+        if not strict_models:
+            raise LlmRouteNotConfiguredError(routing_group)
+
     # Circuit breaker: skip LLM call entirely when in OPEN state
     from app.services.llm.circuit_breaker import get_llm_circuit_breaker
 
@@ -141,10 +195,21 @@ async def call_llm_with_metadata(
     from app.services.llm.response_cache import get_llm_cache
 
     cache = get_llm_cache()
-    cache_scope = _cache_scope(routing_group, scene)
+    cache_scope = _cache_scope(
+        routing_group,
+        scene,
+        reasoning_effort=reasoning_effort,
+        cache_identity=cache_identity,
+        response_format=response_format,
+    )
     cached = cache.get(messages, temperature, max_tokens, model=cache_scope)
     if cached is not None:
-        return cached, {"cache_hit": True}
+        return cached, {
+            "cache_hit": True,
+            "routing_group": routing_group,
+            "scene": scene,
+            "reasoning_effort": reasoning_effort,
+        }
 
     try:
         result = await _call_llm_with_metadata_inner(
@@ -154,6 +219,8 @@ async def call_llm_with_metadata(
             scene,
             routing_group,
             response_format=response_format,
+            reasoning_effort=reasoning_effort,
+            strict_routing_group=strict_routing_group,
         )
         await breaker.record_success()
         cache.set(
@@ -181,14 +248,19 @@ async def call_llm_with_metadata(
 
 async def _call_llm_with_metadata_inner(
     messages: list,
-    temperature: float = 0.3,
-    max_tokens: int = 2000,
+    temperature: float | None = 0.3,
+    max_tokens: int | None = 2000,
     scene: str = "general",
     routing_group: str = "default",
     response_format: dict | None = None,
+    reasoning_effort: str | None = None,
+    strict_routing_group: bool = False,
 ) -> tuple[str, dict[str, Any]]:
     """Call LLM with automatic ordered failover and return the selected route metadata."""
-    db_models = await _model_cache.get_route_models(routing_group)
+    if strict_routing_group:
+        db_models = await _model_cache.get_route_models(routing_group, fallback_to_any=False)
+    else:
+        db_models = await _model_cache.get_route_models(routing_group)
     candidates = [_candidate_from_db_model(m, temperature, max_tokens) for m in db_models]
 
     skipped: list[dict[str, Any]] = []
@@ -207,7 +279,7 @@ async def _call_llm_with_metadata_inner(
 
         try:
             logger.info("Calling LLM candidate: %s", request_model)
-            response = await _call_with_retry(
+            call_args = (
                 messages,
                 request_model,
                 candidate["api_key"],
@@ -218,17 +290,31 @@ async def _call_llm_with_metadata_inner(
                 model_config,
                 scene,
             )
+            if reasoning_effort is None:
+                response = await _call_with_retry(*call_args)
+            else:
+                response = await _call_with_retry(*call_args, reasoning_effort=reasoning_effort)
             _failover.on_success(key)
-            return response, _llm_call_metadata(model_config, request_model, routing_group, scene)
+            return response, _llm_call_metadata(
+                model_config,
+                request_model,
+                routing_group,
+                scene,
+                reasoning_effort=reasoning_effort,
+            )
         except UnsupportedParamsError:
             # Provider doesn't support response_format (e.g. some GLM / DeepSeek
             # endpoints). Retry the same candidate without it so JSON-mode
             # callers still get a parseable text response. If the retry also
             # fails (rate limit / timeout / etc.), fall through to the generic
             # except block below so failover to the next candidate still works.
+            # When no response_format was sent, the unsupported parameter may
+            # be reasoning_effort; never retry by silently removing that value.
+            if response_format is None:
+                raise
             logger.info("Model %s doesn't support response_format, retrying without", request_model)
             try:
-                response = await _call_with_retry(
+                fallback_args = (
                     messages,
                     request_model,
                     candidate["api_key"],
@@ -239,12 +325,22 @@ async def _call_llm_with_metadata_inner(
                     model_config,
                     scene,
                 )
+                if reasoning_effort is None:
+                    response = await _call_with_retry(*fallback_args)
+                else:
+                    response = await _call_with_retry(*fallback_args, reasoning_effort=reasoning_effort)
                 _failover.on_success(key)
-                return response, _llm_call_metadata(model_config, request_model, routing_group, scene)
+                return response, _llm_call_metadata(
+                    model_config,
+                    request_model,
+                    routing_group,
+                    scene,
+                    reasoning_effort=reasoning_effort,
+                )
             except Exception as exc:
                 last_exc = exc
                 if _is_deterministic_request_error(exc):
-                    logger.info("LLM request rejected; keeping route healthy: %s", exc)
+                    logger.info("LLM request rejected; keeping route healthy: %s", safe_llm_error(exc))
                     raise
                 reset_time = _parse_reset_time(exc) if _is_rate_limit_error(exc) else None
                 _failover.on_failure(
@@ -256,7 +352,7 @@ async def _call_llm_with_metadata_inner(
         except Exception as exc:
             last_exc = exc
             if _is_deterministic_request_error(exc):
-                logger.info("LLM request rejected; keeping route healthy: %s", exc)
+                logger.info("LLM request rejected; keeping route healthy: %s", safe_llm_error(exc))
                 raise
             reset_time = _parse_reset_time(exc) if _is_rate_limit_error(exc) else None
             _failover.on_failure(
@@ -266,12 +362,12 @@ async def _call_llm_with_metadata_inner(
             )
             record_llm_pool_circuit_event(model_config, scene, "candidate_degraded")
             if _is_rate_limit_error(exc):
-                logger.warning("LLM candidate rate-limited, trying next: %s", exc)
+                logger.warning("LLM candidate rate-limited, trying next: %s", safe_llm_error(exc))
             else:
-                logger.warning("LLM candidate failed, trying next: %s", exc)
+                logger.warning("LLM candidate failed, trying next: %s", safe_llm_error(exc))
 
     if last_exc:
-        logger.error("All LLM candidates failed: %s", last_exc)
+        logger.error("All LLM candidates failed: %s", safe_llm_error(last_exc))
         raise last_exc
     if skipped:
         next_available_at = _failover.next_available_at(candidate["_failover_key"] for candidate in skipped)
@@ -284,18 +380,29 @@ async def _call_llm_with_metadata_inner(
             routing_group=routing_group,
             next_available_at=next_available_at,
         )
+    if strict_routing_group:
+        raise LlmRouteNotConfiguredError(routing_group)
     raise RuntimeError("No enabled LLM route models configured")
 
 
 def _llm_call_metadata(
-    model_config: Any, request_model: str, routing_group: str, scene: str = "general"
+    model_config: Any,
+    request_model: str,
+    routing_group: str,
+    scene: str = "general",
+    *,
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     return {
         "actual_model": request_model,
         "request_model": request_model,
         "model_name": getattr(model_config, "name", None),
         "model_id": getattr(model_config, "id", None),
+        "provider": getattr(model_config, "provider", None),
         "routing_group": routing_group,
+        "scene": scene,
+        "reasoning_effort": reasoning_effort,
+        "cache_hit": False,
         "pool_scope": _pool_scope(model_config, scene),
     }
 

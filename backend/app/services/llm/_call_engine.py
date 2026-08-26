@@ -42,6 +42,7 @@ from app.services.llm._rate_limit import (
     acquire_completion_slot,
     estimate_request_tokens,
 )
+from app.services.llm.error_safety import safe_llm_error
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,7 @@ async def _call_llm_single(
     response_format: dict | None,
     model_config: Any = None,
     scene: str = "general",
+    reasoning_effort: str | None = None,
 ) -> str:
     """Make a single LLM call (no retry)."""
     from app.services.llm.provider import _litellm_extra_kwargs
@@ -175,8 +177,15 @@ async def _call_llm_single(
         kwargs["api_base"] = api_base
     if response_format:
         kwargs["response_format"] = response_format
+    if reasoning_effort is not None:
+        kwargs["reasoning_effort"] = reasoning_effort
 
-    logger.info("LLM call: model=%s, messages=%d", model, len(messages))
+    logger.info(
+        "LLM call: model=%s, messages=%d, reasoning_effort=%s",
+        model,
+        len(messages),
+        reasoning_effort or "provider_default",
+    )
 
     start = time.monotonic()
     try:
@@ -225,7 +234,7 @@ async def _call_llm_single(
             scene=scene,
             status="FAILED",
             duration_ms=duration_ms,
-            error_message=str(exc),
+            error_message=safe_llm_error(exc),
         )
         # ── 失败也记录指标 ──
         try:
@@ -270,6 +279,7 @@ async def _call_with_retry(
     response_format: dict | None,
     model_config: Any = None,
     scene: str = "general",
+    reasoning_effort: str | None = None,
 ) -> str:
     """Call LLM with a short retry on failure (not rate limit).
 
@@ -277,5 +287,14 @@ async def _call_with_retry(
     限流错误直接抛出，由 call_llm_with_metadata 的 failover 循环切换到下一个候选模型。
     """
     return await _call_llm_single(
-        messages, model, api_key, api_base, temperature, max_tokens, response_format, model_config, scene
+        messages,
+        model,
+        api_key,
+        api_base,
+        temperature,
+        max_tokens,
+        response_format,
+        model_config,
+        scene,
+        reasoning_effort,
     )

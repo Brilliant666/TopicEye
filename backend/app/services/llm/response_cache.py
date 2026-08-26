@@ -36,7 +36,12 @@ class LLMCache:
         self._stores = 0
 
     @staticmethod
-    def _key(messages: list, temperature: float, max_tokens: int, model: str | None) -> str:
+    def _key(
+        messages: list,
+        temperature: float | None,
+        max_tokens: int | None,
+        model: str | None,
+    ) -> str:
         payload = {
             "model": model or "",
             "temperature": temperature,
@@ -49,8 +54,8 @@ class LLMCache:
     def get(
         self,
         messages: list,
-        temperature: float,
-        max_tokens: int,
+        temperature: float | None,
+        max_tokens: int | None,
         model: str | None,
         ttl_seconds: int | None = None,
     ) -> str | None:
@@ -61,7 +66,7 @@ class LLMCache:
             self._misses += 1
             return None
         raw, expires_at = entry
-        if expires_at < time.monotonic():
+        if expires_at < time.perf_counter():
             self._cache.pop(key, None)
             self._misses += 1
             return None
@@ -72,8 +77,8 @@ class LLMCache:
     def set(
         self,
         messages: list,
-        temperature: float,
-        max_tokens: int,
+        temperature: float | None,
+        max_tokens: int | None,
         model: str | None,
         raw_response: str,
         ttl_seconds: int | None = None,
@@ -83,7 +88,7 @@ class LLMCache:
             return  # don't cache empty responses
         key = self._key(messages, temperature, max_tokens, model)
         ttl = ttl_seconds or self.default_ttl
-        self._cache[key] = (raw_response, time.monotonic() + ttl)
+        self._cache[key] = (raw_response, time.perf_counter() + ttl)
         self._stores += 1
         # Evict oldest entries if over cap
         if len(self._cache) > self.max_entries:

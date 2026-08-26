@@ -270,7 +270,10 @@ async def acquire_completion_slot(model_config: Any, scene: str) -> AsyncIterato
     from consuming all completions while preserving the existing global cap.
     """
     scope, pool_semaphore = _get_pool_completion_semaphore(model_config, scene)
-    started = time.monotonic()
+    # ``time.monotonic`` maps to 15.6 ms GetTickCount64 ticks on some
+    # supported Windows runtimes, which can report a real short queue wait as
+    # zero.  perf_counter is also monotonic and preserves admission telemetry.
+    started = time.perf_counter()
     await pool_semaphore.acquire()
     background_semaphore = _get_background_completion_semaphore() if _is_background_scene(scene) else None
     global_semaphore: asyncio.Semaphore | None = None
@@ -288,7 +291,7 @@ async def acquire_completion_slot(model_config: Any, scene: str) -> AsyncIterato
         pool_semaphore.release()
         raise
 
-    _pool_metrics.admitted(scope, time.monotonic() - started)
+    _pool_metrics.admitted(scope, time.perf_counter() - started)
     try:
         yield
     finally:

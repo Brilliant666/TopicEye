@@ -92,7 +92,11 @@ def _model_key(model_config: Any) -> str:
     return f"db:{model_config.id}"
 
 
-def _candidate_from_db_model(model_config: Any, temperature: float, max_tokens: int) -> dict[str, Any]:
+def _candidate_from_db_model(
+    model_config: Any,
+    temperature: float | None,
+    max_tokens: int | None,
+) -> dict[str, Any]:
     return {
         "request_model": resolve_litellm_model(model_config),
         "api_key": decrypt_secret(model_config.api_key),

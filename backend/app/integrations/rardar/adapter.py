@@ -59,6 +59,20 @@ def _strict_json(raw: bytes) -> dict[str, Any]:
     return value
 
 
+def _capture_payload_digest(payload: dict[str, Any]) -> str:
+    """Recompute the producer's digest over canonical JSON without ``digest``."""
+
+    digestless = {key: value for key, value in payload.items() if key != "digest"}
+    canonical = json.dumps(
+        digestless,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def _is_reparse(info: os.stat_result) -> bool:
     return bool(getattr(info, "st_file_attributes", 0) & _REPARSE_POINT)
 
@@ -323,6 +337,8 @@ class RardarIntelligenceAdapter:
             code="rardar_generation_invalid",
             label="source capture copy",
         )
+        if _capture_payload_digest(source) != source["digest"]["value"]:
+            raise RardarArtifactError("rardar_generation_invalid", "Rardar source capture payload digest is invalid")
         if (
             source["captureId"] != reference["captureId"]
             or source["scheduledAt"] != reference["scheduledAt"]

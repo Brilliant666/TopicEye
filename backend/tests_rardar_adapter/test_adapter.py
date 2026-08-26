@@ -179,6 +179,32 @@ def test_source_and_source_path_tamper_fail_closed(tmp_path: Path) -> None:
     assert path_error.value.code == "rardar_generation_invalid"
 
 
+def test_source_payload_digest_tamper_fails_with_resigned_outer_hash_chain(tmp_path: Path) -> None:
+    root = _copy_revision(tmp_path)
+    generation = root / "generations" / "fixture-explosion-a"
+    source_relative = "trending/sources/current.json"
+    source_path = generation / source_relative
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    source["observations"][0]["totalStars"] += 1
+    _write_json(source_path, source)
+
+    source_hash = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    artifact_path = generation / "trending" / "explosion.json"
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    artifact["sourceCaptures"]["current"]["fileSha256"] = source_hash
+    _write_json(artifact_path, artifact)
+
+    manifest_path = generation / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["hashes"][source_relative] = source_hash
+    _write_json(manifest_path, manifest)
+    _resign(root, "fixture-explosion-a", artifact_changed=True)
+
+    with pytest.raises(RardarArtifactError) as error:
+        _load(root)
+    assert error.value.code == "rardar_generation_invalid"
+
+
 def test_same_length_mutation_during_read_is_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root = _copy_revision(tmp_path)
     original = _SafeRoot._read_open_file

@@ -27,7 +27,7 @@ Promote the smallest safe vertical slice from the TopicEye × Rardar POC: render
 
 The Adapter never reads a second pointer in one request, never falls back to flat or retained data, and never writes either repository. No TopicEye model, repository, Alembic revision or PostgreSQL table was added. Rardar page/API reads must leave a normalized database export byte-equivalent.
 
-Negative controls cover missing/invalid configuration, duplicate and non-finite JSON, manifest state/digest, artifact hash/Schema/generation identity/rank, source hash/path, pointer and generation symlinks, Windows reparse/junction classification, same-length mutation, delete/recreate, and A/B switching without mixed responses.
+Negative controls cover missing/invalid configuration, duplicate and non-finite JSON, manifest state/digest, artifact hash/Schema/generation identity/rank, source hash/path/canonical payload digest, pointer and generation symlinks, Windows reparse/junction classification, same-length mutation, delete/recreate, and A/B switching without mixed responses.
 
 ## Validation record
 

@@ -30,11 +30,11 @@ One request performs one logical pointer read and binds all subsequent work to i
 5. validate the manifest Schema, exact generation identity, `ready` state, and artifact/hash inventory;
 6. if `trending/explosion.json` is not published, return a valid `not_ready` product state without looking at another generation;
 7. otherwise verify the Explosion Artifact hash and Schema and require its `generationId` to match;
-8. stable-read every source capture copy referenced by that artifact, verify both manifest and provenance hashes, validate the capture Schema, and bind capture identity, time, coverage state and payload digest;
+8. stable-read every source capture copy referenced by that artifact, verify both manifest and provenance hashes, validate the capture Schema, recompute its canonical payload digest, and bind capture identity, time and coverage state;
 9. validate cross-artifact invariants: non-overlapping repository IDs, contiguous ranks, unchanged fact ordering, coverage counts, and observation-window/source timestamps;
 10. project the verified subset into the TopicEye DTO.
 
-Stable reads open a regular file with no-follow where the platform supports it, compare path and open-file identities, read a bounded full snapshot twice, and require identical bytes and metadata. A same-length mutation, delete/recreate, symlink swap, invalid JSON, or file replacement fails closed. The adapter never reads the raw observation ledger and never falls back to a flat file, fixture, previous generation, or database row.
+Stable reads open a regular file with no-follow where the platform supports it, compare path and open-file identities, read a bounded full snapshot twice, and require identical bytes and metadata. A same-length mutation, delete/recreate, symlink swap, invalid JSON, file replacement, or stale capture digest hidden behind a re-signed outer hash chain fails closed. The adapter never reads the raw observation ledger and never falls back to a flat file, fixture, previous generation, or database row.
 
 An atomic A→B pointer switch therefore has two legal outcomes: a request already bound to A completes entirely from A, while the next request reads B. A response cannot combine revisions.
 

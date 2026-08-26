@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     # TopicEye remains the default. Rardar must be enabled explicitly with
     # the literal value "true"; unknown values fail startup closed.
     RARDAR_PRODUCT_MODE: bool = False
+    # Backend-only path to Rardar's published generation root.  It is ignored
+    # unless RARDAR_PRODUCT_MODE is enabled and is never exposed to the browser.
+    RARDAR_INTELLIGENCE_DATA_DIR: str = ""
 
     # ── Database ──
     # 留空则启动时报错；本地开发请在 .env 中设置（参考 .env.example）。

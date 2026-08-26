@@ -1,19 +1,35 @@
 import { notFound } from 'next/navigation';
-import { Blocks, Construction, DatabaseZap, Radar, SearchCheck, Sparkles } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Clock3,
+  Construction,
+  DatabaseZap,
+  FolderGit2,
+  Radar,
+  ShieldCheck,
+  Sparkles,
+  Star,
+} from 'lucide-react';
 
 import { isRardarProduct } from '@/lib/product-profile';
 import {
   RARDAR_FOUNDATION_PAGES,
-  RARDAR_FOUNDATION_SLOTS,
   type RardarFoundationPageKey,
 } from '@/lib/rardar-foundation';
+import {
+  loadExplosionBoard,
+  type ExplosionBoardLoadResult,
+  type ExactExplosionProject,
+  type PendingExplosionProject,
+} from '@/lib/rardar-intelligence';
 import styles from './RardarFoundation.module.css';
 
-export default function RardarFoundationPage({ pageKey }: { pageKey: RardarFoundationPageKey }) {
+export default async function RardarFoundationPage({ pageKey }: { pageKey: RardarFoundationPageKey }) {
   if (!isRardarProduct()) notFound();
 
   const page = RARDAR_FOUNDATION_PAGES[pageKey];
-  if (pageKey === 'today') return <TodayFoundation />;
+  if (pageKey === 'today') return <TodayFoundation result={await loadExplosionBoard()} />;
 
   return (
     <div className={styles.page} data-rardar-route={page.href}>
@@ -33,9 +49,9 @@ export default function RardarFoundationPage({ pageKey }: { pageKey: RardarFound
   );
 }
 
-function TodayFoundation() {
+export function TodayFoundation({ result }: { result: ExplosionBoardLoadResult }) {
   const today = RARDAR_FOUNDATION_PAGES.today;
-  const icons = [Radar, SearchCheck, Sparkles] as const;
+  const board = result.kind === 'published' ? result.board : null;
 
   return (
     <div className={styles.page} data-rardar-route="/">
@@ -47,15 +63,15 @@ function TodayFoundation() {
             <span className={styles.heroTitleAccent}>可行动的开发情报</span>
           </h1>
           <p className={styles.heroDescription}>
-            Rardar 的正式产品壳已经建立。当前不读取 fixture、不调用 AI、不创建数据库记录，
-            只为下一阶段经过审计的数据能力保留清晰插槽。
+            基于 Rardar 多源候选召回与自有连续观察形成的 GitHub 24h 爆发榜。
+            名次只来自经过 Hash、Schema 与来源版本验证的客观 Star 增量。
           </p>
           <div className={styles.foundationNotice}>
             <span className={styles.noticePill}>
-              <Blocks size={15} aria-hidden="true" /> Product Profile 已启用
+              <ShieldCheck size={15} aria-hidden="true" /> 已验证事实链
             </span>
             <span className={`${styles.noticePill} ${styles.noticePillWarning}`}>
-              <DatabaseZap size={15} aria-hidden="true" /> 业务数据尚未接入
+              <Sparkles size={15} aria-hidden="true" /> AI 项目解释尚未接入
             </span>
           </div>
         </div>
@@ -63,45 +79,155 @@ function TodayFoundation() {
 
       <div className={styles.sectionHeading}>
         <div>
-          <h2>后续能力插槽</h2>
-          <p>每项能力都必须通过独立、可回滚的工程阶段接入。</p>
+          <h2>过去 24 小时</h2>
+          <p>精确 Top 5 · observedStarDelta 降序 · AI 不参与名次</p>
         </div>
+        {board?.capturedAt && <span className={styles.timestamp}>更新于 {formatTime(board.capturedAt)}</span>}
       </div>
 
-      <section className={styles.slotGrid} aria-label="Rardar 后续能力插槽">
-        {RARDAR_FOUNDATION_SLOTS.map((slot, index) => {
-          const Icon = icons[index];
-          return (
-            <article key={slot.name} className={styles.slotCard}>
-              <span className={styles.slotIcon} aria-hidden="true">
-                <Icon size={22} />
-              </span>
-              <h3>{slot.name}</h3>
-              <p>{slot.description}</p>
-              <span className={styles.slotStatus}>尚未接入</span>
-            </article>
-          );
-        })}
-      </section>
-
-      <div className={styles.sectionHeading}>
-        <div>
-          <h2>今日</h2>
-          <p>没有伪造榜单，也不会用旧 TopicEye 内容代替项目事实。</p>
-        </div>
-      </div>
-
-      <section className={styles.emptyCard}>
-        <div className={styles.emptyContent}>
-          <span className={styles.emptyIcon} aria-hidden="true">
-            <Radar size={30} />
-          </span>
-          <h2>{today.title}</h2>
-          <p>{today.description}</p>
-          <div className={styles.slotLabel}>{today.slot}</div>
-          <p className={styles.nextStep}>{today.nextStep}</p>
-        </div>
-      </section>
+      <ExplosionState result={result} />
     </div>
   );
+}
+
+function ExplosionState({ result }: { result: ExplosionBoardLoadResult }) {
+  if (result.kind === 'not_configured') {
+    return <StatusCard icon={DatabaseZap} title="情报数据尚未配置" detail="配置正式 Rardar data 根目录后，页面才会读取已发布 generation；不会回退到 fixture。" />;
+  }
+  if (result.kind === 'error') {
+    return <StatusCard icon={AlertTriangle} title="情报数据暂时不可用" detail={`读取已安全停止 · ${result.code}`} tone="danger" />;
+  }
+  const board = result.board;
+  if (board.state === 'not_ready') {
+    return <StatusCard icon={Clock3} title="今日爆发事实尚未发布" detail="当前 generation 健康，但尚未包含 Explosion Artifact。" />;
+  }
+  if (board.state === 'warming_up') {
+    return (
+      <>
+        <StatusCard icon={Clock3} title="24 小时观察基线正在建立" detail="新项目会进入待验证区；在完整 24h 基线形成前不会冒充精确榜单。" />
+        <PendingFacts board={board} />
+      </>
+    );
+  }
+  if (board.state === 'baseline_missing') {
+    return (
+      <>
+        <StatusCard icon={AlertTriangle} title="本期 24 小时基线缺失" detail="系统保留可追溯的待验证事实，但不会推测或补造精确名次。" />
+        <PendingFacts board={board} />
+      </>
+    );
+  }
+  return <ReadyBoard board={board} />;
+}
+
+function ReadyBoard({ board }: { board: Extract<ExplosionBoardLoadResult, { kind: 'published' }>['board'] }) {
+  const exact = board.exactRanked.slice(0, 5);
+  return (
+    <>
+      <section className={styles.rankingList} aria-label="GitHub 24 小时爆发榜 Top 5">
+        {exact.map((project) => <ExactProjectCard key={project.githubRepositoryId} project={project} />)}
+      </section>
+
+      <PendingFacts board={board} />
+    </>
+  );
+}
+
+function PendingFacts({ board }: { board: Extract<ExplosionBoardLoadResult, { kind: 'published' }>['board'] }) {
+  const pending = board.pendingRanked.slice(0, 3);
+  return (
+    <>
+      <div className={styles.sectionHeading}>
+        <div>
+          <h2>新入榜待验证</h2>
+          <p>首次发现立即展示，但不进入精确 Top 5。</p>
+        </div>
+      </div>
+      <section className={styles.pendingGrid} aria-label="新入榜待验证项目">
+        {pending.map((project) => <PendingProjectCard key={project.githubRepositoryId} project={project} />)}
+      </section>
+
+      <section className={styles.provenanceBar} aria-label="数据覆盖和 generation">
+        <div><ShieldCheck size={18} /><span>覆盖 {board.coverage?.state === 'healthy' ? '健康' : '降级'}</span></div>
+        <span>
+          {board.window?.state === 'exact' ? '精确窗口' : '观察窗口'}{' '}
+          {board.window ? `${formatTime(board.window.startedAt)} → ${formatTime(board.window.endedAt)}` : '未发布'}
+        </span>
+        <span>查询 {board.coverage?.successfulQueryCount ?? 0} 成功 / {board.coverage?.failedQueryCount ?? 0} 失败</span>
+        <span>Metadata 失败 {board.coverage?.metadataFailureCount ?? 0}</span>
+        <span>精确 {board.coverage?.exactCount ?? 0} · 待验证 {board.coverage?.pendingCount ?? 0} · 冲突 {board.conflictCount}</span>
+        <code>{board.generationId}</code>
+      </section>
+    </>
+  );
+}
+
+function ExactProjectCard({ project }: { project: ExactExplosionProject }) {
+  return (
+    <article className={styles.rankingCard}>
+      <div className={styles.rank}>#{project.rank}</div>
+      <div className={styles.projectIdentity}>
+        <a href={project.htmlUrl} target="_blank" rel="noreferrer" className={styles.repository}>
+          <FolderGit2 size={18} aria-hidden="true" /> {project.repository} <ArrowUpRight size={15} aria-hidden="true" />
+        </a>
+        <div className={styles.tags}>
+          {project.primaryLanguage && <span>{project.primaryLanguage}</span>}
+          {project.topics.slice(0, 3).map((topic) => <span key={topic}>{topic}</span>)}
+          {project.archived && <span>Archived</span>}
+          {project.fork && <span>Fork</span>}
+        </div>
+      </div>
+      <div className={styles.starFacts}>
+        <strong>+{formatNumber(project.observedStarDelta)}</strong>
+        <span><Star size={14} aria-hidden="true" /> {formatNumber(project.totalStars)} total</span>
+      </div>
+    </article>
+  );
+}
+
+function PendingProjectCard({ project }: { project: PendingExplosionProject }) {
+  const observed = project.observedWindowHours === null
+    ? '等待第二个观察点'
+    : `${project.observedWindowHours}h ${formatSigned(project.observedWindowStarDelta)}`;
+  return (
+    <article className={styles.pendingCard}>
+      <span className={styles.pendingBadge}>待验证 #{project.pendingRank}</span>
+      <a href={project.htmlUrl} target="_blank" rel="noreferrer">{project.repository}</a>
+      <strong><Star size={14} aria-hidden="true" /> {formatNumber(project.totalStars)}</strong>
+      <p>{observed}</p>
+      <small>首次发现 {formatTime(project.firstSeenAt)}</small>
+    </article>
+  );
+}
+
+function StatusCard({ icon: Icon, title, detail, tone = 'default' }: { icon: typeof Radar; title: string; detail: string; tone?: 'default' | 'danger' }) {
+  return (
+    <section className={`${styles.emptyCard} ${tone === 'danger' ? styles.errorCard : ''}`}>
+      <div className={styles.emptyContent}>
+        <span className={styles.emptyIcon} aria-hidden="true"><Icon size={30} /></span>
+        <h2>{title}</h2>
+        <p>{detail}</p>
+      </div>
+    </section>
+  );
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('zh-CN').format(value);
+}
+
+function formatSigned(value: number | null) {
+  if (value === null) return '增量待确认';
+  return `${value >= 0 ? '+' : ''}${formatNumber(value)} Star`;
+}
+
+function formatTime(value: string) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value));
 }

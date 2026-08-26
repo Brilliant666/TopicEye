@@ -102,6 +102,28 @@ jobs:
       - name: Check API layering
         run: python scripts/check_layering.py
 
+  # ── Rardar cross-repository adapter contract ──
+  rardar-adapter-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Install backend dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Verify vendored provenance
+        run: python scripts/check_rardar_contract_provenance.py
+      - name: Run fail-closed adapter tests
+        env:
+          PYTHONPATH: .
+        run: pytest -q tests_rardar_adapter
+
   # ── 依赖安全扫描 ──
   security-scan:
     runs-on: ubuntu-latest

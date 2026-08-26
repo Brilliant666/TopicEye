@@ -23,11 +23,11 @@ export const RARDAR_FOUNDATION_PAGES: Record<
   today: {
     key: 'today',
     href: '/',
-    eyebrow: 'Today · Foundation',
-    title: '今日爆发榜尚未接入',
-    description: '当前页面只验证 Rardar 产品壳，不读取 fixture，也不展示伪造项目或 Star 数据。',
-    slot: 'Rardar Intelligence Adapter',
-    nextStep: '后续独立阶段接入经过版本、Hash 与 Schema 验证的 Explosion Artifact。',
+    eyebrow: 'Today · Verified Facts',
+    title: 'GitHub 24h 爆发事实',
+    description: '只读取经过 generation、Hash、Schema 与来源版本验证的 Explosion Artifact。',
+    slot: 'Rardar Intelligence Adapter · Read-only',
+    nextStep: '后续独立阶段接入 AI 项目解释，不改变客观名次。',
   },
   activity: {
     key: 'activity',

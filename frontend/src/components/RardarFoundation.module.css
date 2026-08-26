@@ -294,6 +294,178 @@
   font-size: 0.82rem;
 }
 
+.timestamp {
+  color: var(--rardar-muted-text);
+  font-family: var(--font-dm-mono), ui-monospace, monospace;
+  font-size: 0.73rem;
+}
+
+.rankingList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.rankingCard {
+  min-height: 6.3rem;
+  padding: 1rem 1.2rem;
+  display: grid;
+  grid-template-columns: 4rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  border: 1px solid var(--rardar-border);
+  border-radius: 1.15rem;
+  background: rgb(255 255 255 / 0.94);
+  box-shadow: 0 10px 30px rgb(30 64 175 / 0.05);
+}
+
+.rank {
+  color: var(--rardar-brand-primary);
+  font-family: var(--font-dm-mono), ui-monospace, monospace;
+  font-size: 1.12rem;
+  font-weight: 850;
+}
+
+.projectIdentity {
+  min-width: 0;
+}
+
+.repository {
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  overflow: hidden;
+  color: var(--rardar-strong-text);
+  font-size: clamp(0.96rem, 1.5vw, 1.12rem);
+  font-weight: 850;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repository:hover {
+  color: var(--rardar-brand-primary);
+}
+
+.tags {
+  margin-top: 0.55rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.tags span,
+.pendingBadge {
+  padding: 0.25rem 0.48rem;
+  border-radius: 999px;
+  color: #475569;
+  background: #f1f5f9;
+  font-size: 0.66rem;
+  font-weight: 720;
+}
+
+.starFacts {
+  min-width: 8.5rem;
+  display: grid;
+  justify-items: end;
+  gap: 0.3rem;
+}
+
+.starFacts strong {
+  color: var(--rardar-success);
+  font-family: var(--font-dm-mono), ui-monospace, monospace;
+  font-size: clamp(1.35rem, 2.5vw, 1.9rem);
+  letter-spacing: -0.05em;
+}
+
+.starFacts span,
+.pendingCard strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--rardar-muted-text);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.pendingGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.pendingCard {
+  min-width: 0;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.65rem;
+  border: 1px dashed #93c5fd;
+  border-radius: 1rem;
+  background: rgb(239 246 255 / 0.7);
+}
+
+.pendingCard a {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--rardar-strong-text);
+  font-weight: 820;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pendingCard p,
+.pendingCard small {
+  margin: 0;
+  color: var(--rardar-muted-text);
+  font-size: 0.75rem;
+}
+
+.pendingBadge {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.provenanceBar {
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.7rem 1.1rem;
+  border: 1px solid #bae6fd;
+  border-radius: 1rem;
+  color: #0c4a6e;
+  background: #f0f9ff;
+  font-size: 0.73rem;
+  font-weight: 700;
+}
+
+.provenanceBar div {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.provenanceBar code {
+  margin-left: auto;
+  overflow-wrap: anywhere;
+  font-size: 0.68rem;
+}
+
+.errorCard {
+  border-color: #fecaca;
+  background: #fffafa;
+}
+
+.errorCard .emptyIcon {
+  color: var(--rardar-danger);
+  background: #fef2f2;
+}
+
 .slotGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -451,6 +623,10 @@
   .slotGrid {
     grid-template-columns: 1fr;
   }
+
+  .pendingGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 520px) {
@@ -483,6 +659,25 @@
   .sectionHeading {
     align-items: start;
     flex-direction: column;
+  }
+
+  .rankingCard {
+    grid-template-columns: 2.7rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .starFacts {
+    grid-column: 2;
+    justify-items: start;
+  }
+
+  .provenanceBar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .provenanceBar code {
+    margin-left: 0;
   }
 
   .emptyCard {

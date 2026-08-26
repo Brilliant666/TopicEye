@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "sourceRepository": "Brilliant666/rardar",
+  "sourceCommit": "cb92274d5c3d3f8f17ab7f87b708040cc3635620",
+  "contracts": [
+    {
+      "sourcePath": "contracts/current-generation.schema.json",
+      "vendoredPath": "current-generation.schema.json",
+      "sourceSha256": "e238fcc24a5f2faa379349c9c974fbe8c0e4629291e606161f12167dc7860378",
+      "vendoredSha256": "e238fcc24a5f2faa379349c9c974fbe8c0e4629291e606161f12167dc7860378"
+    },
+    {
+      "sourcePath": "contracts/generation-manifest.schema.json",
+      "vendoredPath": "generation-manifest.schema.json",
+      "sourceSha256": "7f8de9f0caecf29612c57453861b7089f6b4d08bef2f7dbbc78d145daefcb645",
+      "vendoredSha256": "7f8de9f0caecf29612c57453861b7089f6b4d08bef2f7dbbc78d145daefcb645"
+    },
+    {
+      "sourcePath": "contracts/trending-capture-bundle.schema.json",
+      "vendoredPath": "trending-capture-bundle.schema.json",
+      "sourceSha256": "12f9a5d7e712a33421398c25e4a09f1fc913006d2986beafcff27a3676c2a4fb",
+      "vendoredSha256": "12f9a5d7e712a33421398c25e4a09f1fc913006d2986beafcff27a3676c2a4fb"
+    },
+    {
+      "sourcePath": "contracts/trending-explosion-artifact.schema.json",
+      "vendoredPath": "trending-explosion-artifact.schema.json",
+      "sourceSha256": "bc10126473dbd782b774f38dcc03a5428f3e85a4136ee4c57655924198b5b45e",
+      "vendoredSha256": "bc10126473dbd782b774f38dcc03a5428f3e85a4136ee4c57655924198b5b45e"
+    }
+  ],
+  "fixture": {
+    "kind": "isolated_minimal_extract",
+    "generationCommand": "python build_adapter_fixture.py (isolated Rardar main worktree; derive_trending_explosion)",
+    "productionDataUsed": false,
+    "validation": "Rardar Schema healthy; Audit healthy; retained generations present before minimal extraction",
+    "revisions": [
+      {
+        "name": "revision-a",
+        "generationId": "fixture-explosion-a",
+        "currentSha256": "56c8ff33959b107c684e71f357fee1f0020722ff7e799b2a1593f786c543a03a",
+        "manifestSha256": "929f551e339bf6007d0da51f6af51626553af6bb6f282d933f3a03e45a3c26bd",
+        "explosionSha256": "98b24d34519cf4cef837f5f3591922c2c4a27391a9406a3fbfa35f00c90afb11"
+      },
+      {
+        "name": "revision-b",
+        "generationId": "fixture-explosion-b",
+        "currentSha256": "065bd0b294c2ccce158b61595b99d1b91c20ad448dbc98e74df9f2bff5d8281f",
+        "manifestSha256": "b564755a869c61452bfc1a39a685ecc4a74db3d8dcdff4a2a51573688245247e",
+        "explosionSha256": "bf7fe47abd3793149952b242e1eb837b55a2ea7f41c451418d60c2be4a806c24"
+      }
+    ]
+  }
+}

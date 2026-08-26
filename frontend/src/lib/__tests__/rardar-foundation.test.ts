@@ -14,11 +14,12 @@ describe('Rardar foundation content contract', () => {
   });
 
   it('keeps every route honest about its unconnected capability', () => {
-    for (const page of Object.values(RARDAR_FOUNDATION_PAGES)) {
+    for (const page of Object.values(RARDAR_FOUNDATION_PAGES).filter((item) => item.key !== 'today')) {
       expect(page.title).toContain('尚未接入');
       expect(page.slot.length).toBeGreaterThan(0);
       expect(page.nextStep).toContain('后续');
     }
+    expect(RARDAR_FOUNDATION_PAGES.today.title).toBe('GitHub 24h 爆发事实');
   });
 
   it('reserves only the three approved future integration slots', () => {

@@ -11,7 +11,9 @@
     "skills:install-weread": "npx skills add Tencent/WeChatReading -g",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:e2e:rardar": "playwright test e2e/rardar-intelligence.spec.ts",
+    "test:e2e:topiceye": "playwright test e2e/default-profile.spec.ts"
   },
   "dependencies": {
     "lucide-react": "^1.16.0",
@@ -21,6 +23,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

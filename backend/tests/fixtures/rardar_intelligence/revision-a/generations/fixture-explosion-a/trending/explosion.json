@@ -1,0 +1,460 @@
+{
+  "schemaVersion": 1,
+  "policyVersion": "trending-explosion-v1",
+  "generationId": "fixture-explosion-a",
+  "generatedAt": "2026-08-24T00:10:00.000000Z",
+  "scheduleTimezone": "Asia/Shanghai",
+  "window": {
+    "state": "exact",
+    "startedAt": "2026-08-23T00:00:00.000000Z",
+    "endedAt": "2026-08-24T00:00:00.000000Z",
+    "durationHours": 24,
+    "toleranceSeconds": 600
+  },
+  "rankingPolicy": {
+    "primary": "observedStarDelta DESC",
+    "tieBreakers": [
+      "totalStars DESC",
+      "repository ASC"
+    ],
+    "exactLimit": 500,
+    "pendingLimit": 500
+  },
+  "sourceCaptures": {
+    "current": {
+      "captureId": "trending-v1-20260824T000000Z",
+      "scheduledAt": "2026-08-24T00:00:00Z",
+      "capturedAt": "2026-08-24T00:05:00Z",
+      "coverageState": "healthy",
+      "generationRelativePath": "trending/sources/current.json",
+      "originalObservationPath": "observations/trending/v1/captures/2026/08/24/trending-v1-20260824T000000Z.json",
+      "payloadDigestSha256": "3c0e956294f86bacc3a1284e60a9f6c7376668e0567695d199fef8daebff1bb8",
+      "fileSha256": "bb96e3be15ae25b4cc98ba75146781ef0f40f0c85fe286ba25973f2f36d10472"
+    },
+    "baseline": {
+      "captureId": "trending-v1-20260823T000000Z",
+      "scheduledAt": "2026-08-23T00:00:00Z",
+      "capturedAt": "2026-08-23T00:05:00Z",
+      "coverageState": "healthy",
+      "generationRelativePath": "trending/sources/baseline.json",
+      "originalObservationPath": "observations/trending/v1/captures/2026/08/23/trending-v1-20260823T000000Z.json",
+      "payloadDigestSha256": "ebb5dcdea4758059bd060125b08e492ed28fde32a1f9ada1b125ca51dac03f33",
+      "fileSha256": "4a9548cb5b79eb815c6909b2e21225d22f65aab1ba5b9c995231d2dce22e8091"
+    },
+    "partial": [
+      {
+        "captureId": "trending-v1-20260823T120000Z",
+        "scheduledAt": "2026-08-23T12:00:00Z",
+        "capturedAt": "2026-08-23T12:05:00Z",
+        "coverageState": "healthy",
+        "generationRelativePath": "trending/sources/partial-01.json",
+        "originalObservationPath": "observations/trending/v1/captures/2026/08/23/trending-v1-20260823T120000Z.json",
+        "payloadDigestSha256": "b816785f939fb7bb0e6108c31f35246509adc813536d18dda10168c36421c3cd",
+        "fileSha256": "d6157811cde75f028b3040581043f9f4ba8bf128bf36bec3bfe436c8f82c4512"
+      }
+    ],
+    "coverageWitness": null
+  },
+  "coverage": {
+    "state": "healthy",
+    "currentSuccessfulQueryCount": 9,
+    "currentFailedQueryCount": 0,
+    "currentMetadataFailureCount": 0,
+    "baselineSuccessfulQueryCount": 9,
+    "baselineFailedQueryCount": 0,
+    "baselineMetadataFailureCount": 0,
+    "exactEligibleCount": 5,
+    "exactPublishedCount": 5,
+    "pendingEligibleCount": 3,
+    "pendingPublishedCount": 3,
+    "conflictCount": 2
+  },
+  "exactRanked": [
+    {
+      "rank": 1,
+      "githubRepositoryId": 1,
+      "repository": "fixture-lab/exact-1",
+      "previousRepository": null,
+      "htmlUrl": "https://github.com/fixture-lab/exact-1",
+      "totalStars": 1100,
+      "baselineStars": 1001,
+      "observedStarDelta": 99,
+      "windowStartedAt": "2026-08-23T00:00:00.000000Z",
+      "windowEndedAt": "2026-08-24T00:00:00.000000Z",
+      "currentCapturedAt": "2026-08-24T00:05:00Z",
+      "baselineCapturedAt": "2026-08-23T00:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "updatedAt": "2026-08-23T23:00:00Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "defaultBranch": "main",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "licenseSpdxId": "MIT",
+      "archived": false,
+      "disabled": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-24T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-10 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "baselineRecalledBy": [
+        {
+          "capturedAt": "2026-08-23T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-09 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "state": "exact_window"
+    },
+    {
+      "rank": 2,
+      "githubRepositoryId": 2,
+      "repository": "fixture-lab/exact-2",
+      "previousRepository": null,
+      "htmlUrl": "https://github.com/fixture-lab/exact-2",
+      "totalStars": 1100,
+      "baselineStars": 1002,
+      "observedStarDelta": 98,
+      "windowStartedAt": "2026-08-23T00:00:00.000000Z",
+      "windowEndedAt": "2026-08-24T00:00:00.000000Z",
+      "currentCapturedAt": "2026-08-24T00:05:00Z",
+      "baselineCapturedAt": "2026-08-23T00:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "updatedAt": "2026-08-23T23:00:00Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "defaultBranch": "main",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "licenseSpdxId": "MIT",
+      "archived": false,
+      "disabled": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-24T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-10 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "baselineRecalledBy": [
+        {
+          "capturedAt": "2026-08-23T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-09 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "state": "exact_window"
+    },
+    {
+      "rank": 3,
+      "githubRepositoryId": 3,
+      "repository": "fixture-lab/exact-3",
+      "previousRepository": null,
+      "htmlUrl": "https://github.com/fixture-lab/exact-3",
+      "totalStars": 1100,
+      "baselineStars": 1003,
+      "observedStarDelta": 97,
+      "windowStartedAt": "2026-08-23T00:00:00.000000Z",
+      "windowEndedAt": "2026-08-24T00:00:00.000000Z",
+      "currentCapturedAt": "2026-08-24T00:05:00Z",
+      "baselineCapturedAt": "2026-08-23T00:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "updatedAt": "2026-08-23T23:00:00Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "defaultBranch": "main",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "licenseSpdxId": "MIT",
+      "archived": false,
+      "disabled": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-24T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-10 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "baselineRecalledBy": [
+        {
+          "capturedAt": "2026-08-23T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-09 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "state": "exact_window"
+    },
+    {
+      "rank": 4,
+      "githubRepositoryId": 4,
+      "repository": "fixture-lab/exact-4",
+      "previousRepository": null,
+      "htmlUrl": "https://github.com/fixture-lab/exact-4",
+      "totalStars": 1100,
+      "baselineStars": 1004,
+      "observedStarDelta": 96,
+      "windowStartedAt": "2026-08-23T00:00:00.000000Z",
+      "windowEndedAt": "2026-08-24T00:00:00.000000Z",
+      "currentCapturedAt": "2026-08-24T00:05:00Z",
+      "baselineCapturedAt": "2026-08-23T00:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "updatedAt": "2026-08-23T23:00:00Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "defaultBranch": "main",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "licenseSpdxId": "MIT",
+      "archived": true,
+      "disabled": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-24T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-10 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "baselineRecalledBy": [
+        {
+          "capturedAt": "2026-08-23T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-09 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "state": "exact_window"
+    },
+    {
+      "rank": 5,
+      "githubRepositoryId": 5,
+      "repository": "fixture-lab/exact-5",
+      "previousRepository": null,
+      "htmlUrl": "https://github.com/fixture-lab/exact-5",
+      "totalStars": 1100,
+      "baselineStars": 1005,
+      "observedStarDelta": 95,
+      "windowStartedAt": "2026-08-23T00:00:00.000000Z",
+      "windowEndedAt": "2026-08-24T00:00:00.000000Z",
+      "currentCapturedAt": "2026-08-24T00:05:00Z",
+      "baselineCapturedAt": "2026-08-23T00:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "updatedAt": "2026-08-23T23:00:00Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "defaultBranch": "main",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "licenseSpdxId": "MIT",
+      "archived": false,
+      "disabled": false,
+      "fork": true,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-24T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-10 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "baselineRecalledBy": [
+        {
+          "capturedAt": "2026-08-23T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-09 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "state": "exact_window"
+    }
+  ],
+  "pendingRanked": [
+    {
+      "pendingRank": 1,
+      "pendingReason": "first_seen",
+      "githubRepositoryId": 102,
+      "repository": "fixture-lab/pending-2",
+      "htmlUrl": "https://github.com/fixture-lab/pending-2",
+      "totalStars": 66,
+      "firstSeenAt": "2026-08-23T12:05:00Z",
+      "observedWindowStartedAt": "2026-08-23T12:05:00Z",
+      "observedWindowEndedAt": "2026-08-24T00:05:00Z",
+      "observedWindowHours": 12.0,
+      "observedWindowStarDelta": 14,
+      "currentCapturedAt": "2026-08-24T00:05:00Z",
+      "firstObservationCaptureId": "trending-v1-20260823T120000Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "archived": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-24T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-10 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ]
+    },
+    {
+      "pendingRank": 2,
+      "pendingReason": "first_seen",
+      "githubRepositoryId": 101,
+      "repository": "fixture-lab/pending-1",
+      "htmlUrl": "https://github.com/fixture-lab/pending-1",
+      "totalStars": 63,
+      "firstSeenAt": "2026-08-23T12:05:00Z",
+      "observedWindowStartedAt": "2026-08-23T12:05:00Z",
+      "observedWindowEndedAt": "2026-08-24T00:05:00Z",
+      "observedWindowHours": 12.0,
+      "observedWindowStarDelta": 12,
+      "currentCapturedAt": "2026-08-24T00:05:00Z",
+      "firstObservationCaptureId": "trending-v1-20260823T120000Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "archived": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-24T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-10 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ]
+    },
+    {
+      "pendingRank": 3,
+      "pendingReason": "first_seen",
+      "githubRepositoryId": 103,
+      "repository": "fixture-lab/pending-new",
+      "htmlUrl": "https://github.com/fixture-lab/pending-new",
+      "totalStars": 88,
+      "firstSeenAt": "2026-08-24T00:05:00Z",
+      "observedWindowStartedAt": "2026-08-24T00:05:00Z",
+      "observedWindowEndedAt": "2026-08-24T00:05:00Z",
+      "observedWindowHours": null,
+      "observedWindowStarDelta": null,
+      "currentCapturedAt": "2026-08-24T00:05:00Z",
+      "firstObservationCaptureId": "trending-v1-20260824T000000Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "archived": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-24T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-10 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "reason": "current_disabled",
+      "githubRepositoryId": 201,
+      "repository": "fixture-lab/conflict-disabled",
+      "currentStars": 90,
+      "baselineStars": 80,
+      "sourceCaptureIds": [
+        "trending-v1-20260823T000000Z",
+        "trending-v1-20260824T000000Z"
+      ]
+    },
+    {
+      "reason": "star_count_decreased",
+      "githubRepositoryId": 202,
+      "repository": "fixture-lab/conflict-decreased",
+      "currentStars": 499,
+      "baselineStars": 500,
+      "sourceCaptureIds": [
+        "trending-v1-20260823T000000Z",
+        "trending-v1-20260824T000000Z"
+      ]
+    }
+  ]
+}

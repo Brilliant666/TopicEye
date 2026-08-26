@@ -4,6 +4,8 @@
 
 TopicEye is the only LLM control plane for Rardar. Rardar business code declares a scene, messages, and an optional reasoning effort; it never selects or receives a provider, API base, API key, or model ID.
 
+The shared control boundary is implemented and locally configured, but the Rardar AI runtime is **not complete**. The current model-capability and scene-invocation contracts are documented in [Rardar AI Engine Adaptation](RARDAR_AI_ENGINE_ADAPTATION.md), [Model Capability Profile V1](../product/RARDAR_MODEL_CAPABILITY_PROFILE_V1.md), and [Rardar Invocation Profile V1](../product/RARDAR_INVOCATION_PROFILE_V1.md). No Rardar business prompt or AI artifact publication is enabled by those docs.
+
 The formal call path is:
 
 ```text
@@ -55,7 +57,7 @@ The shared provider call accepts `None`, `medium`, `high`, or `xhigh`:
 - an unsupported effort is never silently downgraded;
 - effort participates in cache identity, returned metadata, and safe operational logs.
 
-Model support remains something to prove later with the user's chosen local model configuration and a bounded smoke test.
+The configured local route has proven plain-text connectivity. Its first structured `medium` smoke remains blocked: loopback evidence shows that LiteLLM `1.95.0` recognizes `gpt-5.6-sol` and forwards medium when sampling is compatible, while a non-default `temperature = 0.3` plus medium is rejected locally before network and reproduces the smoke pattern. `MODEL_ID_NOT_ROOT_CAUSE` and `LOCAL_BEFORE_NETWORK` are confirmed; removing `response_format` does not change the rejection. The earlier smoke did not expose its effective temperature and this iteration did not obtain an authenticated model-row read, so `CURRENT_LOCAL_MODEL_TEMPERATURE = UNCONFIRMED`; the `0.3` match remains a high-confidence loopback inference rather than a runtime fact. This is not evidence that the upstream rejects reasoning and not a reason to rewrite the value to `1.0`, drop temperature outside an explicit policy, or downgrade effort. End-to-end reasoning and native structured-output support remain unknown.
 
 ## Structured results
 
@@ -98,13 +100,8 @@ The audited Explosion Artifact, Intelligence Adapter, and Today UI remain a sepa
 
 Rollback is an application-code revert. No database downgrade or data conversion is required. Existing TopicEye callers retain their historical permissive route behavior; only the explicit Rardar boundary requests strict routing.
 
-## Deferred local setup
+## Current adaptation boundary
 
-This iteration leaves model configuration to the user. A later, independent `RARDAR-LLM-LOCAL-CONFIG-AND-SMOKE-01` may:
+The user has configured one enabled `rardar` model and completed a bounded plain/structured smoke. That configuration remains owned by TopicEye and was not modified during the contract audit.
 
-1. create or update a model in the local TopicEye model-management UI;
-2. set its routing group to `rardar`;
-3. choose provider, API base, API key, model and parameters;
-4. perform a small, explicit smoke test against that chosen configuration.
-
-That later task must not turn a smoke test into AI business implementation, deployment, or Production access.
+The next implementation, after human review, is a versioned and secret-safe Model Capability Profile inside the existing model control plane. Its normal/reasoning temperature policy, effort and structured-output capabilities, evidence provenance, safe projection, scoped patch and unknown-fail-closed behavior must precede scene parameter merging, a real reasoning compatibility probe, and Rardar-owned prompt implementation. Until those slices are complete, documentation and UI must not describe the Rardar AI runtime as finished.

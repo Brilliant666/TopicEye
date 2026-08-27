@@ -3,6 +3,7 @@ const path = require('path');
 const {
   RARDAR_INTERNAL_HOME,
   resolveProductProfile,
+  resolveProxyTimeoutMs,
 } = require('./product-profile.config');
 
 const backendApiUrl = process.env.BACKEND_API_URL || 'http://127.0.0.1:8102';
@@ -22,8 +23,10 @@ const nextConfig = {
     root: path.resolve(__dirname),
   },
   // LLM 翻译等长请求需要超过 Next.js rewrite proxy 默认 30s 超时
+  // Rardar 的结构化 → 严格 JSON → 有界文本降级链可能跨越多个
+  // 受控 provider timeout；只在产品模式中给完整降级链留出窗口。
   experimental: {
-    proxyTimeout: 120000,
+    proxyTimeout: resolveProxyTimeoutMs(process.env.RARDAR_PRODUCT_MODE),
   },
   // macOS Docker bind mount 下 inotify 不穿透，强制 webpack 轮询以启用 HMR
   webpack: (config) => {

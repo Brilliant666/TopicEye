@@ -8,6 +8,7 @@ import {
   parseRardarProductMode,
   rardarRouteVisibility,
   resolveProductProfile,
+  resolveProxyTimeoutMs,
 } from '../../../product-profile.config.js';
 
 afterEach(() => {
@@ -66,6 +67,12 @@ describe('product profile contract', () => {
     expect(isRardarNavigationActive(RARDAR_INTERNAL_HOME, '/')).toBe(true);
     expect(isRardarNavigationActive('/activity', '/activity')).toBe(true);
     expect(isRardarNavigationActive('/discover', '/activity')).toBe(false);
+  });
+
+  it('keeps TopicEye proxy timing stable and lets Rardar finish its bounded fallback chain', () => {
+    expect(resolveProxyTimeoutMs(undefined)).toBe(120_000);
+    expect(resolveProxyTimeoutMs('false')).toBe(120_000);
+    expect(resolveProxyTimeoutMs('true')).toBe(300_000);
   });
 
   it('exposes the normalized build value through the frontend profile module', async () => {

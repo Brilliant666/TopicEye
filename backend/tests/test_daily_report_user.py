@@ -10,7 +10,7 @@ Covers the owner_user_id plumbing through:
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -218,51 +218,75 @@ async def test_claim_generation_isolates_per_owner():
 
 
 @pytest.mark.asyncio
-async def test_get_latest_today_report_filters_by_owner():
+@pytest.mark.parametrize(
+    ("fixed_utc", "business_date"),
+    [
+        pytest.param(
+            datetime(2026, 8, 26, 8, 30, tzinfo=UTC),
+            "2026-08-26",
+            id="utc-and-shanghai-same-day",
+        ),
+        pytest.param(
+            datetime(2026, 8, 26, 16, 30, tzinfo=UTC),
+            "2026-08-27",
+            id="shanghai-crosses-into-next-day",
+        ),
+    ],
+)
+async def test_get_latest_today_report_filters_by_owner(
+    fixed_utc: datetime,
+    business_date: str,
+):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     sf = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as c:
         await c.run_sync(Base.metadata.create_all)
-    today = date.today()
-    iso = today.isoformat()
+
+    local_now = fixed_utc.astimezone(daily_report_svc.LOCAL_TZ).replace(tzinfo=None)
+    assert local_now.date().isoformat() == business_date
+    daily_report_svc._local_now = lambda: local_now
+
+    target = date.fromisoformat(business_date)
+    report_dates = (target - timedelta(days=1), target, target + timedelta(days=1))
     async with sf() as db:
-        # Public report (owner=None)
+        for report_date in report_dates:
+            for owner_user_id in (None, 10):
+                db.add(
+                    DailyReport(
+                        report_date=report_date.isoformat(),
+                        weekday="X",
+                        edition="snapshot",
+                        generated_at=fixed_utc,
+                        window_start=fixed_utc,
+                        window_end=fixed_utc,
+                        cutoff_at=fixed_utc,
+                        status="DONE",
+                        topic_count=1,
+                        content_count=1,
+                        analyzed_count=1,
+                        owner_user_id=owner_user_id,
+                    )
+                )
+        # A different owner's same-day report must never satisfy owner 10.
         db.add(
             DailyReport(
-                report_date=iso,
+                report_date=business_date,
                 weekday="X",
                 edition="snapshot",
-                generated_at=datetime.now(UTC),
-                window_start=datetime.now(UTC),
-                window_end=datetime.now(UTC),
-                cutoff_at=datetime.now(UTC),
+                generated_at=fixed_utc,
+                window_start=fixed_utc,
+                window_end=fixed_utc,
+                cutoff_at=fixed_utc,
                 status="DONE",
                 topic_count=1,
                 content_count=1,
                 analyzed_count=1,
-                owner_user_id=None,
-            )
-        )
-        # User A's report
-        db.add(
-            DailyReport(
-                report_date=iso,
-                weekday="X",
-                edition="snapshot",
-                generated_at=datetime.now(UTC),
-                window_start=datetime.now(UTC),
-                window_end=datetime.now(UTC),
-                cutoff_at=datetime.now(UTC),
-                status="DONE",
-                topic_count=1,
-                content_count=1,
-                analyzed_count=1,
-                owner_user_id=10,
+                owner_user_id=11,
             )
         )
         await db.commit()
 
-    # Stub generate_daily_report so fallback does not insert a new row for owner=11
+    # Stub generation so the missing-owner assertion cannot create a report.
     orig_gen = daily_report_svc.generate_daily_report
 
     async def fake_gen(*args, **kwargs):
@@ -270,13 +294,24 @@ async def test_get_latest_today_report_filters_by_owner():
 
     daily_report_svc.generate_daily_report = fake_gen
     try:
-        async with sf() as session:
-            public = await get_latest_today_report(session)  # None owner
-            a = await get_latest_today_report(session, owner_user_id=10)
-            b = await get_latest_today_report(session, owner_user_id=11)
-        assert public is not None and public.owner_user_id is None
-        assert a is not None and a.owner_user_id == 10
-        assert b is None  # no owner=11 row, fallback returns None (stubbed)
+        # Run twice to prove the result is deterministic and independent of wall time.
+        for _ in range(2):
+            async with sf() as session:
+                public = await get_latest_today_report(session)
+                owner_10 = await get_latest_today_report(session, owner_user_id=10)
+                owner_11 = await get_latest_today_report(session, owner_user_id=11)
+                missing = await get_latest_today_report(session, owner_user_id=12)
+
+            assert public is not None
+            assert public.report_date == business_date
+            assert public.owner_user_id is None
+            assert owner_10 is not None
+            assert owner_10.report_date == business_date
+            assert owner_10.owner_user_id == 10
+            assert owner_11 is not None
+            assert owner_11.report_date == business_date
+            assert owner_11.owner_user_id == 11
+            assert missing is None
     finally:
         daily_report_svc.generate_daily_report = orig_gen
     await engine.dispose()

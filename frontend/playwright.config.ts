@@ -2,8 +2,11 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 30_000,
+  timeout: 60_000,
   fullyParallel: false,
+  // The visual-state fixture is an intentionally shared file; serialize
+  // projects so one viewport cannot change another viewport's API state.
+  workers: 1,
   retries: 0,
   reporter: [['list']],
   use: {

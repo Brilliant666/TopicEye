@@ -30,6 +30,10 @@ export interface ExactExplosionProject {
   windowEndedAt: string;
   primaryLanguage: string | null;
   topics: string[];
+  description: string | null;
+  forks: number;
+  pushedAt: string | null;
+  licenseSpdxId: string | null;
   archived: boolean;
   fork: boolean;
   mirrorUrl: string | null;
@@ -48,6 +52,10 @@ export interface PendingExplosionProject {
   observedWindowStarDelta: number | null;
   primaryLanguage: string | null;
   topics: string[];
+  description: string | null;
+  forks: number;
+  pushedAt: string | null;
+  licenseSpdxId: string | null;
 }
 
 export interface ExplosionBoard {
@@ -67,6 +75,8 @@ export interface ExplosionBoard {
     partialCaptureCount: number;
     coverageWitnessCaptureId: string | null;
   } | null;
+  dataMode: 'verified' | 'demo';
+  dataLabel: string;
 }
 
 export type ExplosionBoardLoadResult =
@@ -103,6 +113,7 @@ export function parseExplosionBoard(value: unknown): ExplosionBoard {
       !isFiniteInteger(item.githubRepositoryId) ||
       !isFiniteInteger(item.totalStars) ||
       !isFiniteInteger(item.observedStarDelta) ||
+      !isFiniteInteger(item.forks) ||
       typeof item.repository !== 'string' ||
       !repositoryPattern.test(item.repository) ||
       typeof item.htmlUrl !== 'string'
@@ -116,12 +127,16 @@ export function parseExplosionBoard(value: unknown): ExplosionBoard {
       !isFiniteInteger(item.pendingRank) ||
       !isFiniteInteger(item.githubRepositoryId) ||
       !isFiniteInteger(item.totalStars) ||
+      !isFiniteInteger(item.forks) ||
       typeof item.repository !== 'string' ||
       !repositoryPattern.test(item.repository) ||
       typeof item.htmlUrl !== 'string'
     ) {
       throw new Error('rardar_response_invalid');
     }
+  }
+  if (!['verified', 'demo'].includes(String(value.dataMode)) || typeof value.dataLabel !== 'string') {
+    throw new Error('rardar_response_invalid');
   }
   return value as unknown as ExplosionBoard;
 }

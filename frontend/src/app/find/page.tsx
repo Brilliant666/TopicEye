@@ -1,5 +1,9 @@
-import RardarFoundationPage from '@/components/RardarFoundationPage';
+import { notFound } from 'next/navigation';
+
+import RardarFindProjectPage from '@/components/RardarFindProjectPage';
+import { isRardarProduct } from '@/lib/product-profile';
 
 export default function Page() {
-  return <RardarFoundationPage pageKey="find" />;
+  if (!isRardarProduct()) notFound();
+  return <RardarFindProjectPage />;
 }

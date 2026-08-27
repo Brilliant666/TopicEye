@@ -169,6 +169,23 @@ Full config in [backend/app/services/scoring_engine.py](backend/app/services/sco
 
 ## Quick start
 
+### Rardar local product MVP (Windows)
+
+Rardar reuses the existing TopicEye PostgreSQL cluster and the enabled
+`routing_group=rardar` model; it never creates a replacement database or
+rewrites model credentials. From the repository root run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 start
+```
+
+The command starts the existing PostgreSQL cluster when needed, then the
+backend in Rardar product mode and the frontend at
+`http://127.0.0.1:3000/`. Local demo data is an explicit development-only
+fallback and is visibly labelled; production never enables it implicitly.
+Use the same command with `status` or `stop` to inspect or stop the app
+processes. The existing PostgreSQL data is preserved on stop.
+
 ### Prerequisites
 
 - Python 3.12+ · Node.js 20+ · Git

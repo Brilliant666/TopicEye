@@ -310,8 +310,8 @@ class RardarIntelligenceAdapter:
         if artifact["generationId"] != generation_id:
             raise RardarArtifactError("rardar_generation_invalid", "Rardar artifact belongs to another generation")
 
-        self._validate_semantics(generation_id, manifest, artifact)
-        return self._to_response(pointer, artifact)
+        current = self._validate_semantics(generation_id, manifest, artifact)
+        return self._to_response(pointer, artifact, current)
 
     def _source_bundle(
         self,
@@ -354,7 +354,7 @@ class RardarIntelligenceAdapter:
         generation_id: str,
         manifest: dict[str, Any],
         artifact: dict[str, Any],
-    ) -> None:
+    ) -> dict[str, Any]:
         captures = artifact["sourceCaptures"]
         references = [captures["current"]]
         if captures["baseline"] is not None:
@@ -418,13 +418,39 @@ class RardarIntelligenceAdapter:
                 raise RardarArtifactError("rardar_generation_invalid", "Rardar exact item provenance is inconsistent")
         if any(item["currentCapturedAt"] != current["capturedAt"] for item in pending):
             raise RardarArtifactError("rardar_generation_invalid", "Rardar pending item provenance is inconsistent")
+        observation_by_id = {item["githubRepositoryId"]: item for item in current["observations"]}
+        if len(observation_by_id) != len(current["observations"]):
+            raise RardarArtifactError("rardar_generation_invalid", "Rardar current observations contain duplicate IDs")
+        for item in (*exact, *pending):
+            observation = observation_by_id.get(item["githubRepositoryId"])
+            if observation is None or any(
+                observation[key] != item[key]
+                for key in ("repository", "htmlUrl", "totalStars", "primaryLanguage", "topics")
+            ):
+                raise RardarArtifactError(
+                    "rardar_generation_invalid", "Rardar ranked facts do not match the current observation"
+                )
+        return current
 
     @staticmethod
-    def _to_response(pointer: dict[str, Any], artifact: dict[str, Any]) -> ExplosionBoardResponse:
+    def _to_response(
+        pointer: dict[str, Any], artifact: dict[str, Any], current: dict[str, Any]
+    ) -> ExplosionBoardResponse:
         window_state = artifact["window"]["state"]
         state = "ready" if window_state == "exact" else window_state
         coverage = artifact["coverage"]
         captures = artifact["sourceCaptures"]
+        observation_by_id = {item["githubRepositoryId"]: item for item in current["observations"]}
+
+        def current_metadata(item: dict[str, Any]) -> dict[str, Any]:
+            observation = observation_by_id[item["githubRepositoryId"]]
+            return {
+                "description": observation["description"],
+                "forks": observation["forks"],
+                "pushedAt": observation["pushedAt"],
+                "licenseSpdxId": observation["licenseSpdxId"],
+            }
+
         payload = {
             "state": state,
             "generationId": pointer["generationId"],
@@ -441,45 +467,51 @@ class RardarIntelligenceAdapter:
                 "conflictCount": coverage["conflictCount"],
             },
             "exactRanked": [
-                {
-                    key: item[key]
-                    for key in (
-                        "rank",
-                        "githubRepositoryId",
-                        "repository",
-                        "htmlUrl",
-                        "totalStars",
-                        "baselineStars",
-                        "observedStarDelta",
-                        "windowStartedAt",
-                        "windowEndedAt",
-                        "primaryLanguage",
-                        "topics",
-                        "archived",
-                        "fork",
-                        "mirrorUrl",
-                        "state",
-                    )
-                }
+                (
+                    {
+                        key: item[key]
+                        for key in (
+                            "rank",
+                            "githubRepositoryId",
+                            "repository",
+                            "htmlUrl",
+                            "totalStars",
+                            "baselineStars",
+                            "observedStarDelta",
+                            "windowStartedAt",
+                            "windowEndedAt",
+                            "primaryLanguage",
+                            "topics",
+                            "archived",
+                            "fork",
+                            "mirrorUrl",
+                            "state",
+                        )
+                    }
+                    | current_metadata(item)
+                )
                 for item in artifact["exactRanked"]
             ],
             "pendingRanked": [
-                {
-                    key: item[key]
-                    for key in (
-                        "pendingRank",
-                        "pendingReason",
-                        "githubRepositoryId",
-                        "repository",
-                        "htmlUrl",
-                        "totalStars",
-                        "firstSeenAt",
-                        "observedWindowHours",
-                        "observedWindowStarDelta",
-                        "primaryLanguage",
-                        "topics",
-                    )
-                }
+                (
+                    {
+                        key: item[key]
+                        for key in (
+                            "pendingRank",
+                            "pendingReason",
+                            "githubRepositoryId",
+                            "repository",
+                            "htmlUrl",
+                            "totalStars",
+                            "firstSeenAt",
+                            "observedWindowHours",
+                            "observedWindowStarDelta",
+                            "primaryLanguage",
+                            "topics",
+                        )
+                    }
+                    | current_metadata(item)
+                )
                 for item in artifact["pendingRanked"]
             ],
             "conflictCount": coverage["conflictCount"],
@@ -491,5 +523,7 @@ class RardarIntelligenceAdapter:
                     captures["coverageWitness"]["captureId"] if captures["coverageWitness"] else None
                 ),
             },
+            "dataMode": "verified",
+            "dataLabel": "已验证 Rardar generation",
         }
         return ExplosionBoardResponse.model_validate_json(json.dumps(payload))

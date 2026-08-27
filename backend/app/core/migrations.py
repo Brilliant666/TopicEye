@@ -37,12 +37,14 @@ _ALEMBIC_INI = _BACKEND_DIR / "alembic.ini"
 def _build_alembic_config() -> Config:
     """Build an Alembic Config rooted at the backend directory.
 
-    ``alembic.ini`` lives next to the backend app package. We pin the config
-    path and the CWD so that ``%(here)s`` and relative ``script_location``
-    resolve correctly regardless of the process working directory.
+    Startup needs only a script location; constructing the config in memory
+    also avoids Alembic's locale-dependent INI reader.  On a Chinese Windows
+    host that reader otherwise decodes this UTF-8 file as GBK and prevents the
+    application from starting before it can reach PostgreSQL.
     """
-    cfg = Config(str(_ALEMBIC_INI))
+    cfg = Config()
     cfg.set_main_option("script_location", str(_BACKEND_DIR / "alembic"))
+    cfg.set_main_option("prepend_sys_path", str(_BACKEND_DIR))
     return cfg
 
 

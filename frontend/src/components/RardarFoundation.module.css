@@ -348,6 +348,14 @@
   color: var(--rardar-brand-primary);
 }
 
+.projectDescription {
+  max-width: 52rem;
+  margin: 0.42rem 0 0;
+  color: var(--rardar-muted-text);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
 .tags {
   margin-top: 0.55rem;
   display: flex;
@@ -422,6 +430,12 @@
   margin: 0;
   color: var(--rardar-muted-text);
   font-size: 0.75rem;
+}
+
+.pendingCard .pendingDescription {
+  min-height: 2.5rem;
+  color: #475569;
+  line-height: 1.55;
 }
 
 .pendingBadge {
@@ -579,6 +593,478 @@
   display: none;
 }
 
+.aiButton {
+  width: fit-content;
+  margin-top: 0.75rem;
+  min-height: 2.35rem;
+  padding: 0.55rem 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 0.75rem;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-size: 0.76rem;
+  font-weight: 820;
+  cursor: pointer;
+}
+
+.aiButton:hover:not(:disabled) {
+  border-color: #60a5fa;
+  background: #dbeafe;
+}
+
+.aiButton:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.spin {
+  animation: rardar-spin 0.8s linear infinite;
+}
+
+@keyframes rardar-spin {
+  to { transform: rotate(360deg); }
+}
+
+.aiPanel {
+  margin-top: 0.8rem;
+  padding: 0.85rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 0.9rem;
+  color: #1e3a8a;
+  background: linear-gradient(145deg, #eff6ff, #f8fbff);
+  font-size: 0.76rem;
+  line-height: 1.65;
+}
+
+.aiPanel > div:first-child {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.aiPanel > div:first-child span {
+  color: #64748b;
+  font-size: 0.67rem;
+  font-weight: 650;
+}
+
+.aiUnavailable {
+  border-color: #fed7aa;
+  color: #9a3412;
+  background: #fff7ed;
+}
+
+.aiUnavailable p {
+  margin: 0.35rem 0 0;
+}
+
+.aiUnavailable button {
+  margin-top: 0.45rem;
+  border: 0;
+  color: #c2410c;
+  background: transparent;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.aiGrid {
+  margin: 0.65rem 0 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.aiGrid div {
+  padding: 0.55rem;
+  border-radius: 0.6rem;
+  background: rgb(255 255 255 / 0.72);
+}
+
+.aiGrid dt,
+.comparisonCard dt {
+  color: #2563eb;
+  font-size: 0.65rem;
+  font-weight: 850;
+}
+
+.aiGrid dd,
+.comparisonCard dd {
+  margin: 0.2rem 0 0;
+  color: #334155;
+}
+
+.aiPlain {
+  margin: 0.55rem 0 0;
+  color: #334155;
+  white-space: pre-wrap;
+}
+
+.aiProvenance {
+  margin-top: 0.5rem;
+  display: block;
+  color: #64748b;
+  font-size: 0.65rem;
+}
+
+.findHero {
+  padding: clamp(1.65rem, 4vw, 3.5rem);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(14rem, 21rem);
+  align-items: end;
+  gap: 2rem;
+  overflow: hidden;
+  border: 1px solid var(--rardar-border);
+  border-radius: calc(var(--rardar-radius) + 8px);
+  background: rgb(255 255 255 / 0.94);
+  box-shadow: var(--rardar-shadow);
+}
+
+.findHero h1 {
+  max-width: 52rem;
+  margin-top: 1rem;
+  font-size: clamp(2.25rem, 5vw, 4.3rem);
+  font-weight: 900;
+  line-height: 1.06;
+  letter-spacing: -0.055em;
+}
+
+.findHero h1 span {
+  display: block;
+  color: var(--rardar-brand-primary);
+}
+
+.findHero > div > p:last-child {
+  max-width: 46rem;
+  margin-top: 1rem;
+  color: var(--rardar-muted-text);
+  line-height: 1.75;
+}
+
+.findBoundary {
+  padding: 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  border: 1px solid #bae6fd;
+  border-radius: 1rem;
+  color: #075985;
+  background: #f0f9ff;
+}
+
+.findBoundary p {
+  margin: 0;
+  color: #475569;
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.findForm {
+  margin-top: 1rem;
+  padding: clamp(1rem, 3vw, 1.7rem);
+  display: grid;
+  border: 1px solid var(--rardar-border);
+  border-radius: 1.2rem;
+  background: white;
+  box-shadow: 0 12px 35px rgb(30 64 175 / 0.06);
+}
+
+.findForm label {
+  margin: 0 0 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.findForm label:not(:first-child) {
+  margin-top: 1rem;
+}
+
+.findForm label span {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.findForm textarea,
+.findForm input {
+  width: 100%;
+  padding: 0.9rem 1rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.85rem;
+  color: #0f172a;
+  background: #f8fafc;
+  font: inherit;
+  font-size: 0.88rem;
+  line-height: 1.65;
+  resize: vertical;
+}
+
+.findForm textarea:focus,
+.findForm input:focus {
+  border-color: #60a5fa;
+  outline: 3px solid rgb(147 197 253 / 0.28);
+  background: white;
+}
+
+.exampleRow {
+  margin-top: 0.55rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.exampleRow button {
+  padding: 0.35rem 0.55rem;
+  border: 0;
+  border-radius: 999px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-size: 0.68rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.findSubmit {
+  width: fit-content;
+  min-height: 2.85rem;
+  margin-top: 1rem;
+  padding: 0.7rem 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 0;
+  border-radius: 0.85rem;
+  color: white;
+  background: var(--rardar-brand-primary);
+  box-shadow: 0 10px 24px rgb(37 99 235 / 0.22);
+  font-size: 0.82rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.findSubmit:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.formError {
+  margin: 0.75rem 0 0;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--rardar-danger);
+  font-size: 0.75rem;
+}
+
+.findResults {
+  margin-top: 1rem;
+}
+
+.dataState {
+  padding: 0.38rem 0.65rem;
+  border-radius: 999px;
+  color: #9a3412;
+  background: #ffedd5;
+  font-size: 0.7rem;
+  font-weight: 820;
+}
+
+.dataLive {
+  color: #047857;
+  background: #d1fae5;
+}
+
+.sourceLine {
+  margin: -0.45rem 0 0.8rem;
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
+.quickGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.quickCard {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid var(--rardar-border);
+  border-radius: 1rem;
+  background: white;
+  box-shadow: 0 8px 24px rgb(30 64 175 / 0.05);
+}
+
+.quickCardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.quickCardTop a {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  overflow-wrap: anywhere;
+  color: #0f172a;
+  font-weight: 850;
+  text-decoration: none;
+}
+
+.liveBadge,
+.demoBadge {
+  flex: 0 0 auto;
+  padding: 0.25rem 0.45rem;
+  border-radius: 999px;
+  color: #047857;
+  background: #d1fae5;
+  font-size: 0.62rem;
+  font-weight: 820;
+}
+
+.demoBadge {
+  color: #9a3412;
+  background: #ffedd5;
+}
+
+.quickCard > p {
+  min-height: 2.7rem;
+  margin: 0.65rem 0 0;
+  color: #64748b;
+  font-size: 0.76rem;
+  line-height: 1.6;
+}
+
+.quickFacts {
+  margin: 0.75rem 0 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.quickFacts div {
+  min-width: 0;
+  padding: 0.45rem;
+  border-radius: 0.55rem;
+  background: #f8fafc;
+}
+
+.quickFacts dt {
+  color: #94a3b8;
+  font-size: 0.6rem;
+  font-weight: 750;
+}
+
+.quickFacts dd {
+  margin: 0.15rem 0 0;
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+  overflow-wrap: anywhere;
+  color: #334155;
+  font-size: 0.68rem;
+  font-weight: 780;
+}
+
+.quickCard .matchReason {
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  color: #1e40af;
+}
+
+.quickCard .matchReason svg {
+  flex: 0 0 auto;
+  margin-top: 0.18rem;
+}
+
+.comparisonGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.comparisonCard {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 1rem;
+  background: white;
+}
+
+.comparisonRank {
+  color: #2563eb;
+  font-size: 0.66rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.comparisonCard h3 {
+  margin-top: 0.45rem;
+  overflow-wrap: anywhere;
+  font-size: 0.93rem;
+  font-weight: 880;
+}
+
+.reuseBadge {
+  width: fit-content;
+  margin-top: 0.5rem;
+  padding: 0.3rem 0.48rem;
+  display: block;
+  border-radius: 999px;
+  color: #075985;
+  background: #e0f2fe;
+  font-size: 0.65rem;
+  font-weight: 820;
+}
+
+.comparisonCard dl {
+  margin: 0.8rem 0 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.comparisonCard dl div {
+  padding-top: 0.5rem;
+  border-top: 1px solid #f1f5f9;
+  font-size: 0.73rem;
+  line-height: 1.55;
+}
+
+.overallConclusion {
+  grid-column: 1 / -1;
+  padding: 0.9rem 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  border: 1px solid #bae6fd;
+  border-radius: 0.9rem;
+  color: #075985;
+  background: #f0f9ff;
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.overallConclusion p {
+  margin: 0;
+}
+
+.comparisonGrid > .aiProvenance {
+  grid-column: 1 / -1;
+  margin-top: 0;
+}
+
 @media (max-width: 980px) {
   .desktopNav,
   .statusPill {
@@ -627,6 +1113,14 @@
   .pendingGrid {
     grid-template-columns: 1fr;
   }
+
+  .findHero {
+    grid-template-columns: 1fr;
+  }
+
+  .comparisonGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 520px) {
@@ -664,6 +1158,24 @@
   .rankingCard {
     grid-template-columns: 2.7rem minmax(0, 1fr);
     align-items: start;
+  }
+
+  .aiGrid,
+  .quickGrid,
+  .quickFacts {
+    grid-template-columns: 1fr;
+  }
+
+  .findHero {
+    padding: 1.4rem;
+  }
+
+  .findHero h1 {
+    font-size: clamp(2rem, 11vw, 3rem);
+  }
+
+  .findSubmit {
+    width: 100%;
   }
 
   .starFacts {

@@ -39,6 +39,10 @@ const readyPayload = {
       windowEndedAt: '2026-08-24T00:00:00Z',
       primaryLanguage: 'Python',
       topics: ['agents'],
+      description: 'Alpha description',
+      forks: 12,
+      pushedAt: '2026-08-23T23:00:00Z',
+      licenseSpdxId: 'MIT',
       archived: false,
       fork: false,
       mirrorUrl: null,
@@ -56,6 +60,10 @@ const readyPayload = {
       windowEndedAt: '2026-08-24T00:00:00Z',
       primaryLanguage: 'TypeScript',
       topics: ['developer-tools'],
+      description: 'Beta description',
+      forks: 8,
+      pushedAt: '2026-08-23T22:00:00Z',
+      licenseSpdxId: 'Apache-2.0',
       archived: false,
       fork: false,
       mirrorUrl: null,
@@ -75,6 +83,10 @@ const readyPayload = {
       observedWindowStarDelta: 40,
       primaryLanguage: 'Go',
       topics: ['cli'],
+      description: 'Newcomer description',
+      forks: 2,
+      pushedAt: '2026-08-23T22:30:00Z',
+      licenseSpdxId: 'MIT',
     },
   ],
   conflictCount: 0,
@@ -84,6 +96,8 @@ const readyPayload = {
     partialCaptureCount: 1,
     coverageWitnessCaptureId: null,
   },
+  dataMode: 'verified',
+  dataLabel: '已验证 Rardar generation',
 };
 
 describe('Rardar intelligence client contract', () => {
@@ -128,7 +142,7 @@ describe('Rardar intelligence client contract', () => {
     expect(html).toContain('+200');
     expect(html).toContain('fixture-lab/newcomer');
     expect(html).toContain('精确窗口');
-    expect(html).toContain('AI 项目解释尚未接入');
+    expect(html).toContain('AI 解读');
     expect(html).not.toContain('爆发原因：');
   });
 

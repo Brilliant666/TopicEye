@@ -24,6 +24,7 @@ import {
   type PendingExplosionProject,
 } from '@/lib/rardar-intelligence';
 import styles from './RardarFoundation.module.css';
+import RardarProjectExplanation from './RardarProjectExplanation';
 
 export default async function RardarFoundationPage({ pageKey }: { pageKey: RardarFoundationPageKey }) {
   if (!isRardarProduct()) notFound();
@@ -57,7 +58,9 @@ export function TodayFoundation({ result }: { result: ExplosionBoardLoadResult }
     <div className={styles.page} data-rardar-route="/">
       <section className={styles.hero}>
         <div className={styles.heroContent}>
-          <p className={styles.eyebrow}>{today.eyebrow}</p>
+          <p className={styles.eyebrow}>
+            {board?.dataMode === 'demo' ? 'Today · Local Demo Data' : today.eyebrow}
+          </p>
           <h1 className={styles.heroTitle}>
             把 GitHub 热点变成
             <span className={styles.heroTitleAccent}>可行动的开发情报</span>
@@ -68,10 +71,11 @@ export function TodayFoundation({ result }: { result: ExplosionBoardLoadResult }
           </p>
           <div className={styles.foundationNotice}>
             <span className={styles.noticePill}>
-              <ShieldCheck size={15} aria-hidden="true" /> 已验证事实链
+              <ShieldCheck size={15} aria-hidden="true" />
+              {board?.dataMode === 'demo' ? '本地演示数据 · 非实时榜' : '已验证事实链'}
             </span>
-            <span className={`${styles.noticePill} ${styles.noticePillWarning}`}>
-              <Sparkles size={15} aria-hidden="true" /> AI 项目解释尚未接入
+            <span className={styles.noticePill}>
+              <Sparkles size={15} aria-hidden="true" /> AI 解读按需生成，不参与排名
             </span>
           </div>
         </div>
@@ -125,7 +129,9 @@ function ReadyBoard({ board }: { board: Extract<ExplosionBoardLoadResult, { kind
   return (
     <>
       <section className={styles.rankingList} aria-label="GitHub 24 小时爆发榜 Top 5">
-        {exact.map((project) => <ExactProjectCard key={project.githubRepositoryId} project={project} />)}
+        {exact.map((project) => (
+          <ExactProjectCard key={project.githubRepositoryId} project={project} generationId={board.generationId} />
+        ))}
       </section>
 
       <PendingFacts board={board} />
@@ -144,7 +150,9 @@ function PendingFacts({ board }: { board: Extract<ExplosionBoardLoadResult, { ki
         </div>
       </div>
       <section className={styles.pendingGrid} aria-label="新入榜待验证项目">
-        {pending.map((project) => <PendingProjectCard key={project.githubRepositoryId} project={project} />)}
+        {pending.map((project) => (
+          <PendingProjectCard key={project.githubRepositoryId} project={project} generationId={board.generationId} />
+        ))}
       </section>
 
       <section className={styles.provenanceBar} aria-label="数据覆盖和 generation">
@@ -156,13 +164,14 @@ function PendingFacts({ board }: { board: Extract<ExplosionBoardLoadResult, { ki
         <span>查询 {board.coverage?.successfulQueryCount ?? 0} 成功 / {board.coverage?.failedQueryCount ?? 0} 失败</span>
         <span>Metadata 失败 {board.coverage?.metadataFailureCount ?? 0}</span>
         <span>精确 {board.coverage?.exactCount ?? 0} · 待验证 {board.coverage?.pendingCount ?? 0} · 冲突 {board.conflictCount}</span>
+        <span>{board.dataLabel}</span>
         <code>{board.generationId}</code>
       </section>
     </>
   );
 }
 
-function ExactProjectCard({ project }: { project: ExactExplosionProject }) {
+function ExactProjectCard({ project, generationId }: { project: ExactExplosionProject; generationId: string }) {
   return (
     <article className={styles.rankingCard}>
       <div className={styles.rank}>#{project.rank}</div>
@@ -170,12 +179,16 @@ function ExactProjectCard({ project }: { project: ExactExplosionProject }) {
         <a href={project.htmlUrl} target="_blank" rel="noreferrer" className={styles.repository}>
           <FolderGit2 size={18} aria-hidden="true" /> {project.repository} <ArrowUpRight size={15} aria-hidden="true" />
         </a>
+        <p className={styles.projectDescription}>{project.description || 'GitHub 暂未提供项目简介。'}</p>
         <div className={styles.tags}>
           {project.primaryLanguage && <span>{project.primaryLanguage}</span>}
           {project.topics.slice(0, 3).map((topic) => <span key={topic}>{topic}</span>)}
           {project.archived && <span>Archived</span>}
           {project.fork && <span>Fork</span>}
+          {project.licenseSpdxId && <span>{project.licenseSpdxId}</span>}
+          <span>事实 · {project.state === 'exact_window' ? '精确 24h' : project.state}</span>
         </div>
+        <RardarProjectExplanation repository={project.repository} generationId={generationId} />
       </div>
       <div className={styles.starFacts}>
         <strong>+{formatNumber(project.observedStarDelta)}</strong>
@@ -185,7 +198,7 @@ function ExactProjectCard({ project }: { project: ExactExplosionProject }) {
   );
 }
 
-function PendingProjectCard({ project }: { project: PendingExplosionProject }) {
+function PendingProjectCard({ project, generationId }: { project: PendingExplosionProject; generationId: string }) {
   const observed = project.observedWindowHours === null
     ? '等待第二个观察点'
     : `${project.observedWindowHours}h ${formatSigned(project.observedWindowStarDelta)}`;
@@ -193,9 +206,11 @@ function PendingProjectCard({ project }: { project: PendingExplosionProject }) {
     <article className={styles.pendingCard}>
       <span className={styles.pendingBadge}>待验证 #{project.pendingRank}</span>
       <a href={project.htmlUrl} target="_blank" rel="noreferrer">{project.repository}</a>
+      <p className={styles.pendingDescription}>{project.description || 'GitHub 暂未提供项目简介。'}</p>
       <strong><Star size={14} aria-hidden="true" /> {formatNumber(project.totalStars)}</strong>
       <p>{observed}</p>
       <small>首次发现 {formatTime(project.firstSeenAt)}</small>
+      <RardarProjectExplanation repository={project.repository} generationId={generationId} />
     </article>
   );
 }

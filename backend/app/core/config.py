@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # Backend-only path to Rardar's published generation root.  It is ignored
     # unless RARDAR_PRODUCT_MODE is enabled and is never exposed to the browser.
     RARDAR_INTELLIGENCE_DATA_DIR: str = ""
+    # Explicit local-development fallback.  It is never consulted in
+    # production and must never be mistaken for an audited generation.
+    RARDAR_DEMO_DATA_ENABLED: bool = False
 
     # ── Database ──
     # 留空则启动时报错；本地开发请在 .env 中设置（参考 .env.example）。
@@ -225,6 +228,21 @@ class Settings(BaseSettings):
             if normalized in {"", "false"}:
                 return False
         raise ValueError('RARDAR_PRODUCT_MODE 必须为 "true" 或 "false"')
+
+    @field_validator("RARDAR_DEMO_DATA_ENABLED", mode="before")
+    @classmethod
+    def _validate_rardar_demo_data_enabled(cls, value: object) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized == "true":
+                return True
+            if normalized in {"", "false"}:
+                return False
+        raise ValueError('RARDAR_DEMO_DATA_ENABLED 必须为 "true" 或 "false"')
 
     @field_validator("DATABASE_URL")
     @classmethod

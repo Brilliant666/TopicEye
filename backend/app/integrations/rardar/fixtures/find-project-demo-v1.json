@@ -1,0 +1,93 @@
+{
+  "fixtureVersion": "find-project-demo-v1",
+  "candidates": [
+    {
+      "githubRepositoryId": 101,
+      "repository": "yt-dlp/yt-dlp",
+      "description": "A feature-rich command-line audio/video downloader.",
+      "totalStars": 132000,
+      "updatedAt": "2026-08-26T20:00:00+00:00",
+      "primaryLanguage": "Python",
+      "licenseSpdxId": "Unlicense",
+      "topics": ["downloader", "video", "python"],
+      "htmlUrl": "https://github.com/yt-dlp/yt-dlp"
+    },
+    {
+      "githubRepositoryId": 102,
+      "repository": "Johnserf-Seed/TikTokDownload",
+      "description": "Douyin and TikTok data acquisition and download toolkit.",
+      "totalStars": 11500,
+      "updatedAt": "2026-08-26T18:00:00+00:00",
+      "primaryLanguage": "Python",
+      "licenseSpdxId": "GPL-3.0",
+      "topics": ["douyin", "tiktok", "download"],
+      "htmlUrl": "https://github.com/Johnserf-Seed/TikTokDownload"
+    },
+    {
+      "githubRepositoryId": 103,
+      "repository": "Evil0ctal/Douyin_TikTok_Download_API",
+      "description": "API service for parsing and downloading Douyin or TikTok media.",
+      "totalStars": 10500,
+      "updatedAt": "2026-08-25T12:00:00+00:00",
+      "primaryLanguage": "Python",
+      "licenseSpdxId": "MIT",
+      "topics": ["douyin", "tiktok", "api"],
+      "htmlUrl": "https://github.com/Evil0ctal/Douyin_TikTok_Download_API"
+    },
+    {
+      "githubRepositoryId": 104,
+      "repository": "langchain-ai/langgraph",
+      "description": "Build resilient language agents as graphs.",
+      "totalStars": 20100,
+      "updatedAt": "2026-08-26T21:30:00+00:00",
+      "primaryLanguage": "Python",
+      "licenseSpdxId": "MIT",
+      "topics": ["agents", "workflow", "llm"],
+      "htmlUrl": "https://github.com/langchain-ai/langgraph"
+    },
+    {
+      "githubRepositoryId": 105,
+      "repository": "n8n-io/n8n",
+      "description": "Fair-code workflow automation with native AI capabilities.",
+      "totalStars": 98800,
+      "updatedAt": "2026-08-26T20:00:00+00:00",
+      "primaryLanguage": "TypeScript",
+      "licenseSpdxId": "Sustainable Use License",
+      "topics": ["automation", "workflow", "integration"],
+      "htmlUrl": "https://github.com/n8n-io/n8n"
+    },
+    {
+      "githubRepositoryId": 106,
+      "repository": "browser-use/browser-use",
+      "description": "Make websites accessible for AI agents.",
+      "totalStars": 70500,
+      "updatedAt": "2026-08-26T22:10:00+00:00",
+      "primaryLanguage": "Python",
+      "licenseSpdxId": "MIT",
+      "topics": ["browser", "automation", "agents"],
+      "htmlUrl": "https://github.com/browser-use/browser-use"
+    },
+    {
+      "githubRepositoryId": 107,
+      "repository": "openai/openai-agents-python",
+      "description": "A lightweight, powerful framework for multi-agent workflows.",
+      "totalStars": 18600,
+      "updatedAt": "2026-08-26T19:40:00+00:00",
+      "primaryLanguage": "Python",
+      "licenseSpdxId": "MIT",
+      "topics": ["agents", "ai", "python"],
+      "htmlUrl": "https://github.com/openai/openai-agents-python"
+    },
+    {
+      "githubRepositoryId": 108,
+      "repository": "apify/crawlee-python",
+      "description": "Web scraping and browser automation library for Python.",
+      "totalStars": 6200,
+      "updatedAt": "2026-08-25T16:00:00+00:00",
+      "primaryLanguage": "Python",
+      "licenseSpdxId": "Apache-2.0",
+      "topics": ["crawler", "scraping", "automation"],
+      "htmlUrl": "https://github.com/apify/crawlee-python"
+    }
+  ]
+}

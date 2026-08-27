@@ -48,7 +48,7 @@ export default function RardarShell({ children }: { children: React.ReactNode })
 
           <div className={styles.headerActions}>
             <span className={styles.statusPill}>
-              <Activity size={14} aria-hidden="true" /> Verified Explosion Facts
+              <Activity size={14} aria-hidden="true" /> Facts first · AI assisted
             </span>
             <Link href="/admin" className={styles.adminLink} aria-label="打开 TopicEye 管理后台">
               <Settings2 size={18} aria-hidden="true" />

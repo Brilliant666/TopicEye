@@ -48,6 +48,10 @@ class ExactExplosionProject(StrictModel):
     windowEndedAt: AwareDatetime
     primaryLanguage: str | None
     topics: list[str] = Field(max_length=100)
+    description: str | None = Field(default=None, max_length=1000)
+    forks: int = Field(default=0, ge=0)
+    pushedAt: AwareDatetime | None = None
+    licenseSpdxId: str | None = Field(default=None, max_length=100)
     archived: bool
     fork: bool
     mirrorUrl: str | None
@@ -66,6 +70,10 @@ class PendingExplosionProject(StrictModel):
     observedWindowStarDelta: int | None
     primaryLanguage: str | None
     topics: list[str] = Field(max_length=100)
+    description: str | None = Field(default=None, max_length=1000)
+    forks: int = Field(default=0, ge=0)
+    pushedAt: AwareDatetime | None = None
+    licenseSpdxId: str | None = Field(default=None, max_length=100)
 
 
 class ExplosionBoardResponse(StrictModel):
@@ -80,6 +88,8 @@ class ExplosionBoardResponse(StrictModel):
     pendingRanked: list[PendingExplosionProject] = Field(default_factory=list, max_length=500)
     conflictCount: int = Field(default=0, ge=0, le=500)
     sourceStatus: ExplosionSourceStatus | None = None
+    dataMode: Literal["verified", "demo"] = "verified"
+    dataLabel: str = "已验证 Rardar generation"
 
     @model_validator(mode="after")
     def validate_state_payload(self) -> ExplosionBoardResponse:

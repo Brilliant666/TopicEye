@@ -28,6 +28,7 @@ class RardarLLMScene(StrEnum):
     PROJECT_SUMMARY = "rardar_project_summary"
     PROJECT_PROFILE = "rardar_project_profile"
     EXPLOSION_EXPLANATION = "rardar_explosion_explanation"
+    FIND_PROJECT_COMPARISON = "rardar_find_project_comparison"
 
 
 class ReasoningEffort(StrEnum):

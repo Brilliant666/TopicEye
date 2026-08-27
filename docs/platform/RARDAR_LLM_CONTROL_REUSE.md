@@ -4,6 +4,8 @@
 
 TopicEye is the only LLM control plane for Rardar. Rardar business code declares a scene, messages, and an optional reasoning effort; it never selects or receives a provider, API base, API key, or model ID.
 
+The shared control boundary is implemented and locally configured, but the Rardar AI runtime is **not complete**. The current model-capability and scene-invocation contracts are documented in [Rardar AI Engine Adaptation](RARDAR_AI_ENGINE_ADAPTATION.md), [Model Capability Profile V1](../product/RARDAR_MODEL_CAPABILITY_PROFILE_V1.md), and [Rardar Invocation Profile V1](../product/RARDAR_INVOCATION_PROFILE_V1.md). No Rardar business prompt or AI artifact publication is enabled by those docs.
+
 The formal call path is:
 
 ```text
@@ -55,7 +57,7 @@ The shared provider call accepts `None`, `medium`, `high`, or `xhigh`:
 - an unsupported effort is never silently downgraded;
 - effort participates in cache identity, returned metadata, and safe operational logs.
 
-Model support remains something to prove later with the user's chosen local model configuration and a bounded smoke test.
+The configured local route has proven plain-text connectivity. Its first structured `medium` smoke remains blocked: non-normative loopback evidence shows that LiteLLM `1.95.0` recognizes `gpt-5.6-sol`, rejects explicit `temperature = 0.3` plus medium before network, and emits a loopback request with synthetic `temperature = 1.0`. `MODEL_ID_NOT_ROOT_CAUSE` and `LOCAL_BEFORE_NETWORK` are confirmed; removing `response_format` does not change the rejection. The earlier real smoke did not expose its effective temperature and this iteration did not obtain an authenticated model-row read, so `CURRENT_LOCAL_MODEL_TEMPERATURE = UNCONFIRMED`. Neither loopback value establishes a real-provider default or capability, and the normative `temperaturePolicy.whenReasoning` therefore remains `unknown` and fail-closed. The engine must not rewrite a value to `1.0`, silently omit temperature, or downgrade effort.
 
 ## Structured results
 
@@ -81,6 +83,8 @@ The public error contract is limited to:
 | `rardar_llm_invalid_output` | Output is not strict JSON or fails the caller's schema. |
 | `rardar_llm_request_rejected` | The local request or an upstream deterministic request is invalid/rejected. |
 
+Future capability-aware selection additionally distinguishes `model_capability_unverified`, `model_capability_unsupported`, `invocation_parameter_conflict`, and `structured_output_mode_unavailable`. These deterministic results do not open circuits, enter cooldown, trigger meaningless retry, or permit fallback to TopicEye's `default` route.
+
 Rardar errors do not expose prompts, raw provider responses, endpoints, model configuration, stack traces, or credentials. Shared call-failure logs and the model-test endpoint now persist/return only a bounded operational category instead of the raw provider exception.
 
 Successful results may report scene, route, non-secret model display/internal ID, provider category, reasoning effort, prompt/schema versions, latency, cache state, and usage when the current shared layer provides it. Missing metadata remains `None`; it is never invented. API base and API key are never result metadata.
@@ -98,13 +102,8 @@ The audited Explosion Artifact, Intelligence Adapter, and Today UI remain a sepa
 
 Rollback is an application-code revert. No database downgrade or data conversion is required. Existing TopicEye callers retain their historical permissive route behavior; only the explicit Rardar boundary requests strict routing.
 
-## Deferred local setup
+## Current adaptation boundary
 
-This iteration leaves model configuration to the user. A later, independent `RARDAR-LLM-LOCAL-CONFIG-AND-SMOKE-01` may:
+The user has configured one enabled `rardar` model and completed a bounded plain/structured smoke. That configuration remains owned by TopicEye and was not modified during the contract audit.
 
-1. create or update a model in the local TopicEye model-management UI;
-2. set its routing group to `rardar`;
-3. choose provider, API base, API key, model and parameters;
-4. perform a small, explicit smoke test against that chosen configuration.
-
-That later task must not turn a smoke test into AI business implementation, deployment, or Production access.
+The next implementation, after human review, is a versioned and secret-safe Model Capability Profile inside the existing model control plane. Its normal/reasoning `free/omit/fixed/unsupported/unknown` temperature policy, `fixedValue` invariants, effort and structured-output capabilities, source plus evidence scope, safe projection, scoped patch and unknown-fail-closed behavior must precede scene parameter merging, a real reasoning compatibility probe, and Rardar-owned prompt implementation. Probe evidence is not configuration. Until those slices are complete, documentation and UI must not describe the Rardar AI runtime as finished.

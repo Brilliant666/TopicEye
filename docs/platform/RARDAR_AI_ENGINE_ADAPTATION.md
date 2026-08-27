@@ -66,11 +66,13 @@ Resolution order in [`model_resolver.py`](../../backend/app/services/llm/model_r
 
 The API base is never inspected to guess a provider. That separation is correct and should remain.
 
-## Loopback protocol evidence
+## Non-normative loopback probe evidence
+
+This section is diagnostic history, not a runtime Capability Profile. None of its concrete sampling values may be copied into `extra_params.capabilities` or an effective invocation without separate applicable evidence.
 
 The probe used the installed LiteLLM `1.95.0`, TopicEye's real resolver, candidate builder, provider facade, call engine, and Rardar route semantics. Only model lookup and usage-log persistence were replaced with in-memory doubles. The HTTP target was a random loopback port implementing `POST /v1/chat/completions`; the key was a non-secret test token and was neither recorded nor printed.
 
-The A-D matrix used `temperature = 1.0` to isolate model-name behavior from sampling compatibility:
+The A-D matrix used synthetic `temperature = 1.0` only to isolate model-name behavior from the local sampling gate:
 
 | Case | Operator configuration | Internal `request_model` | Upstream body `model` | Plain | `medium` | `medium` + `json_object` |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -81,7 +83,7 @@ The A-D matrix used `temperature = 1.0` to isolate model-name behavior from samp
 
 For A-C, LiteLLM also converted TopicEye's `max_tokens = 256` to upstream `max_completion_tokens = 256`. All calls targeted `/v1/chat/completions`.
 
-A focused control then used the TopicEye model-card default `temperature = 0.3` with case A:
+A focused control then supplied explicit loopback `temperature = 0.3` with case A. This was not a read of the current TopicEye model row:
 
 | Call | Result | Network requests | Diagnostic |
 | --- | --- | --- | --- |
@@ -89,7 +91,22 @@ A focused control then used the TopicEye model-card default `temperature = 0.3` 
 | `reasoning_effort = medium` | `UnsupportedParamsError` | 0 | LiteLLM rejected the temperature/effort combination locally. |
 | `medium` + `json_object` | `UnsupportedParamsError` | 0 | Same local temperature diagnostic. |
 
-The diagnostic states that the GPT-5 transformation does not accept `temperature = 0.3` with that reasoning mode. This reproduces the existing smoke pattern: plain succeeds; the structured request fails; removing `response_format` still fails because the retry preserves both `reasoning_effort` and the inherited temperature. The earlier real smoke did not record its non-secret effective temperature, and no authenticated model-row read was available in this iteration. Therefore `CURRENT_LOCAL_MODEL_TEMPERATURE = UNCONFIRMED`: the exact `0.3` match is a high-confidence inference from code and identical loopback behavior, not a confirmed runtime fact. The first implementation must expose sanitized effective parameters so a later authorized probe can confirm them directly.
+The diagnostic states that the GPT-5 transformation does not accept loopback `temperature = 0.3` with that reasoning mode. This reproduces the existing smoke pattern: plain succeeds; the structured request fails; removing `response_format` still fails while the same reasoning/sampling combination remains. The earlier real smoke did not record its non-secret effective temperature, and no authenticated model-row read was available in this iteration. Therefore `CURRENT_LOCAL_MODEL_TEMPERATURE = UNCONFIRMED`: the exact `0.3` match is a high-confidence inference from code and identical loopback behavior, not a confirmed runtime fact. Likewise, loopback `1.0` proves only that LiteLLM emitted a request; it is not a model default, provider requirement, or proof that reasoning executed.
+
+The complete non-normative research record is:
+
+```json
+{
+  "recordType": "non_normative_probe_evidence",
+  "litellmVersion": "1.95.0",
+  "temperature03": "rejected_before_network",
+  "temperature10": "request_reached_loopback",
+  "realProviderCapabilityVerified": false,
+  "currentModelTemperature": "unconfirmed",
+  "modelIdRootCause": false,
+  "responseFormatRootCause": false
+}
+```
 
 ### Root-cause decision
 
@@ -98,7 +115,7 @@ The diagnostic states that the GPT-5 transformation does not accept `temperature
 - Bare, prefixed and explicit representations resolve to the same internal and upstream model values.
 - With compatible sampling input, all three forms forward `reasoning_effort = medium` and `response_format` to the loopback endpoint.
 - An actually unregistered model is rejected locally for effort, which proves the model registry can cause this class of failure, but the configured `gpt-5.6-sol` is registered in the installed map.
-- The high-confidence reproduced blocker is the parameter merge: the Rardar boundary combines reasoning effort with a non-default temperature; loopback `0.3` reproduces the observed local failure exactly.
+- The high-confidence reproduced blocker is the parameter merge: the Rardar boundary combines reasoning effort with a non-default sampling value; explicit loopback `0.3` reproduces the observed local failure pattern.
 - `response_format` is not the cause because a reasoning-only call reproduces the same local error.
 - No request reached the real upstream in the blocked smoke, so real gateway support for `medium` and native structured output remains unverified until a later capability probe.
 
@@ -165,7 +182,7 @@ Technical callability does not imply product-semantic reuse.
 
 Rardar owns new, versioned prompt contracts only for `rardar_project_summary`, `rardar_project_profile`, and `rardar_explosion_explanation`. Find Project remains deferred. No existing TopicEye business prompt is copied into those scenes.
 
-## Parameter merge contract
+## Normative parameter merge contract
 
 The future engine computes an effective invocation from three layers:
 
@@ -176,19 +193,21 @@ The future engine computes an effective invocation from three layers:
 Rules:
 
 - the engine selects `temperaturePolicy.whenReasoning` for a scene requesting effort and `temperaturePolicy.normal` otherwise;
-- `free` permits a scene value or the declared model default;
-- `default_only` permits only the capability profile's proven default value;
-- `omit` removes temperature from the effective request even when the model card has a default;
-- `unsupported` makes the model ineligible and `unknown` fails closed pending evidence;
-- a numeric scene value wins over a model default only when the selected policy allows it;
-- `temperature = "inherit"` considers the model default subject to policy; explicit `null` requests omission;
+- `free` permits a range-valid scene value; `"inherit"` uses the model-card default when configured and otherwise omits;
+- `omit` sends no temperature and never inherits the model-card default; a numeric scene requirement conflicts;
+- `fixed` sends only the capability's finite, evidence-backed `fixedValue`; a different numeric request or explicit `null` conflicts;
+- `unsupported` fails when the scene depends on temperature, while an explicit non-use may proceed without it and record the limitation;
+- `unknown` returns `model_capability_unverified` and does not inherit, omit, or guess;
+- `fixedValue` exists only for `fixed`; loopback `1.0` is never promoted automatically;
 - effective maximum output is the lesser of the scene request and proven model limit;
 - unknown limits fail closed when a hard guarantee is required;
 - unsupported effort returns a stable capability error or selects another capable model in the same `rardar` group;
 - effort is never silently changed;
-- the engine never changes `0.3` to `1.0`, drops effort, or selects a rule by model-name pattern;
+- the engine never changes `0.3` to `1.0`, silently removes a numeric scene request, drops effort, or selects a rule by model-name pattern;
 - native structured-output fallback is allowed only when the Invocation Profile names the fallback and the selected mode is recorded;
 - provider/base/key/model never appear in an Invocation Profile.
+
+Stable deterministic errors are `model_capability_unverified`, `model_capability_unsupported`, `invocation_parameter_conflict`, and `structured_output_mode_unavailable`. They do not open circuits, enter cooldown, trigger pointless retry, or permit crossing from the strict `rardar` group to `default`.
 
 This contract fixes the over-strict earlier boundary where Rardar could not express any temperature or output requirement while still preventing business code from owning connection configuration.
 
@@ -212,9 +231,9 @@ The first version has no model tools, no repository-code execution, no direct da
 
 No slice starts from this document automatically.
 
-1. **RARDAR-MODEL-CAPABILITY-PROFILE-01** — add versioned `extra_params.capabilities` validation; the normal/reasoning conditional temperature policy; reasoning-effort and structured-output modes; evidence source/revision; a secret-safe read projection; and a scoped merge/patch. It requires no database migration, uses loopback/mock tests only, and treats unknown as fail closed.
-2. **RARDAR-INVOCATION-PROFILES-01** — add the three versioned scene profiles, final effective-parameter calculation, temperature-policy application, reasoning-effort requirements, output budgets, prompt/schema versions, stable mismatch errors and effective-parameter audit metadata. No business prompt execution.
-3. **RARDAR-REASONING-COMPATIBILITY-01** — only after slices 1-2 exist, use explicit operator authorization to probe the configured route for medium/high/xhigh and structured modes, then resolve compatibility through capability evidence and merge rules. Do not add a LiteLLM model-name special case, `drop_params`, or effort downgrade.
+1. **RARDAR-MODEL-CAPABILITY-PROFILE-01** — add strict versioned `extra_params.capabilities` validation; normal/reasoning `free/omit/fixed/unsupported/unknown` temperature policy; reasoning-effort and structured-output modes; evidence source plus scope/revision; a secret-safe read projection; scoped merge/patch; unknown-fail-closed behavior; and loopback tests. No database migration.
+2. **RARDAR-INVOCATION-PROFILES-01** — add only the three versioned scenes, independent prompt/schema versions, final effective-parameter calculation, temperature-policy application, reasoning-effort requirements, output budgets, structured-mode selection, cache identity, stable errors and audit metadata. No business prompt execution.
+3. **RARDAR-REASONING-COMPATIBILITY-01** — only after slices 1-2 exist, use explicit operator authorization for real-provider probes of medium/high/xhigh, temperature handling and structured modes, then change call parameters if evidence requires it. Do not add a model-name special case, `drop_params`, or effort downgrade.
 4. **RARDAR-PROMPT-CONTRACTS-01** — implement only the three Rardar-owned prompts and strict response schemas after slices 1-3 are reviewed.
 
 The first implementation PR is slice 1. Expected areas are the existing model API/schema service, resolver-facing projection, admin model semantics, focused tests and these documents. It requires no new table or migration, does not change provider execution, uses loopback/mock probes only, and passes when all capability state—including conditional temperature policy—is versioned, secret-safe, independently patchable, evidence-backed, invalidated with the existing model cache, and fail-closed when unknown.

@@ -30,7 +30,7 @@ Find Project and all additional scenes are deferred. TopicEye's topic-analysis, 
 | `cachePolicy` | Versioned cache scope and source-revision invalidation rule. |
 | `failurePolicy` | Stable failure behavior and whether publication may continue without AI. |
 
-`"inherit"` asks the engine to consider the model-card default; it does not guarantee that the value will be sent. An explicit JSON `null` asks the engine to omit the parameter. In both cases the final request is governed by the selected model's `temperaturePolicy`. This distinction is necessary because loopback `0.3` is valid for the observed plain call but conflicts locally with `reasoning_effort = medium`; the current live model-row temperature itself remains unconfirmed.
+`"inherit"` asks the engine to consider the model-card default; it does not guarantee that the value will be sent. An explicit JSON `null` declares that the scene does not request a temperature value. Both are scene intent, not capability evidence: the final request is governed by the selected model's `temperaturePolicy`, and an `unknown` branch still fails closed. Loopback `0.3`/`1.0` observations are non-normative research evidence; the current live model-row temperature and real-provider reasoning policy remain unconfirmed.
 
 ## Common trusted-system contract
 
@@ -69,7 +69,15 @@ The local floor rejects duplicate keys, non-finite numbers, invalid UTF-8/JSON, 
 
 ## Parameter ownership and merge
 
-The engine resolves three layers:
+The three layers have distinct authority:
+
+| Layer | Owns |
+| --- | --- |
+| TopicEye model configuration | Provider/API base/key/model, connection settings, general defaults, hard limits and the Model Capability Profile. |
+| Rardar Invocation Profile | Scene, prompt/schema versions, desired reasoning effort/temperature/output budget, structured-output requirement, cache and failure policy. |
+| AI Engine | Capability validation, strict-route selection, effective-parameter calculation, limits, retry/failover, cache, call logs and usage/cost. |
+
+Rardar business code never selects a provider or model. The engine resolves:
 
 ```text
 model connection + defaults + hard capability bounds
@@ -80,19 +88,22 @@ model connection + defaults + hard capability bounds
 Deterministic rules:
 
 1. Connection fields always come from the TopicEye model row.
-2. The Invocation Profile supplies the scene request; it never mutates the model-card default.
+2. The Invocation Profile supplies scene requests; it never mutates the model-card default or treats TopicEye content-production presets as Rardar defaults.
 3. The engine selects `temperaturePolicy.whenReasoning` whenever `requestedReasoningEffort` is non-null, otherwise `temperaturePolicy.normal`.
-4. `free` permits an allowed numeric scene value or a declared model default.
-5. `default_only` permits only the profile's proven `defaultValue`; a different numeric or inherited value fails closed.
-6. `omit` produces an effective request with no `temperature`, including when the model card has a default.
-7. `unsupported` makes the model ineligible for that scene, and `unknown` fails closed or waits for an audited probe.
-8. Effective output limit is `min(scene maxOutputTokens, proven model maxOutputTokens)`.
-9. If the model limit is unknown and the scene requires a guaranteed bound, selection fails closed.
-10. The requested effort must be explicitly supported for the configuration revision.
-11. The chosen structured mode must be explicitly supported or be the profile's declared `prompt_json` fallback.
-12. Timeout class is mapped centrally and remains under TopicEye's global hard cap.
-13. All non-secret requested/effective values and capability-evidence revisions are logged.
-14. An unsupported combination may select the next capable model in the same route; it never converts `0.3` to `1.0`, drops temperature outside an explicit `omit` policy, changes/downgrades effort, hard-codes behavior by model name, or falls back to `default`.
+4. Under `free`, a numeric scene value is range-validated and sent. `"inherit"` uses the model-card default when configured and otherwise omits; JSON `null` omits.
+5. Under `omit`, the engine sends no temperature and never inherits the model-card default. A numeric scene requirement conflicts; `"inherit"`/`null` resolve to recorded omission.
+6. Under `fixed`, the capability's finite, evidence-backed `fixedValue` is sent. A different numeric request or an explicit JSON `null` is an `invocation_parameter_conflict`; `"inherit"` accepts the fixed capability value.
+7. Under `unsupported`, a numeric or `"inherit"` request fails with `model_capability_unsupported`; a JSON `null` may proceed without the parameter while recording the limitation.
+8. Under `unknown`, unattended selection fails with `model_capability_unverified`. It does not inherit, omit, or guess a value.
+9. Effective output limit is `min(scene maxOutputTokens, proven model maxOutputTokens)`.
+10. If the model limit is unknown and the scene requires a guaranteed bound, selection fails closed.
+11. The requested effort must be explicitly supported for the configuration revision.
+12. The Model Capability Profile declares available structured modes, the Invocation Profile declares its ordered requirement, and the engine selects an intersection. No intersection returns `structured_output_mode_unavailable`.
+13. Timeout class is mapped centrally and remains under TopicEye's global hard cap.
+14. All non-secret requested/effective values and capability evidence scope/revisions are logged.
+15. A capability mismatch may select another proven-capable model only within `rardar`; it never converts `0.3` to `1.0`, silently omits a requested numeric value, changes/downgrades effort, hard-codes behavior by model name, or falls back to `default`.
+
+The scene profiles below define desired behavior; they are not proof that the current route can execute it. The current draft capability profile leaves both temperature branches and reasoning support `unknown`, so `temperature: null` does not bypass capability validation: unattended execution remains ineligible until applicable evidence resolves the required branch.
 
 ## Scene: `rardar_project_summary`
 
@@ -272,14 +283,16 @@ Stable implementation-level categories should distinguish:
 
 - no strict `rardar` route;
 - no model satisfies the profile;
-- capability unknown or stale;
-- local request incompatibility;
+- `model_capability_unverified` for unknown or stale required evidence;
+- `model_capability_unsupported` for a proven unavailable requirement;
+- `invocation_parameter_conflict` for incompatible scene and capability values;
+- `structured_output_mode_unavailable` when no proven mode satisfies the ordered requirement;
 - upstream deterministic rejection;
 - transient provider/rate/timeout/circuit failure;
 - invalid JSON/schema/evidence references;
 - source revision changed before publication.
 
-Capability mismatch must not degrade a healthy model or open the route circuit. Retry does not change a deterministic parameter conflict. The engine may fail over only to another model in the same route whose proven capabilities satisfy the unchanged Invocation Profile.
+Capability errors are not provider outages. They must not degrade a healthy model, open the route circuit, enter cooldown, or trigger meaningless retry. The engine may try only another model in the strict `rardar` route whose proven capabilities satisfy the unchanged Invocation Profile; it never crosses to `default`.
 
 ## Publication boundary
 

@@ -6,19 +6,23 @@ A Model Capability Profile describes what one existing TopicEye model configurat
 
 The profile is deliberately small. It covers only the three current Rardar scenes and the parameters needed to invoke them safely. Image, audio, realtime, tools, MCP, batch and broader multimodal capability matrices are outside V1.
 
-## State model
+## Normative contract
+
+Everything from this heading through the invocation/storage rules is normative: future runtime code must validate and apply it. The later **Non-normative probe evidence** section is a research record only and must never be read as configuration.
+
+### State model
 
 Every capability has one of three states:
 
 | State | Meaning | Invocation behavior |
 | --- | --- | --- |
-| `supported` | The complete configured route was explicitly declared and confirmed by an applicable audited probe. | May be selected when the requested value also satisfies constraints. |
+| `supported` | Applicable evidence establishes the complete configured route: either an accepted, versioned operator claim or an end-to-end audited probe, as required by policy. | May be selected when the requested value also satisfies constraints. |
 | `unsupported` | An explicit configuration or audited probe proves the capability is rejected. | Must not be selected for a scene requiring it. |
 | `unknown` | Evidence is absent, stale, library-only, conflicting or not end-to-end. | Never treated as supported; probe, choose another same-group model, or fail closed. |
 
 `unknown` is a first-class result, not an error to hide. A successful plain-text request does not prove reasoning, structured output, token limits or usage detail.
 
-## Evidence priority
+### Evidence priority
 
 Capability resolution uses this order:
 
@@ -31,7 +35,9 @@ A later probe that contradicts an explicit claim does not get ignored. The resol
 
 Evidence becomes stale when the provider adapter, API base identity, upstream model ID, LiteLLM version, capability-profile version, or probe contract changes. Neither the API base value nor any credential is stored in probe evidence; non-secret configuration revisions are represented by hashes/IDs.
 
-## V1 fields
+`source` identifies who supplied a claim; it does not prove that the claim is strong enough. `evidenceScope` distinguishes `operator_claim`, `loopback`, `real_provider`, `catalog`, and `none`. A loopback probe can prove TopicEye/LiteLLM request shaping, local parameter gates, and whether a request left the process. It cannot prove that the configured provider accepts a value or that the model executed a requested reasoning effort.
+
+### V1 fields
 
 The profile has exactly nine capability fields. `version` and evidence metadata are envelope fields, not additional capabilities.
 
@@ -47,46 +53,99 @@ The profile has exactly nine capability fields. `version` and evidence metadata 
 | `usageMode` | Supported token fields, for example `input_output` or `input_output_cache` | Missing fields remain unknown; values are not invented. |
 | `reasoningUsageMode` | `included_in_output`, `separate`, or `not_reported` | Current TopicEye logs do not model reasoning-token detail separately. |
 
-Each field value uses this shape:
+Scalar/list capability fields use this evidence envelope:
 
 ```json
 {
   "status": "unknown",
   "value": null,
   "source": "unknown",
+  "evidenceScope": "none",
   "evidenceRevision": null,
-  "observedAt": null,
+  "verifiedAt": null,
+  "probeVersion": null,
   "limitations": ["No end-to-end capability probe has confirmed this claim."]
 }
 ```
 
-Valid sources are `user_explicit`, `audited_probe`, `litellm_catalog`, and `unknown`. An implementation may retain multiple evidence records, but it must expose one deterministic resolved state and why.
+Valid sources are `user_explicit`, `audited_probe`, `litellm_catalog`, and `unknown`. An implementation may retain multiple evidence records, but it must expose one deterministic resolved state, evidence scope, and explanation.
 
-`temperaturePolicy.value` has one small, provider-neutral rule shape:
+`temperaturePolicy` is the one composite capability. Its two branches use the same provider-neutral node shape:
 
 ```json
 {
-  "normal": "free",
-  "whenReasoning": "default_only",
-  "defaultValue": 1.0
+  "temperaturePolicy": {
+    "normal": {
+      "mode": "free",
+      "fixedValue": null,
+      "status": "supported",
+      "source": "audited_probe",
+      "evidenceScope": "real_provider",
+      "evidenceRevision": "illustrative-normal-temperature-probe",
+      "verifiedAt": "2026-01-01T00:00:00Z",
+      "probeVersion": "temperature-probe-v1",
+      "limitations": []
+    },
+    "whenReasoning": {
+      "mode": "unknown",
+      "fixedValue": null,
+      "status": "unknown",
+      "source": "unknown",
+      "evidenceScope": "none",
+      "evidenceRevision": null,
+      "verifiedAt": null,
+      "probeVersion": null,
+      "limitations": ["No real-provider reasoning probe exists."]
+    }
+  }
 }
 ```
 
-Both mode fields use the same closed enum:
+This JSON is an illustrative valid shape, not evidence about the current route. Both branches use the same closed enum:
 
 | Policy | Effective invocation behavior |
 | --- | --- |
-| `free` | A numeric scene value or the declared model default may be sent. |
-| `default_only` | Only the model configuration's declared `defaultValue` may be sent; a different numeric value fails closed. |
+| `free` | A valid scene value may be sent; otherwise the model-card default may be sent, and no configured default means omission. |
 | `omit` | The effective request must not contain `temperature`, even when the model card has a default. |
-| `unsupported` | The model cannot serve a scene in that mode. |
-| `unknown` | Selection fails closed until an applicable claim/probe resolves the policy. |
+| `fixed` | The request must send the evidence-backed `fixedValue`; a conflicting scene value fails deterministically. |
+| `unsupported` | The parameter is unavailable. A scene that depends on it fails; a scene that explicitly does not use it may omit it and record the limitation. |
+| `unknown` | Any unattended invocation whose merge depends on this branch fails closed until applicable evidence resolves it. |
 
-`defaultValue` is optional and must be a finite number when present. A `default_only` policy without a proven `defaultValue` is not usable. This structure is versioned with the surrounding profile, is independent of model/provider names, and deliberately avoids a general-purpose rules engine.
+`fixedValue` is required, finite, and range-valid only when `mode = fixed`; its source must be `user_explicit` or `audited_probe`. For every other mode it must be absent or JSON `null`. `mode = fixed` with a catalog-only/unknown source is invalid. `mode = unknown` or `omit` with `fixedValue = 1.0` is invalid. This structure is versioned with the surrounding profile, independent of model/provider names, and deliberately avoids a general-purpose rules engine.
 
-## Draft profile for the current route
+Examples of node shapes that are syntactically valid JSON but invalid under the normative schema:
 
-The following is a research snapshot, not configuration to apply. It records the known distinction between local adapter behavior and unprobed upstream behavior.
+```json
+{
+  "invalidTemperatureNodes": [
+    {"mode": "unknown", "fixedValue": 1.0},
+    {"mode": "omit", "fixedValue": 1.0},
+    {"mode": "free", "fixedValue": 1.0},
+    {"mode": "fixed", "fixedValue": null},
+    {"mode": "fixed", "fixedValue": 1.0, "source": "litellm_catalog"}
+  ]
+}
+```
+
+A minimal valid fixed node is:
+
+```json
+{
+  "mode": "fixed",
+  "fixedValue": 0.2,
+  "status": "supported",
+  "source": "audited_probe",
+  "evidenceScope": "real_provider",
+  "evidenceRevision": "example-fixed-temperature-probe",
+  "verifiedAt": "2026-01-01T00:00:00Z",
+  "probeVersion": "temperature-probe-v1",
+  "limitations": []
+}
+```
+
+### Draft normative profile for the current route
+
+The following is the conservative profile that current evidence permits. It contains no loopback-derived fixed value. It is a draft contract, not configuration applied by this PR.
 
 ```json
 {
@@ -98,16 +157,20 @@ The following is a research snapshot, not configuration to apply. It records the
       "status": "supported",
       "value": "chat_completions",
       "source": "audited_probe",
-      "evidenceRevision": "plain-smoke-and-loopback-v1",
-      "observedAt": "2026-08-27T00:00:00+08:00",
-      "limitations": ["Responses API was not probed."]
+      "evidenceScope": "real_provider",
+      "evidenceRevision": "existing-real-plain-smoke",
+      "verifiedAt": null,
+      "probeVersion": "plain-smoke-v1",
+      "limitations": ["The exact event time was not retained; Responses API was not probed."]
     },
     "reasoningEfforts": {
       "status": "unknown",
-      "value": ["medium", "high", "xhigh"],
-      "source": "litellm_catalog",
+      "value": null,
+      "source": "audited_probe",
+      "evidenceScope": "loopback",
       "evidenceRevision": "litellm-1.95.0-loopback",
-      "observedAt": "2026-08-27T00:00:00+08:00",
+      "verifiedAt": null,
+      "probeVersion": "rardar-loopback-v1",
       "limitations": [
         "Medium passed the local adapter only when temperature was compatible.",
         "The configured upstream gateway was not reached by the blocked medium smoke.",
@@ -116,10 +179,12 @@ The following is a research snapshot, not configuration to apply. It records the
     },
     "structuredOutputModes": {
       "status": "unknown",
-      "value": ["json_object", "prompt_json"],
-      "source": "litellm_catalog",
+      "value": null,
+      "source": "audited_probe",
+      "evidenceScope": "loopback",
       "evidenceRevision": "litellm-1.95.0-loopback",
-      "observedAt": "2026-08-27T00:00:00+08:00",
+      "verifiedAt": null,
+      "probeVersion": "rardar-loopback-v1",
       "limitations": [
         "json_object reached the loopback endpoint.",
         "Native gateway support and json_schema remain unverified.",
@@ -127,67 +192,110 @@ The following is a research snapshot, not configuration to apply. It records the
       ]
     },
     "temperaturePolicy": {
-      "status": "unknown",
-      "value": {
-        "normal": "free",
-        "whenReasoning": "default_only",
-        "defaultValue": 1.0
+      "normal": {
+        "mode": "unknown",
+        "fixedValue": null,
+        "status": "unknown",
+        "source": "audited_probe",
+        "evidenceScope": "loopback",
+        "evidenceRevision": "litellm-1.95.0-temperature-control",
+        "verifiedAt": null,
+        "probeVersion": "rardar-loopback-v1",
+        "limitations": [
+          "A real plain call succeeded, but its effective temperature was not recorded.",
+          "Loopback 0.3 reached the local endpoint but does not establish real-provider support."
+        ]
       },
-      "source": "audited_probe",
-      "evidenceRevision": "litellm-1.95.0-temperature-control",
-      "observedAt": "2026-08-27T00:00:00+08:00",
-      "limitations": [
-        "The local adapter admitted 1.0 and rejected 0.3 when medium reasoning was requested.",
-        "The configured upstream gateway was not reached by either rejected request.",
-        "The 1.0 default-compatible value is loopback evidence, not confirmation of the current model row.",
-        "CURRENT_LOCAL_MODEL_TEMPERATURE = UNCONFIRMED."
-      ]
+      "whenReasoning": {
+        "mode": "unknown",
+        "fixedValue": null,
+        "status": "unknown",
+        "source": "audited_probe",
+        "evidenceScope": "loopback",
+        "evidenceRevision": "litellm-1.95.0-temperature-control",
+        "verifiedAt": null,
+        "probeVersion": "rardar-loopback-v1",
+        "limitations": [
+          "Loopback 0.3 was rejected before network and 1.0 reached loopback only.",
+          "No real-provider reasoning temperature policy has been verified.",
+          "CURRENT_LOCAL_MODEL_TEMPERATURE = UNCONFIRMED."
+        ]
+      }
     },
     "tokenParameterMode": {
-      "status": "supported",
-      "value": "max_completion_tokens",
+      "status": "unknown",
+      "value": null,
       "source": "audited_probe",
+      "evidenceScope": "loopback",
       "evidenceRevision": "litellm-1.95.0-loopback",
-      "observedAt": "2026-08-27T00:00:00+08:00",
+      "verifiedAt": null,
+      "probeVersion": "rardar-loopback-v1",
       "limitations": ["TopicEye supplies max_tokens; LiteLLM transforms the upstream field."]
     },
     "maxContextTokens": {
       "status": "unknown",
       "value": null,
       "source": "litellm_catalog",
+      "evidenceScope": "catalog",
       "evidenceRevision": "litellm-1.95.0",
-      "observedAt": "2026-08-27T00:00:00+08:00",
+      "verifiedAt": null,
+      "probeVersion": null,
       "limitations": ["The self-hosted gateway limit was not probed."]
     },
     "maxOutputTokens": {
       "status": "unknown",
       "value": null,
       "source": "litellm_catalog",
+      "evidenceScope": "catalog",
       "evidenceRevision": "litellm-1.95.0",
-      "observedAt": "2026-08-27T00:00:00+08:00",
+      "verifiedAt": null,
+      "probeVersion": null,
       "limitations": ["The self-hosted gateway limit was not probed."]
     },
     "usageMode": {
       "status": "supported",
       "value": "input_output",
       "source": "audited_probe",
+      "evidenceScope": "real_provider",
       "evidenceRevision": "existing-real-plain-smoke",
-      "observedAt": "2026-08-27T00:00:00+08:00",
+      "verifiedAt": null,
+      "probeVersion": "plain-smoke-v1",
       "limitations": ["Cached-token fields are parsed when present but were not present in the smoke evidence."]
     },
     "reasoningUsageMode": {
       "status": "unknown",
       "value": null,
       "source": "unknown",
+      "evidenceScope": "none",
       "evidenceRevision": null,
-      "observedAt": null,
+      "verifiedAt": null,
+      "probeVersion": null,
       "limitations": ["No successful reasoning response was observed and TopicEye has no separate reasoning-token field."]
     }
   }
 }
 ```
 
-The fixed timestamp identifies this static example, not a fabricated probe time. A real profile must use the actual audited event time.
+Because both temperature branches are `unknown`, current unattended Rardar calls that require temperature-policy resolution must fail with `model_capability_unverified`. Neither the plain success nor loopback evidence is promoted to `free`, `omit`, or `fixed` without an applicable real-provider probe or explicit operator claim.
+
+## Non-normative probe evidence
+
+This repository research record explains the diagnosis. It is not a Capability Profile, is not stored under `extra_params.capabilities`, and must never supply runtime parameters:
+
+```json
+{
+  "recordType": "non_normative_probe_evidence",
+  "litellmVersion": "1.95.0",
+  "temperature03": "rejected_before_network",
+  "temperature10": "request_reached_loopback",
+  "realProviderCapabilityVerified": false,
+  "currentModelTemperature": "unconfirmed",
+  "modelIdRootCause": false,
+  "responseFormatRootCause": false
+}
+```
+
+The `1.0` observation proves only that this LiteLLM version emitted a loopback request under that synthetic input. It is not a provider default, model default, required value, or proof that reasoning was executed. Future implementation code must not read this research record.
 
 ## Storage decision
 
@@ -221,7 +329,7 @@ The existing admin API can persist and return `extra_params`, and the model cach
 - the current UI does not edit capability data;
 - capability changes already have a usable invalidation boundary in the model cache, but no route selector consumes them yet.
 
-The first implementation must therefore add a versioned validator, a sanitized capability projection, and a scoped merge/patch that changes only `extra_params.capabilities`. Validation must include the conditional temperature policy, reasoning-effort choices, structured-output modes, evidence source/revision, finite `defaultValue`, and fail-closed handling for unknown or stale evidence. It must not echo arbitrary header-bearing `litellm_params` through the capability endpoint. Existing model-list compatibility can remain admin-only, but the capability panel must consume only the safe projection. It requires no database migration and CI probes remain loopback/mock only.
+The first implementation must therefore add a versioned validator, a sanitized capability projection, and a scoped merge/patch that changes only `extra_params.capabilities`. Validation must include the conditional temperature policy, reasoning-effort choices, structured-output modes, source plus evidence scope/revision, the `fixedValue` invariants, and fail-closed handling for unknown or stale evidence. It must not echo arbitrary header-bearing `litellm_params` through the capability endpoint. Existing model-list compatibility can remain admin-only, but the capability panel must consume only the safe projection. It requires no database migration and CI probes remain loopback/mock only.
 
 ## Invocation rules
 
@@ -230,13 +338,13 @@ Before a model configuration serves a Rardar Invocation Profile:
 1. validate the profile envelope and version;
 2. reject stale/conflicting evidence according to policy;
 3. require `supported` for every mandatory requested capability;
-4. choose `normal` or `whenReasoning`, then apply the exact temperature policy before model defaults are merged;
+4. choose `normal` or `whenReasoning`, then apply `free`, `omit`, `fixed`, `unsupported`, or `unknown` before model defaults are merged;
 5. enforce proven context/output limits;
 6. compute and log non-secret effective values;
 7. keep capability errors deterministic and out of route health/failover counters;
 8. never use `drop_params` to manufacture compatibility.
 
-If no model in the strict `rardar` group satisfies the profile, return a stable capability-mismatch error. Do not fall back to TopicEye's `default` route and do not downgrade effort or output mode invisibly.
+Stable errors distinguish `model_capability_unverified`, `model_capability_unsupported`, `invocation_parameter_conflict`, and `structured_output_mode_unavailable`. They are deterministic capability results, not provider health failures: do not retry them, open a circuit, enter cooldown, or fall back to TopicEye's `default` route. A later implementation may try another proven-capable model only inside the strict `rardar` group.
 
 ## Probe contract
 

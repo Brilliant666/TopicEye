@@ -26,9 +26,17 @@ const examples = [
   '我在做开发者热点雷达，需要 GitHub 趋势采集、证据保存和项目匹配能力。',
 ];
 
-export default function RardarFindProjectPage() {
+export default function RardarFindProjectPage({
+  initialRepositoryUrl = '',
+  importedRepository = null,
+  invalidPrefill = false,
+}: {
+  initialRepositoryUrl?: string;
+  importedRepository?: string | null;
+  invalidPrefill?: boolean;
+}) {
   const [requirement, setRequirement] = useState(examples[0]);
-  const [repositoryUrl, setRepositoryUrl] = useState('');
+  const [repositoryUrl, setRepositoryUrl] = useState(initialRepositoryUrl);
   const [result, setResult] = useState<FindProjectResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +85,12 @@ export default function RardarFindProjectPage() {
           ))}
         </div>
         <label htmlFor="rardar-repository-url"><Code2 size={15} /> 公开 GitHub 仓库 URL <span>（可选）</span></label>
+        {importedRepository && (
+          <p className={styles.importedRepository}><CheckCircle2 size={15} /> 已带入仓库：<strong>{importedRepository}</strong></p>
+        )}
+        {invalidPrefill && (
+          <p className={styles.formError}><AlertTriangle size={15} /> URL 参数不是合法的公开 GitHub 仓库，已拒绝预填。</p>
+        )}
         <input
           id="rardar-repository-url"
           type="url"

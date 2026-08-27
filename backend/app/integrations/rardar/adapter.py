@@ -490,7 +490,7 @@ class RardarIntelligenceAdapter:
                     }
                     | current_metadata(item)
                 )
-                for item in artifact["exactRanked"]
+                for item in artifact["exactRanked"][:20]
             ],
             "pendingRanked": [
                 (
@@ -506,13 +506,15 @@ class RardarIntelligenceAdapter:
                             "firstSeenAt",
                             "observedWindowHours",
                             "observedWindowStarDelta",
+                            "observedWindowStartedAt",
+                            "observedWindowEndedAt",
                             "primaryLanguage",
                             "topics",
                         )
                     }
                     | current_metadata(item)
                 )
-                for item in artifact["pendingRanked"]
+                for item in artifact["pendingRanked"][:20]
             ],
             "conflictCount": coverage["conflictCount"],
             "sourceStatus": {
@@ -523,7 +525,7 @@ class RardarIntelligenceAdapter:
                     captures["coverageWitness"]["captureId"] if captures["coverageWitness"] else None
                 ),
             },
-            "dataMode": "verified",
-            "dataLabel": "已验证 Rardar generation",
+            "dataMode": "real",
+            "dataLabel": "Rardar 生产快照",
         }
         return ExplosionBoardResponse.model_validate_json(json.dumps(payload))

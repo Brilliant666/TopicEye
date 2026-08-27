@@ -1,4 +1,4 @@
-export type ExplosionBoardState = 'ready' | 'warming_up' | 'baseline_missing' | 'not_ready';
+export type ExplosionBoardState = 'ready' | 'warming_up' | 'baseline_missing' | 'not_ready' | 'not_synced';
 
 export interface ExplosionWindow {
   state: 'exact' | 'warming_up' | 'baseline_missing';
@@ -50,6 +50,8 @@ export interface PendingExplosionProject {
   firstSeenAt: string;
   observedWindowHours: number | null;
   observedWindowStarDelta: number | null;
+  observedWindowStartedAt: string | null;
+  observedWindowEndedAt: string | null;
   primaryLanguage: string | null;
   topics: string[];
   description: string | null;
@@ -60,9 +62,9 @@ export interface PendingExplosionProject {
 
 export interface ExplosionBoard {
   state: ExplosionBoardState;
-  reason: 'explosion_artifact_not_published' | null;
-  generationId: string;
-  publishedAt: string;
+  reason: 'explosion_artifact_not_published' | 'real_data_not_synced' | null;
+  generationId: string | null;
+  publishedAt: string | null;
   capturedAt: string | null;
   window: ExplosionWindow | null;
   coverage: ExplosionCoverage | null;
@@ -75,8 +77,12 @@ export interface ExplosionBoard {
     partialCaptureCount: number;
     coverageWitnessCaptureId: string | null;
   } | null;
-  dataMode: 'verified' | 'demo';
+  dataMode: 'real' | 'demo';
   dataLabel: string;
+  syncedAt: string | null;
+  sourceHost: string | null;
+  manifestSha256: string | null;
+  artifactSha256: string | null;
 }
 
 export type ExplosionBoardLoadResult =
@@ -97,10 +103,13 @@ function isFiniteInteger(value: unknown): value is number {
 export function parseExplosionBoard(value: unknown): ExplosionBoard {
   if (!isRecord(value)) throw new Error('rardar_response_invalid');
   const state = value.state;
-  if (!['ready', 'warming_up', 'baseline_missing', 'not_ready'].includes(String(state))) {
+  if (!['ready', 'warming_up', 'baseline_missing', 'not_ready', 'not_synced'].includes(String(state))) {
     throw new Error('rardar_response_invalid');
   }
-  if (typeof value.generationId !== 'string' || typeof value.publishedAt !== 'string') {
+  if (
+    !((typeof value.generationId === 'string' && typeof value.publishedAt === 'string')
+      || (state === 'not_synced' && value.generationId === null && value.publishedAt === null))
+  ) {
     throw new Error('rardar_response_invalid');
   }
   if (!Array.isArray(value.exactRanked) || !Array.isArray(value.pendingRanked)) {
@@ -135,7 +144,7 @@ export function parseExplosionBoard(value: unknown): ExplosionBoard {
       throw new Error('rardar_response_invalid');
     }
   }
-  if (!['verified', 'demo'].includes(String(value.dataMode)) || typeof value.dataLabel !== 'string') {
+  if (!['real', 'demo'].includes(String(value.dataMode)) || typeof value.dataLabel !== 'string') {
     throw new Error('rardar_response_invalid');
   }
   return value as unknown as ExplosionBoard;

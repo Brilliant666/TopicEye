@@ -34,9 +34,17 @@ def test_explanation_endpoint_keeps_ai_failure_as_a_product_state(monkeypatch) -
             state="unavailable",
             repository=payload.repository,
             generationId=payload.generationId,
-            promptVersion="rardar-project-explanation-v1",
+            promptVersion="rardar-project-insight-v2",
+            schemaVersion="rardar-project-insight-schema-v2",
             format="none",
+            officialIntro={
+                "text": "官方资料暂未提供简介。",
+                "sourceLabel": "AI受限概括",
+                "evidenceRefs": ["repository"],
+            },
             errorCode="rardar_llm_unavailable",
+            evidenceDigest="a" * 64,
+            evidenceKinds=["repository"],
         )
 
     monkeypatch.setattr(rardar_api, "explain_project", unavailable)

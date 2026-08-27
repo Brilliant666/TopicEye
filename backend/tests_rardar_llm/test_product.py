@@ -18,6 +18,7 @@ from app.schemas.rardar_product import (
 from app.services import rardar_product
 from app.services.rardar_intelligence import load_explosion_board
 from app.services.rardar_llm_control import RardarLLMError
+from app.services.rardar_project_evidence import ProjectEvidence
 
 
 def _settings(*, demo: bool = True, environment: str = "development") -> Settings:
@@ -25,6 +26,7 @@ def _settings(*, demo: bool = True, environment: str = "development") -> Setting
         DATABASE_URL="postgresql+asyncpg://test:test@127.0.0.1:5432/test",
         APP_ENV=environment,
         RARDAR_PRODUCT_MODE=True,
+        RARDAR_DATA_MODE="demo" if demo else "real",
         RARDAR_DEMO_DATA_ENABLED=demo,
         RARDAR_INTELLIGENCE_DATA_DIR="",
     )
@@ -38,6 +40,67 @@ def _metadata(*, cached: bool = False):
     )
 
 
+def _evidence(*, cached: bool = False) -> ProjectEvidence:
+    return ProjectEvidence(
+        payload={
+            "repository": "fixture/repository",
+            "description": "An official developer automation toolkit.",
+            "readme": {"introduction": "Official introduction", "headings": []},
+            "topLevelTree": [{"path": "src", "type": "dir"}, {"path": "pyproject.toml", "type": "file"}],
+            "packageManifests": ["pyproject.toml"],
+            "metadata": {"licenseSpdxId": "MIT"},
+            "latestRelease": None,
+            "evidenceIndex": {
+                "description": "An official developer automation toolkit.",
+                "readme:introduction": "Official introduction",
+                "tree:src": "dir: src",
+                "file:pyproject.toml": "file: pyproject.toml",
+                "license": "MIT",
+            },
+            "collectionLimits": {"githubRequests": 4},
+        },
+        digest="a" * 64,
+        allowed_refs=frozenset({"description", "readme:introduction", "tree:src", "file:pyproject.toml", "license"}),
+        path_refs={"tree:src": "src", "file:pyproject.toml": "pyproject.toml"},
+        official_intro={
+            "text": "An official developer automation toolkit.",
+            "sourceLabel": "官方介绍",
+            "evidenceRefs": ["description"],
+        },
+        expected_intro_label="官方介绍（译）",
+        cache_hit=cached,
+    )
+
+
+def _insight() -> ProjectExplanation:
+    return ProjectExplanation.model_validate_json(
+        json.dumps(
+            {
+                "officialIntro": {
+                    "text": "一个官方开发者自动化工具包。",
+                    "sourceLabel": "官方介绍（译）",
+                    "evidenceRefs": ["description"],
+                },
+                "coreHighlights": [{"text": "提供可组合的自动化能力。", "evidenceRefs": ["readme:introduction"]}],
+                "reusableAssets": [
+                    {
+                        "reuseType": "module_library",
+                        "asset": "src 模块",
+                        "howToUse": "从 src 目录提取可组合能力并做接口适配。",
+                        "evidenceRefs": ["tree:src"],
+                    }
+                ],
+                "startHere": [
+                    {"label": "先查看项目依赖入口", "path": "pyproject.toml", "evidenceRefs": ["file:pyproject.toml"]}
+                ],
+                "implementationBoundaries": [{"text": "采用 MIT 许可证。", "evidenceRefs": ["license"]}],
+            },
+            ensure_ascii=False,
+        ),
+        strict=True,
+    )
+
+
 def test_demo_board_is_explicit_and_never_used_in_production() -> None:
     board = load_explosion_board(_settings())
     assert board.dataMode == "demo"
@@ -48,10 +111,16 @@ def test_demo_board_is_explicit_and_never_used_in_production() -> None:
     with pytest.raises(RardarArtifactError):
         load_explosion_board(_settings(environment="production"))
 
+    real = _settings(demo=False)
+    real.RARDAR_DEMO_DATA_ENABLED = True
+    not_synced = load_explosion_board(real)
+    assert not_synced.state == "not_synced"
+    assert not_synced.dataMode == "real"
+
 
 def test_demo_board_never_masks_a_damaged_configured_generation(tmp_path) -> None:
     (tmp_path / "current.json").write_text("{broken", encoding="utf-8")
-    config = _settings()
+    config = _settings(demo=False)
     config.RARDAR_INTELLIGENCE_DATA_DIR = str(tmp_path)
 
     with pytest.raises(RardarArtifactError, match="current pointer") as caught:
@@ -66,17 +135,10 @@ async def test_project_explanation_binds_prompt_and_cache_to_facts(monkeypatch: 
 
     async def structured(**kwargs):
         calls.append(kwargs)
-        return SimpleNamespace(
-            value=ProjectExplanation(
-                summaryZh="一个轻量多智能体框架。",
-                whyWorthWatching="演示事实显示它在观察窗口内增长较快。",
-                reuseIdeas=["复用代理编排模块"],
-                risks=["需核对真实版本和许可证"],
-            ),
-            metadata=_metadata(cached=True),
-        )
+        return SimpleNamespace(value=_insight(), metadata=_metadata(cached=True))
 
     monkeypatch.setattr(rardar_product, "call_rardar_structured", structured)
+    monkeypatch.setattr(rardar_product, "collect_project_evidence", lambda *_args, **_kwargs: _async(_evidence()))
     response = await rardar_product.explain_project(
         ProjectExplanationRequest(
             repository="openai/openai-agents-python",
@@ -88,31 +150,31 @@ async def test_project_explanation_binds_prompt_and_cache_to_facts(monkeypatch: 
     assert response.state == "ready"
     assert response.cacheHit is True
     assert calls[0]["reasoning_effort"] is None
-    assert calls[0]["prompt_version"] == "rardar-project-explanation-v1"
-    assert "local-demo-explosion-v1" in calls[0]["messages"][1]["content"]
-    assert "openai/openai-agents-python" in calls[0]["messages"][1]["content"]
+    assert calls[0]["prompt_version"] == "rardar-project-insight-v2"
+    assert "evidenceDigest=" in calls[0]["messages"][1]["content"]
+    assert "schemaVersion=rardar-project-insight-schema-v2" in calls[0]["messages"][1]["content"]
+    assert "local-demo-explosion-v1" not in calls[0]["messages"][1]["content"]
+    assert "observedStarDelta" not in calls[0]["messages"][1]["content"]
+    assert response.analysis and response.analysis.startHere[0].path == "pyproject.toml"
+
+
+async def _async(value):
+    return value
 
 
 @pytest.mark.asyncio
-async def test_project_explanation_plain_and_unavailable_do_not_break_facts(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_project_explanation_unavailable_keeps_official_intro_and_facts(monkeypatch: pytest.MonkeyPatch) -> None:
     async def rejected(**_kwargs):
         raise RardarLLMError("rardar_llm_invalid_output")
 
-    async def plain(**_kwargs):
-        return SimpleNamespace(content="中文简介：可复用。风险：需验证许可证。", metadata=_metadata())
-
     monkeypatch.setattr(rardar_product, "call_rardar_structured", rejected)
-    monkeypatch.setattr(rardar_product, "call_rardar_llm", plain)
-    request = ProjectExplanationRequest(repository="browser-use/browser-use", generationId="local-demo-explosion-v1")
-    response = await rardar_product.explain_project(request, _settings())
-    assert response.state == "plain"
-    assert response.plainText
-    assert load_explosion_board(_settings()).exactRanked[1].observedStarDelta == 570
-
     monkeypatch.setattr(rardar_product, "call_rardar_llm", rejected)
+    monkeypatch.setattr(rardar_product, "collect_project_evidence", lambda *_args, **_kwargs: _async(_evidence()))
+    request = ProjectExplanationRequest(repository="browser-use/browser-use", generationId="local-demo-explosion-v1")
     response = await rardar_product.explain_project(request, _settings())
     assert response.state == "unavailable"
     assert response.errorCode == "rardar_llm_invalid_output"
+    assert response.officialIntro.text == "An official developer automation toolkit."
     assert len(load_explosion_board(_settings()).exactRanked) == 5
 
 
@@ -124,21 +186,11 @@ async def test_project_explanation_accepts_locally_validated_json_fallback(
         raise RardarLLMError("rardar_llm_invalid_output")
 
     async def json_response(**_kwargs):
-        return SimpleNamespace(
-            content=json.dumps(
-                {
-                    "summaryZh": "一个可复用的浏览器自动化项目。",
-                    "whyWorthWatching": "观察窗口内新增关注较快。",
-                    "reuseIdeas": ["复用浏览器控制层"],
-                    "risks": ["需要核对许可证和接口稳定性"],
-                },
-                ensure_ascii=False,
-            ),
-            metadata=_metadata(),
-        )
+        return SimpleNamespace(content=_insight().model_dump_json(), metadata=_metadata())
 
     monkeypatch.setattr(rardar_product, "call_rardar_structured", rejected)
     monkeypatch.setattr(rardar_product, "call_rardar_llm", json_response)
+    monkeypatch.setattr(rardar_product, "collect_project_evidence", lambda *_args, **_kwargs: _async(_evidence()))
     response = await rardar_product.explain_project(
         ProjectExplanationRequest(
             repository="browser-use/browser-use",
@@ -150,7 +202,55 @@ async def test_project_explanation_accepts_locally_validated_json_fallback(
     assert response.state == "ready"
     assert response.format == "structured"
     assert response.analysis is not None
-    assert response.analysis.reuseIdeas == ["复用浏览器控制层"]
+    assert response.analysis.reusableAssets[0].asset == "src 模块"
+
+
+@pytest.mark.asyncio
+async def test_project_explanation_rejects_rank_repetition_and_generic_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invalid = _insight().model_copy(deep=True)
+    invalid.coreHighlights[0].text = "排名第 1，Star 增长很快。"
+    invalid.implementationBoundaries[0].text = "稳定性需要验证"
+
+    async def structured(**_kwargs):
+        return SimpleNamespace(value=invalid, metadata=_metadata())
+
+    async def rejected(**_kwargs):
+        raise RardarLLMError("rardar_llm_invalid_output")
+
+    monkeypatch.setattr(rardar_product, "call_rardar_structured", structured)
+    monkeypatch.setattr(rardar_product, "call_rardar_llm", rejected)
+    monkeypatch.setattr(rardar_product, "collect_project_evidence", lambda *_args, **_kwargs: _async(_evidence()))
+    response = await rardar_product.explain_project(
+        ProjectExplanationRequest(repository="browser-use/browser-use", generationId="local-demo-explosion-v1"),
+        _settings(),
+    )
+    assert response.state == "unavailable"
+    assert response.analysis is None
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_code"),
+    [
+        ("unknown_ref", "rardar_llm_invalid_evidence_ref"),
+        ("invented_path", "rardar_llm_invalid_start_here"),
+        ("generic_boundary", "rardar_llm_generic_boundary"),
+    ],
+)
+def test_project_insight_validation_fails_closed(case: str, expected_code: str) -> None:
+    insight = _insight().model_copy(deep=True)
+    if case == "unknown_ref":
+        insight.coreHighlights[0].evidenceRefs = ["tree:not-present"]
+    elif case == "invented_path":
+        insight.startHere[0].path = "README.md#invented"
+    else:
+        insight.implementationBoundaries[0].text = "兼容性尚需进一步验证"
+
+    with pytest.raises(RardarLLMError) as error:
+        rardar_product._validate_project_insight(insight, _evidence())
+
+    assert error.value.code == expected_code
 
 
 def _github_item(index: int) -> dict:

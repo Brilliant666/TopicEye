@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { TodayFoundation } from '@/components/RardarFoundationPage';
+import { DiscoverFoundation, TodayFoundation } from '@/components/RardarFoundationPage';
 import { loadExplosionBoard, parseExplosionBoard } from '@/lib/rardar-intelligence';
 
 const readyPayload = {
@@ -81,6 +81,8 @@ const readyPayload = {
       firstSeenAt: '2026-08-23T12:05:00Z',
       observedWindowHours: 12,
       observedWindowStarDelta: 40,
+      observedWindowStartedAt: '2026-08-23T12:05:00Z',
+      observedWindowEndedAt: '2026-08-24T00:05:00Z',
       primaryLanguage: 'Go',
       topics: ['cli'],
       description: 'Newcomer description',
@@ -96,8 +98,12 @@ const readyPayload = {
     partialCaptureCount: 1,
     coverageWitnessCaptureId: null,
   },
-  dataMode: 'verified',
-  dataLabel: '已验证 Rardar generation',
+  dataMode: 'real',
+  dataLabel: 'Rardar 生产快照',
+  syncedAt: '2026-08-24T00:20:00Z',
+  sourceHost: 'rardar-prod',
+  manifestSha256: 'a'.repeat(64),
+  artifactSha256: 'b'.repeat(64),
 };
 
 describe('Rardar intelligence client contract', () => {
@@ -140,15 +146,46 @@ describe('Rardar intelligence client contract', () => {
 
     expect(html).toContain('fixture-lab/alpha');
     expect(html).toContain('+200');
-    expect(html).toContain('fixture-lab/newcomer');
-    expect(html).toContain('精确窗口');
+    expect(html).not.toContain('fixture-lab/newcomer');
+    expect(html).toContain('发现 1 个正在积累观察的项目');
+    expect(html).toContain('精确 24h');
     expect(html).toContain('AI 解读');
     expect(html).not.toContain('爆发原因：');
   });
 
+  it('renders Discover from pending only without 24h extrapolation', () => {
+    const html = renderToStaticMarkup(
+      <DiscoverFoundation result={{ kind: 'published', board: parseExplosionBoard(readyPayload) }} />,
+    );
+    expect(html).toContain('fixture-lab/newcomer');
+    expect(html).not.toContain('fixture-lab/alpha');
+    expect(html).toContain('观察中');
+    expect(html).toContain('12.0h');
+    expect(html).not.toContain('预计 24');
+    expect(html).toContain('/find?repositoryUrl=https%3A%2F%2Fgithub.com%2Ffixture-lab%2Fnewcomer');
+  });
+
+  it('keeps the first ten visible and places ranks 11-20 behind an explicit expansion', () => {
+    const exactRanked = Array.from({ length: 20 }, (_, index) => ({
+      ...readyPayload.exactRanked[0],
+      rank: index + 1,
+      githubRepositoryId: index + 100,
+      repository: `fixture-lab/project-${index + 1}`,
+      htmlUrl: `https://github.com/fixture-lab/project-${index + 1}`,
+      observedStarDelta: 1000 - index,
+    }));
+    const html = renderToStaticMarkup(
+      <TodayFoundation result={{ kind: 'published', board: parseExplosionBoard({ ...readyPayload, exactRanked }) }} />,
+    );
+    expect(html).toContain('GitHub 精确 24 小时爆发榜 Top 10');
+    expect(html).toContain('查看 Top 20');
+    expect(html).toContain('<details');
+    expect(html).toContain('第 11 至 20 名');
+  });
+
   it.each([
-    [{ kind: 'not_configured' } as const, '情报数据尚未配置'],
-    [{ kind: 'error', code: 'rardar_generation_invalid' } as const, '情报数据暂时不可用'],
+    [{ kind: 'not_configured' } as const, '真实数据尚未同步'],
+    [{ kind: 'error', code: 'rardar_generation_invalid' } as const, '真实情报数据暂时不可用'],
     [
       {
         kind: 'published',
@@ -159,7 +196,7 @@ describe('Rardar intelligence client contract', () => {
           exactRanked: [],
         }),
       } as const,
-      '24 小时观察基线正在建立',
+      '尚未形成完整 24 小时精确榜',
     ],
     [
       {
@@ -171,11 +208,24 @@ describe('Rardar intelligence client contract', () => {
           exactRanked: [],
         }),
       } as const,
-      '本期 24 小时基线缺失',
+      '尚未形成完整 24 小时精确榜',
     ],
   ])('renders a truthful non-ready state', (result, expected) => {
     const html = renderToStaticMarkup(<TodayFoundation result={result} />);
     expect(html).toContain(expected);
-    if (result.kind === 'published') expect(html).toContain('fixture-lab/newcomer');
+    if (result.kind === 'published') expect(html).not.toContain('fixture-lab/newcomer');
+  });
+
+  it('accepts an explicit not-synced real state without fabricated generation metadata', () => {
+    const board = parseExplosionBoard({
+      state: 'not_synced', reason: 'real_data_not_synced', generationId: null, publishedAt: null,
+      capturedAt: null, window: null, coverage: null, exactRanked: [], pendingRanked: [], conflictCount: 0,
+      sourceStatus: null, dataMode: 'real', dataLabel: '真实数据尚未同步', syncedAt: null,
+      sourceHost: null, manifestSha256: null, artifactSha256: null,
+    });
+    const html = renderToStaticMarkup(<TodayFoundation result={{ kind: 'published', board }} />);
+    expect(html).toContain('真实数据尚未同步');
+    expect(html).toContain('sync-data');
+    expect(html).not.toContain('本地演示数据');
   });
 });

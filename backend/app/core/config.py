@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # Backend-only path to Rardar's published generation root.  It is ignored
     # unless RARDAR_PRODUCT_MODE is enabled and is never exposed to the browser.
     RARDAR_INTELLIGENCE_DATA_DIR: str = ""
+    # Rardar's local product data source is explicit.  Real mode never falls
+    # back to bundled fixtures when the mirror is absent or invalid.
+    RARDAR_DATA_MODE: str = "real"
     # Explicit local-development fallback.  It is never consulted in
     # production and must never be mistaken for an audited generation.
     RARDAR_DEMO_DATA_ENABLED: bool = False
@@ -243,6 +246,13 @@ class Settings(BaseSettings):
             if normalized in {"", "false"}:
                 return False
         raise ValueError('RARDAR_DEMO_DATA_ENABLED 必须为 "true" 或 "false"')
+
+    @field_validator("RARDAR_DATA_MODE", mode="before")
+    @classmethod
+    def _validate_rardar_data_mode(cls, value: object) -> str:
+        if isinstance(value, str) and value.strip().lower() in {"real", "demo"}:
+            return value.strip().lower()
+        raise ValueError('RARDAR_DATA_MODE 必须为 "real" 或 "demo"')
 
     @field_validator("DATABASE_URL")
     @classmethod

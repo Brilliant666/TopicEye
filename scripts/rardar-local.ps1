@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("start", "stop", "status")]
+    [ValidateSet("start", "stop", "status", "sync-data")]
     [string]$Command = "start"
 )
 
@@ -9,6 +9,7 @@ $FrontendRoot = Join-Path $RepoRoot "frontend"
 $BackendRoot = Join-Path $RepoRoot "backend"
 $ControlRoot = Join-Path $env:LOCALAPPDATA "TopicEyeRardarLLMControl"
 $RuntimeRoot = Join-Path $env:LOCALAPPDATA "RardarLocalProductMVP"
+$MirrorRoot = Join-Path $env:LOCALAPPDATA "TopicEye\rardar-intelligence"
 $StatePath = Join-Path $RuntimeRoot "runtime.json"
 $PgRoot = Join-Path $ControlRoot "pgsql"
 $PgData = Join-Path $ControlRoot "pgdata"
@@ -48,6 +49,9 @@ function Show-Status {
         PostgreSQL = if ($postgresHealthy) { "healthy" } else { "stopped" }
         Backend = if ($state -and (Test-Process $state.backendPid) -and (Test-Http "http://127.0.0.1:8102/health/live")) { "healthy" } else { "stopped" }
         Frontend = if ($state -and (Test-Process $state.frontendPid) -and (Test-Http "http://127.0.0.1:3000/")) { "healthy" } else { "stopped" }
+        DataMode = if ($state -and $state.dataMode) { $state.dataMode } elseif ($env:RARDAR_DATA_MODE) { $env:RARDAR_DATA_MODE } else { "real" }
+        DataMirror = $MirrorRoot
+        DataSynced = if (Test-Path -LiteralPath (Join-Path $MirrorRoot "current.json") -PathType Leaf) { "yes" } else { "no; run sync-data" }
         Product = "http://127.0.0.1:3000/"
         Login = "http://127.0.0.1:3000/login"
         Admin = "http://127.0.0.1:3000/admin"
@@ -164,6 +168,10 @@ function Start-Rardar {
     $encodedUser = [Uri]::EscapeDataString($script:DatabaseUser)
     $encodedDatabase = [Uri]::EscapeDataString($database)
     $databaseUrl = "postgresql+asyncpg://${encodedUser}@127.0.0.1:${PgPort}/${encodedDatabase}"
+    $dataMode = if ($env:RARDAR_DATA_MODE) { $env:RARDAR_DATA_MODE.Trim().ToLowerInvariant() } else { "real" }
+    if ($dataMode -notin @("real", "demo")) {
+        throw 'RARDAR_DATA_MODE must be "real" or "demo".'
+    }
 
     if (-not (Test-Path -LiteralPath (Join-Path $FrontendRoot "node_modules"))) {
         Push-Location $FrontendRoot
@@ -176,8 +184,9 @@ function Start-Rardar {
         DATABASE_URL = $databaseUrl
         APP_ENV = "development"
         RARDAR_PRODUCT_MODE = "true"
-        RARDAR_DEMO_DATA_ENABLED = "true"
-        RARDAR_INTELLIGENCE_DATA_DIR = ""
+        RARDAR_DATA_MODE = $dataMode
+        RARDAR_DEMO_DATA_ENABLED = "false"
+        RARDAR_INTELLIGENCE_DATA_DIR = $MirrorRoot
         CORS_ORIGINS = "http://127.0.0.1:3000"
         SCHEDULER_ENABLED = "false"
         CACHE_WARMUP_ENABLED = "false"
@@ -229,12 +238,33 @@ function Start-Rardar {
         frontendPid = $frontend.Id
         postgresPort = $PgPort
         database = $database
+        dataMode = $dataMode
+        dataMirror = $MirrorRoot
     } | ConvertTo-Json | Set-Content -LiteralPath $StatePath -Encoding utf8
     Show-Status
+}
+
+function Sync-RardarData {
+    if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw "Existing TopicEye Python runtime is unavailable: $Python"
+    }
+    $sourceHost = if ($env:RARDAR_SYNC_SOURCE_HOST) { $env:RARDAR_SYNC_SOURCE_HOST } else { "rardar-prod" }
+    $remoteRoot = if ($env:RARDAR_SYNC_REMOTE_ROOT) { $env:RARDAR_SYNC_REMOTE_ROOT } else { "/var/lib/rardar/data" }
+    $savedPythonPath = $env:PYTHONPATH
+    $env:PYTHONPATH = $BackendRoot
+    Push-Location $BackendRoot
+    try {
+        & $Python -m scripts.sync_rardar_intelligence --target $MirrorRoot --host $sourceHost --remote-root $remoteRoot
+        if ($LASTEXITCODE -ne 0) { throw "Rardar read-only data sync failed." }
+    } finally {
+        Pop-Location
+        $env:PYTHONPATH = $savedPythonPath
+    }
 }
 
 switch ($Command) {
     "start" { Start-Rardar }
     "stop" { Stop-Rardar }
     "status" { Show-Status }
+    "sync-data" { Sync-RardarData }
 }

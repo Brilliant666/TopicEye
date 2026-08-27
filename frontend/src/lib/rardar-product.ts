@@ -1,19 +1,35 @@
 export type ProjectExplanation = {
-  state: 'ready' | 'plain' | 'unavailable';
+  state: 'ready' | 'unavailable';
   repository: string;
   generationId: string;
-  format: 'structured' | 'bounded_text' | 'none';
+  promptVersion: 'rardar-project-insight-v2';
+  schemaVersion: 'rardar-project-insight-schema-v2';
+  format: 'structured' | 'none';
+  officialIntro: EvidenceBackedIntro;
   analysis: {
-    summaryZh: string;
-    whyWorthWatching: string;
-    reuseIdeas: string[];
-    risks: string[];
+    officialIntro: EvidenceBackedIntro;
+    coreHighlights: EvidenceBackedText[];
+    reusableAssets: Array<{
+      reuseType: ReuseType;
+      asset: string;
+      howToUse: string;
+      evidenceRefs: string[];
+    }>;
+    startHere: Array<{ label: string; path: string; evidenceRefs: string[] }>;
+    implementationBoundaries: EvidenceBackedText[];
   } | null;
-  plainText: string | null;
   errorCode: string | null;
   model: string | null;
   provider: string | null;
   cacheHit: boolean;
+  evidenceDigest: string;
+  evidenceCacheHit: boolean;
+  evidenceKinds: string[];
+};
+
+type EvidenceBackedText = { text: string; evidenceRefs: string[] };
+type EvidenceBackedIntro = EvidenceBackedText & {
+  sourceLabel: '官方介绍' | '官方介绍（译）' | 'AI受限概括';
 };
 
 export type ReuseType =

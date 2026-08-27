@@ -397,9 +397,98 @@
   font-weight: 700;
 }
 
+.starFacts small {
+  color: #94a3b8;
+  font-size: 0.66rem;
+}
+
+.emptyExactCard {
+  padding: 1.25rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+  border: 1px solid #fde68a;
+  border-radius: 1rem;
+  color: #92400e;
+  background: #fffbeb;
+}
+
+.emptyExactCard h3 {
+  font-size: 1rem;
+  font-weight: 850;
+}
+
+.emptyExactCard p {
+  margin: 0.35rem 0 0;
+  color: #785524;
+  font-size: 0.78rem;
+  line-height: 1.65;
+}
+
+.expandBoard {
+  margin-top: 0.8rem;
+}
+
+.expandBoard summary {
+  width: fit-content;
+  margin-inline: auto;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  color: #1d4ed8;
+  background: white;
+  font-size: 0.75rem;
+  font-weight: 820;
+  cursor: pointer;
+}
+
+.expandBoard[open] summary {
+  margin-bottom: 0.8rem;
+}
+
+.expandOpen,
+.expandBoard[open] .expandClosed {
+  display: none;
+}
+
+.expandBoard[open] .expandOpen {
+  display: inline;
+}
+
+.discoverLink {
+  width: fit-content;
+  margin-top: 1rem;
+  padding: 0.7rem 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid #bae6fd;
+  border-radius: 0.8rem;
+  color: #075985;
+  background: #f0f9ff;
+  font-size: 0.76rem;
+  font-weight: 820;
+  text-decoration: none;
+}
+
+.discoverLink:hover {
+  border-color: #38bdf8;
+  background: #e0f2fe;
+}
+
+.discoverHero::before {
+  background: radial-gradient(circle, rgb(103 232 249 / 0.52), rgb(224 242 254 / 0.2) 55%, transparent 70%);
+}
+
 .pendingGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.discoverGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.8rem;
 }
 
@@ -419,10 +508,104 @@
   max-width: 100%;
   overflow: hidden;
   color: var(--rardar-strong-text);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   font-weight: 820;
   text-decoration: none;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.pendingTopline {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.stageBadge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.64rem;
+  font-weight: 820;
+}
+
+.stage_new {
+  color: #7c3aed;
+  background: #ede9fe;
+}
+
+.stage_observing {
+  color: #0369a1;
+  background: #e0f2fe;
+}
+
+.stage_near {
+  color: #047857;
+  background: #d1fae5;
+}
+
+.pendingFacts {
+  width: 100%;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.pendingFacts div {
+  min-width: 0;
+  padding: 0.48rem;
+  border-radius: 0.55rem;
+  background: rgb(255 255 255 / 0.75);
+}
+
+.pendingFacts dt {
+  color: #94a3b8;
+  font-size: 0.6rem;
+  font-weight: 760;
+}
+
+.pendingFacts dd {
+  margin: 0.15rem 0 0;
+  overflow-wrap: anywhere;
+  color: #334155;
+  font-size: 0.7rem;
+  font-weight: 760;
+}
+
+.cardActions {
+  margin-top: 0.7rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.cardActions .aiButton {
+  margin-top: 0;
+}
+
+.findPrefillLink {
+  min-height: 2.35rem;
+  padding: 0.55rem 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.75rem;
+  color: #334155;
+  background: white;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.findPrefillLink:hover {
+  border-color: #60a5fa;
+  color: #1d4ed8;
 }
 
 .pendingCard p,
@@ -863,6 +1046,116 @@
   font-size: 0.75rem;
 }
 
+.officialIntro {
+  margin-top: 0.7rem;
+  padding: 0.75rem;
+  border: 1px solid rgb(191 219 254 / 0.8);
+  border-radius: 0.75rem;
+  background: rgb(255 255 255 / 0.78);
+}
+
+.officialIntro > span {
+  color: #1d4ed8;
+  font-size: 0.65rem;
+  font-weight: 850;
+}
+
+.officialIntro p {
+  margin: 0.3rem 0 0;
+  color: #334155;
+}
+
+.insightSections {
+  margin-top: 0.65rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.insightSection {
+  min-width: 0;
+  padding: 0.7rem;
+  border-radius: 0.75rem;
+  background: rgb(255 255 255 / 0.72);
+}
+
+.insightSection h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #1d4ed8;
+  font-size: 0.7rem;
+  font-weight: 850;
+}
+
+.insightItem {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.insightItem:first-of-type {
+  border-top: 0;
+}
+
+.insightItem strong {
+  color: #1e293b;
+}
+
+.insightItem p {
+  margin: 0.2rem 0 0;
+  color: #475569;
+}
+
+.insightItem code {
+  margin-top: 0.25rem;
+  display: block;
+  overflow-wrap: anywhere;
+  color: #0f766e;
+  font-size: 0.68rem;
+}
+
+.reuseType {
+  margin-left: 0.4rem;
+  padding: 0.18rem 0.34rem;
+  border-radius: 999px;
+  color: #075985;
+  background: #e0f2fe;
+  font-size: 0.58rem;
+  font-weight: 800;
+}
+
+.evidenceRefs {
+  margin-top: 0.35rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.evidenceRefs span {
+  max-width: 100%;
+  padding: 0.18rem 0.34rem;
+  overflow-wrap: anywhere;
+  border-radius: 0.35rem;
+  color: #475569;
+  background: #f1f5f9;
+  font-size: 0.58rem;
+  font-weight: 720;
+}
+
+.importedRepository {
+  width: fit-content;
+  margin: 0 0 0.55rem;
+  padding: 0.45rem 0.65rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 0.65rem;
+  color: #047857;
+  background: #ecfdf5;
+  font-size: 0.74rem;
+}
+
 .findResults {
   margin-top: 1rem;
 }
@@ -1114,6 +1407,10 @@
     grid-template-columns: 1fr;
   }
 
+  .discoverGrid {
+    grid-template-columns: 1fr;
+  }
+
   .findHero {
     grid-template-columns: 1fr;
   }
@@ -1161,8 +1458,10 @@
   }
 
   .aiGrid,
+  .insightSections,
   .quickGrid,
-  .quickFacts {
+  .quickFacts,
+  .pendingFacts {
     grid-template-columns: 1fr;
   }
 

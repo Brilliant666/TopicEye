@@ -22,11 +22,12 @@ if (Get-NetTCPConnection -LocalPort $FrontendPort, $BackendPort -State Listen -E
 }
 
 New-Item -ItemType Directory -Path $RuntimeRoot | Out-Null
-Set-Content -LiteralPath $ModeFile -Value "ready" -Encoding utf8NoBOM
+[IO.File]::WriteAllText($ModeFile, "ready`n", [Text.UTF8Encoding]::new($false))
 
 $env:PYTHONPATH = $BackendRoot
 $env:DATABASE_URL = "postgresql+asyncpg://adapter:adapter@127.0.0.1:5432/adapter"
 $env:RARDAR_PRODUCT_MODE = "true"
+$env:RARDAR_DATA_MODE = "real"
 $env:RARDAR_DEMO_DATA_ENABLED = "false"
 $env:RARDAR_INTELLIGENCE_DATA_DIR = (Resolve-Path (Join-Path $BackendRoot "tests\fixtures\rardar_intelligence\revision-a")).Path
 $env:RARDAR_ADAPTER_TEST_MODE_FILE = $ModeFile

@@ -1,25 +1,27 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import {
   AlertTriangle,
+  ArrowRight,
   ArrowUpRight,
   Clock3,
   Construction,
   DatabaseZap,
   FolderGit2,
   Radar,
+  SearchCheck,
   ShieldCheck,
   Sparkles,
   Star,
 } from 'lucide-react';
 
 import { isRardarProduct } from '@/lib/product-profile';
-import {
-  RARDAR_FOUNDATION_PAGES,
-  type RardarFoundationPageKey,
-} from '@/lib/rardar-foundation';
+import { RARDAR_FOUNDATION_PAGES, type RardarFoundationPageKey } from '@/lib/rardar-foundation';
 import {
   loadExplosionBoard,
+  type ExplosionBoard,
   type ExplosionBoardLoadResult,
+  type ExplosionWindow,
   type ExactExplosionProject,
   type PendingExplosionProject,
 } from '@/lib/rardar-intelligence';
@@ -29,16 +31,15 @@ import RardarProjectExplanation from './RardarProjectExplanation';
 export default async function RardarFoundationPage({ pageKey }: { pageKey: RardarFoundationPageKey }) {
   if (!isRardarProduct()) notFound();
 
-  const page = RARDAR_FOUNDATION_PAGES[pageKey];
   if (pageKey === 'today') return <TodayFoundation result={await loadExplosionBoard()} />;
+  if (pageKey === 'discover') return <DiscoverFoundation result={await loadExplosionBoard()} />;
 
+  const page = RARDAR_FOUNDATION_PAGES[pageKey];
   return (
     <div className={styles.page} data-rardar-route={page.href}>
       <section className={styles.emptyCard}>
         <div className={styles.emptyContent}>
-          <span className={styles.emptyIcon} aria-hidden="true">
-            <Construction size={30} />
-          </span>
+          <span className={styles.emptyIcon} aria-hidden="true"><Construction size={30} /></span>
           <p className={styles.eyebrow}>{page.eyebrow}</p>
           <h1>{page.title}</h1>
           <p>{page.description}</p>
@@ -51,127 +52,165 @@ export default async function RardarFoundationPage({ pageKey }: { pageKey: Rarda
 }
 
 export function TodayFoundation({ result }: { result: ExplosionBoardLoadResult }) {
-  const today = RARDAR_FOUNDATION_PAGES.today;
   const board = result.kind === 'published' ? result.board : null;
+  const isDemo = board?.dataMode === 'demo';
 
   return (
     <div className={styles.page} data-rardar-route="/">
       <section className={styles.hero}>
         <div className={styles.heroContent}>
-          <p className={styles.eyebrow}>
-            {board?.dataMode === 'demo' ? 'Today · Local Demo Data' : today.eyebrow}
-          </p>
+          <p className={styles.eyebrow}>{isDemo ? 'Today · Local Demo Data' : 'Today · Exact 24h'}</p>
           <h1 className={styles.heroTitle}>
-            把 GitHub 热点变成
-            <span className={styles.heroTitleAccent}>可行动的开发情报</span>
+            过去完整 24 小时，哪些项目获得了
+            <span className={styles.heroTitleAccent}>最多新增关注？</span>
           </h1>
           <p className={styles.heroDescription}>
             基于 Rardar 多源候选召回与自有连续观察形成的 GitHub 24h 爆发榜。
-            名次只来自经过 Hash、Schema 与来源版本验证的客观 Star 增量。
+            名次严格保持 Artifact 的 observedStarDelta 顺序，AI 不参与排名、过滤或补齐。
           </p>
           <div className={styles.foundationNotice}>
-            <span className={styles.noticePill}>
+            <span className={`${styles.noticePill} ${isDemo ? styles.noticePillWarning : ''}`}>
               <ShieldCheck size={15} aria-hidden="true" />
-              {board?.dataMode === 'demo' ? '本地演示数据 · 非实时榜' : '已验证事实链'}
+              {isDemo ? '本地演示数据 · 非实时榜' : board?.dataLabel || '真实数据模式'}
             </span>
             <span className={styles.noticePill}>
-              <Sparkles size={15} aria-hidden="true" /> AI 解读按需生成，不参与排名
+              <Sparkles size={15} aria-hidden="true" /> AI 解读按需生成，不改变事实名次
             </span>
           </div>
         </div>
       </section>
 
       <div className={styles.sectionHeading}>
-        <div>
-          <h2>过去 24 小时</h2>
-          <p>精确 Top 5 · observedStarDelta 降序 · AI 不参与名次</p>
-        </div>
-        {board?.capturedAt && <span className={styles.timestamp}>更新于 {formatTime(board.capturedAt)}</span>}
+        <div><h2>精确 24 小时榜</h2><p>默认 Top 10，可展开至 Artifact 中的 Top 20。</p></div>
+        {board?.window?.endedAt && <span className={styles.timestamp}>窗口截止 {formatTime(board.window.endedAt)}</span>}
       </div>
 
-      <ExplosionState result={result} />
+      <TodayState result={result} />
     </div>
   );
 }
 
-function ExplosionState({ result }: { result: ExplosionBoardLoadResult }) {
-  if (result.kind === 'not_configured') {
-    return <StatusCard icon={DatabaseZap} title="情报数据尚未配置" detail="配置正式 Rardar data 根目录后，页面才会读取已发布 generation；不会回退到 fixture。" />;
-  }
+function TodayState({ result }: { result: ExplosionBoardLoadResult }) {
+  if (result.kind === 'not_configured') return <NotSyncedCard />;
   if (result.kind === 'error') {
-    return <StatusCard icon={AlertTriangle} title="情报数据暂时不可用" detail={`读取已安全停止 · ${result.code}`} tone="danger" />;
+    return <StatusCard icon={AlertTriangle} title="真实情报数据暂时不可用" detail={`已安全停止读取 · ${result.code}`} tone="danger" />;
   }
   const board = result.board;
+  if (board.state === 'not_synced') return <NotSyncedCard />;
   if (board.state === 'not_ready') {
     return <StatusCard icon={Clock3} title="今日爆发事实尚未发布" detail="当前 generation 健康，但尚未包含 Explosion Artifact。" />;
   }
-  if (board.state === 'warming_up') {
-    return (
-      <>
-        <StatusCard icon={Clock3} title="24 小时观察基线正在建立" detail="新项目会进入待验证区；在完整 24h 基线形成前不会冒充精确榜单。" />
-        <PendingFacts board={board} />
-      </>
-    );
-  }
-  if (board.state === 'baseline_missing') {
-    return (
-      <>
-        <StatusCard icon={AlertTriangle} title="本期 24 小时基线缺失" detail="系统保留可追溯的待验证事实，但不会推测或补造精确名次。" />
-        <PendingFacts board={board} />
-      </>
-    );
-  }
-  return <ReadyBoard board={board} />;
-}
 
-function ReadyBoard({ board }: { board: Extract<ExplosionBoardLoadResult, { kind: 'published' }>['board'] }) {
-  const exact = board.exactRanked.slice(0, 5);
+  const generationId = board.generationId;
+  if (!generationId || board.state !== 'ready' || board.exactRanked.length === 0) {
+    return (
+      <>
+        <section className={styles.emptyExactCard}>
+          <Clock3 size={28} aria-hidden="true" />
+          <div>
+            <h3>尚未形成完整 24 小时精确榜</h3>
+            <p>当前状态为 {windowStateLabel(board.window?.state)}。Rardar 不会用短窗口增量或演示项目补齐名次。</p>
+          </div>
+        </section>
+        <DiscoverLink count={board.coverage?.pendingCount ?? board.pendingRanked.length} />
+        <Provenance board={board} />
+      </>
+    );
+  }
+
+  const exact = board.exactRanked.slice(0, 20);
   return (
     <>
-      <section className={styles.rankingList} aria-label="GitHub 24 小时爆发榜 Top 5">
-        {exact.map((project) => (
-          <ExactProjectCard key={project.githubRepositoryId} project={project} generationId={board.generationId} />
+      <section className={styles.rankingList} aria-label="GitHub 精确 24 小时爆发榜 Top 10">
+        {exact.slice(0, 10).map((project) => (
+          <ExactProjectCard key={project.githubRepositoryId} project={project} generationId={generationId} />
         ))}
       </section>
-
-      <PendingFacts board={board} />
+      {exact.length > 10 && (
+        <details className={styles.expandBoard}>
+          <summary><span className={styles.expandClosed}>查看 Top {exact.length}</span><span className={styles.expandOpen}>收起</span></summary>
+          <section className={styles.rankingList} aria-label={`GitHub 精确 24 小时爆发榜第 11 至 ${exact.length} 名`}>
+            {exact.slice(10).map((project) => (
+              <ExactProjectCard key={project.githubRepositoryId} project={project} generationId={generationId} />
+            ))}
+          </section>
+        </details>
+      )}
+      <DiscoverLink count={board.coverage?.pendingCount ?? board.pendingRanked.length} />
+      <Provenance board={board} />
     </>
   );
 }
 
-function PendingFacts({ board }: { board: Extract<ExplosionBoardLoadResult, { kind: 'published' }>['board'] }) {
-  const pending = board.pendingRanked.slice(0, 3);
+export function DiscoverFoundation({ result }: { result: ExplosionBoardLoadResult }) {
+  const board = result.kind === 'published' ? result.board : null;
+  return (
+    <div className={styles.page} data-rardar-route="/discover">
+      <section className={`${styles.hero} ${styles.discoverHero}`}>
+        <div className={styles.heroContent}>
+          <p className={styles.eyebrow}>Discover · Early Signals</p>
+          <h1 className={styles.heroTitle}>刚被雷达捕获，<span className={styles.heroTitleAccent}>正在积累观察</span></h1>
+          <p className={styles.heroDescription}>
+            这里只展示 Artifact 的 pending 事实。窗口内增量保持原值，不线性外推 24 小时，也不把候选池或 AI 判断混进来。
+          </p>
+          <div className={styles.foundationNotice}>
+            <span className={styles.noticePill}><SearchCheck size={15} /> 最多展示当前 Top 20 待验证项目</span>
+            {board && <span className={styles.noticePill}><Clock3 size={15} /> {windowStateLabel(board.window?.state)}</span>}
+          </div>
+        </div>
+      </section>
+
+      <DiscoverState result={result} />
+    </div>
+  );
+}
+
+function DiscoverState({ result }: { result: ExplosionBoardLoadResult }) {
+  if (result.kind === 'not_configured') return <NotSyncedCard />;
+  if (result.kind === 'error') {
+    return <StatusCard icon={AlertTriangle} title="真实发现数据暂时不可用" detail={`已安全停止读取 · ${result.code}`} tone="danger" />;
+  }
+  const board = result.board;
+  if (board.state === 'not_synced') return <NotSyncedCard />;
+  if (board.state === 'not_ready') {
+    return <StatusCard icon={Clock3} title="发现数据尚未发布" detail="当前 generation 尚未包含可验证的 Explosion Artifact。" />;
+  }
+  const generationId = board.generationId;
+  const pending = board.pendingRanked.slice(0, 20);
+  if (!generationId || pending.length === 0) {
+    return (
+      <>
+        <StatusCard icon={Radar} title="当前没有待验证项目" detail="发现页不会用 exact 项目或原始候选池填充空位。" />
+        <Provenance board={board} />
+      </>
+    );
+  }
+
+  const counts = pending.reduce(
+    (summary, item) => {
+      summary[pendingStage(item)] += 1;
+      return summary;
+    },
+    { new: 0, observing: 0, near: 0 },
+  );
   return (
     <>
       <div className={styles.sectionHeading}>
-        <div>
-          <h2>新入榜待验证</h2>
-          <p>首次发现立即展示，但不进入精确 Top 5。</p>
-        </div>
+        <div><h2>待验证项目</h2><p>展示 {pending.length} / {board.coverage?.pendingCount ?? board.pendingRanked.length} · 保持 Artifact pendingRank。</p></div>
+        <span className={styles.timestamp}>刚被发现 {counts.new} · 观察中 {counts.observing} · 接近验证 {counts.near}</span>
       </div>
-      <section className={styles.pendingGrid} aria-label="新入榜待验证项目">
+      <section className={styles.discoverGrid} aria-label="正在积累观察的项目">
         {pending.map((project) => (
-          <PendingProjectCard key={project.githubRepositoryId} project={project} generationId={board.generationId} />
+          <PendingProjectCard key={project.githubRepositoryId} project={project} generationId={generationId} />
         ))}
       </section>
-
-      <section className={styles.provenanceBar} aria-label="数据覆盖和 generation">
-        <div><ShieldCheck size={18} /><span>覆盖 {board.coverage?.state === 'healthy' ? '健康' : '降级'}</span></div>
-        <span>
-          {board.window?.state === 'exact' ? '精确窗口' : '观察窗口'}{' '}
-          {board.window ? `${formatTime(board.window.startedAt)} → ${formatTime(board.window.endedAt)}` : '未发布'}
-        </span>
-        <span>查询 {board.coverage?.successfulQueryCount ?? 0} 成功 / {board.coverage?.failedQueryCount ?? 0} 失败</span>
-        <span>Metadata 失败 {board.coverage?.metadataFailureCount ?? 0}</span>
-        <span>精确 {board.coverage?.exactCount ?? 0} · 待验证 {board.coverage?.pendingCount ?? 0} · 冲突 {board.conflictCount}</span>
-        <span>{board.dataLabel}</span>
-        <code>{board.generationId}</code>
-      </section>
+      <Provenance board={board} />
     </>
   );
 }
 
 function ExactProjectCard({ project, generationId }: { project: ExactExplosionProject; generationId: string }) {
+  const relativeGrowth = project.baselineStars > 0 ? project.observedStarDelta / project.baselineStars : null;
   return (
     <article className={styles.rankingCard}>
       <div className={styles.rank}>#{project.rank}</div>
@@ -179,39 +218,103 @@ function ExactProjectCard({ project, generationId }: { project: ExactExplosionPr
         <a href={project.htmlUrl} target="_blank" rel="noreferrer" className={styles.repository}>
           <FolderGit2 size={18} aria-hidden="true" /> {project.repository} <ArrowUpRight size={15} aria-hidden="true" />
         </a>
-        <p className={styles.projectDescription}>{project.description || 'GitHub 暂未提供项目简介。'}</p>
+        <p className={styles.projectDescription}>{project.description || 'GitHub 暂未提供官方 Description。'}</p>
         <div className={styles.tags}>
           {project.primaryLanguage && <span>{project.primaryLanguage}</span>}
           {project.topics.slice(0, 3).map((topic) => <span key={topic}>{topic}</span>)}
-          {project.archived && <span>Archived</span>}
-          {project.fork && <span>Fork</span>}
           {project.licenseSpdxId && <span>{project.licenseSpdxId}</span>}
-          <span>事实 · {project.state === 'exact_window' ? '精确 24h' : project.state}</span>
+          <span>事实 · 精确 24h</span>
+          {relativeGrowth !== null && <span>相对增长 {(relativeGrowth * 100).toFixed(1)}%</span>}
         </div>
-        <RardarProjectExplanation repository={project.repository} generationId={generationId} />
+        <div className={styles.cardActions}>
+          <RardarProjectExplanation repository={project.repository} generationId={generationId} />
+          <FindPrefillLink htmlUrl={project.htmlUrl} />
+        </div>
       </div>
       <div className={styles.starFacts}>
         <strong>+{formatNumber(project.observedStarDelta)}</strong>
         <span><Star size={14} aria-hidden="true" /> {formatNumber(project.totalStars)} total</span>
+        <small>截止 {formatTime(project.windowEndedAt)}</small>
       </div>
     </article>
   );
 }
 
 function PendingProjectCard({ project, generationId }: { project: PendingExplosionProject; generationId: string }) {
-  const observed = project.observedWindowHours === null
-    ? '等待第二个观察点'
-    : `${project.observedWindowHours}h ${formatSigned(project.observedWindowStarDelta)}`;
+  const stage = pendingStage(project);
   return (
     <article className={styles.pendingCard}>
-      <span className={styles.pendingBadge}>待验证 #{project.pendingRank}</span>
-      <a href={project.htmlUrl} target="_blank" rel="noreferrer">{project.repository}</a>
-      <p className={styles.pendingDescription}>{project.description || 'GitHub 暂未提供项目简介。'}</p>
-      <strong><Star size={14} aria-hidden="true" /> {formatNumber(project.totalStars)}</strong>
-      <p>{observed}</p>
-      <small>首次发现 {formatTime(project.firstSeenAt)}</small>
-      <RardarProjectExplanation repository={project.repository} generationId={generationId} />
+      <div className={styles.pendingTopline}>
+        <span className={styles.pendingBadge}>待验证 #{project.pendingRank}</span>
+        <span className={`${styles.stageBadge} ${styles[`stage_${stage}`]}`}>{pendingStageLabel(stage)}</span>
+      </div>
+      <a href={project.htmlUrl} target="_blank" rel="noreferrer">{project.repository}<ArrowUpRight size={13} /></a>
+      <p className={styles.pendingDescription}>{project.description || 'GitHub 暂未提供官方 Description。'}</p>
+      <dl className={styles.pendingFacts}>
+        <div><dt>当前 Star</dt><dd>{formatNumber(project.totalStars)}</dd></div>
+        <div><dt>观测时长</dt><dd>{project.observedWindowHours === null ? '等待第二个观察点' : `${project.observedWindowHours.toFixed(1)}h`}</dd></div>
+        <div><dt>窗口内增量</dt><dd>{formatSigned(project.observedWindowStarDelta)}</dd></div>
+        <div><dt>待验证原因</dt><dd>{pendingReasonLabel(project.pendingReason)}</dd></div>
+        <div><dt>首次发现</dt><dd>{formatTime(project.firstSeenAt)}</dd></div>
+        <div><dt>观测窗口</dt><dd>{formatWindow(project.observedWindowStartedAt, project.observedWindowEndedAt)}</dd></div>
+      </dl>
+      <div className={styles.tags}>
+        {project.primaryLanguage && <span>{project.primaryLanguage}</span>}
+        {project.topics.slice(0, 3).map((topic) => <span key={topic}>{topic}</span>)}
+        {project.licenseSpdxId && <span>{project.licenseSpdxId}</span>}
+      </div>
+      <div className={styles.cardActions}>
+        <RardarProjectExplanation repository={project.repository} generationId={generationId} />
+        <FindPrefillLink htmlUrl={project.htmlUrl} />
+      </div>
     </article>
+  );
+}
+
+function FindPrefillLink({ htmlUrl }: { htmlUrl: string }) {
+  return (
+    <Link className={styles.findPrefillLink} href={`/find?repositoryUrl=${encodeURIComponent(htmlUrl)}`}>
+      用这个仓库评估我的需求 <ArrowRight size={14} />
+    </Link>
+  );
+}
+
+function DiscoverLink({ count }: { count: number }) {
+  return (
+    <Link href="/discover" className={styles.discoverLink}>
+      <Radar size={17} /> 发现 {count} 个正在积累观察的项目 <ArrowRight size={15} />
+    </Link>
+  );
+}
+
+function NotSyncedCard() {
+  return (
+    <StatusCard
+      icon={DatabaseZap}
+      title="真实数据尚未同步"
+      detail="运行 powershell -ExecutionPolicy Bypass -File .\\scripts\\rardar-local.ps1 sync-data。系统不会静默切换到演示榜。"
+    />
+  );
+}
+
+function Provenance({ board }: { board: ExplosionBoard }) {
+  return (
+    <section className={styles.provenanceBar} aria-label="真实数据来源和 generation">
+      <div><ShieldCheck size={18} /><span>{board.dataLabel}</span></div>
+      <span>状态 {windowStateLabel(board.window?.state)}</span>
+      {board.window && <span>截止 {formatTime(board.window.endedAt)}</span>}
+      {board.syncedAt && <span>本地同步 {formatTime(board.syncedAt)}</span>}
+      <span>精确 {board.coverage?.exactCount ?? board.exactRanked.length} · 待验证 {board.coverage?.pendingCount ?? board.pendingRanked.length}</span>
+      {board.coverage && (
+        <span>
+          查询成功 {board.coverage.successfulQueryCount} · 失败 {board.coverage.failedQueryCount}
+          {board.coverage.metadataFailureCount > 0 ? ` · 元数据缺失 ${board.coverage.metadataFailureCount}` : ''}
+        </span>
+      )}
+      {board.sourceHost && <span>来源 {board.sourceHost}</span>}
+      {board.artifactSha256 && <span title={board.artifactSha256}>Artifact {board.artifactSha256.slice(0, 10)}</span>}
+      {board.generationId && <code>{board.generationId}</code>}
+    </section>
   );
 }
 
@@ -227,6 +330,24 @@ function StatusCard({ icon: Icon, title, detail, tone = 'default' }: { icon: typ
   );
 }
 
+function pendingStage(project: PendingExplosionProject): 'new' | 'observing' | 'near' {
+  if (project.observedWindowHours === null || project.observedWindowHours < 6) return 'new';
+  if (project.observedWindowHours < 18) return 'observing';
+  return 'near';
+}
+
+function pendingStageLabel(value: 'new' | 'observing' | 'near') {
+  return { new: '刚被发现', observing: '观察中', near: '接近验证' }[value];
+}
+
+function pendingReasonLabel(value: PendingExplosionProject['pendingReason']) {
+  return { first_seen: '首次发现', baseline_missing: '缺少完整基线', baseline_ineligible: '基线尚不满足条件' }[value];
+}
+
+function windowStateLabel(value: ExplosionWindow['state'] | undefined) {
+  return value === 'exact' ? '精确 24h' : value === 'warming_up' ? '基线积累中' : value === 'baseline_missing' ? '基线缺失' : '尚未发布';
+}
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat('zh-CN').format(value);
 }
@@ -236,13 +357,13 @@ function formatSigned(value: number | null) {
   return `${value >= 0 ? '+' : ''}${formatNumber(value)} Star`;
 }
 
+function formatWindow(start: string | null, end: string | null) {
+  if (!start || !end) return '等待完整观测点';
+  return `${formatTime(start)} → ${formatTime(end)}`;
+}
+
 function formatTime(value: string) {
   return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
+    timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(new Date(value));
 }

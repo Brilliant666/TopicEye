@@ -127,5 +127,7 @@ def test_real_http_default_topic_eye_mode_is_404(tmp_path: Path) -> None:
 def test_real_http_rardar_mode_reports_unconfigured_data() -> None:
     with _server(None) as url:
         response = httpx.get(f"{url}/api/v1/rardar/explosion-board", timeout=10, trust_env=False)
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "rardar_intelligence_not_configured"
+    assert response.status_code == 200
+    assert response.json()["state"] == "not_synced"
+    assert response.json()["reason"] == "real_data_not_synced"
+    assert response.json()["dataMode"] == "real"

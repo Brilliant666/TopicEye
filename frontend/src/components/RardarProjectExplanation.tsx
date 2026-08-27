@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { AlertTriangle, Loader2, Sparkles } from 'lucide-react';
+import { type ReactNode, useState } from 'react';
+import { AlertTriangle, BookOpen, Boxes, Compass, Loader2, Sparkles } from 'lucide-react';
 
 import { explainProject, type ProjectExplanation } from '@/lib/rardar-product';
 import styles from './RardarFoundation.module.css';
@@ -43,17 +43,14 @@ export default function RardarProjectExplanation({
       <div className={`${styles.aiPanel} ${styles.aiUnavailable}`}>
         <div><AlertTriangle size={15} /><strong>AI 暂不可用</strong></div>
         <p>事实榜单不受影响。{error || result?.errorCode}</p>
+        {result?.officialIntro && (
+          <section className={styles.officialIntro}>
+            <span>{result.officialIntro.sourceLabel}</span>
+            <p>{result.officialIntro.text}</p>
+            <EvidenceRefs values={result.officialIntro.evidenceRefs} />
+          </section>
+        )}
         <button type="button" onClick={run} disabled={loading}>重试</button>
-      </div>
-    );
-  }
-
-  if (result?.state === 'plain') {
-    return (
-      <div className={styles.aiPanel}>
-        <div><Sparkles size={15} /><strong>AI 项目解读 · 有界文本</strong></div>
-        <p className={styles.aiPlain}>{result.plainText}</p>
-        <AIProvenance result={result} />
       </div>
     );
   }
@@ -62,22 +59,82 @@ export default function RardarProjectExplanation({
   if (!analysis) return null;
   return (
     <div className={styles.aiPanel} data-testid={`ai-explanation-${repository}`}>
-      <div><Sparkles size={15} /><strong>AI 项目解读</strong><span>模型判断，不改变事实名次</span></div>
-      <dl className={styles.aiGrid}>
-        <div><dt>中文简介</dt><dd>{analysis.summaryZh}</dd></div>
-        <div><dt>为什么值得看</dt><dd>{analysis.whyWorthWatching}</dd></div>
-        <div><dt>可以怎样复用</dt><dd>{analysis.reuseIdeas.join('；')}</dd></div>
-        <div><dt>风险与注意</dt><dd>{analysis.risks.join('；')}</dd></div>
-      </dl>
+      <div><Sparkles size={15} /><strong>项目证据解读</strong><span>按需生成 · 不复述榜单事实</span></div>
+      <section className={styles.officialIntro}>
+        <span>{analysis.officialIntro.sourceLabel}</span>
+        <p>{analysis.officialIntro.text}</p>
+        <EvidenceRefs values={analysis.officialIntro.evidenceRefs} />
+      </section>
+      <div className={styles.insightSections}>
+        <InsightSection icon={Sparkles} title="核心亮点">
+          {analysis.coreHighlights.map((item) => (
+            <InsightItem key={`${item.text}-${item.evidenceRefs.join()}`} text={item.text} refs={item.evidenceRefs} />
+          ))}
+        </InsightSection>
+        <InsightSection icon={Boxes} title="可复用资产">
+          {analysis.reusableAssets.map((item) => (
+            <div className={styles.insightItem} key={`${item.asset}-${item.evidenceRefs.join()}`}>
+              <strong>{item.asset}</strong>
+              <span className={styles.reuseType}>{reuseLabel(item.reuseType)}</span>
+              <p>{item.howToUse}</p>
+              <EvidenceRefs values={item.evidenceRefs} />
+            </div>
+          ))}
+        </InsightSection>
+        <InsightSection icon={Compass} title="建议先看">
+          {analysis.startHere.map((item) => (
+            <div className={styles.insightItem} key={`${item.path}-${item.evidenceRefs.join()}`}>
+              <strong>{item.label}</strong><code>{item.path}</code>
+              <EvidenceRefs values={item.evidenceRefs} />
+            </div>
+          ))}
+        </InsightSection>
+        {analysis.implementationBoundaries.length > 0 && (
+          <InsightSection icon={BookOpen} title="落地边界">
+            {analysis.implementationBoundaries.map((item) => (
+              <InsightItem key={`${item.text}-${item.evidenceRefs.join()}`} text={item.text} refs={item.evidenceRefs} />
+            ))}
+          </InsightSection>
+        )}
+      </div>
       <AIProvenance result={result} />
     </div>
   );
 }
 
+function InsightSection({ icon: Icon, title, children }: { icon: typeof Sparkles; title: string; children: ReactNode }) {
+  return <section className={styles.insightSection}><h4><Icon size={14} /> {title}</h4>{children}</section>;
+}
+
+function InsightItem({ text, refs }: { text: string; refs: string[] }) {
+  return <div className={styles.insightItem}><p>{text}</p><EvidenceRefs values={refs} /></div>;
+}
+
+function EvidenceRefs({ values }: { values: string[] }) {
+  return <div className={styles.evidenceRefs}>{values.map((value) => <span key={value}>{evidenceLabel(value)}</span>)}</div>;
+}
+
+function evidenceLabel(value: string) {
+  if (value === 'description') return 'GitHub Description';
+  if (value === 'license') return '许可证';
+  if (value === 'release:latest') return '最新 Release';
+  if (value.startsWith('readme:')) return 'README';
+  if (value.startsWith('tree:')) return `目录 ${value.slice(5)}`;
+  if (value.startsWith('file:')) return `文件 ${value.slice(5)}`;
+  return '仓库资料';
+}
+
+function reuseLabel(value: string) {
+  return {
+    whole_product: '整套产品', module_library: '模块 / 类库', provider_connector: 'Provider / 连接器',
+    workflow: '工作流', reference_only: '参考资产', not_recommended: '不建议复用',
+  }[value] || value;
+}
+
 function AIProvenance({ result }: { result: ProjectExplanation }) {
   return (
     <small className={styles.aiProvenance}>
-      {result.model || '已配置的 rardar 模型'} · {result.cacheHit ? '缓存命中' : '本次生成'}
+      {result.model || '已配置的 rardar 模型'} · {result.cacheHit ? 'AI 缓存命中' : '本次生成'} · {result.evidenceCacheHit ? '证据缓存命中' : '实时有界证据'}
     </small>
   );
 }

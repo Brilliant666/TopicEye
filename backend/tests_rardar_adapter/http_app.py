@@ -24,20 +24,29 @@ async def visual_state_fixture(request, call_next):
     mode = path.read_text(encoding="utf-8").strip() if path.exists() else "ready"
     if request.url.path == "/api/v1/rardar/projects/explain":
         payload = await request.json()
+        official_intro = {
+            "text": "一个经过官方资料约束的开源开发工具。",
+            "sourceLabel": "官方介绍（译）",
+            "evidenceRefs": ["description"],
+        }
         if mode == "ai_error":
             return JSONResponse(
                 content={
                     "state": "unavailable",
                     "repository": payload["repository"],
                     "generationId": payload["generationId"],
-                    "promptVersion": "rardar-project-explanation-v1",
+                    "promptVersion": "rardar-project-insight-v2",
+                    "schemaVersion": "rardar-project-insight-schema-v2",
                     "format": "none",
+                    "officialIntro": official_intro,
                     "analysis": None,
-                    "plainText": None,
                     "errorCode": "rardar_llm_unavailable",
                     "model": None,
                     "provider": None,
                     "cacheHit": False,
+                    "evidenceDigest": "a" * 64,
+                    "evidenceCacheHit": False,
+                    "evidenceKinds": ["description", "readme:introduction", "tree:src"],
                 }
             )
         return JSONResponse(
@@ -45,19 +54,33 @@ async def visual_state_fixture(request, call_next):
                 "state": "ready",
                 "repository": payload["repository"],
                 "generationId": payload["generationId"],
-                "promptVersion": "rardar-project-explanation-v1",
+                "promptVersion": "rardar-project-insight-v2",
+                "schemaVersion": "rardar-project-insight-schema-v2",
                 "format": "structured",
+                "officialIntro": official_intro,
                 "analysis": {
-                    "summaryZh": "一个经过事实约束的开源项目。",
-                    "whyWorthWatching": "它在当前观测窗口内获得了较多新增关注。",
-                    "reuseIdeas": ["先验证核心模块，再做最小集成"],
-                    "risks": ["许可证和接口稳定性仍需核对"],
+                    "officialIntro": official_intro,
+                    "coreHighlights": [
+                        {"text": "提供可组合的开发自动化能力。", "evidenceRefs": ["readme:introduction"]}
+                    ],
+                    "reusableAssets": [
+                        {
+                            "reuseType": "module_library",
+                            "asset": "src 核心模块",
+                            "howToUse": "提取模块后接入现有工作流。",
+                            "evidenceRefs": ["tree:src"],
+                        }
+                    ],
+                    "startHere": [{"label": "核心源码入口", "path": "src", "evidenceRefs": ["tree:src"]}],
+                    "implementationBoundaries": [],
                 },
-                "plainText": None,
                 "errorCode": None,
                 "model": "mock-rardar-model",
                 "provider": "mock",
                 "cacheHit": False,
+                "evidenceDigest": "a" * 64,
+                "evidenceCacheHit": False,
+                "evidenceKinds": ["description", "readme:introduction", "tree:src"],
             }
         )
     if request.url.path == "/api/v1/rardar/find-projects":
@@ -139,8 +162,25 @@ async def visual_state_fixture(request, call_next):
         )
     if mode == "not_configured":
         return JSONResponse(
-            status_code=503,
-            content={"detail": {"code": "rardar_intelligence_not_configured", "message": "visual state"}},
+            content={
+                "state": "not_synced",
+                "reason": "real_data_not_synced",
+                "generationId": None,
+                "publishedAt": None,
+                "capturedAt": None,
+                "window": None,
+                "coverage": None,
+                "exactRanked": [],
+                "pendingRanked": [],
+                "conflictCount": 0,
+                "sourceStatus": None,
+                "dataMode": "real",
+                "dataLabel": "真实数据尚未同步",
+                "syncedAt": None,
+                "sourceHost": None,
+                "manifestSha256": None,
+                "artifactSha256": None,
+            }
         )
     if mode in {"warming_up", "baseline_missing"}:
         try:

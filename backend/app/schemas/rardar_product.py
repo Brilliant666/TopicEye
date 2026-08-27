@@ -16,44 +16,92 @@ class StrictProductModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
+class ReuseType(StrEnum):
+    WHOLE_PRODUCT = "whole_product"
+    MODULE_LIBRARY = "module_library"
+    PROVIDER_CONNECTOR = "provider_connector"
+    WORKFLOW = "workflow"
+    REFERENCE_ONLY = "reference_only"
+    NOT_RECOMMENDED = "not_recommended"
+
+
 class ProjectExplanationRequest(StrictProductModel):
     repository: str = Field(min_length=3, max_length=200, pattern=_REPOSITORY.pattern)
     generationId: str = Field(min_length=1, max_length=128)
 
 
-class ProjectExplanation(StrictProductModel):
-    summaryZh: str = Field(min_length=2, max_length=360)
-    whyWorthWatching: str = Field(min_length=2, max_length=700)
-    reuseIdeas: list[str] = Field(min_length=1, max_length=5)
-    risks: list[str] = Field(min_length=1, max_length=5)
+class EvidenceBackedText(StrictProductModel):
+    text: str = Field(min_length=2, max_length=600)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=5)
 
-    @field_validator("reuseIdeas", "risks")
+    @field_validator("evidenceRefs")
     @classmethod
     def _bounded_items(cls, values: list[str]) -> list[str]:
-        if any(not value.strip() or len(value) > 300 for value in values):
-            raise ValueError("items must be non-empty and bounded")
+        if len(set(values)) != len(values) or any(not value.strip() or len(value) > 240 for value in values):
+            raise ValueError("evidence refs must be unique and bounded")
         return values
 
 
+class OfficialIntro(EvidenceBackedText):
+    sourceLabel: Literal["官方介绍", "官方介绍（译）", "AI受限概括"]
+
+
+class ReusableAsset(StrictProductModel):
+    reuseType: ReuseType
+    asset: str = Field(min_length=2, max_length=300)
+    howToUse: str = Field(min_length=2, max_length=500)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=5)
+
+    @field_validator("evidenceRefs")
+    @classmethod
+    def _bounded_refs(cls, values: list[str]) -> list[str]:
+        if len(set(values)) != len(values) or any(not value.strip() or len(value) > 240 for value in values):
+            raise ValueError("evidence refs must be unique and bounded")
+        return values
+
+
+class StartHere(StrictProductModel):
+    label: str = Field(min_length=2, max_length=200)
+    path: str = Field(min_length=1, max_length=240)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=5)
+
+    @field_validator("evidenceRefs")
+    @classmethod
+    def _bounded_refs(cls, values: list[str]) -> list[str]:
+        if len(set(values)) != len(values) or any(not value.strip() or len(value) > 240 for value in values):
+            raise ValueError("evidence refs must be unique and bounded")
+        return values
+
+
+class ProjectExplanation(StrictProductModel):
+    officialIntro: OfficialIntro
+    coreHighlights: list[EvidenceBackedText] = Field(min_length=1, max_length=3)
+    reusableAssets: list[ReusableAsset] = Field(min_length=1, max_length=3)
+    startHere: list[StartHere] = Field(min_length=1, max_length=3)
+    implementationBoundaries: list[EvidenceBackedText] = Field(default_factory=list, max_length=3)
+
+
 class ProjectExplanationResponse(StrictProductModel):
-    state: Literal["ready", "plain", "unavailable"]
+    state: Literal["ready", "unavailable"]
     repository: str
     generationId: str
-    promptVersion: Literal["rardar-project-explanation-v1"]
-    format: Literal["structured", "bounded_text", "none"]
+    promptVersion: Literal["rardar-project-insight-v2"]
+    schemaVersion: Literal["rardar-project-insight-schema-v2"]
+    format: Literal["structured", "none"]
+    officialIntro: OfficialIntro
     analysis: ProjectExplanation | None = None
-    plainText: str | None = Field(default=None, max_length=1800)
     errorCode: str | None = Field(default=None, max_length=100)
     model: str | None = Field(default=None, max_length=200)
     provider: str | None = Field(default=None, max_length=100)
     cacheHit: bool = False
+    evidenceDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    evidenceCacheHit: bool = False
+    evidenceKinds: list[str] = Field(min_length=1, max_length=160)
 
     @model_validator(mode="after")
     def _state_matches_payload(self) -> ProjectExplanationResponse:
         if self.state == "ready" and (self.analysis is None or self.format != "structured"):
             raise ValueError("ready explanation requires structured analysis")
-        if self.state == "plain" and (not self.plainText or self.format != "bounded_text"):
-            raise ValueError("plain explanation requires bounded text")
         if self.state == "unavailable" and (not self.errorCode or self.format != "none"):
             raise ValueError("unavailable explanation requires a stable error code")
         return self
@@ -97,15 +145,6 @@ class QuickProjectCandidate(StrictProductModel):
     htmlUrl: HttpUrl
     preliminaryMatch: str = Field(min_length=2, max_length=400)
     dataState: Literal["github_live", "local_demo"]
-
-
-class ReuseType(StrEnum):
-    WHOLE_PRODUCT = "whole_product"
-    MODULE_LIBRARY = "module_library"
-    PROVIDER_CONNECTOR = "provider_connector"
-    WORKFLOW = "workflow"
-    REFERENCE_ONLY = "reference_only"
-    NOT_RECOMMENDED = "not_recommended"
 
 
 class ComparedProject(StrictProductModel):

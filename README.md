@@ -173,18 +173,31 @@ Full config in [backend/app/services/scoring_engine.py](backend/app/services/sco
 
 Rardar reuses the existing TopicEye PostgreSQL cluster and the enabled
 `routing_group=rardar` model; it never creates a replacement database or
-rewrites model credentials. From the repository root run:
+rewrites model credentials. Real Rardar intelligence is the default. Sync one
+fully audited published generation into the repository-external local mirror,
+then start the product:
 
 ```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 sync-data
 powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 start
 ```
 
-The command starts the existing PostgreSQL cluster when needed, then the
-backend in Rardar product mode and the frontend at
-`http://127.0.0.1:3000/`. Local demo data is an explicit development-only
-fallback and is visibly labelled; production never enables it implicitly.
-Use the same command with `status` or `stop` to inspect or stop the app
-processes. The existing PostgreSQL data is preserved on stop.
+`sync-data` reads the configured `rardar-prod` host without changing it,
+verifies one stable `current.json` pointer, its ready manifest, every required
+artifact hash and source copy, stages an immutable generation below
+`%LOCALAPPDATA%\TopicEye\rardar-intelligence`, and atomically switches the
+local pointer. A failed or interrupted sync leaves the last verified local
+generation active. The command never reads D1 or credentials and never writes
+Production.
+
+`start` starts the existing PostgreSQL cluster when needed, then the backend
+in Rardar product mode and the frontend at `http://127.0.0.1:3000/`. If no
+verified local mirror exists, the real API returns an explicit `not_synced`
+state instead of silently substituting sample projects. Demo data is available
+only when a developer explicitly sets `RARDAR_DATA_MODE=demo`; it remains
+development-only and visibly labelled. Use the same command with `status` or
+`stop` to inspect or stop the app processes. Existing PostgreSQL data, model
+configuration and the mirrored generations are preserved on stop.
 
 ### Prerequisites
 

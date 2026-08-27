@@ -8,6 +8,8 @@ const RARDAR_NAVIGATION = Object.freeze([
 ]);
 
 const RARDAR_INTERNAL_HOME = '/rardar-foundation';
+const TOPICEYE_PROXY_TIMEOUT_MS = 120000;
+const RARDAR_PROXY_TIMEOUT_MS = 300000;
 const RARDAR_ROUTE_VISIBILITY = Object.freeze({
   ALLOW: 'ALLOW',
   HIDE_FROM_NAV: 'HIDE_FROM_NAV',
@@ -45,6 +47,10 @@ function resolveProductProfile(value) {
   );
 }
 
+function resolveProxyTimeoutMs(value) {
+  return parseRardarProductMode(value) ? RARDAR_PROXY_TIMEOUT_MS : TOPICEYE_PROXY_TIMEOUT_MS;
+}
+
 function matchesPath(pathname, route) {
   if (route === '/') return pathname === '/';
   return pathname === route || pathname.startsWith(`${route}/`);
@@ -78,4 +84,5 @@ module.exports = {
   parseRardarProductMode,
   rardarRouteVisibility,
   resolveProductProfile,
+  resolveProxyTimeoutMs,
 };

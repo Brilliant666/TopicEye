@@ -30,7 +30,10 @@ def _cache_headers(response: Response, etag: str) -> None:
 
 def _not_modified(request: Request, etag: str) -> Response | None:
     if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": _SERVING_CACHE_CONTROL})
+        return Response(
+            status_code=304,
+            headers={"ETag": etag, "Cache-Control": _SERVING_CACHE_CONTROL, "Vary": "Accept"},
+        )
     return None
 
 

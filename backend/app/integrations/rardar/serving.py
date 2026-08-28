@@ -709,6 +709,11 @@ class ServingProjectionLoader:
         bundle = self._current_bundle()
         return bundle.today, f'"{bundle.manifest.today.sha256}"'
 
+    @staticmethod
+    def _project_etag(bundle: _CachedBundle, identifier: str) -> str:
+        identity = f"{bundle.manifest.projects[identifier].sha256}:{bundle.manifest.evidence[identifier].sha256}"
+        return f'"{_sha(identity.encode("ascii"))}"'
+
     def load_project_with_etag(
         self,
         github_repository_id: int,
@@ -720,8 +725,7 @@ class ServingProjectionLoader:
         with _CACHE_LOCK:
             cached = bundle.project_details.get(github_repository_id)
             if cached:
-                record = bundle.manifest.projects[str(github_repository_id)]
-                return cached, f'"{record.sha256}"'
+                return cached, self._project_etag(bundle, str(github_repository_id))
             identifier = str(github_repository_id)
             project_file = bundle.manifest.projects.get(identifier)
             evidence_file = bundle.manifest.evidence.get(identifier)
@@ -770,7 +774,7 @@ class ServingProjectionLoader:
                 evidence=evidence,
             )
             bundle.project_details[github_repository_id] = detail
-            return detail, f'"{project_file.sha256}"'
+            return detail, self._project_etag(bundle, identifier)
 
 
 def source_hashes(root: Path, generation_id: str) -> tuple[str, str]:

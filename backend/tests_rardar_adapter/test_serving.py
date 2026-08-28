@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from collections import Counter
@@ -96,6 +97,22 @@ def test_raw_artifact_builds_small_bound_projection_in_original_order(tmp_path: 
         *(f"evidence/{item.githubRepositoryId}.json" for item in board.exactRanked[:20]),
     }
     assert etag.startswith('"') and etag.endswith('"')
+
+
+def test_project_etag_binds_both_profile_record_and_evidence(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    built = _build(root)
+    install_serving_projection(root, built)
+    today, _ = ServingProjectionLoader(root).load_today_with_etag()
+    identifier = str(today.exactRanked[0].githubRepositoryId)
+    detail, etag = ServingProjectionLoader(root).load_project_with_etag(int(identifier), today.generationId)
+    manifest = json.loads(built.files["manifest.json"])
+    expected = hashlib.sha256(
+        (manifest["projects"][identifier]["sha256"] + ":" + manifest["evidence"][identifier]["sha256"]).encode("ascii")
+    ).hexdigest()
+
+    assert detail.evidence.digest == detail.profile.evidenceDigest
+    assert etag == f'"{expected}"'
 
 
 def test_warm_today_load_reads_only_pointer_and_never_raw_source_captures(

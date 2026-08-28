@@ -30,6 +30,10 @@ class ProjectExplanationRequest(StrictProductModel):
     generationId: str = Field(min_length=1, max_length=128)
 
 
+class ProjectInsightRequest(StrictProductModel):
+    generationId: str = Field(min_length=1, max_length=128)
+
+
 class EvidenceBackedText(StrictProductModel):
     text: str = Field(min_length=2, max_length=600)
     evidenceRefs: list[str] = Field(min_length=1, max_length=5)
@@ -84,6 +88,7 @@ class ProjectExplanation(StrictProductModel):
 class ProjectExplanationResponse(StrictProductModel):
     state: Literal["ready", "unavailable"]
     repository: str
+    githubRepositoryId: int | None = Field(default=None, gt=0)
     generationId: str
     promptVersion: Literal["rardar-project-insight-v2"]
     schemaVersion: Literal["rardar-project-insight-schema-v2"]

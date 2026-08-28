@@ -9,6 +9,7 @@ $BackendRoot = Join-Path $RepoRoot "backend"
 $FrontendRoot = Join-Path $RepoRoot "frontend"
 $RuntimeRoot = Join-Path $env:TEMP ("rardar-mvp-e2e-" + [guid]::NewGuid().ToString("N"))
 $ModeFile = Join-Path $RuntimeRoot "mode.txt"
+$MirrorRoot = Join-Path $RuntimeRoot "rardar-intelligence"
 $Python = Join-Path $env:LOCALAPPDATA "TopicEyeRardarLLMControl\venv-20260826\Scripts\python.exe"
 $Node = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
 
@@ -23,17 +24,41 @@ if (Get-NetTCPConnection -LocalPort $FrontendPort, $BackendPort -State Listen -E
 
 New-Item -ItemType Directory -Path $RuntimeRoot | Out-Null
 [IO.File]::WriteAllText($ModeFile, "ready`n", [Text.UTF8Encoding]::new($false))
+New-Item -ItemType Directory -Path $MirrorRoot | Out-Null
+Copy-Item -Path (Join-Path $BackendRoot "tests\fixtures\rardar_intelligence\revision-a\*") -Destination $MirrorRoot -Recurse
+
+# Next's persistent fetch cache must not leak a prior E2E mode into this run.
+# The path is verified before deleting generated build output.
+$nextOutput = Join-Path $FrontendRoot ".next"
+if (Test-Path -LiteralPath $nextOutput) {
+    $resolvedNextOutput = (Resolve-Path -LiteralPath $nextOutput).Path
+    if (
+        (Split-Path $resolvedNextOutput -Parent) -ne $FrontendRoot `
+        -or (Split-Path $resolvedNextOutput -Leaf) -ne ".next"
+    ) {
+        throw "Refusing to remove an unexpected Next output path: $resolvedNextOutput"
+    }
+    Remove-Item -LiteralPath $resolvedNextOutput -Recurse -Force
+}
 
 $env:PYTHONPATH = $BackendRoot
 $env:DATABASE_URL = "postgresql+asyncpg://adapter:adapter@127.0.0.1:5432/adapter"
 $env:RARDAR_PRODUCT_MODE = "true"
 $env:RARDAR_DATA_MODE = "real"
 $env:RARDAR_DEMO_DATA_ENABLED = "false"
-$env:RARDAR_INTELLIGENCE_DATA_DIR = (Resolve-Path (Join-Path $BackendRoot "tests\fixtures\rardar_intelligence\revision-a")).Path
+$env:RARDAR_INTELLIGENCE_DATA_DIR = $MirrorRoot
 $env:RARDAR_ADAPTER_TEST_MODE_FILE = $ModeFile
 $env:BACKEND_API_URL = "http://127.0.0.1:$BackendPort"
 $env:RARDAR_E2E_BASE_URL = "http://127.0.0.1:$FrontendPort"
 $env:RARDAR_E2E_MODE_FILE = $ModeFile
+
+Push-Location $BackendRoot
+try {
+    & $Python -m scripts.rebuild_rardar_serving --target $MirrorRoot --translate-top 0 --offline
+    if ($LASTEXITCODE -ne 0) { throw "Could not build the isolated Serving Projection." }
+} finally {
+    Pop-Location
+}
 
 $backend = $null
 $frontend = $null
@@ -74,7 +99,7 @@ try {
     do {
         Start-Sleep -Milliseconds 500
         try {
-            $ready = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$FrontendPort/" -TimeoutSec 2).StatusCode -eq 200
+            $ready = (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$FrontendPort/api/health" -TimeoutSec 2).StatusCode -eq 200
         } catch {
             $ready = $false
         }

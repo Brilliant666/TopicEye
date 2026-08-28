@@ -175,7 +175,7 @@ Rardar reuses the existing TopicEye PostgreSQL cluster and the enabled
 `routing_group=rardar` model; it never creates a replacement database or
 rewrites model credentials. Real Rardar intelligence is the default. Sync one
 fully audited published generation into the repository-external local mirror,
-then start the product:
+build its immutable read-optimized Serving Projection, then start the product:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 sync-data
@@ -185,19 +185,41 @@ powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 start
 `sync-data` reads the configured `rardar-prod` host without changing it,
 verifies one stable `current.json` pointer, its ready manifest, every required
 artifact hash and source copy, stages an immutable generation below
-`%LOCALAPPDATA%\TopicEye\rardar-intelligence`, and atomically switches the
-local pointer. A failed or interrupted sync leaves the last verified local
-generation active. The command never reads D1 or credentials and never writes
-Production.
+`%LOCALAPPDATA%\TopicEye\rardar-intelligence`, builds and validates `serving/`
+from that exact source generation, then atomically switches the raw and Serving
+pointers. A failed or interrupted sync restores both old pointers so a page
+cannot mix generations. The command never reads D1 or credentials and never
+writes Production.
+
+Serving contains a small `today.json`, one project profile and one static
+evidence record per Top 20 repository. Normal Today and project-detail requests
+verify only the Serving pointer, manifest, selected file hash and strict Schema;
+they do not repeat the full raw Artifact audit, call GitHub or invoke an LLM.
+The loader caches the verified DTO by pointer identity, emits an ETag, and
+invalidates safely when the pointer changes. Rebuild the projection from the
+already verified local generation without contacting Production:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 rebuild-serving
+```
+
+Today links each repository to
+`/project/github/<githubRepositoryId>?generation=<generationId>`. The numeric
+GitHub repository ID is authoritative and the generation query binds the
+official profile, static evidence and 24-hour facts to the same immutable
+snapshot. AI deep insight is an explicit action on that detail page and uses the
+saved evidence; the Find Project action safely pre-fills the canonical public
+GitHub URL.
 
 `start` starts the existing PostgreSQL cluster when needed, then the backend
-in Rardar product mode and the frontend at `http://127.0.0.1:3000/`. If no
-verified local mirror exists, the real API returns an explicit `not_synced`
-state instead of silently substituting sample projects. Demo data is available
-only when a developer explicitly sets `RARDAR_DATA_MODE=demo`; it remains
-development-only and visibly labelled. Use the same command with `status` or
-`stop` to inspect or stop the app processes. Existing PostgreSQL data, model
-configuration and the mirrored generations are preserved on stop.
+in Rardar product mode and the frontend at `http://127.0.0.1:3000/`. The
+frontend health probe uses `/api/health`, which does not load Rardar data. If no
+verified Serving Projection exists, the real API fails closed instead of
+silently substituting sample projects. Demo data is available only when a
+developer explicitly sets `RARDAR_DATA_MODE=demo`; it remains development-only
+and visibly labelled. Use the same command with `status` or `stop` to inspect or
+stop the app processes. Existing PostgreSQL data, model configuration and the
+mirrored generations are preserved on stop.
 
 ### Prerequisites
 

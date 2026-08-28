@@ -12,6 +12,9 @@ from pathlib import Path
 
 import httpx
 
+from app.integrations.rardar.adapter import RardarIntelligenceAdapter
+from app.integrations.rardar.serving import build_serving_projection, install_serving_projection, source_hashes
+
 FIXTURES = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_intelligence"
 BACKEND = Path(__file__).parents[1]
 
@@ -86,6 +89,24 @@ def _combined_root(tmp_path: Path) -> Path:
         FIXTURES / "revision-b" / "generations" / "fixture-explosion-b",
         root / "generations" / "fixture-explosion-b",
     )
+    for revision in ("fixture-explosion-a", "fixture-explosion-b"):
+        shutil.copyfile(
+            FIXTURES / ("revision-a" if revision.endswith("a") else "revision-b") / "current.json",
+            root / "current.json",
+        )
+        board = RardarIntelligenceAdapter.from_config(str(root)).load_explosion_board()
+        manifest_sha, explosion_sha = source_hashes(root, revision)
+        built = build_serving_projection(
+            board=board,
+            source_manifest_sha256=manifest_sha,
+            source_explosion_sha256=explosion_sha,
+            synced_at=None,
+            source_host=None,
+            cache_root=root / "profile-cache",
+        )
+        install_serving_projection(root, built)
+    shutil.copyfile(FIXTURES / "revision-a" / "current.json", root / "current.json")
+    shutil.copyfile(root / "serving" / "sources" / "fixture-explosion-a.json", root / "serving" / "current.json")
     return root
 
 
@@ -97,21 +118,21 @@ def test_real_http_pointer_switch_and_fail_closed_recovery(tmp_path: Path) -> No
         assert first.status_code == 200
         assert first.json()["generationId"] == "fixture-explosion-a"
 
-        staged = root / "current.next.json"
-        shutil.copyfile(FIXTURES / "revision-b" / "current.json", staged)
-        os.replace(staged, root / "current.json")
+        staged = root / "serving" / "current.next.json"
+        shutil.copyfile(root / "serving" / "sources" / "fixture-explosion-b.json", staged)
+        os.replace(staged, root / "serving" / "current.json")
         second = client.get(f"{url}{endpoint}", timeout=10)
         assert second.status_code == 200
         assert second.json()["generationId"] == "fixture-explosion-b"
 
-        healthy_pointer = (root / "current.json").read_bytes()
-        (root / "current.json").write_bytes(b"{broken\n")
+        healthy_pointer = (root / "serving" / "current.json").read_bytes()
+        (root / "serving" / "current.json").write_bytes(b"{broken\n")
         damaged = client.get(f"{url}{endpoint}", timeout=10)
         assert damaged.status_code == 503
-        assert damaged.json()["detail"]["code"] == "rardar_current_pointer_invalid"
+        assert damaged.json()["detail"]["code"] == "rardar_serving_pointer_invalid"
 
         staged.write_bytes(healthy_pointer)
-        os.replace(staged, root / "current.json")
+        os.replace(staged, root / "serving" / "current.json")
         recovered = client.get(f"{url}{endpoint}", timeout=10)
         assert recovered.status_code == 200
         assert recovered.json()["generationId"] == "fixture-explosion-b"
@@ -122,6 +143,28 @@ def test_real_http_default_topic_eye_mode_is_404(tmp_path: Path) -> None:
     with _server(root, rardar_mode=False) as url:
         response = httpx.get(f"{url}/api/v1/rardar/explosion-board", timeout=10, trust_env=False)
     assert response.status_code == 404
+
+
+def test_real_http_serving_today_and_project_are_etag_cached(tmp_path: Path) -> None:
+    root = _combined_root(tmp_path)
+    with _server(root) as url, httpx.Client(trust_env=False) as client:
+        today = client.get(f"{url}/api/v1/rardar/today", timeout=10)
+        assert today.status_code == 200
+        assert today.headers["cache-control"] == "private, max-age=15, stale-while-revalidate=45"
+        etag = today.headers["etag"]
+        cached = client.get(f"{url}/api/v1/rardar/today", headers={"If-None-Match": etag}, timeout=10)
+        assert cached.status_code == 304
+
+        payload = today.json()
+        project = payload["exactRanked"][0]
+        detail = client.get(
+            f"{url}/api/v1/rardar/projects/{project['githubRepositoryId']}",
+            params={"generationId": payload["generationId"]},
+            timeout=10,
+        )
+        assert detail.status_code == 200
+        assert detail.json()["profile"]["githubRepositoryId"] == project["githubRepositoryId"]
+        assert detail.headers["etag"]
 
 
 def test_real_http_rardar_mode_reports_unconfigured_data() -> None:

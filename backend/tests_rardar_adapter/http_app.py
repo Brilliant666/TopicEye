@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1.rardar import router
 from app.integrations.rardar import RardarArtifactError
-from app.services.rardar_intelligence import load_explosion_board
+from app.services.rardar_intelligence import load_explosion_board, load_today_snapshot
 
 app = FastAPI()
 app.include_router(router, prefix="/api/v1")
@@ -22,8 +22,10 @@ async def visual_state_fixture(request, call_next):
         return await call_next(request)
     path = Path(mode_path)
     mode = path.read_text(encoding="utf-8").strip() if path.exists() else "ready"
-    if request.url.path == "/api/v1/rardar/projects/explain":
+    if request.url.path.startswith("/api/v1/rardar/projects/") and request.url.path.endswith("/insight"):
         payload = await request.json()
+        github_repository_id = int(request.url.path.split("/")[-2])
+        repository = "fixture-lab/exact-1"
         official_intro = {
             "text": "一个经过官方资料约束的开源开发工具。",
             "sourceLabel": "官方介绍（译）",
@@ -33,7 +35,8 @@ async def visual_state_fixture(request, call_next):
             return JSONResponse(
                 content={
                     "state": "unavailable",
-                    "repository": payload["repository"],
+                    "repository": repository,
+                    "githubRepositoryId": github_repository_id,
                     "generationId": payload["generationId"],
                     "promptVersion": "rardar-project-insight-v2",
                     "schemaVersion": "rardar-project-insight-schema-v2",
@@ -45,14 +48,15 @@ async def visual_state_fixture(request, call_next):
                     "provider": None,
                     "cacheHit": False,
                     "evidenceDigest": "a" * 64,
-                    "evidenceCacheHit": False,
+                    "evidenceCacheHit": True,
                     "evidenceKinds": ["description", "readme:introduction", "tree:src"],
                 }
             )
         return JSONResponse(
             content={
                 "state": "ready",
-                "repository": payload["repository"],
+                "repository": repository,
+                "githubRepositoryId": github_repository_id,
                 "generationId": payload["generationId"],
                 "promptVersion": "rardar-project-insight-v2",
                 "schemaVersion": "rardar-project-insight-schema-v2",
@@ -79,7 +83,7 @@ async def visual_state_fixture(request, call_next):
                 "provider": "mock",
                 "cacheHit": False,
                 "evidenceDigest": "a" * 64,
-                "evidenceCacheHit": False,
+                "evidenceCacheHit": True,
                 "evidenceKinds": ["description", "readme:introduction", "tree:src"],
             }
         )
@@ -151,7 +155,7 @@ async def visual_state_fixture(request, call_next):
                 "cacheHit": False,
             }
         )
-    if request.url.path != "/api/v1/rardar/explosion-board":
+    if request.url.path not in {"/api/v1/rardar/explosion-board", "/api/v1/rardar/today"}:
         return await call_next(request)
     if mode in {"ready", "ai_error"}:
         return await call_next(request)
@@ -161,6 +165,8 @@ async def visual_state_fixture(request, call_next):
             content={"detail": {"code": "rardar_generation_invalid", "message": "visual negative control"}},
         )
     if mode == "not_configured":
+        if request.url.path == "/api/v1/rardar/today":
+            return JSONResponse(status_code=503, content={"detail": {"code": "rardar_serving_unavailable"}})
         return JSONResponse(
             content={
                 "state": "not_synced",
@@ -184,12 +190,24 @@ async def visual_state_fixture(request, call_next):
         )
     if mode in {"warming_up", "baseline_missing"}:
         try:
-            payload = load_explosion_board().model_dump(mode="json")
+            payload = (
+                load_today_snapshot()[0].model_dump(mode="json")
+                if request.url.path == "/api/v1/rardar/today"
+                else load_explosion_board().model_dump(mode="json")
+            )
         except RardarArtifactError as exc:
             return JSONResponse(status_code=503, content={"detail": {"code": exc.code, "message": str(exc)}})
         payload["state"] = mode
         payload["window"]["state"] = mode
         payload["exactRanked"] = []
         payload["coverage"]["exactCount"] = 0
+        if "profileSummary" in payload:
+            payload["profileSummary"] = {
+                "total": 0,
+                "complete": 0,
+                "partial": 0,
+                "sourceUnavailable": 0,
+                "chineseSummaries": 0,
+            }
         return JSONResponse(content=payload)
     return JSONResponse(status_code=500, content={"detail": {"code": "invalid_test_mode"}})

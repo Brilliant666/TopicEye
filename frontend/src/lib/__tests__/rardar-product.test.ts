@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { explainProject, findProjects, REUSE_TYPE_LABELS } from '@/lib/rardar-product';
+import { explainProject, explainProjectById, findProjects, REUSE_TYPE_LABELS } from '@/lib/rardar-product';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -40,6 +40,18 @@ describe('Rardar product client', () => {
       { requirement: '我需要一个可复用的视频工具', repositoryUrl: null },
       { requirement: '这个项目有哪些模块可以复用', repositoryUrl: 'https://github.com/owner/repository' },
     ]);
+  });
+
+  it('binds detail insight to numeric repository ID and generation only', async () => {
+    const fetcher = vi.fn(async (path: string, init: RequestInit) => {
+      expect(path).toBe('/api/v1/rardar/projects/1211139949/insight');
+      expect(JSON.parse(String(init.body))).toEqual({ generationId: 'generation-v2' });
+      return new Response(JSON.stringify({ state: 'unavailable' }), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetcher);
+
+    await explainProjectById(1211139949, 'generation-v2');
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it('provides Chinese labels for all six approved reuse types', () => {

@@ -119,14 +119,15 @@ def test_demo_board_is_explicit_and_never_used_in_production() -> None:
 
 
 def test_demo_board_never_masks_a_damaged_configured_generation(tmp_path) -> None:
-    (tmp_path / "current.json").write_text("{broken", encoding="utf-8")
+    (tmp_path / "serving").mkdir()
+    (tmp_path / "serving" / "current.json").write_text("{broken", encoding="utf-8")
     config = _settings(demo=False)
     config.RARDAR_INTELLIGENCE_DATA_DIR = str(tmp_path)
 
-    with pytest.raises(RardarArtifactError, match="current pointer") as caught:
+    with pytest.raises(RardarArtifactError, match="strict validation") as caught:
         load_explosion_board(config)
 
-    assert caught.value.code == "rardar_current_pointer_invalid"
+    assert caught.value.code == "rardar_serving_pointer_invalid"
 
 
 @pytest.mark.asyncio
@@ -156,6 +157,33 @@ async def test_project_explanation_binds_prompt_and_cache_to_facts(monkeypatch: 
     assert "local-demo-explosion-v1" not in calls[0]["messages"][1]["content"]
     assert "observedStarDelta" not in calls[0]["messages"][1]["content"]
     assert response.analysis and response.analysis.startHere[0].path == "pyproject.toml"
+
+
+@pytest.mark.asyncio
+async def test_stable_project_insight_uses_saved_static_evidence_without_github(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict] = []
+
+    async def structured(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(value=_insight(), metadata=_metadata(cached=True))
+
+    async def forbidden_github(*_args, **_kwargs):
+        raise AssertionError("detail insight must not call GitHub")
+
+    detail = SimpleNamespace(project=SimpleNamespace(repository="fixture/repository"))
+    monkeypatch.setattr(rardar_product, "load_project_detail", lambda *_args: (detail, '"etag"'))
+    monkeypatch.setattr(rardar_product, "_static_project_evidence", lambda _detail: _evidence(cached=True))
+    monkeypatch.setattr(rardar_product, "collect_project_evidence", forbidden_github)
+    monkeypatch.setattr(rardar_product, "call_rardar_structured", structured)
+
+    response = await rardar_product.explain_project_by_id(1211139949, "generation-v2", _settings())
+
+    assert response.state == "ready"
+    assert response.githubRepositoryId == 1211139949
+    assert response.evidenceCacheHit is True
+    assert calls and "projectEvidence=" in calls[0]["messages"][1]["content"]
 
 
 async def _async(value):

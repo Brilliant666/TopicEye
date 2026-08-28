@@ -448,6 +448,7 @@ class RardarIntelligenceAdapter:
                 "description": observation["description"],
                 "forks": observation["forks"],
                 "pushedAt": observation["pushedAt"],
+                "defaultBranch": observation["defaultBranch"],
                 "licenseSpdxId": observation["licenseSpdxId"],
             }
 

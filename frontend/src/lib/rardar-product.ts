@@ -1,6 +1,7 @@
 export type ProjectExplanation = {
   state: 'ready' | 'unavailable';
   repository: string;
+  githubRepositoryId: number | null;
   generationId: string;
   promptVersion: 'rardar-project-insight-v2';
   schemaVersion: 'rardar-project-insight-schema-v2';
@@ -114,6 +115,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function explainProject(repository: string, generationId: string) {
   return postJson<ProjectExplanation>('/api/v1/rardar/projects/explain', { repository, generationId });
+}
+
+export function explainProjectById(githubRepositoryId: number, generationId: string) {
+  return postJson<ProjectExplanation>(`/api/v1/rardar/projects/${githubRepositoryId}/insight`, { generationId });
 }
 
 export function findProjects(requirement: string, repositoryUrl: string | null) {

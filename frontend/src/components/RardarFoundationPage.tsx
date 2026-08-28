@@ -19,11 +19,14 @@ import { isRardarProduct } from '@/lib/product-profile';
 import { RARDAR_FOUNDATION_PAGES, type RardarFoundationPageKey } from '@/lib/rardar-foundation';
 import {
   loadExplosionBoard,
+  loadTodaySnapshot,
   type ExplosionBoard,
   type ExplosionBoardLoadResult,
   type ExplosionWindow,
-  type ExactExplosionProject,
   type PendingExplosionProject,
+  type TodayLoadResult,
+  type TodayProject,
+  type TodaySnapshot,
 } from '@/lib/rardar-intelligence';
 import styles from './RardarFoundation.module.css';
 import RardarProjectExplanation from './RardarProjectExplanation';
@@ -31,7 +34,7 @@ import RardarProjectExplanation from './RardarProjectExplanation';
 export default async function RardarFoundationPage({ pageKey }: { pageKey: RardarFoundationPageKey }) {
   if (!isRardarProduct()) notFound();
 
-  if (pageKey === 'today') return <TodayFoundation result={await loadExplosionBoard()} />;
+  if (pageKey === 'today') return <TodayFoundation result={await loadTodaySnapshot()} />;
   if (pageKey === 'discover') return <DiscoverFoundation result={await loadExplosionBoard()} />;
 
   const page = RARDAR_FOUNDATION_PAGES[pageKey];
@@ -51,15 +54,14 @@ export default async function RardarFoundationPage({ pageKey }: { pageKey: Rarda
   );
 }
 
-export function TodayFoundation({ result }: { result: ExplosionBoardLoadResult }) {
+export function TodayFoundation({ result }: { result: TodayLoadResult }) {
   const board = result.kind === 'published' ? result.board : null;
-  const isDemo = board?.dataMode === 'demo';
 
   return (
     <div className={styles.page} data-rardar-route="/">
       <section className={styles.hero}>
         <div className={styles.heroContent}>
-          <p className={styles.eyebrow}>{isDemo ? 'Today · Local Demo Data' : 'Today · Exact 24h'}</p>
+          <p className={styles.eyebrow}>Today · Exact 24h</p>
           <h1 className={styles.heroTitle}>
             过去完整 24 小时，哪些项目获得了
             <span className={styles.heroTitleAccent}>最多新增关注？</span>
@@ -69,9 +71,9 @@ export function TodayFoundation({ result }: { result: ExplosionBoardLoadResult }
             名次严格保持 Artifact 的 observedStarDelta 顺序，AI 不参与排名、过滤或补齐。
           </p>
           <div className={styles.foundationNotice}>
-            <span className={`${styles.noticePill} ${isDemo ? styles.noticePillWarning : ''}`}>
+            <span className={styles.noticePill}>
               <ShieldCheck size={15} aria-hidden="true" />
-              {isDemo ? '本地演示数据 · 非实时榜' : board?.dataLabel || '真实数据模式'}
+              {board?.dataLabel || '真实数据模式'}
             </span>
             <span className={styles.noticePill}>
               <Sparkles size={15} aria-hidden="true" /> AI 解读按需生成，不改变事实名次
@@ -90,13 +92,12 @@ export function TodayFoundation({ result }: { result: ExplosionBoardLoadResult }
   );
 }
 
-function TodayState({ result }: { result: ExplosionBoardLoadResult }) {
+function TodayState({ result }: { result: TodayLoadResult }) {
   if (result.kind === 'not_configured') return <NotSyncedCard />;
   if (result.kind === 'error') {
     return <StatusCard icon={AlertTriangle} title="真实情报数据暂时不可用" detail={`已安全停止读取 · ${result.code}`} tone="danger" />;
   }
   const board = result.board;
-  if (board.state === 'not_synced') return <NotSyncedCard />;
   if (board.state === 'not_ready') {
     return <StatusCard icon={Clock3} title="今日爆发事实尚未发布" detail="当前 generation 健康，但尚未包含 Explosion Artifact。" />;
   }
@@ -209,26 +210,35 @@ function DiscoverState({ result }: { result: ExplosionBoardLoadResult }) {
   );
 }
 
-function ExactProjectCard({ project, generationId }: { project: ExactExplosionProject; generationId: string }) {
+function ExactProjectCard({ project, generationId }: { project: TodayProject; generationId: string }) {
   const relativeGrowth = project.baselineStars > 0 ? project.observedStarDelta / project.baselineStars : null;
+  const detailHref = `/project/github/${project.githubRepositoryId}?generation=${encodeURIComponent(generationId)}`;
   return (
     <article className={styles.rankingCard}>
       <div className={styles.rank}>#{project.rank}</div>
       <div className={styles.projectIdentity}>
-        <a href={project.htmlUrl} target="_blank" rel="noreferrer" className={styles.repository}>
-          <FolderGit2 size={18} aria-hidden="true" /> {project.repository} <ArrowUpRight size={15} aria-hidden="true" />
-        </a>
-        <p className={styles.projectDescription}>{project.description || 'GitHub 暂未提供官方 Description。'}</p>
+        <Link href={detailHref} className={styles.repository}>
+          <FolderGit2 size={18} aria-hidden="true" /> {project.repository} <ArrowRight size={15} aria-hidden="true" />
+        </Link>
+        <p className={styles.projectDescription}>{project.officialSummaryZh}</p>
+        {project.capabilityBulletsZh.length > 0 && (
+          <ul className={styles.capabilityList}>
+            {project.capabilityBulletsZh.slice(0, 4).map((capability) => <li key={capability}>{capability}</li>)}
+          </ul>
+        )}
         <div className={styles.tags}>
           {project.primaryLanguage && <span>{project.primaryLanguage}</span>}
           {project.topics.slice(0, 3).map((topic) => <span key={topic}>{topic}</span>)}
           {project.licenseSpdxId && <span>{project.licenseSpdxId}</span>}
+          <span>{project.sourceLabel}</span>
           <span>事实 · 精确 24h</span>
           {relativeGrowth !== null && <span>相对增长 {(relativeGrowth * 100).toFixed(1)}%</span>}
         </div>
         <div className={styles.cardActions}>
-          <RardarProjectExplanation repository={project.repository} generationId={generationId} />
-          <FindPrefillLink htmlUrl={project.htmlUrl} />
+          <Link className={styles.findPrefillLink} href={detailHref}>查看项目详情 <ArrowRight size={14} /></Link>
+          <a className={styles.githubLink} href={project.htmlUrl} target="_blank" rel="noreferrer">
+            GitHub <ArrowUpRight size={14} />
+          </a>
         </div>
       </div>
       <div className={styles.starFacts}>
@@ -264,7 +274,10 @@ function PendingProjectCard({ project, generationId }: { project: PendingExplosi
         {project.licenseSpdxId && <span>{project.licenseSpdxId}</span>}
       </div>
       <div className={styles.cardActions}>
-        <RardarProjectExplanation repository={project.repository} generationId={generationId} />
+        <RardarProjectExplanation
+          repository={project.repository}
+          generationId={generationId}
+        />
         <FindPrefillLink htmlUrl={project.htmlUrl} />
       </div>
     </article>
@@ -297,7 +310,7 @@ function NotSyncedCard() {
   );
 }
 
-function Provenance({ board }: { board: ExplosionBoard }) {
+function Provenance({ board }: { board: ExplosionBoard | TodaySnapshot }) {
   return (
     <section className={styles.provenanceBar} aria-label="真实数据来源和 generation">
       <div><ShieldCheck size={18} /><span>{board.dataLabel}</span></div>

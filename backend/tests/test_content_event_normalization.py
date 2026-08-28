@@ -49,7 +49,10 @@ async def _content(
     source_name: str,
     owner_user_id: int | None = None,
 ) -> ContentItem:
-    moment = datetime(2026, 7, 29, 8, tzinfo=UTC) + timedelta(hours=hour)
+    # Keep fixtures inside the requested 30-day scan window regardless of the
+    # calendar date on which CI runs. The former fixed date expired on
+    # 2026-08-28 and made otherwise unrelated pull requests fail over time.
+    moment = datetime.now(UTC) - timedelta(hours=24 - hour)
     content = ContentItem(
         title=title,
         url=f"https://example.com/{source_name}/{hour}",

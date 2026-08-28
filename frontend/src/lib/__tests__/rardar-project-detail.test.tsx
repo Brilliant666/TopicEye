@@ -5,7 +5,7 @@ import RardarProjectDetailPage from '@/components/RardarProjectDetailPage';
 import { loadProjectDetail, parseProjectDetail, type ProjectDetail } from '@/lib/rardar-intelligence';
 
 const detail: ProjectDetail = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   generationId: 'generation-v1',
   servingGenerationId: 'generation-v1--serving',
   project: {
@@ -37,8 +37,8 @@ const detail: ProjectDetail = {
     translationState: 'translated',
   },
   profile: {
-    profileSchemaVersion: 'rardar-project-profile-v1',
-    promptVersion: 'rardar-project-profile-zh-v1',
+    profileSchemaVersion: 'rardar-project-profile-v2',
+    promptVersion: 'rardar-project-profile-zh-v3',
     githubRepositoryId: 1211139949,
     repository: 'tt-a1i/archify',
     htmlUrl: 'https://github.com/tt-a1i/archify',
@@ -48,6 +48,8 @@ const detail: ProjectDetail = {
     sourceLabel: '官方 README（译）',
     sourceLanguage: 'en',
     capabilityBulletsZh: ['生成独立 HTML / SVG 架构图', '对比架构快照变化', '追踪节点对应的代码路径'],
+    productFormsZh: ['Agent Skill', 'Node.js 渲染/校验工具'],
+    supportedEnvironmentsZh: ['Raven', 'Cursor', 'Claude Code', 'Codex CLI'],
     primaryUseCasesZh: ['理解陌生代码库的系统结构'],
     deliveryFormsZh: ['独立 HTML', 'SVG'],
     claimEvidenceRefs: { '根据代码仓库生成可交互架构图，并保留路径证据。': ['readme:section:1'] },
@@ -66,6 +68,11 @@ const detail: ProjectDetail = {
     generatedAt: '2026-08-28T01:00:00Z',
     translationState: 'translated',
   },
+  coverage: {
+    state: 'degraded', successfulQueryCount: 8, failedQueryCount: 1, metadataFailureCount: 1,
+    exactCount: 20, pendingCount: 12, conflictCount: 14,
+  },
+  conflictCount: 14,
   evidence: {
     schemaVersion: 1,
     githubRepositoryId: 1211139949,
@@ -90,9 +97,15 @@ describe('Rardar project detail', () => {
     expect(html).toContain('tt-a1i/archify');
     expect(html).toContain('根据代码仓库生成可交互架构图');
     expect(html).toContain('生成独立 HTML / SVG 架构图');
+    expect(html).toContain('Agent Skill');
+    expect(html).toContain('Claude Code');
+    expect(html).toContain('独立 HTML');
     expect(html).toContain('今日为什么出现在这里');
     expect(html).toContain('+5,246');
     expect(html).toContain('README.md#overview');
+    expect(html).toContain('查看官方原文与版本来源');
+    expect(html).toContain('1 个 metadata failure');
+    expect(html).toContain('14 个负增长冲突');
     expect(html).toContain('生成 AI 深度解读');
     expect(html).toContain('/find?repositoryUrl=https%3A%2F%2Fgithub.com%2Ftt-a1i%2Farchify');
     expect(html).not.toContain('稳定性仍需验证');
@@ -106,6 +119,28 @@ describe('Rardar project detail', () => {
       ...detail,
       profile: { ...detail.profile, githubRepositoryId: 7 },
     })).toThrow('rardar_project_response_invalid');
+  });
+
+  it('keeps a v1 Serving detail readable while defaulting new evidence-backed fields to hidden', () => {
+    const legacy = {
+      ...detail,
+      schemaVersion: 1,
+      profile: {
+        ...detail.profile,
+        profileSchemaVersion: 'rardar-project-profile-v1',
+        promptVersion: 'rardar-project-profile-zh-v2',
+        productFormsZh: undefined,
+        supportedEnvironmentsZh: undefined,
+      },
+      coverage: undefined,
+      conflictCount: undefined,
+    };
+
+    const parsed = parseProjectDetail(legacy);
+    expect(parsed.profile.productFormsZh).toEqual([]);
+    expect(parsed.profile.supportedEnvironmentsZh).toEqual([]);
+    expect(parsed.coverage).toBeNull();
+    expect(parsed.conflictCount).toBe(0);
   });
 
   it('loads an immutable detail by numeric identity and encoded generation', async () => {

@@ -154,7 +154,7 @@ def _fallback_profiles(
         evidence = ProjectEvidenceProjection.model_validate(evidence_payload, strict=True)
         ref = "description" if description else "repository"
         profile = OfficialProjectProfile(
-            profileSchemaVersion="rardar-project-profile-v1",
+            profileSchemaVersion="rardar-project-profile-v2",
             promptVersion="rardar-project-profile-zh-v1",
             githubRepositoryId=project.githubRepositoryId,
             repository=project.repository,
@@ -165,6 +165,8 @@ def _fallback_profiles(
             sourceLabel=source_label,
             sourceLanguage=source_language,
             capabilityBulletsZh=[],
+            productFormsZh=[],
+            supportedEnvironmentsZh=[],
             primaryUseCasesZh=[],
             deliveryFormsZh=[],
             claimEvidenceRefs={summary: [ref]},
@@ -269,17 +271,19 @@ def build_serving_projection(
         )
         today_projects.append(today_project)
         record = ServingProjectRecord(
-            schemaVersion=1,
+            schemaVersion=2,
             generationId=generation_id,
             servingGenerationId=serving_generation_id,
             project=today_project,
             profile=profile,
+            coverage=board.coverage,
+            conflictCount=board.conflictCount,
         )
         project_files[f"projects/{project.githubRepositoryId}.json"] = _model_bytes(record)
         evidence_files[f"evidence/{project.githubRepositoryId}.json"] = _model_bytes(collected.evidence)
 
     today = ServingTodaySnapshot(
-        schemaVersion=1,
+        schemaVersion=2,
         state=board.state,
         reason=board.reason,
         generationId=generation_id,
@@ -319,7 +323,7 @@ def build_serving_projection(
         for identifier in sorted(expected_ids)
     }
     manifest = ServingManifest(
-        schemaVersion=1,
+        schemaVersion=2,
         state="ready",
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
@@ -334,7 +338,7 @@ def build_serving_projection(
     manifest_raw = _model_bytes(manifest)
     files["manifest.json"] = manifest_raw
     pointer = ServingPointer(
-        schemaVersion=1,
+        schemaVersion=2,
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
         manifestSha256=_sha(manifest_raw),
@@ -378,6 +382,8 @@ def _validate_project_binding(
     claims = {
         record.profile.officialSummaryZh,
         *record.profile.capabilityBulletsZh,
+        *record.profile.productFormsZh,
+        *record.profile.supportedEnvironmentsZh,
         *record.profile.primaryUseCasesZh,
         *record.profile.deliveryFormsZh,
     }
@@ -766,12 +772,14 @@ class ServingProjectionLoader:
                 today_project=today_project,
             )
             detail = ServingProjectDetail(
-                schemaVersion=1,
+                schemaVersion=record.schemaVersion,
                 generationId=source_generation_id,
                 servingGenerationId=bundle.pointer.servingGenerationId,
                 project=record.project,
                 profile=record.profile,
                 evidence=evidence,
+                coverage=record.coverage,
+                conflictCount=record.conflictCount,
             )
             bundle.project_details[github_repository_id] = detail
             return detail, self._project_etag(bundle, identifier)

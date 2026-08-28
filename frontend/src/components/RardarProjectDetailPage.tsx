@@ -36,6 +36,12 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
           <div className={styles.detailEyebrow}><ShieldCheck size={15} /> 静态官方档案 · {profile.sourceLabel}</div>
           <h1>{project.repository}</h1>
           <p>{profile.officialSummaryZh}</p>
+          <div className={styles.profileSignalGrid} aria-label="项目形态、环境与交付形式">
+            <ProfileSignal label="产品形态" values={profile.productFormsZh} />
+            <ProfileSignal label="适用环境" values={profile.supportedEnvironmentsZh} />
+            <ProfileSignal label="交付形式" values={profile.deliveryFormsZh} />
+            <ProfileSignal label="主要用途" values={profile.primaryUseCasesZh} />
+          </div>
           <div className={styles.tags}>
             {project.primaryLanguage && <span>{project.primaryLanguage}</span>}
             {project.topics.slice(0, 5).map((topic) => <span key={topic}>{topic}</span>)}
@@ -59,24 +65,44 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
         <main className={styles.detailMain}>
           <DetailSection icon={BookOpen} title="这个项目是什么" subtitle="官方 README / Description 的可验证整理，不含榜单热度判断。">
             <p className={styles.detailLead}>{profile.officialSummaryZh}</p>
-            <dl className={styles.sourceFacts}>
-              <div><dt>来源</dt><dd>{profile.sourceLabel}</dd></div>
-              <div><dt>README</dt><dd>{profile.readmePath || '未取得'}</dd></div>
-              <div><dt>Revision</dt><dd><code>{profile.readmeBlobSha || 'GitHub Description'}</code></dd></div>
-              <div><dt>翻译状态</dt><dd>{translationLabel(profile.translationState)}</dd></div>
+            <dl className={styles.definitionGrid}>
+              <DefinitionItem label="产品形态" values={profile.productFormsZh} />
+              <DefinitionItem label="主要解决的问题" values={profile.primaryUseCasesZh} />
+              <DefinitionItem label="适用环境" values={profile.supportedEnvironmentsZh} />
+              <DefinitionItem label="交付形式" values={profile.deliveryFormsZh} />
             </dl>
-            {profile.originalExcerpts.length > 0 && (
-              <div className={styles.officialExcerpts}>
-                <h3>官方原文摘录</h3>
-                {profile.originalExcerpts.slice(0, 4).map((excerpt) => <blockquote key={excerpt}>{excerpt}</blockquote>)}
-              </div>
-            )}
+            <details className={styles.officialEvidence}>
+              <summary>查看官方原文与版本来源</summary>
+              <dl className={styles.sourceFacts}>
+                <div><dt>来源</dt><dd>{profile.sourceLabel}</dd></div>
+                <div><dt>README</dt><dd>{profile.readmePath || '未取得'}</dd></div>
+                <div><dt>Revision</dt><dd><code>{profile.readmeBlobSha || 'GitHub Description'}</code></dd></div>
+                <div><dt>翻译状态</dt><dd>{translationLabel(profile.translationState)}</dd></div>
+              </dl>
+              {profile.selectedSections.length > 0 && (
+                <p className={styles.sourceSections}>
+                  来源章节：{profile.selectedSections.slice(0, 8).map((section) => section.heading).join(' · ')}
+                </p>
+              )}
+              {profile.originalExcerpts.length > 0 && (
+                <div className={styles.officialExcerpts}>
+                  <h3>官方原文摘录</h3>
+                  {profile.originalExcerpts.slice(0, 4).map((excerpt) => <blockquote key={excerpt}>{excerpt}</blockquote>)}
+                </div>
+              )}
+            </details>
           </DetailSection>
 
           {profile.capabilityBulletsZh.length > 0 && (
             <DetailSection icon={Boxes} title="核心能力" subtitle="每项来自已保存的官方证据。">
               <ul className={styles.detailBulletGrid}>
-                {profile.capabilityBulletsZh.map((capability) => <li key={capability}>{capability}</li>)}
+                {profile.capabilityBulletsZh.slice(0, 6).map((capability) => (
+                  <li key={capability}>
+                    <strong>{capabilityTitle(capability)}</strong>
+                    <p>{capability}</p>
+                    <EvidenceBadges values={profile.claimEvidenceRefs[capability] || []} />
+                  </li>
+                ))}
               </ul>
             </DetailSection>
           )}
@@ -121,7 +147,13 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
               <div><dt>观测增量</dt><dd>+{formatNumber(project.observedStarDelta)}</dd></div>
               <div><dt>窗口开始</dt><dd>{formatTime(project.windowStartedAt)}</dd></div>
               <div><dt>窗口结束</dt><dd>{formatTime(project.windowEndedAt)}</dd></div>
+              <div><dt>覆盖状态</dt><dd>{detail.coverage?.state === 'degraded' ? '部分来源降级' : '覆盖健康'}</dd></div>
             </dl>
+            {detail.coverage?.state === 'degraded' && (
+              <p className={styles.coverageNote}>
+                本轮仍按已验证事实排序；{coverageReason(detail.coverage.metadataFailureCount, detail.conflictCount)}。
+              </p>
+            )}
           </section>
           <section className={styles.generationCard}>
             <h2><Braces size={17} /> 快照来源</h2>
@@ -139,6 +171,45 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
       </div>
     </div>
   );
+}
+
+function ProfileSignal({ label, values }: { label: string; values: string[] }) {
+  if (values.length === 0) return null;
+  return <div><span>{label}</span><strong>{values.slice(0, 5).join(' · ')}</strong></div>;
+}
+
+function DefinitionItem({ label, values }: { label: string; values: string[] }) {
+  if (values.length === 0) return null;
+  return <div><dt>{label}</dt><dd>{values.join('、')}</dd></div>;
+}
+
+function EvidenceBadges({ values }: { values: string[] }) {
+  if (values.length === 0) return null;
+  return (
+    <small className={styles.capabilityEvidence}>
+      {Array.from(new Set(values.map(evidenceSourceLabel))).join(' · ')}
+    </small>
+  );
+}
+
+function capabilityTitle(value: string) {
+  const firstClause = value.trim().split(/[，,；;。.!！]/, 1)[0] || value.trim();
+  return firstClause.length > 22 ? `${firstClause.slice(0, 21)}…` : firstClause;
+}
+
+function evidenceSourceLabel(value: string) {
+  if (value === 'description') return 'GitHub Description';
+  if (value.startsWith('readme:')) return '官方 README';
+  if (value.startsWith('documented-path:')) return 'README 路径';
+  if (value.startsWith('path:')) return '仓库目录';
+  return '官方仓库证据';
+}
+
+function coverageReason(metadataFailures: number, conflicts: number) {
+  const reasons = [];
+  if (metadataFailures > 0) reasons.push(`${metadataFailures} 个 metadata failure`);
+  if (conflicts > 0) reasons.push(`${conflicts} 个负增长冲突`);
+  return reasons.length > 0 ? reasons.join('，') : '少量候选来源不可用';
 }
 
 function Fact({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {

@@ -8,13 +8,17 @@ function setMode(mode: string) {
   writeFileSync(modeFile, `${mode}\n`, 'utf8');
 }
 
-test.beforeEach(() => setMode('ready'));
+// Keep the shared Today fixture stable across viewport projects. Next's
+// five-second server fetch cache is deliberately part of the product contract,
+// so switching the fixture between tests would make cache expiry the subject
+// of these UI assertions instead of Top 10 / Top 20 behavior.
+test.beforeEach(() => setMode('top20'));
 test.afterAll(() => setMode('ready'));
 
 test('Today links to an immutable internal detail without embedded AI or overflow', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: /过去完整 24 小时/ })).toBeVisible();
-  await expect(page.getByLabel('GitHub 精确 24 小时爆发榜 Top 10').locator('article')).toHaveCount(5, { timeout: 30_000 });
+  await expect(page.getByLabel('GitHub 精确 24 小时爆发榜 Top 10').locator('article')).toHaveCount(10, { timeout: 30_000 });
   await expect(page.getByRole('button', { name: '生成 AI 深度解读' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: /用这个仓库评估我的需求/ })).toHaveCount(0);
 
@@ -38,15 +42,28 @@ test('Today links to an immutable internal detail without embedded AI or overflo
 test('detail generates AI from static evidence and hands the repository to Find Project', async ({ page }) => {
   await page.goto('/project/github/1?generation=fixture-explosion-a');
   await page.getByRole('button', { name: '生成 AI 深度解读' }).click();
+  await expect(page.getByText('首次生成预计需要一些时间')).toBeVisible();
   await expect(page.getByText('AI 深度解读', { exact: true }).last()).toBeVisible();
+  await expect(page.getByText('结论摘要')).toBeVisible();
   await expect(page.getByText('核心亮点')).toBeVisible();
   await expect(page.getByText('可复用资产')).toBeVisible();
+  await expect(page.getByText('复用成本')).toBeVisible();
+  await expect(page.getByText('适合场景')).toBeVisible();
   await expect(page.getByText('建议先看')).toBeVisible();
   await expect(page.getByText('静态证据缓存命中')).toBeVisible();
+  await expect(page.locator('[data-testid="ai-explanation-fixture-lab/exact-1"]')).not.toContainText('官方介绍');
 
   await page.getByRole('link', { name: /用这个仓库评估我的需求/ }).first().click();
   await expect(page).toHaveURL(/\/find\?repositoryUrl=/);
   await expect(page.getByLabel('公开 GitHub 仓库 URL （可选）')).toHaveValue('https://github.com/fixture-lab/exact-1');
+});
+
+test('keeps ranks 11-20 behind an explicit expansion', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('查看 Top 20')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('fixture-lab/top-20')).toBeHidden();
+  await page.getByText('查看 Top 20').click();
+  await expect(page.getByText('fixture-lab/top-20')).toBeVisible();
 });
 
 test('keeps official facts usable when detail AI is unavailable', async ({ page }) => {

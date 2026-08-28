@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { DiscoverFoundation, TodayFoundation } from '@/components/RardarFoundationPage';
+import { compactCapability, DiscoverFoundation, TodayFoundation } from '@/components/RardarFoundationPage';
 import {
   loadExplosionBoard,
   loadTodaySnapshot,
@@ -195,7 +195,8 @@ describe('Rardar intelligence client contract', () => {
   });
 
   it('rejects malformed Serving profile metadata', () => {
-    expect(() => parseTodaySnapshot({ ...readyPayload, schemaVersion: 2 })).toThrow('rardar_response_invalid');
+    expect(parseTodaySnapshot({ ...readyPayload, schemaVersion: 2 }).schemaVersion).toBe(2);
+    expect(() => parseTodaySnapshot({ ...readyPayload, schemaVersion: 3 })).toThrow('rardar_response_invalid');
     expect(() => parseTodaySnapshot({ ...readyPayload, profileSummary: null })).toThrow('rardar_response_invalid');
     expect(() => parseTodaySnapshot({
       ...readyPayload,
@@ -205,6 +206,32 @@ describe('Rardar intelligence client contract', () => {
       ...readyPayload,
       exactRanked: [{ ...readyPayload.exactRanked[0], capabilityBulletsZh: 'invented' }],
     })).toThrow('rardar_response_invalid');
+  });
+
+  it('keeps Today capabilities to three bounded scan labels and preserves internal navigation', () => {
+    const longCapability = '将非常长的官方能力说明压缩为一行便于快速扫榜，同时通过标题保留完整证据文本。';
+    const exactRanked = [{
+      ...readyPayload.exactRanked[0],
+      capabilityBulletsZh: [longCapability, '第二项能力', '第三项能力', '第四项不应显示'],
+    }];
+    const html = renderToStaticMarkup(
+      <TodayFoundation result={{
+        kind: 'published',
+        board: parseTodaySnapshot({
+          ...readyPayload,
+          exactRanked,
+          profileSummary: { ...readyPayload.profileSummary, total: 1, complete: 1, chineseSummaries: 1 },
+        }),
+      }} />,
+    );
+
+    expect(compactCapability(longCapability).length).toBeLessThanOrEqual(30);
+    expect(html).toContain('第二项能力');
+    expect(html).toContain('第三项能力');
+    expect(html).not.toContain('第四项不应显示');
+    expect(html).toContain('/project/github/1?generation=fixture-explosion-a');
+    expect(html).toContain('href="https://github.com/fixture-lab/alpha"');
+    expect(html).not.toContain('用这个仓库评估我的需求');
   });
 
   it('renders server HTML from facts without inventing AI explanations', () => {

@@ -143,6 +143,8 @@ An official developer automation toolkit.
                 EvidenceClaim(text="生成有证据支撑的项目报告。", evidenceRefs=["readme:section:2:item:1"]),
                 EvidenceClaim(text="导出独立 HTML 交付物。", evidenceRefs=["readme:section:2:item:2"]),
             ],
+            productForms=[],
+            supportedEnvironments=[],
             useCases=[],
             deliveryForms=[],
         )
@@ -302,3 +304,138 @@ async def test_overview_feature_list_becomes_evidence_backed_capabilities(tmp_pa
         for capability in collected.profile.capabilityBulletsZh
         for reference in collected.profile.claimEvidenceRefs[capability]
     )
+
+
+@pytest.mark.asyncio
+async def test_structured_product_identity_is_derived_from_evidence_without_repository_special_cases(
+    tmp_path: Path,
+) -> None:
+    project = _project().model_copy(update={"repository": "fixture-lab/diagram-tool", "description": None})
+    markdown = """
+# Diagram Tool
+An Agent Skill that turns source repositories into interactive technical diagrams.
+
+It uses a Node.js rendering and validation system in Raven, Cursor, Claude Code, Codex CLI, OpenCode, and a browser.
+
+## Features
+- Produces architecture, workflow, sequence, data-flow, and lifecycle diagrams.
+- Compares Before, Delta, and After architecture snapshots.
+- Uses a Typed JSON IR with deterministic validation.
+- Exports standalone HTML, PNG, SVG, and WebM artifacts.
+
+## Installation
+Install the Node.js package and read archify/SKILL.md before running the CLI.
+
+## How It Works
+This is not a WYSIWYG drawing editor or a Mermaid theme. Diagram reachability is not runtime impact.
+
+## Examples
+Open examples/ for complete outputs.
+"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(
+                200,
+                json=[
+                    {"path": "README.md", "type": "file"},
+                    {"path": "archify", "type": "dir"},
+                    {"path": "examples", "type": "dir"},
+                    {"path": "package.json", "type": "file"},
+                ],
+            )
+        return httpx.Response(200, json=_readme_payload(markdown, sha="e" * 40))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=False,
+        )
+
+    profile = collected.profile
+    assert profile.profileSchemaVersion == "rardar-project-profile-v2"
+    assert {"Agent Skill", "Node.js 渲染/校验工具"}.issubset(profile.productFormsZh)
+    assert {"Raven", "Cursor", "Claude Code", "Codex CLI", "OpenCode", "浏览器"}.issubset(
+        profile.supportedEnvironmentsZh
+    )
+    assert {"独立 HTML", "PNG", "SVG", "WebM"}.issubset(profile.deliveryFormsZh)
+    assert any(link.path == "archify/SKILL.md" for link in profile.startHere)
+    assert any(link.path == "examples" for link in profile.startHere)
+    claims = [*profile.productFormsZh, *profile.supportedEnvironmentsZh, *profile.deliveryFormsZh]
+    assert all(profile.claimEvidenceRefs[claim] for claim in claims)
+    assert all(
+        reference in collected.evidence.evidenceIndex
+        for claim in claims
+        for reference in profile.claimEvidenceRefs[claim]
+    )
+
+
+@pytest.mark.asyncio
+async def test_structured_taxonomy_ignores_logos_api_lists_and_translator_guesses(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"description": None})
+    markdown = """
+# Public API Directory
+An Awesome List of public APIs maintained by the community.
+
+![Project logo](assets/logo.png)
+
+## Entries
+- Weather API: query forecasts from a third-party endpoint.
+"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README.md", "type": "file"}])
+        return httpx.Response(200, json=_readme_payload(markdown, sha="f" * 40))
+
+    async def translate(_payload):
+        return ProfileTranslation(
+            summary=EvidenceClaim(text="社区维护的公共 API 资源清单。", evidenceRefs=["readme:section:1"]),
+            capabilities=[],
+            productForms=[EvidenceClaim(text="完整应用", evidenceRefs=["readme:section:1"])],
+            supportedEnvironments=[EvidenceClaim(text="浏览器", evidenceRefs=["readme:section:1"])],
+            useCases=[],
+            deliveryForms=[
+                EvidenceClaim(text="PNG", evidenceRefs=["readme:section:1"]),
+                EvidenceClaim(text="API", evidenceRefs=["readme:section:2:item:1"]),
+            ],
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=translate,
+        )
+
+    assert collected.profile.productFormsZh == ["Awesome List"]
+    assert collected.profile.supportedEnvironmentsZh == []
+    assert collected.profile.deliveryFormsZh == []
+
+
+@pytest.mark.asyncio
+async def test_missing_structured_evidence_is_hidden_instead_of_invented(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"description": "A small open source repository."})
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=False,
+        )
+
+    assert collected.profile.profileState == "partial"
+    assert collected.profile.productFormsZh == []
+    assert collected.profile.supportedEnvironmentsZh == []
+    assert collected.profile.deliveryFormsZh == []

@@ -77,10 +77,25 @@ class StartHere(StrictProductModel):
         return values
 
 
+class ReuseCostAssessment(StrictProductModel):
+    level: Literal["low", "medium", "high", "unknown"]
+    reason: str = Field(min_length=2, max_length=500)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=5)
+
+    @field_validator("evidenceRefs")
+    @classmethod
+    def _bounded_refs(cls, values: list[str]) -> list[str]:
+        if len(set(values)) != len(values) or any(not value.strip() or len(value) > 240 for value in values):
+            raise ValueError("evidence refs must be unique and bounded")
+        return values
+
+
 class ProjectExplanation(StrictProductModel):
-    officialIntro: OfficialIntro
+    conclusionSummary: EvidenceBackedText
     coreHighlights: list[EvidenceBackedText] = Field(min_length=1, max_length=3)
     reusableAssets: list[ReusableAsset] = Field(min_length=1, max_length=3)
+    reuseCost: ReuseCostAssessment
+    bestFitScenarios: list[EvidenceBackedText] = Field(min_length=1, max_length=3)
     startHere: list[StartHere] = Field(min_length=1, max_length=3)
     implementationBoundaries: list[EvidenceBackedText] = Field(default_factory=list, max_length=3)
 
@@ -90,8 +105,8 @@ class ProjectExplanationResponse(StrictProductModel):
     repository: str
     githubRepositoryId: int | None = Field(default=None, gt=0)
     generationId: str
-    promptVersion: Literal["rardar-project-insight-v2"]
-    schemaVersion: Literal["rardar-project-insight-schema-v2"]
+    promptVersion: Literal["rardar-project-insight-v3"]
+    schemaVersion: Literal["rardar-project-insight-schema-v3"]
     format: Literal["structured", "none"]
     officialIntro: OfficialIntro
     analysis: ProjectExplanation | None = None

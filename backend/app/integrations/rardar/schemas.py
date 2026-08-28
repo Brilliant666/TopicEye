@@ -51,6 +51,7 @@ class ExactExplosionProject(StrictModel):
     description: str | None = Field(default=None, max_length=1000)
     forks: int = Field(default=0, ge=0)
     pushedAt: AwareDatetime | None = None
+    defaultBranch: str = Field(default="main", min_length=1, max_length=255)
     licenseSpdxId: str | None = Field(default=None, max_length=100)
     archived: bool
     fork: bool
@@ -75,6 +76,7 @@ class PendingExplosionProject(StrictModel):
     description: str | None = Field(default=None, max_length=1000)
     forks: int = Field(default=0, ge=0)
     pushedAt: AwareDatetime | None = None
+    defaultBranch: str = Field(default="main", min_length=1, max_length=255)
     licenseSpdxId: str | None = Field(default=None, max_length=100)
 
 

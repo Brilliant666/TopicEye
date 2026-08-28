@@ -57,6 +57,7 @@ describe('product profile contract', () => {
   it('allows the Rardar shell, isolates admin/system routes, and redirects legacy content', () => {
     expect(rardarRouteVisibility('/')).toBe(RARDAR_ROUTE_VISIBILITY.ALLOW);
     expect(rardarRouteVisibility('/find')).toBe(RARDAR_ROUTE_VISIBILITY.ALLOW);
+    expect(rardarRouteVisibility('/project/github/1211139949')).toBe(RARDAR_ROUTE_VISIBILITY.ALLOW);
     expect(rardarRouteVisibility(RARDAR_INTERNAL_HOME)).toBe(RARDAR_ROUTE_VISIBILITY.ALLOW);
     expect(rardarRouteVisibility('/admin/sources')).toBe(RARDAR_ROUTE_VISIBILITY.HIDE_FROM_NAV);
     expect(rardarRouteVisibility('/login')).toBe(RARDAR_ROUTE_VISIBILITY.HIDE_FROM_NAV);

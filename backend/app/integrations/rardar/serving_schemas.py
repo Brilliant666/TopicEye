@@ -1,0 +1,222 @@
+"""Strict, versioned DTOs for Rardar's immutable local serving projection."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, model_validator
+
+from app.integrations.rardar.schemas import (
+    ExactExplosionProject,
+    ExplosionCoverage,
+    ExplosionSourceStatus,
+    ExplosionWindow,
+    PendingExplosionProject,
+)
+
+
+class StrictServingModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+ProfileState = Literal["complete", "partial", "source_unavailable"]
+ProfileSourceLabel = Literal[
+    "官方中文 README",
+    "官方 README（译）",
+    "GitHub Description",
+    "官方原文",
+    "受限概括",
+]
+TranslationState = Literal["not_needed", "translated", "pending", "unavailable"]
+
+
+class ServingFile(StrictServingModel):
+    path: str = Field(pattern=r"^[A-Za-z0-9._/-]+\.json$")
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    bytes: int = Field(ge=2, le=4 * 1024 * 1024)
+
+
+class ServingProfileSummary(StrictServingModel):
+    total: int = Field(ge=0, le=20)
+    complete: int = Field(ge=0, le=20)
+    partial: int = Field(ge=0, le=20)
+    sourceUnavailable: int = Field(ge=0, le=20)
+    chineseSummaries: int = Field(ge=0, le=20)
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> ServingProfileSummary:
+        if self.complete + self.partial + self.sourceUnavailable != self.total:
+            raise ValueError("profile state counts must equal total")
+        if self.chineseSummaries > self.total:
+            raise ValueError("Chinese summary count cannot exceed total")
+        return self
+
+
+class ServingPointer(StrictServingModel):
+    schemaVersion: Literal[1]
+    servingGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
+    sourceGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
+    manifestSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    activatedAt: AwareDatetime
+
+
+class ServingManifest(StrictServingModel):
+    schemaVersion: Literal[1]
+    state: Literal["ready"]
+    servingGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
+    sourceGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
+    sourceManifestSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    sourceExplosionSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    today: ServingFile
+    projects: dict[str, ServingFile] = Field(max_length=20)
+    evidence: dict[str, ServingFile] = Field(max_length=20)
+    generatedAt: AwareDatetime
+    profileSummary: ServingProfileSummary
+
+    @model_validator(mode="after")
+    def validate_inventory(self) -> ServingManifest:
+        if set(self.projects) != set(self.evidence):
+            raise ValueError("project and evidence inventories must match")
+        if len(self.projects) != self.profileSummary.total:
+            raise ValueError("profile inventory must match summary")
+        return self
+
+
+class TodayProject(ExactExplosionProject):
+    profileState: ProfileState
+    officialSummaryZh: str = Field(min_length=1, max_length=2000)
+    sourceLabel: ProfileSourceLabel
+    sourceLanguage: str | None = Field(default=None, max_length=32)
+    capabilityBulletsZh: list[str] = Field(max_length=4)
+    translationState: TranslationState
+
+
+class ServingTodaySnapshot(StrictServingModel):
+    schemaVersion: Literal[1]
+    state: Literal["ready", "warming_up", "baseline_missing", "not_ready"]
+    reason: Literal["explosion_artifact_not_published"] | None = None
+    generationId: str
+    publishedAt: AwareDatetime
+    capturedAt: AwareDatetime | None
+    window: ExplosionWindow | None
+    coverage: ExplosionCoverage | None
+    exactRanked: list[TodayProject] = Field(max_length=20)
+    pendingRanked: list[PendingExplosionProject] = Field(max_length=20)
+    conflictCount: int = Field(ge=0, le=500)
+    sourceStatus: ExplosionSourceStatus | None
+    dataMode: Literal["real", "demo"] = "real"
+    dataLabel: str = "Rardar 已验证 Serving 快照"
+    syncedAt: AwareDatetime | None = None
+    sourceHost: str | None = Field(default=None, max_length=100)
+    manifestSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    artifactSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    servingGenerationId: str
+    profileSummary: ServingProfileSummary
+
+
+class ReadmeSection(StrictServingModel):
+    heading: str = Field(min_length=1, max_length=200)
+    path: str = Field(min_length=1, max_length=500)
+    purpose: Literal[
+        "overview",
+        "capabilities",
+        "use_cases",
+        "quick_start",
+        "architecture",
+        "examples",
+        "other",
+    ]
+    excerpts: list[str] = Field(max_length=4)
+    listItems: list[str] = Field(max_length=8)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+
+
+class StartHereLink(StrictServingModel):
+    label: str = Field(min_length=1, max_length=200)
+    path: str = Field(min_length=1, max_length=500)
+    htmlUrl: HttpUrl
+    evidenceRefs: list[str] = Field(min_length=1, max_length=6)
+
+
+class OfficialProjectProfile(StrictServingModel):
+    profileSchemaVersion: Literal["rardar-project-profile-v1"]
+    promptVersion: Literal["rardar-project-profile-zh-v1", "rardar-project-profile-zh-v2"]
+    githubRepositoryId: int = Field(gt=0)
+    repository: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    htmlUrl: HttpUrl
+    generationId: str
+    profileState: ProfileState
+    officialSummaryZh: str = Field(min_length=1, max_length=2000)
+    sourceLabel: ProfileSourceLabel
+    sourceLanguage: str | None = Field(default=None, max_length=32)
+    capabilityBulletsZh: list[str] = Field(max_length=8)
+    primaryUseCasesZh: list[str] = Field(max_length=8)
+    deliveryFormsZh: list[str] = Field(max_length=8)
+    claimEvidenceRefs: dict[str, list[str]] = Field(max_length=32)
+    readmePath: str | None = Field(default=None, max_length=500)
+    readmeBlobSha: str | None = Field(default=None, pattern=r"^[A-Fa-f0-9]{7,64}$")
+    selectedSections: list[ReadmeSection] = Field(max_length=12)
+    originalExcerpts: list[str] = Field(max_length=12)
+    startHere: list[StartHereLink] = Field(max_length=12)
+    evidenceDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    generatedAt: AwareDatetime
+    translationState: TranslationState
+
+
+class ProjectEvidenceProjection(StrictServingModel):
+    schemaVersion: Literal[1]
+    githubRepositoryId: int = Field(gt=0)
+    repository: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+    generationId: str
+    readmePath: str | None = Field(default=None, max_length=500)
+    readmeBlobSha: str | None = Field(default=None, pattern=r"^[A-Fa-f0-9]{7,64}$")
+    sourceLanguage: str | None = Field(default=None, max_length=32)
+    selectedSections: list[ReadmeSection] = Field(max_length=12)
+    originalExcerpts: list[str] = Field(max_length=12)
+    topLevelTree: list[dict[str, str]] = Field(max_length=100)
+    evidenceIndex: dict[str, str] = Field(max_length=240)
+    pathRefs: dict[str, str] = Field(max_length=240)
+    digest: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+class ServingProjectDetail(StrictServingModel):
+    schemaVersion: Literal[1]
+    generationId: str
+    servingGenerationId: str
+    project: TodayProject
+    profile: OfficialProjectProfile
+    evidence: ProjectEvidenceProjection
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ServingProjectDetail:
+        identities = {
+            (self.project.githubRepositoryId, self.project.repository),
+            (self.profile.githubRepositoryId, self.profile.repository),
+            (self.evidence.githubRepositoryId, self.evidence.repository),
+        }
+        if len(identities) != 1:
+            raise ValueError("project identity is inconsistent")
+        if {self.generationId, self.profile.generationId, self.evidence.generationId} != {self.generationId}:
+            raise ValueError("project generation is inconsistent")
+        if self.profile.evidenceDigest != self.evidence.digest:
+            raise ValueError("project evidence digest is inconsistent")
+        return self
+
+
+class ServingProjectRecord(StrictServingModel):
+    schemaVersion: Literal[1]
+    generationId: str
+    servingGenerationId: str
+    project: TodayProject
+    profile: OfficialProjectProfile
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> ServingProjectRecord:
+        if self.generationId != self.profile.generationId:
+            raise ValueError("project generation is inconsistent")
+        if (
+            self.project.githubRepositoryId != self.profile.githubRepositoryId
+            or self.project.repository != self.profile.repository
+        ):
+            raise ValueError("project identity is inconsistent")
+        return self

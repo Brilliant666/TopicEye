@@ -11,6 +11,7 @@ import httpx
 from pydantic import ValidationError
 
 from app.core.config import Settings, settings
+from app.integrations.rardar.serving_schemas import ServingProjectDetail
 from app.schemas.rardar_product import (
     FindProjectComparison,
     FindProjectRequest,
@@ -21,7 +22,7 @@ from app.schemas.rardar_product import (
     QuickProjectCandidate,
 )
 from app.services.llm.strict_json import StrictJSONError, loads_strict_json
-from app.services.rardar_intelligence import _demo_allowed, load_explosion_board
+from app.services.rardar_intelligence import _demo_allowed, load_explosion_board, load_project_detail
 from app.services.rardar_llm_control import (
     RardarLLMError,
     RardarLLMScene,
@@ -135,6 +136,57 @@ async def explain_project(
 ) -> ProjectExplanationResponse:
     facts = _project_facts(request, config)
     evidence = await collect_project_evidence(request.repository, facts)
+    return await _explain_project_with_evidence(request, evidence)
+
+
+def _static_project_evidence(detail: ServingProjectDetail) -> ProjectEvidence:
+    profile = detail.profile
+    evidence = detail.evidence
+    if profile.sourceLabel == "受限概括":
+        expected_label = "AI受限概括"
+    elif profile.sourceLanguage == "en":
+        expected_label = "官方介绍（译）"
+    else:
+        expected_label = "官方介绍"
+    summary_refs = profile.claimEvidenceRefs.get(profile.officialSummaryZh) or ["repository"]
+    return ProjectEvidence(
+        payload={
+            **evidence.model_dump(mode="json"),
+            "officialProfile": profile.model_dump(mode="json"),
+        },
+        digest=evidence.digest,
+        allowed_refs=frozenset(evidence.evidenceIndex),
+        path_refs=evidence.pathRefs,
+        official_intro={
+            "text": profile.officialSummaryZh,
+            "sourceLabel": expected_label,
+            "evidenceRefs": summary_refs,
+        },
+        expected_intro_label=expected_label,
+        cache_hit=True,
+    )
+
+
+async def explain_project_by_id(
+    github_repository_id: int,
+    generation_id: str,
+    config: Settings = settings,
+) -> ProjectExplanationResponse:
+    detail, _etag = load_project_detail(github_repository_id, generation_id, config)
+    request = ProjectExplanationRequest(repository=detail.project.repository, generationId=generation_id)
+    return await _explain_project_with_evidence(
+        request,
+        _static_project_evidence(detail),
+        github_repository_id=github_repository_id,
+    )
+
+
+async def _explain_project_with_evidence(
+    request: ProjectExplanationRequest,
+    evidence: ProjectEvidence,
+    *,
+    github_repository_id: int | None = None,
+) -> ProjectExplanationResponse:
     fallback_intro = evidence.official_intro
     evidence_json = json.dumps(evidence.payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     messages = [
@@ -179,6 +231,7 @@ async def explain_project(
         return ProjectExplanationResponse(
             state="ready",
             repository=request.repository,
+            githubRepositoryId=github_repository_id,
             generationId=request.generationId,
             promptVersion=_PROJECT_PROMPT_VERSION,
             schemaVersion=_PROJECT_SCHEMA_VERSION,
@@ -203,6 +256,7 @@ async def explain_project(
             return ProjectExplanationResponse(
                 state="ready",
                 repository=request.repository,
+                githubRepositoryId=github_repository_id,
                 generationId=request.generationId,
                 promptVersion=_PROJECT_PROMPT_VERSION,
                 schemaVersion=_PROJECT_SCHEMA_VERSION,
@@ -219,6 +273,7 @@ async def explain_project(
         return ProjectExplanationResponse(
             state="unavailable",
             repository=request.repository,
+            githubRepositoryId=github_repository_id,
             generationId=request.generationId,
             promptVersion=_PROJECT_PROMPT_VERSION,
             schemaVersion=_PROJECT_SCHEMA_VERSION,

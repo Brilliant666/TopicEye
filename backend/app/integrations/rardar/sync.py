@@ -24,6 +24,13 @@ from app.integrations.rardar.adapter import (
     _SafeRoot,
     _strict_json,
 )
+from app.integrations.rardar.serving import (
+    ProfileProvider,
+    ServingInstallResult,
+    build_serving_projection,
+    clear_serving_cache,
+    install_serving_projection,
+)
 
 _GENERATION_ID = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9])?$")
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
@@ -49,6 +56,8 @@ class RardarSyncResult:
     file_count: int
     synced_at: str
     changed: bool
+    serving_generation_id: str
+    serving_manifest_sha256: str
 
 
 RemoteRunner = Callable[[str, str], bytes]
@@ -336,6 +345,7 @@ def sync_rardar_intelligence(
     host: str = "rardar-prod",
     remote_root: str = "/var/lib/rardar/data",
     runner: RemoteRunner = ssh_read_only_runner,
+    profile_provider: ProfileProvider | None = None,
 ) -> RardarSyncResult:
     """Download, validate, and atomically activate one immutable generation."""
 
@@ -378,7 +388,22 @@ def sync_rardar_intelligence(
         ):
             raise RardarSyncError("rardar_sync_bundle_invalid", "Validated Rardar facts do not match inventory")
 
-        synced_at = datetime.now(UTC).isoformat()
+        existing_metadata_path = target / "sync" / "generations" / f"{generation_id}.json"
+        existing_metadata_raw = _read_optional_plain_file(existing_metadata_path)
+        existing_metadata = None
+        if existing_metadata_raw:
+            try:
+                candidate_metadata = _strict_json(existing_metadata_raw)
+                if (
+                    candidate_metadata.get("generationId") == generation_id
+                    and candidate_metadata.get("manifestSha256") == bundle["manifestSha256"]
+                    and candidate_metadata.get("artifactSha256") == bundle["artifactSha256"]
+                ):
+                    datetime.fromisoformat(candidate_metadata["syncedAt"])
+                    existing_metadata = candidate_metadata
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                existing_metadata = None
+        synced_at = existing_metadata["syncedAt"] if existing_metadata else datetime.now(UTC).isoformat()
         metadata = {
             "schemaVersion": 1,
             "syncedAt": synced_at,
@@ -394,6 +419,16 @@ def sync_rardar_intelligence(
         metadata_raw = (json.dumps(metadata, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode("utf-8")
 
         _ensure_plain_directory_chain(target)
+        built_serving = build_serving_projection(
+            board=board,
+            source_manifest_sha256=bundle["manifestSha256"],
+            source_explosion_sha256=bundle["artifactSha256"],
+            synced_at=datetime.fromisoformat(synced_at),
+            source_host=host,
+            cache_root=target / "profile-cache",
+            profile_provider=profile_provider,
+        )
+
         _ensure_plain_directory_chain(target / "generations")
         _ensure_plain_directory_chain(target / "sync" / "generations")
         target_generation = target / "generations" / generation_id
@@ -409,10 +444,14 @@ def sync_rardar_intelligence(
                     "rardar_sync_generation_conflict", "Existing local generation differs from Production inventory"
                 )
 
-        metadata_path = target / "sync" / "generations" / f"{generation_id}.json"
+        metadata_path = existing_metadata_path
         pointer_path = target / "current.json"
         old_metadata = _read_optional_plain_file(metadata_path)
         old_pointer = _read_optional_plain_file(pointer_path)
+        serving_current_path = target / "serving" / "current.json"
+        serving_source_path = target / "serving" / "sources" / f"{generation_id}.json"
+        old_serving_current = _read_optional_plain_file(serving_current_path)
+        old_serving_source = _read_optional_plain_file(serving_source_path)
         changed = not target_generation_exists or old_pointer != pointer_raw
         if not target_generation_exists:
             os.replace(stage / "generations" / generation_id, target_generation)
@@ -420,7 +459,9 @@ def sync_rardar_intelligence(
 
         metadata_replaced = False
         pointer_replaced = False
+        serving_installed: ServingInstallResult | None = None
         try:
+            serving_installed = install_serving_projection(target, built_serving)
             _atomic_bytes(metadata_path, metadata_raw)
             metadata_replaced = True
             _atomic_bytes(pointer_path, pointer_raw)
@@ -430,6 +471,7 @@ def sync_rardar_intelligence(
                 raise RardarSyncError(
                     "rardar_sync_activation_failed", "Local pointer did not activate the validated generation"
                 )
+            changed = changed or serving_installed.changed
         except Exception:
             if pointer_replaced:
                 if old_pointer is None:
@@ -441,6 +483,21 @@ def sync_rardar_intelligence(
                     metadata_path.unlink(missing_ok=True)
                 else:
                     _atomic_bytes(metadata_path, old_metadata)
+            if serving_installed is not None and serving_installed.changed:
+                if old_serving_current is None:
+                    serving_current_path.unlink(missing_ok=True)
+                else:
+                    _atomic_bytes(serving_current_path, old_serving_current)
+                if old_serving_source is None:
+                    serving_source_path.unlink(missing_ok=True)
+                else:
+                    _atomic_bytes(serving_source_path, old_serving_source)
+                if serving_installed.created:
+                    shutil.rmtree(
+                        target / "serving" / "generations" / serving_installed.serving_generation_id,
+                        ignore_errors=True,
+                    )
+                clear_serving_cache()
             if created_generation is not None:
                 shutil.rmtree(created_generation, ignore_errors=True)
                 created_generation = None
@@ -456,6 +513,8 @@ def sync_rardar_intelligence(
             file_count=len(files),
             synced_at=synced_at,
             changed=changed,
+            serving_generation_id=built_serving.serving_generation_id,
+            serving_manifest_sha256=built_serving.manifest_sha256,
         )
     except RardarSyncError:
         raise

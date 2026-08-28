@@ -114,6 +114,7 @@ def test_pointer_write_interruption_keeps_old_pointer_and_removes_partial_genera
     target = tmp_path / "mirror"
     sync_rardar_intelligence(target=target, runner=_runner(_bundle("revision-a")))
     pointer_before = (target / "current.json").read_bytes()
+    serving_pointer_before = (target / "serving" / "current.json").read_bytes()
     original = sync_module._atomic_bytes
 
     def interrupted(path: Path, raw: bytes) -> None:
@@ -127,6 +128,8 @@ def test_pointer_write_interruption_keeps_old_pointer_and_removes_partial_genera
 
     assert error.value.code == "rardar_sync_failed"
     assert (target / "current.json").read_bytes() == pointer_before
+    assert (target / "serving" / "current.json").read_bytes() == serving_pointer_before
+    assert not (target / "serving" / "sources" / "fixture-explosion-b.json").exists()
     assert not (target / "generations" / "fixture-explosion-b").exists()
     assert not (target / "sync" / "generations" / "fixture-explosion-b.json").exists()
     assert not list(tmp_path.glob(".mirror.staging-*"))

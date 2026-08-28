@@ -56,6 +56,40 @@ def test_explanation_endpoint_keeps_ai_failure_as_a_product_state(monkeypatch) -
     assert response.json()["state"] == "unavailable"
 
 
+def test_stable_insight_endpoint_uses_numeric_identity_and_generation_only(monkeypatch) -> None:
+    received: list[tuple[int, str]] = []
+
+    async def unavailable(identifier, generation):
+        received.append((identifier, generation))
+        return ProjectExplanationResponse(
+            state="unavailable",
+            repository="owner/repository",
+            githubRepositoryId=identifier,
+            generationId=generation,
+            promptVersion="rardar-project-insight-v2",
+            schemaVersion="rardar-project-insight-schema-v2",
+            format="none",
+            officialIntro={
+                "text": "官方资料暂未提供简介。",
+                "sourceLabel": "AI受限概括",
+                "evidenceRefs": ["repository"],
+            },
+            errorCode="rardar_llm_unavailable",
+            evidenceDigest="a" * 64,
+            evidenceKinds=["repository"],
+        )
+
+    monkeypatch.setattr(rardar_api, "explain_project_by_id", unavailable)
+    response = _client(monkeypatch).post(
+        "/api/v1/rardar/projects/1211139949/insight",
+        json={"generationId": "generation-v2"},
+    )
+
+    assert response.status_code == 200
+    assert received == [(1211139949, "generation-v2")]
+    assert response.json()["githubRepositoryId"] == 1211139949
+
+
 def test_find_endpoint_returns_facts_when_ai_is_unavailable(monkeypatch) -> None:
     async def find(payload):
         return FindProjectResponse(

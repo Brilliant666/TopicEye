@@ -3,16 +3,19 @@
 import { type ReactNode, useState } from 'react';
 import { AlertTriangle, BookOpen, Boxes, Compass, Loader2, Sparkles } from 'lucide-react';
 
-import { explainProject, type ProjectExplanation } from '@/lib/rardar-product';
+import { explainProject, explainProjectById, type ProjectExplanation } from '@/lib/rardar-product';
 import styles from './RardarFoundation.module.css';
 
 export default function RardarProjectExplanation({
   repository,
+  githubRepositoryId,
   generationId,
 }: {
   repository: string;
+  githubRepositoryId?: number;
   generationId: string;
 }) {
+  const usesStaticEvidence = githubRepositoryId !== undefined;
   const [result, setResult] = useState<ProjectExplanation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +24,11 @@ export default function RardarProjectExplanation({
     setLoading(true);
     setError(null);
     try {
-      setResult(await explainProject(repository, generationId));
+      setResult(
+        githubRepositoryId === undefined
+          ? await explainProject(repository, generationId)
+          : await explainProjectById(githubRepositoryId, generationId),
+      );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'rardar_request_failed');
     } finally {
@@ -33,7 +40,9 @@ export default function RardarProjectExplanation({
     return (
       <button type="button" className={styles.aiButton} onClick={run} disabled={loading}>
         {loading ? <Loader2 size={15} className={styles.spin} /> : <Sparkles size={15} />}
-        {loading ? '正在读取项目事实并分析' : 'AI 解读'}
+        {loading
+          ? (usesStaticEvidence ? '正在分析已保存的静态证据' : '正在读取项目事实并分析')
+          : (usesStaticEvidence ? '生成 AI 深度解读' : 'AI 解读')}
       </button>
     );
   }
@@ -42,7 +51,7 @@ export default function RardarProjectExplanation({
     return (
       <div className={`${styles.aiPanel} ${styles.aiUnavailable}`}>
         <div><AlertTriangle size={15} /><strong>AI 暂不可用</strong></div>
-        <p>事实榜单不受影响。{error || result?.errorCode}</p>
+        <p>{usesStaticEvidence ? '官方档案和今日事实不受影响。' : '事实榜单不受影响。'}{error || result?.errorCode}</p>
         {result?.officialIntro && (
           <section className={styles.officialIntro}>
             <span>{result.officialIntro.sourceLabel}</span>
@@ -59,7 +68,11 @@ export default function RardarProjectExplanation({
   if (!analysis) return null;
   return (
     <div className={styles.aiPanel} data-testid={`ai-explanation-${repository}`}>
-      <div><Sparkles size={15} /><strong>项目证据解读</strong><span>按需生成 · 不复述榜单事实</span></div>
+      <div>
+        <Sparkles size={15} />
+        <strong>{usesStaticEvidence ? 'AI 深度解读' : '项目证据解读'}</strong>
+        <span>{usesStaticEvidence ? '只使用当前 Serving Projection 的静态证据' : '按需生成 · 不复述榜单事实'}</span>
+      </div>
       <section className={styles.officialIntro}>
         <span>{analysis.officialIntro.sourceLabel}</span>
         <p>{analysis.officialIntro.text}</p>
@@ -97,7 +110,7 @@ export default function RardarProjectExplanation({
           </InsightSection>
         )}
       </div>
-      <AIProvenance result={result} />
+      <AIProvenance result={result} usesStaticEvidence={usesStaticEvidence} />
     </div>
   );
 }
@@ -131,10 +144,10 @@ function reuseLabel(value: string) {
   }[value] || value;
 }
 
-function AIProvenance({ result }: { result: ProjectExplanation }) {
+function AIProvenance({ result, usesStaticEvidence }: { result: ProjectExplanation; usesStaticEvidence: boolean }) {
   return (
     <small className={styles.aiProvenance}>
-      {result.model || '已配置的 rardar 模型'} · {result.cacheHit ? 'AI 缓存命中' : '本次生成'} · {result.evidenceCacheHit ? '证据缓存命中' : '实时有界证据'}
+      {result.model || '已配置的 rardar 模型'} · {result.cacheHit ? 'AI 缓存命中' : '本次生成'} · {usesStaticEvidence ? '静态证据缓存命中' : (result.evidenceCacheHit ? '证据缓存命中' : '实时有界证据')}
     </small>
   );
 }

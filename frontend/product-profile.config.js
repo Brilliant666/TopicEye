@@ -58,6 +58,7 @@ function matchesPath(pathname, route) {
 
 function rardarRouteVisibility(pathname) {
   if (pathname === RARDAR_INTERNAL_HOME) return RARDAR_ROUTE_VISIBILITY.ALLOW;
+  if (matchesPath(pathname, '/project/github')) return RARDAR_ROUTE_VISIBILITY.ALLOW;
   if (RARDAR_NAVIGATION.some((item) => matchesPath(pathname, item.href))) {
     return RARDAR_ROUTE_VISIBILITY.ALLOW;
   }

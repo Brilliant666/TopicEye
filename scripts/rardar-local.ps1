@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("start", "stop", "status", "sync-data")]
+    [ValidateSet("start", "stop", "status", "sync-data", "rebuild-serving")]
     [string]$Command = "start"
 )
 
@@ -48,10 +48,10 @@ function Show-Status {
         Repository = $RepoRoot
         PostgreSQL = if ($postgresHealthy) { "healthy" } else { "stopped" }
         Backend = if ($state -and (Test-Process $state.backendPid) -and (Test-Http "http://127.0.0.1:8102/health/live")) { "healthy" } else { "stopped" }
-        Frontend = if ($state -and (Test-Process $state.frontendPid) -and (Test-Http "http://127.0.0.1:3000/")) { "healthy" } else { "stopped" }
+        Frontend = if ($state -and (Test-Process $state.frontendPid) -and (Test-Http "http://127.0.0.1:3000/api/health")) { "healthy" } else { "stopped" }
         DataMode = if ($state -and $state.dataMode) { $state.dataMode } elseif ($env:RARDAR_DATA_MODE) { $env:RARDAR_DATA_MODE } else { "real" }
         DataMirror = $MirrorRoot
-        DataSynced = if (Test-Path -LiteralPath (Join-Path $MirrorRoot "current.json") -PathType Leaf) { "yes" } else { "no; run sync-data" }
+        DataSynced = if (Test-Path -LiteralPath (Join-Path $MirrorRoot "serving\current.json") -PathType Leaf) { "yes" } else { "no; run rebuild-serving" }
         Product = "http://127.0.0.1:3000/"
         Login = "http://127.0.0.1:3000/login"
         Admin = "http://127.0.0.1:3000/admin"
@@ -223,7 +223,7 @@ function Start-Rardar {
             $env:RARDAR_PRODUCT_MODE = $savedProductMode
             $env:BACKEND_API_URL = $savedBackendUrl
         }
-        Wait-Http "http://127.0.0.1:3000/" 120
+        Wait-Http "http://127.0.0.1:3000/api/health" 120
     } catch {
         if ($frontend -and (Test-Process $frontend.Id)) { & taskkill.exe /PID $frontend.Id /T /F | Out-Null }
         if (Test-Process $backend.Id) { & taskkill.exe /PID $backend.Id /T /F | Out-Null }
@@ -248,10 +248,18 @@ function Sync-RardarData {
     if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
         throw "Existing TopicEye Python runtime is unavailable: $Python"
     }
+    Start-Postgres
+    $script:DatabaseUser = Resolve-DatabaseUser
+    $database = Resolve-Database
+    $encodedUser = [Uri]::EscapeDataString($script:DatabaseUser)
+    $encodedDatabase = [Uri]::EscapeDataString($database)
+    $databaseUrl = "postgresql+asyncpg://${encodedUser}@127.0.0.1:${PgPort}/${encodedDatabase}"
     $sourceHost = if ($env:RARDAR_SYNC_SOURCE_HOST) { $env:RARDAR_SYNC_SOURCE_HOST } else { "rardar-prod" }
     $remoteRoot = if ($env:RARDAR_SYNC_REMOTE_ROOT) { $env:RARDAR_SYNC_REMOTE_ROOT } else { "/var/lib/rardar/data" }
     $savedPythonPath = $env:PYTHONPATH
+    $savedDatabaseUrl = $env:DATABASE_URL
     $env:PYTHONPATH = $BackendRoot
+    $env:DATABASE_URL = $databaseUrl
     Push-Location $BackendRoot
     try {
         & $Python -m scripts.sync_rardar_intelligence --target $MirrorRoot --host $sourceHost --remote-root $remoteRoot
@@ -259,6 +267,32 @@ function Sync-RardarData {
     } finally {
         Pop-Location
         $env:PYTHONPATH = $savedPythonPath
+        $env:DATABASE_URL = $savedDatabaseUrl
+    }
+}
+
+function Rebuild-RardarServing {
+    if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw "Existing TopicEye Python runtime is unavailable: $Python"
+    }
+    Start-Postgres
+    $script:DatabaseUser = Resolve-DatabaseUser
+    $database = Resolve-Database
+    $encodedUser = [Uri]::EscapeDataString($script:DatabaseUser)
+    $encodedDatabase = [Uri]::EscapeDataString($database)
+    $databaseUrl = "postgresql+asyncpg://${encodedUser}@127.0.0.1:${PgPort}/${encodedDatabase}"
+    $savedPythonPath = $env:PYTHONPATH
+    $savedDatabaseUrl = $env:DATABASE_URL
+    $env:PYTHONPATH = $BackendRoot
+    $env:DATABASE_URL = $databaseUrl
+    Push-Location $BackendRoot
+    try {
+        & $Python -m scripts.rebuild_rardar_serving --target $MirrorRoot
+        if ($LASTEXITCODE -ne 0) { throw "Rardar serving projection rebuild failed." }
+    } finally {
+        Pop-Location
+        $env:PYTHONPATH = $savedPythonPath
+        $env:DATABASE_URL = $savedDatabaseUrl
     }
 }
 
@@ -267,4 +301,5 @@ switch ($Command) {
     "stop" { Stop-Rardar }
     "status" { Show-Status }
     "sync-data" { Sync-RardarData }
+    "rebuild-serving" { Rebuild-RardarServing }
 }

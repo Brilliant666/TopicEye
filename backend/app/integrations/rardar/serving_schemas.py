@@ -53,7 +53,7 @@ class ServingProfileSummary(StrictServingModel):
 
 
 class ServingPointer(StrictServingModel):
-    schemaVersion: Literal[1]
+    schemaVersion: Literal[1, 2]
     servingGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
     sourceGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
     manifestSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -61,7 +61,7 @@ class ServingPointer(StrictServingModel):
 
 
 class ServingManifest(StrictServingModel):
-    schemaVersion: Literal[1]
+    schemaVersion: Literal[1, 2]
     state: Literal["ready"]
     servingGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
     sourceGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
@@ -92,7 +92,7 @@ class TodayProject(ExactExplosionProject):
 
 
 class ServingTodaySnapshot(StrictServingModel):
-    schemaVersion: Literal[1]
+    schemaVersion: Literal[1, 2]
     state: Literal["ready", "warming_up", "baseline_missing", "not_ready"]
     reason: Literal["explosion_artifact_not_published"] | None = None
     generationId: str
@@ -139,8 +139,12 @@ class StartHereLink(StrictServingModel):
 
 
 class OfficialProjectProfile(StrictServingModel):
-    profileSchemaVersion: Literal["rardar-project-profile-v1"]
-    promptVersion: Literal["rardar-project-profile-zh-v1", "rardar-project-profile-zh-v2"]
+    profileSchemaVersion: Literal["rardar-project-profile-v1", "rardar-project-profile-v2"]
+    promptVersion: Literal[
+        "rardar-project-profile-zh-v1",
+        "rardar-project-profile-zh-v2",
+        "rardar-project-profile-zh-v3",
+    ]
     githubRepositoryId: int = Field(gt=0)
     repository: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
     htmlUrl: HttpUrl
@@ -150,9 +154,11 @@ class OfficialProjectProfile(StrictServingModel):
     sourceLabel: ProfileSourceLabel
     sourceLanguage: str | None = Field(default=None, max_length=32)
     capabilityBulletsZh: list[str] = Field(max_length=8)
+    productFormsZh: list[str] = Field(default_factory=list, max_length=6)
+    supportedEnvironmentsZh: list[str] = Field(default_factory=list, max_length=12)
     primaryUseCasesZh: list[str] = Field(max_length=8)
     deliveryFormsZh: list[str] = Field(max_length=8)
-    claimEvidenceRefs: dict[str, list[str]] = Field(max_length=32)
+    claimEvidenceRefs: dict[str, list[str]] = Field(max_length=64)
     readmePath: str | None = Field(default=None, max_length=500)
     readmeBlobSha: str | None = Field(default=None, pattern=r"^[A-Fa-f0-9]{7,64}$")
     selectedSections: list[ReadmeSection] = Field(max_length=12)
@@ -180,12 +186,14 @@ class ProjectEvidenceProjection(StrictServingModel):
 
 
 class ServingProjectDetail(StrictServingModel):
-    schemaVersion: Literal[1]
+    schemaVersion: Literal[1, 2]
     generationId: str
     servingGenerationId: str
     project: TodayProject
     profile: OfficialProjectProfile
     evidence: ProjectEvidenceProjection
+    coverage: ExplosionCoverage | None = None
+    conflictCount: int = Field(default=0, ge=0, le=500)
 
     @model_validator(mode="after")
     def validate_identity(self) -> ServingProjectDetail:
@@ -204,11 +212,13 @@ class ServingProjectDetail(StrictServingModel):
 
 
 class ServingProjectRecord(StrictServingModel):
-    schemaVersion: Literal[1]
+    schemaVersion: Literal[1, 2]
     generationId: str
     servingGenerationId: str
     project: TodayProject
     profile: OfficialProjectProfile
+    coverage: ExplosionCoverage | None = None
+    conflictCount: int = Field(default=0, ge=0, le=500)
 
     @model_validator(mode="after")
     def validate_identity(self) -> ServingProjectRecord:

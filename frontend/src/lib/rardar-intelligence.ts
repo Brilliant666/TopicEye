@@ -174,7 +174,7 @@ export interface ProfileSummary {
 }
 
 export interface TodaySnapshot extends Omit<ExplosionBoard, 'exactRanked' | 'state' | 'reason' | 'dataMode'> {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   state: 'ready' | 'warming_up' | 'baseline_missing' | 'not_ready';
   reason: 'explosion_artifact_not_published' | null;
   exactRanked: TodayProject[];
@@ -205,13 +205,13 @@ export interface StartHereLink {
 }
 
 export interface ProjectDetail {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   generationId: string;
   servingGenerationId: string;
   project: TodayProject;
   profile: {
-    profileSchemaVersion: 'rardar-project-profile-v1';
-    promptVersion: 'rardar-project-profile-zh-v1' | 'rardar-project-profile-zh-v2';
+    profileSchemaVersion: 'rardar-project-profile-v1' | 'rardar-project-profile-v2';
+    promptVersion: 'rardar-project-profile-zh-v1' | 'rardar-project-profile-zh-v2' | 'rardar-project-profile-zh-v3';
     githubRepositoryId: number;
     repository: string;
     htmlUrl: string;
@@ -221,6 +221,8 @@ export interface ProjectDetail {
     sourceLabel: ProfileSourceLabel;
     sourceLanguage: string | null;
     capabilityBulletsZh: string[];
+    productFormsZh: string[];
+    supportedEnvironmentsZh: string[];
     primaryUseCasesZh: string[];
     deliveryFormsZh: string[];
     claimEvidenceRefs: Record<string, string[]>;
@@ -233,6 +235,8 @@ export interface ProjectDetail {
     generatedAt: string;
     translationState: TranslationState;
   };
+  coverage: ExplosionCoverage | null;
+  conflictCount: number;
   evidence: {
     schemaVersion: 1;
     githubRepositoryId: number;
@@ -285,7 +289,7 @@ export async function loadExplosionBoard(
 
 export function parseTodaySnapshot(value: unknown): TodaySnapshot {
   const board = parseExplosionBoard(value);
-  if (!isRecord(value) || value.schemaVersion !== 1 || typeof value.servingGenerationId !== 'string') {
+  if (!isRecord(value) || ![1, 2].includes(Number(value.schemaVersion)) || typeof value.servingGenerationId !== 'string') {
     throw new Error('rardar_response_invalid');
   }
   if (!isRecord(value.profileSummary) || !isFiniteInteger(value.profileSummary.total)) {
@@ -327,7 +331,7 @@ export async function loadTodaySnapshot(
 }
 
 export function parseProjectDetail(value: unknown): ProjectDetail {
-  if (!isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.project) || !isRecord(value.profile) || !isRecord(value.evidence)) {
+  if (!isRecord(value) || ![1, 2].includes(Number(value.schemaVersion)) || !isRecord(value.project) || !isRecord(value.profile) || !isRecord(value.evidence)) {
     throw new Error('rardar_project_response_invalid');
   }
   const identifier = value.project.githubRepositoryId;
@@ -340,12 +344,25 @@ export function parseProjectDetail(value: unknown): ProjectDetail {
     || value.profile.generationId !== value.generationId
     || value.evidence.generationId !== value.generationId
     || typeof value.profile.officialSummaryZh !== 'string'
+    || !Array.isArray(value.profile.capabilityBulletsZh)
     || !Array.isArray(value.profile.selectedSections)
     || !Array.isArray(value.profile.startHere)
   ) {
     throw new Error('rardar_project_response_invalid');
   }
-  return value as unknown as ProjectDetail;
+  const normalizedProfile = {
+    ...value.profile,
+    productFormsZh: Array.isArray(value.profile.productFormsZh) ? value.profile.productFormsZh : [],
+    supportedEnvironmentsZh: Array.isArray(value.profile.supportedEnvironmentsZh)
+      ? value.profile.supportedEnvironmentsZh
+      : [],
+  };
+  return {
+    ...value,
+    profile: normalizedProfile,
+    coverage: isRecord(value.coverage) ? value.coverage : null,
+    conflictCount: isFiniteInteger(value.conflictCount) ? value.conflictCount : 0,
+  } as unknown as ProjectDetail;
 }
 
 export async function loadProjectDetail(

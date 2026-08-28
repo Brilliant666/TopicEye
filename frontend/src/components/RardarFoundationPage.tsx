@@ -222,8 +222,10 @@ function ExactProjectCard({ project, generationId }: { project: TodayProject; ge
         </Link>
         <p className={styles.projectDescription}>{project.officialSummaryZh}</p>
         {project.capabilityBulletsZh.length > 0 && (
-          <ul className={styles.capabilityList}>
-            {project.capabilityBulletsZh.slice(0, 4).map((capability) => <li key={capability}>{capability}</li>)}
+          <ul className={styles.capabilityList} aria-label="核心能力摘要">
+            {project.capabilityBulletsZh.slice(0, 3).map((capability) => (
+              <li key={capability} title={capability}>{compactCapability(capability)}</li>
+            ))}
           </ul>
         )}
         <div className={styles.tags}>
@@ -379,4 +381,10 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(new Date(value));
+}
+
+export function compactCapability(value: string) {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  const firstClause = normalized.split(/[；;。.!！]/, 1)[0]?.trim() || normalized;
+  return firstClause.length > 30 ? `${firstClause.slice(0, 29).trimEnd()}…` : firstClause;
 }

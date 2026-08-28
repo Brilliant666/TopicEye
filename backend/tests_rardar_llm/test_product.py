@@ -76,10 +76,9 @@ def _insight() -> ProjectExplanation:
     return ProjectExplanation.model_validate_json(
         json.dumps(
             {
-                "officialIntro": {
-                    "text": "一个官方开发者自动化工具包。",
-                    "sourceLabel": "官方介绍（译）",
-                    "evidenceRefs": ["description"],
+                "conclusionSummary": {
+                    "text": "它把可组合的自动化能力封装成可复用模块，适合作为开发工作流的基础组件。",
+                    "evidenceRefs": ["description", "readme:introduction"],
                 },
                 "coreHighlights": [{"text": "提供可组合的自动化能力。", "evidenceRefs": ["readme:introduction"]}],
                 "reusableAssets": [
@@ -89,6 +88,14 @@ def _insight() -> ProjectExplanation:
                         "howToUse": "从 src 目录提取可组合能力并做接口适配。",
                         "evidenceRefs": ["tree:src"],
                     }
+                ],
+                "reuseCost": {
+                    "level": "medium",
+                    "reason": "需要按 pyproject.toml 安装依赖并适配 src 模块接口。",
+                    "evidenceRefs": ["file:pyproject.toml", "tree:src"],
+                },
+                "bestFitScenarios": [
+                    {"text": "需要组合自动化模块的开发团队。", "evidenceRefs": ["description", "tree:src"]}
                 ],
                 "startHere": [
                     {"label": "先查看项目依赖入口", "path": "pyproject.toml", "evidenceRefs": ["file:pyproject.toml"]}
@@ -151,9 +158,9 @@ async def test_project_explanation_binds_prompt_and_cache_to_facts(monkeypatch: 
     assert response.state == "ready"
     assert response.cacheHit is True
     assert calls[0]["reasoning_effort"] is None
-    assert calls[0]["prompt_version"] == "rardar-project-insight-v2"
+    assert calls[0]["prompt_version"] == "rardar-project-insight-v3"
     assert "evidenceDigest=" in calls[0]["messages"][1]["content"]
-    assert "schemaVersion=rardar-project-insight-schema-v2" in calls[0]["messages"][1]["content"]
+    assert "schemaVersion=rardar-project-insight-schema-v3" in calls[0]["messages"][1]["content"]
     assert "local-demo-explosion-v1" not in calls[0]["messages"][1]["content"]
     assert "observedStarDelta" not in calls[0]["messages"][1]["content"]
     assert response.analysis and response.analysis.startHere[0].path == "pyproject.toml"
@@ -279,6 +286,29 @@ def test_project_insight_validation_fails_closed(case: str, expected_code: str) 
         rardar_product._validate_project_insight(insight, _evidence())
 
     assert error.value.code == expected_code
+
+
+def test_project_insight_v3_requires_a_bounded_reuse_cost_and_rejects_personalized_context() -> None:
+    payload = _insight().model_dump(mode="json")
+    payload["reuseCost"]["level"] = "free"
+    with pytest.raises(ValidationError):
+        ProjectExplanation.model_validate(payload, strict=True)
+
+    personalized = _insight().model_copy(deep=True)
+    personalized.bestFitScenarios[0].text = "适合你的 Rardar 项目直接集成。"
+    with pytest.raises(RardarLLMError) as error:
+        rardar_product._validate_project_insight(personalized, _evidence())
+    assert error.value.code == "rardar_llm_personalized_context"
+
+
+def test_project_insight_v3_rejects_a_duplicated_official_definition() -> None:
+    duplicated = _insight().model_copy(deep=True)
+    duplicated.conclusionSummary.text = "An official developer automation toolkit."
+
+    with pytest.raises(RardarLLMError) as error:
+        rardar_product._validate_project_insight(duplicated, _evidence())
+
+    assert error.value.code == "rardar_llm_repeated_official_intro"
 
 
 def _github_item(index: int) -> dict:

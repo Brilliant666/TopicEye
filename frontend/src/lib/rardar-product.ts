@@ -3,12 +3,12 @@ export type ProjectExplanation = {
   repository: string;
   githubRepositoryId: number | null;
   generationId: string;
-  promptVersion: 'rardar-project-insight-v2';
-  schemaVersion: 'rardar-project-insight-schema-v2';
+  promptVersion: 'rardar-project-insight-v3';
+  schemaVersion: 'rardar-project-insight-schema-v3';
   format: 'structured' | 'none';
   officialIntro: EvidenceBackedIntro;
   analysis: {
-    officialIntro: EvidenceBackedIntro;
+    conclusionSummary: EvidenceBackedText;
     coreHighlights: EvidenceBackedText[];
     reusableAssets: Array<{
       reuseType: ReuseType;
@@ -16,6 +16,12 @@ export type ProjectExplanation = {
       howToUse: string;
       evidenceRefs: string[];
     }>;
+    reuseCost: {
+      level: 'low' | 'medium' | 'high' | 'unknown';
+      reason: string;
+      evidenceRefs: string[];
+    };
+    bestFitScenarios: EvidenceBackedText[];
     startHere: Array<{ label: string; path: string; evidenceRefs: string[] }>;
     implementationBoundaries: EvidenceBackedText[];
   } | null;

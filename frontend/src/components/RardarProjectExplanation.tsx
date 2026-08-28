@@ -1,7 +1,7 @@
 'use client';
 
 import { type ReactNode, useState } from 'react';
-import { AlertTriangle, BookOpen, Boxes, Compass, Loader2, Sparkles } from 'lucide-react';
+import { AlertTriangle, BookOpen, Boxes, Compass, Gauge, Loader2, Sparkles, Target } from 'lucide-react';
 
 import { explainProject, explainProjectById, type ProjectExplanation } from '@/lib/rardar-product';
 import styles from './RardarFoundation.module.css';
@@ -23,6 +23,7 @@ export default function RardarProjectExplanation({
   async function run() {
     setLoading(true);
     setError(null);
+    setResult(null);
     try {
       setResult(
         githubRepositoryId === undefined
@@ -38,12 +39,20 @@ export default function RardarProjectExplanation({
 
   if (!result && !error) {
     return (
-      <button type="button" className={styles.aiButton} onClick={run} disabled={loading}>
-        {loading ? <Loader2 size={15} className={styles.spin} /> : <Sparkles size={15} />}
-        {loading
-          ? (usesStaticEvidence ? '正在分析已保存的静态证据' : '正在读取项目事实并分析')
-          : (usesStaticEvidence ? '生成 AI 深度解读' : 'AI 解读')}
-      </button>
+      <>
+        <button type="button" className={styles.aiButton} onClick={run} disabled={loading}>
+          {loading ? <Loader2 size={15} className={styles.spin} /> : <Sparkles size={15} />}
+          {loading
+            ? (usesStaticEvidence ? '正在基于静态证据分析' : '正在读取项目事实并分析')
+            : (usesStaticEvidence ? '生成 AI 深度解读' : 'AI 解读')}
+        </button>
+        {loading && (
+          <div className={`${styles.aiPanel} ${styles.aiLoading}`} role="status" aria-live="polite">
+            <div><Loader2 size={15} className={styles.spin} /><strong>正在基于静态证据分析</strong></div>
+            <p>首次生成预计需要一些时间。页面其他官方档案与 Today 事实仍可继续阅读，请勿重复提交。</p>
+          </div>
+        )}
+      </>
     );
   }
 
@@ -51,14 +60,7 @@ export default function RardarProjectExplanation({
     return (
       <div className={`${styles.aiPanel} ${styles.aiUnavailable}`}>
         <div><AlertTriangle size={15} /><strong>AI 暂不可用</strong></div>
-        <p>{usesStaticEvidence ? '官方档案和今日事实不受影响。' : '事实榜单不受影响。'}{error || result?.errorCode}</p>
-        {result?.officialIntro && (
-          <section className={styles.officialIntro}>
-            <span>{result.officialIntro.sourceLabel}</span>
-            <p>{result.officialIntro.text}</p>
-            <EvidenceRefs values={result.officialIntro.evidenceRefs} />
-          </section>
-        )}
+        <p>{usesStaticEvidence ? '官方档案和今日事实不受影响，可以稍后安全重试。' : '事实榜单不受影响，可以稍后安全重试。'}</p>
         <button type="button" onClick={run} disabled={loading}>重试</button>
       </div>
     );
@@ -71,12 +73,12 @@ export default function RardarProjectExplanation({
       <div>
         <Sparkles size={15} />
         <strong>{usesStaticEvidence ? 'AI 深度解读' : '项目证据解读'}</strong>
-        <span>{usesStaticEvidence ? '只使用当前 Serving Projection 的静态证据' : '按需生成 · 不复述榜单事实'}</span>
+        <span>{usesStaticEvidence ? '基于当前 Serving Projection 的官方 README、目录、Release 与许可证证据' : '按需生成 · 不复述榜单事实'}</span>
       </div>
-      <section className={styles.officialIntro}>
-        <span>{analysis.officialIntro.sourceLabel}</span>
-        <p>{analysis.officialIntro.text}</p>
-        <EvidenceRefs values={analysis.officialIntro.evidenceRefs} />
+      <section className={styles.insightConclusion}>
+        <span>结论摘要</span>
+        <p>{analysis.conclusionSummary.text}</p>
+        <EvidenceRefs values={analysis.conclusionSummary.evidenceRefs} />
       </section>
       <div className={styles.insightSections}>
         <InsightSection icon={Sparkles} title="核心亮点">
@@ -92,6 +94,18 @@ export default function RardarProjectExplanation({
               <p>{item.howToUse}</p>
               <EvidenceRefs values={item.evidenceRefs} />
             </div>
+          ))}
+        </InsightSection>
+        <InsightSection icon={Gauge} title="复用成本">
+          <div className={styles.insightItem}>
+            <strong>{reuseCostLabel(analysis.reuseCost.level)}</strong>
+            <p>{analysis.reuseCost.reason}</p>
+            <EvidenceRefs values={analysis.reuseCost.evidenceRefs} />
+          </div>
+        </InsightSection>
+        <InsightSection icon={Target} title="适合场景">
+          {analysis.bestFitScenarios.map((item) => (
+            <InsightItem key={`${item.text}-${item.evidenceRefs.join()}`} text={item.text} refs={item.evidenceRefs} />
           ))}
         </InsightSection>
         <InsightSection icon={Compass} title="建议先看">
@@ -142,6 +156,10 @@ function reuseLabel(value: string) {
     whole_product: '整套产品', module_library: '模块 / 类库', provider_connector: 'Provider / 连接器',
     workflow: '工作流', reference_only: '参考资产', not_recommended: '不建议复用',
   }[value] || value;
+}
+
+function reuseCostLabel(value: 'low' | 'medium' | 'high' | 'unknown') {
+  return { low: '低成本', medium: '中等成本', high: '高成本', unknown: '证据不足，成本未知' }[value];
 }
 
 function AIProvenance({ result, usesStaticEvidence }: { result: ProjectExplanation; usesStaticEvidence: boolean }) {

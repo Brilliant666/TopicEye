@@ -1,5 +1,7 @@
 """Minimal process-level host for Adapter HTTP/UI tests; no database lifespan."""
 
+import asyncio
+import copy
 import os
 from pathlib import Path
 
@@ -24,6 +26,7 @@ async def visual_state_fixture(request, call_next):
     mode = path.read_text(encoding="utf-8").strip() if path.exists() else "ready"
     if request.url.path.startswith("/api/v1/rardar/projects/") and request.url.path.endswith("/insight"):
         payload = await request.json()
+        await asyncio.sleep(0.2)
         github_repository_id = int(request.url.path.split("/")[-2])
         repository = "fixture-lab/exact-1"
         official_intro = {
@@ -38,8 +41,8 @@ async def visual_state_fixture(request, call_next):
                     "repository": repository,
                     "githubRepositoryId": github_repository_id,
                     "generationId": payload["generationId"],
-                    "promptVersion": "rardar-project-insight-v2",
-                    "schemaVersion": "rardar-project-insight-schema-v2",
+                    "promptVersion": "rardar-project-insight-v3",
+                    "schemaVersion": "rardar-project-insight-schema-v3",
                     "format": "none",
                     "officialIntro": official_intro,
                     "analysis": None,
@@ -58,12 +61,15 @@ async def visual_state_fixture(request, call_next):
                 "repository": repository,
                 "githubRepositoryId": github_repository_id,
                 "generationId": payload["generationId"],
-                "promptVersion": "rardar-project-insight-v2",
-                "schemaVersion": "rardar-project-insight-schema-v2",
+                "promptVersion": "rardar-project-insight-v3",
+                "schemaVersion": "rardar-project-insight-schema-v3",
                 "format": "structured",
                 "officialIntro": official_intro,
                 "analysis": {
-                    "officialIntro": official_intro,
+                    "conclusionSummary": {
+                        "text": "它把开发自动化能力封装成可组合模块，适合作为工作流的基础组件。",
+                        "evidenceRefs": ["description", "readme:introduction"],
+                    },
                     "coreHighlights": [
                         {"text": "提供可组合的开发自动化能力。", "evidenceRefs": ["readme:introduction"]}
                     ],
@@ -74,6 +80,14 @@ async def visual_state_fixture(request, call_next):
                             "howToUse": "提取模块后接入现有工作流。",
                             "evidenceRefs": ["tree:src"],
                         }
+                    ],
+                    "reuseCost": {
+                        "level": "medium",
+                        "reason": "需要从 src 入口适配现有工作流。",
+                        "evidenceRefs": ["tree:src"],
+                    },
+                    "bestFitScenarios": [
+                        {"text": "需要组合开发自动化模块的团队。", "evidenceRefs": ["description", "tree:src"]}
                     ],
                     "startHere": [{"label": "核心源码入口", "path": "src", "evidenceRefs": ["tree:src"]}],
                     "implementationBoundaries": [],
@@ -157,6 +171,33 @@ async def visual_state_fixture(request, call_next):
         )
     if request.url.path not in {"/api/v1/rardar/explosion-board", "/api/v1/rardar/today"}:
         return await call_next(request)
+    if mode == "top20" and request.url.path == "/api/v1/rardar/today":
+        try:
+            payload = load_today_snapshot()[0].model_dump(mode="json")
+        except RardarArtifactError as exc:
+            return JSONResponse(status_code=503, content={"detail": {"code": exc.code, "message": str(exc)}})
+        template = payload["exactRanked"][0]
+        for index in range(len(payload["exactRanked"]) + 1, 21):
+            item = copy.deepcopy(template)
+            item.update(
+                {
+                    "rank": index,
+                    "githubRepositoryId": 10_000 + index,
+                    "repository": f"fixture-lab/top-{index}",
+                    "htmlUrl": f"https://github.com/fixture-lab/top-{index}",
+                    "observedStarDelta": 1000 - index,
+                }
+            )
+            payload["exactRanked"].append(item)
+        payload["profileSummary"] = {
+            "total": 20,
+            "complete": 0,
+            "partial": 20,
+            "sourceUnavailable": 0,
+            "chineseSummaries": 20,
+        }
+        payload["coverage"]["exactCount"] = 20
+        return JSONResponse(content=payload)
     if mode in {"ready", "ai_error"}:
         return await call_next(request)
     if mode == "error":

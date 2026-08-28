@@ -217,6 +217,16 @@ class ServingProjectRecord(StrictServingModel):
         if (
             self.project.githubRepositoryId != self.profile.githubRepositoryId
             or self.project.repository != self.profile.repository
+            or self.project.htmlUrl != self.profile.htmlUrl
         ):
             raise ValueError("project identity is inconsistent")
+        if (
+            self.project.profileState != self.profile.profileState
+            or self.project.officialSummaryZh != self.profile.officialSummaryZh
+            or self.project.sourceLabel != self.profile.sourceLabel
+            or self.project.sourceLanguage != self.profile.sourceLanguage
+            or self.project.capabilityBulletsZh != self.profile.capabilityBulletsZh[:4]
+            or self.project.translationState != self.profile.translationState
+        ):
+            raise ValueError("project profile projection is inconsistent")
         return self

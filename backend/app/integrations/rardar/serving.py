@@ -369,20 +369,35 @@ def _validate_project_binding(
     *,
     identifier: str,
     pointer: ServingPointer,
+    today_project: TodayProject,
 ) -> None:
     evidence_payload = evidence.model_dump(mode="json", exclude={"digest"})
     if _sha(_canonical_bytes(evidence_payload)) != evidence.digest:
         raise ServingProjectionError("rardar_serving_evidence_digest_invalid", "Serving evidence digest is invalid")
     allowed_refs = set(evidence.evidenceIndex)
+    claims = {
+        record.profile.officialSummaryZh,
+        *record.profile.capabilityBulletsZh,
+        *record.profile.primaryUseCasesZh,
+        *record.profile.deliveryFormsZh,
+    }
+    if any(not record.profile.claimEvidenceRefs.get(claim) for claim in claims):
+        raise ServingProjectionError("rardar_serving_evidence_ref_invalid", "Serving profile claim is missing evidence")
     claim_refs = {reference for references in record.profile.claimEvidenceRefs.values() for reference in references}
+    section_refs = {reference for section in record.profile.selectedSections for reference in section.evidenceRefs}
     link_refs = {reference for link in record.profile.startHere for reference in link.evidenceRefs}
-    if not claim_refs.issubset(allowed_refs) or not link_refs.issubset(allowed_refs):
+    if (
+        not claim_refs.issubset(allowed_refs)
+        or not section_refs.issubset(allowed_refs)
+        or not link_refs.issubset(allowed_refs)
+    ):
         raise ServingProjectionError(
             "rardar_serving_evidence_ref_invalid", "Serving profile evidence references are invalid"
         )
     if (
         record.servingGenerationId != pointer.servingGenerationId
         or record.generationId != pointer.sourceGenerationId
+        or record.project != today_project
         or str(record.project.githubRepositoryId) != identifier
         or evidence.githubRepositoryId != record.project.githubRepositoryId
         or evidence.repository != record.project.repository
@@ -431,6 +446,9 @@ def _validate_built_projection(pointer_raw: bytes, files: dict[str, bytes]) -> N
         or today.profileSummary != manifest.profileSummary
     ):
         raise ServingProjectionError("rardar_serving_mixed_generation", "Serving Today source binding is invalid")
+    today_projects = {str(project.githubRepositoryId): project for project in today.exactRanked}
+    if len(today_projects) != len(today.exactRanked) or set(today_projects) != set(manifest.projects):
+        raise ServingProjectionError("rardar_serving_inventory_invalid", "Serving Today project index is invalid")
     for identifier, project_file in manifest.projects.items():
         record = _strict_model(files[project_file.path], ServingProjectRecord, "rardar_serving_project_invalid")
         evidence = _strict_model(
@@ -438,7 +456,13 @@ def _validate_built_projection(pointer_raw: bytes, files: dict[str, bytes]) -> N
             ProjectEvidenceProjection,
             "rardar_serving_evidence_invalid",
         )
-        _validate_project_binding(record, evidence, identifier=identifier, pointer=pointer)
+        _validate_project_binding(
+            record,
+            evidence,
+            identifier=identifier,
+            pointer=pointer,
+            today_project=today_projects[identifier],
+        )
 
 
 def _plain_directory(path: Path) -> None:
@@ -722,7 +746,21 @@ class ServingProjectionLoader:
                 )
             record = _strict_model(project_raw, ServingProjectRecord, "rardar_serving_project_invalid")
             evidence = _strict_model(evidence_raw, ProjectEvidenceProjection, "rardar_serving_evidence_invalid")
-            _validate_project_binding(record, evidence, identifier=identifier, pointer=bundle.pointer)
+            today_project = next(
+                (project for project in bundle.today.exactRanked if project.githubRepositoryId == github_repository_id),
+                None,
+            )
+            if today_project is None:
+                raise ServingProjectionError(
+                    "rardar_serving_inventory_invalid", "Serving project is absent from Today inventory"
+                )
+            _validate_project_binding(
+                record,
+                evidence,
+                identifier=identifier,
+                pointer=bundle.pointer,
+                today_project=today_project,
+            )
             detail = ServingProjectDetail(
                 schemaVersion=1,
                 generationId=source_generation_id,

@@ -196,6 +196,51 @@ def test_mixed_project_generation_is_rejected_even_with_updated_file_hashes(tmp_
     assert caught.value.code == "rardar_serving_mixed_generation"
 
 
+def test_today_project_inventory_must_match_the_manifest(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    built = _build(root)
+    today = json.loads(built.files["today.json"])
+    today["exactRanked"][0]["githubRepositoryId"] = 999999
+    pointer, files = _rebundle(built, "today.json", today)
+
+    with pytest.raises(ServingProjectionError) as caught:
+        _validate_built_projection(pointer, files)
+
+    assert caught.value.code == "rardar_serving_inventory_invalid"
+
+
+def test_project_facts_must_match_the_today_projection(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    built = _build(root)
+    today = json.loads(built.files["today.json"])
+    identifier = str(today["exactRanked"][0]["githubRepositoryId"])
+    relative = f"projects/{identifier}.json"
+    record = json.loads(built.files[relative])
+    record["project"]["rank"] += 1
+    pointer, files = _rebundle(built, relative, record)
+
+    with pytest.raises(ServingProjectionError) as caught:
+        _validate_built_projection(pointer, files)
+
+    assert caught.value.code == "rardar_serving_mixed_generation"
+
+
+def test_every_profile_claim_requires_saved_evidence(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    built = _build(root)
+    today = json.loads(built.files["today.json"])
+    identifier = str(today["exactRanked"][0]["githubRepositoryId"])
+    relative = f"projects/{identifier}.json"
+    record = json.loads(built.files[relative])
+    record["profile"]["claimEvidenceRefs"].pop(record["profile"]["officialSummaryZh"])
+    pointer, files = _rebundle(built, relative, record)
+
+    with pytest.raises(ServingProjectionError) as caught:
+        _validate_built_projection(pointer, files)
+
+    assert caught.value.code == "rardar_serving_evidence_ref_invalid"
+
+
 def test_evidence_digest_is_recomputed_instead_of_trusting_the_field(tmp_path: Path) -> None:
     root = _root(tmp_path)
     built = _build(root)

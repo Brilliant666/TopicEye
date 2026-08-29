@@ -81,11 +81,13 @@ export default function RardarProjectExplanation({
         <EvidenceRefs values={analysis.conclusionSummary.evidenceRefs} />
       </section>
       <div className={styles.insightSections}>
-        <InsightSection icon={Sparkles} title="核心亮点">
-          {analysis.coreHighlights.map((item) => (
-            <InsightItem key={`${item.text}-${item.evidenceRefs.join()}`} text={item.text} refs={item.evidenceRefs} />
-          ))}
-        </InsightSection>
+        {analysis.differentiators.length > 0 && (
+          <InsightSection icon={Sparkles} title="差异化判断">
+            {analysis.differentiators.map((item) => (
+              <InsightItem key={`${item.text}-${item.evidenceRefs.join()}`} text={item.text} refs={item.evidenceRefs} />
+            ))}
+          </InsightSection>
+        )}
         <InsightSection icon={Boxes} title="可复用资产">
           {analysis.reusableAssets.map((item) => (
             <div className={styles.insightItem} key={`${item.asset}-${item.evidenceRefs.join()}`}>
@@ -138,7 +140,8 @@ function InsightItem({ text, refs }: { text: string; refs: string[] }) {
 }
 
 function EvidenceRefs({ values }: { values: string[] }) {
-  return <div className={styles.evidenceRefs}>{values.map((value) => <span key={value}>{evidenceLabel(value)}</span>)}</div>;
+  const labels = Array.from(new Set(values.map(evidenceLabel)));
+  return <div className={styles.evidenceRefs}>{labels.map((value) => <span key={value}>{value}</span>)}</div>;
 }
 
 function evidenceLabel(value: string) {

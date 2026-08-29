@@ -93,47 +93,6 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
             </details>
           </DetailSection>
 
-          {profile.capabilityBulletsZh.length > 0 && (
-            <DetailSection icon={Boxes} title="核心能力" subtitle="每项来自已保存的官方证据。">
-              <ul className={styles.detailBulletGrid}>
-                {profile.capabilityBulletsZh.slice(0, 6).map((capability) => (
-                  <li key={capability}>
-                    <strong>{capabilityTitle(capability)}</strong>
-                    <p>{capability}</p>
-                    <EvidenceBadges values={profile.claimEvidenceRefs[capability] || []} />
-                  </li>
-                ))}
-              </ul>
-            </DetailSection>
-          )}
-
-          {profile.primaryUseCasesZh.length > 0 && (
-            <DetailSection icon={Target} title="适合解决什么" subtitle="官方资料明确描述的使用场景。">
-              <ul className={styles.detailBulletGrid}>
-                {profile.primaryUseCasesZh.map((useCase) => <li key={useCase}>{useCase}</li>)}
-              </ul>
-            </DetailSection>
-          )}
-
-          {profile.startHere.length > 0 && (
-            <DetailSection icon={FileSearch} title="建议先看" subtitle="全部链接都来自这份 Serving Projection 保存的真实 README、文件或目录。">
-              <div className={styles.startHereGrid}>
-                {profile.startHere.map((item) => (
-                  <a key={item.path} href={item.htmlUrl} target="_blank" rel="noreferrer">
-                    <span>{item.label}</span><code>{item.path}</code><ExternalLink size={14} />
-                  </a>
-                ))}
-              </div>
-            </DetailSection>
-          )}
-
-          <DetailSection icon={Sparkles} title="AI 深度解读" subtitle="按需调用已配置的 rardar 模型，只使用上面的静态证据；失败不会影响官方档案。">
-            <RardarProjectExplanation
-              repository={project.repository}
-              githubRepositoryId={project.githubRepositoryId}
-              generationId={detail.generationId}
-            />
-          </DetailSection>
         </main>
 
         <aside className={styles.detailAside}>
@@ -169,6 +128,52 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
           </Link>
         </aside>
       </div>
+
+      <main className={styles.detailLower} data-testid="project-detail-lower">
+        {profile.capabilities.length > 0 && (
+          <DetailSection icon={Boxes} title="核心能力" subtitle="短标题帮助扫描，完整说明与实际证据保持绑定。">
+            <ul className={styles.detailBulletGrid}>
+              {profile.capabilities.slice(0, 6).map((capability) => (
+                <li key={`${capability.title}-${capability.detail}`}>
+                  <strong>{capability.title}</strong>
+                  <p>{capability.detail}</p>
+                  <EvidenceBadges values={capability.evidenceRefs} />
+                </li>
+              ))}
+            </ul>
+          </DetailSection>
+        )}
+
+        <div className={styles.detailSupportGrid}>
+          {profile.primaryUseCasesZh.length > 0 && (
+            <DetailSection icon={Target} title="适合解决什么" subtitle="官方资料明确描述的使用场景。">
+              <ul className={styles.detailBulletGrid}>
+                {profile.primaryUseCasesZh.map((useCase) => <li key={useCase}>{useCase}</li>)}
+              </ul>
+            </DetailSection>
+          )}
+
+          {profile.startHere.length > 0 && (
+            <DetailSection icon={FileSearch} title="建议先看" subtitle="全部链接都来自已保存的真实 README、文件或目录。">
+              <div className={styles.startHereGrid}>
+                {profile.startHere.map((item) => (
+                  <a key={item.path} href={item.htmlUrl} target="_blank" rel="noreferrer">
+                    <span>{item.label}</span><code>{item.path}</code><ExternalLink size={14} />
+                  </a>
+                ))}
+              </div>
+            </DetailSection>
+          )}
+        </div>
+
+        <DetailSection icon={Sparkles} title="AI 深度解读" subtitle="AI 只判断差异、复用方式、成本与边界，不复述上方官方能力。">
+          <RardarProjectExplanation
+            repository={project.repository}
+            githubRepositoryId={project.githubRepositoryId}
+            generationId={detail.generationId}
+          />
+        </DetailSection>
+      </main>
     </div>
   );
 }
@@ -185,16 +190,16 @@ function DefinitionItem({ label, values }: { label: string; values: string[] }) 
 
 function EvidenceBadges({ values }: { values: string[] }) {
   if (values.length === 0) return null;
+  const counts = new Map<string, number>();
+  values.forEach((value) => {
+    const label = evidenceSourceLabel(value);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
   return (
     <small className={styles.capabilityEvidence}>
-      {Array.from(new Set(values.map(evidenceSourceLabel))).join(' · ')}
+      {Array.from(counts, ([label, count]) => count > 1 ? `${label} · ${count}处证据` : label).join(' · ')}
     </small>
   );
-}
-
-function capabilityTitle(value: string) {
-  const firstClause = value.trim().split(/[，,；;。.!！]/, 1)[0] || value.trim();
-  return firstClause.length > 22 ? `${firstClause.slice(0, 21)}…` : firstClause;
 }
 
 function evidenceSourceLabel(value: string) {

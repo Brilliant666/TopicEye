@@ -156,12 +156,20 @@ export type ProfileState = 'complete' | 'partial' | 'source_unavailable';
 export type ProfileSourceLabel = '官方中文 README' | '官方 README（译）' | 'GitHub Description' | '官方原文' | '受限概括';
 export type TranslationState = 'not_needed' | 'translated' | 'pending' | 'unavailable';
 
+export interface ProjectCapability {
+  title: string;
+  detail: string;
+  shortDetail: string | null;
+  evidenceRefs: string[];
+}
+
 export interface TodayProject extends ExactExplosionProject {
   profileState: ProfileState;
   officialSummaryZh: string;
   sourceLabel: ProfileSourceLabel;
   sourceLanguage: string | null;
   capabilityBulletsZh: string[];
+  capabilities: ProjectCapability[];
   translationState: TranslationState;
 }
 
@@ -174,7 +182,7 @@ export interface ProfileSummary {
 }
 
 export interface TodaySnapshot extends Omit<ExplosionBoard, 'exactRanked' | 'state' | 'reason' | 'dataMode'> {
-  schemaVersion: 1 | 2;
+  schemaVersion: 1 | 2 | 3;
   state: 'ready' | 'warming_up' | 'baseline_missing' | 'not_ready';
   reason: 'explosion_artifact_not_published' | null;
   exactRanked: TodayProject[];
@@ -205,13 +213,13 @@ export interface StartHereLink {
 }
 
 export interface ProjectDetail {
-  schemaVersion: 1 | 2;
+  schemaVersion: 1 | 2 | 3;
   generationId: string;
   servingGenerationId: string;
   project: TodayProject;
   profile: {
-    profileSchemaVersion: 'rardar-project-profile-v1' | 'rardar-project-profile-v2';
-    promptVersion: 'rardar-project-profile-zh-v1' | 'rardar-project-profile-zh-v2' | 'rardar-project-profile-zh-v3';
+    profileSchemaVersion: 'rardar-project-profile-v1' | 'rardar-project-profile-v2' | 'rardar-project-profile-v3';
+    promptVersion: 'rardar-project-profile-zh-v1' | 'rardar-project-profile-zh-v2' | 'rardar-project-profile-zh-v3' | 'rardar-project-profile-zh-v4';
     githubRepositoryId: number;
     repository: string;
     htmlUrl: string;
@@ -221,6 +229,7 @@ export interface ProjectDetail {
     sourceLabel: ProfileSourceLabel;
     sourceLanguage: string | null;
     capabilityBulletsZh: string[];
+    capabilities: ProjectCapability[];
     productFormsZh: string[];
     supportedEnvironmentsZh: string[];
     primaryUseCasesZh: string[];
@@ -289,7 +298,7 @@ export async function loadExplosionBoard(
 
 export function parseTodaySnapshot(value: unknown): TodaySnapshot {
   const board = parseExplosionBoard(value);
-  if (!isRecord(value) || ![1, 2].includes(Number(value.schemaVersion)) || typeof value.servingGenerationId !== 'string') {
+  if (!isRecord(value) || ![1, 2, 3].includes(Number(value.schemaVersion)) || typeof value.servingGenerationId !== 'string') {
     throw new Error('rardar_response_invalid');
   }
   if (!isRecord(value.profileSummary) || !isFiniteInteger(value.profileSummary.total)) {
@@ -302,11 +311,28 @@ export function parseTodaySnapshot(value: unknown): TodaySnapshot {
       || typeof item.officialSummaryZh !== 'string'
       || item.officialSummaryZh.length === 0
       || !Array.isArray(item.capabilityBulletsZh)
+      || (Number(value.schemaVersion) === 3 && !Array.isArray(item.capabilities))
+      || (Array.isArray(item.capabilities) && !item.capabilities.every(isProjectCapability))
     ) {
       throw new Error('rardar_response_invalid');
     }
   }
-  return { ...board, ...value } as TodaySnapshot;
+  const exactRanked = (value.exactRanked as Array<Record<string, unknown>>).map((item) => ({
+    ...item,
+    capabilities: Array.isArray(item.capabilities) ? item.capabilities : [],
+  }));
+  return { ...board, ...value, exactRanked } as unknown as TodaySnapshot;
+}
+
+function isProjectCapability(value: unknown): value is ProjectCapability {
+  return isRecord(value)
+    && typeof value.title === 'string'
+    && value.title.length > 0
+    && typeof value.detail === 'string'
+    && value.detail.length > 0
+    && (value.shortDetail === null || typeof value.shortDetail === 'string')
+    && Array.isArray(value.evidenceRefs)
+    && value.evidenceRefs.every((reference) => typeof reference === 'string');
 }
 
 export async function loadTodaySnapshot(
@@ -331,7 +357,7 @@ export async function loadTodaySnapshot(
 }
 
 export function parseProjectDetail(value: unknown): ProjectDetail {
-  if (!isRecord(value) || ![1, 2].includes(Number(value.schemaVersion)) || !isRecord(value.project) || !isRecord(value.profile) || !isRecord(value.evidence)) {
+  if (!isRecord(value) || ![1, 2, 3].includes(Number(value.schemaVersion)) || !isRecord(value.project) || !isRecord(value.profile) || !isRecord(value.evidence)) {
     throw new Error('rardar_project_response_invalid');
   }
   const identifier = value.project.githubRepositoryId;
@@ -345,6 +371,8 @@ export function parseProjectDetail(value: unknown): ProjectDetail {
     || value.evidence.generationId !== value.generationId
     || typeof value.profile.officialSummaryZh !== 'string'
     || !Array.isArray(value.profile.capabilityBulletsZh)
+    || (Number(value.schemaVersion) === 3 && !Array.isArray(value.profile.capabilities))
+    || (Array.isArray(value.profile.capabilities) && !value.profile.capabilities.every(isProjectCapability))
     || !Array.isArray(value.profile.selectedSections)
     || !Array.isArray(value.profile.startHere)
   ) {
@@ -356,6 +384,7 @@ export function parseProjectDetail(value: unknown): ProjectDetail {
     supportedEnvironmentsZh: Array.isArray(value.profile.supportedEnvironmentsZh)
       ? value.profile.supportedEnvironmentsZh
       : [],
+    capabilities: Array.isArray(value.profile.capabilities) ? value.profile.capabilities : [],
   };
   return {
     ...value,

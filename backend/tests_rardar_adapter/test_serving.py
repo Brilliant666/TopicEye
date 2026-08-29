@@ -20,6 +20,7 @@ from app.integrations.rardar.serving import (
     install_serving_projection,
     source_hashes,
 )
+from app.integrations.rardar.serving_schemas import ServingProjectRecord, ServingTodaySnapshot
 
 FIXTURES = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_intelligence"
 
@@ -97,6 +98,38 @@ def test_raw_artifact_builds_small_bound_projection_in_original_order(tmp_path: 
         *(f"evidence/{item.githubRepositoryId}.json" for item in board.exactRanked[:20]),
     }
     assert etag.startswith('"') and etag.endswith('"')
+    assert today.schemaVersion == 3
+    assert all(isinstance(project.capabilities, list) for project in today.exactRanked)
+    assert all(
+        capability.detail in project.capabilityBulletsZh
+        for project in today.exactRanked
+        for capability in project.capabilities
+    )
+
+
+@pytest.mark.parametrize("schema_version", [1, 2])
+def test_legacy_serving_versions_remain_readable_without_structured_capabilities(
+    tmp_path: Path,
+    schema_version: int,
+) -> None:
+    built = _build(_root(tmp_path))
+    today = json.loads(built.files["today.json"])
+    today["schemaVersion"] = schema_version
+    for project in today["exactRanked"]:
+        project.pop("capabilities", None)
+    parsed_today = ServingTodaySnapshot.model_validate_json(_canonical(today), strict=True)
+
+    identifier = str(today["exactRanked"][0]["githubRepositoryId"])
+    record = json.loads(built.files[f"projects/{identifier}.json"])
+    record["schemaVersion"] = schema_version
+    record["project"].pop("capabilities", None)
+    record["profile"].pop("capabilities", None)
+    record["profile"]["profileSchemaVersion"] = f"rardar-project-profile-v{schema_version}"
+    record["profile"]["promptVersion"] = f"rardar-project-profile-zh-v{schema_version + 1}"
+    parsed_record = ServingProjectRecord.model_validate_json(_canonical(record), strict=True)
+
+    assert parsed_today.exactRanked[0].capabilities == []
+    assert parsed_record.profile.capabilities == []
 
 
 def test_project_etag_binds_both_profile_record_and_evidence(tmp_path: Path) -> None:
@@ -196,6 +229,30 @@ def test_schema_damage_is_rejected_before_install(tmp_path: Path) -> None:
     assert caught.value.code == "rardar_serving_today_invalid"
 
 
+def test_repeated_capability_title_and_detail_is_rejected_before_install(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    built = _build(root)
+    today = json.loads(built.files["today.json"])
+    identifier = str(today["exactRanked"][0]["githubRepositoryId"])
+    relative = f"projects/{identifier}.json"
+    record = json.loads(built.files[relative])
+    record["profile"]["capabilities"] = [
+        {
+            "title": "重复能力标题",
+            "detail": "重复能力标题",
+            "shortDetail": None,
+            "evidenceRefs": ["description"],
+        }
+    ]
+    record["profile"]["capabilityBulletsZh"] = ["重复能力标题"]
+    pointer, files = _rebundle(built, relative, record)
+
+    with pytest.raises(ServingProjectionError) as caught:
+        _validate_built_projection(pointer, files)
+
+    assert caught.value.code == "rardar_serving_project_invalid"
+
+
 def test_mixed_project_generation_is_rejected_even_with_updated_file_hashes(tmp_path: Path) -> None:
     root = _root(tmp_path)
     built = _build(root)
@@ -250,6 +307,32 @@ def test_every_profile_claim_requires_saved_evidence(tmp_path: Path) -> None:
     relative = f"projects/{identifier}.json"
     record = json.loads(built.files[relative])
     record["profile"]["claimEvidenceRefs"].pop(record["profile"]["officialSummaryZh"])
+    pointer, files = _rebundle(built, relative, record)
+
+    with pytest.raises(ServingProjectionError) as caught:
+        _validate_built_projection(pointer, files)
+
+    assert caught.value.code == "rardar_serving_evidence_ref_invalid"
+
+
+def test_structured_capability_requires_a_saved_evidence_reference(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    built = _build(root)
+    today = json.loads(built.files["today.json"])
+    identifier = str(today["exactRanked"][0]["githubRepositoryId"])
+    relative = f"projects/{identifier}.json"
+    record = json.loads(built.files[relative])
+    capability = {
+        "title": "可验证能力",
+        "detail": "保留完整且可复核的能力说明。",
+        "shortDetail": None,
+        "evidenceRefs": ["readme:missing"],
+    }
+    record["profile"]["capabilities"] = [capability]
+    record["profile"]["capabilityBulletsZh"] = ["保留完整且可复核的能力说明。"]
+    record["project"]["capabilities"] = [capability]
+    record["project"]["capabilityBulletsZh"] = ["保留完整且可复核的能力说明。"]
+    record["profile"]["claimEvidenceRefs"]["保留完整且可复核的能力说明。"] = ["description"]
     pointer, files = _rebundle(built, relative, record)
 
     with pytest.raises(ServingProjectionError) as caught:

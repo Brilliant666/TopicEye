@@ -58,6 +58,20 @@ def _evidence(*, cached: bool = False) -> ProjectEvidence:
                 "license": "MIT",
             },
             "collectionLimits": {"githubRequests": 4},
+            "officialProfile": {
+                "officialSummaryZh": "An official developer automation toolkit.",
+                "capabilities": [
+                    {
+                        "title": "可组合自动化",
+                        "detail": "提供可组合的自动化能力。",
+                        "shortDetail": "组合自动化模块",
+                        "evidenceRefs": ["readme:introduction"],
+                    }
+                ],
+                "capabilityBulletsZh": ["提供可组合的自动化能力。"],
+                "productFormsZh": ["开发工具"],
+                "deliveryFormsZh": ["Python 模块"],
+            },
         },
         digest="a" * 64,
         allowed_refs=frozenset({"description", "readme:introduction", "tree:src", "file:pyproject.toml", "license"}),
@@ -80,7 +94,12 @@ def _insight() -> ProjectExplanation:
                     "text": "它把可组合的自动化能力封装成可复用模块，适合作为开发工作流的基础组件。",
                     "evidenceRefs": ["description", "readme:introduction"],
                 },
-                "coreHighlights": [{"text": "提供可组合的自动化能力。", "evidenceRefs": ["readme:introduction"]}],
+                "differentiators": [
+                    {
+                        "text": "相比一次性脚本，可组合模块更适合作为可扩展工作流的基础。",
+                        "evidenceRefs": ["readme:introduction", "tree:src"],
+                    }
+                ],
                 "reusableAssets": [
                     {
                         "reuseType": "module_library",
@@ -158,9 +177,9 @@ async def test_project_explanation_binds_prompt_and_cache_to_facts(monkeypatch: 
     assert response.state == "ready"
     assert response.cacheHit is True
     assert calls[0]["reasoning_effort"] is None
-    assert calls[0]["prompt_version"] == "rardar-project-insight-v3"
+    assert calls[0]["prompt_version"] == "rardar-project-insight-v4"
     assert "evidenceDigest=" in calls[0]["messages"][1]["content"]
-    assert "schemaVersion=rardar-project-insight-schema-v3" in calls[0]["messages"][1]["content"]
+    assert "schemaVersion=rardar-project-insight-schema-v4" in calls[0]["messages"][1]["content"]
     assert "local-demo-explosion-v1" not in calls[0]["messages"][1]["content"]
     assert "observedStarDelta" not in calls[0]["messages"][1]["content"]
     assert response.analysis and response.analysis.startHere[0].path == "pyproject.toml"
@@ -245,7 +264,7 @@ async def test_project_explanation_rejects_rank_repetition_and_generic_boundarie
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     invalid = _insight().model_copy(deep=True)
-    invalid.coreHighlights[0].text = "排名第 1，Star 增长很快。"
+    invalid.differentiators[0].text = "排名第 1，Star 增长很快。"
     invalid.implementationBoundaries[0].text = "稳定性需要验证"
 
     async def structured(**_kwargs):
@@ -276,7 +295,7 @@ async def test_project_explanation_rejects_rank_repetition_and_generic_boundarie
 def test_project_insight_validation_fails_closed(case: str, expected_code: str) -> None:
     insight = _insight().model_copy(deep=True)
     if case == "unknown_ref":
-        insight.coreHighlights[0].evidenceRefs = ["tree:not-present"]
+        insight.differentiators[0].evidenceRefs = ["tree:not-present"]
     elif case == "invented_path":
         insight.startHere[0].path = "README.md#invented"
     else:
@@ -288,7 +307,7 @@ def test_project_insight_validation_fails_closed(case: str, expected_code: str) 
     assert error.value.code == expected_code
 
 
-def test_project_insight_v3_requires_a_bounded_reuse_cost_and_rejects_personalized_context() -> None:
+def test_project_insight_v4_requires_a_bounded_reuse_cost_and_rejects_personalized_context() -> None:
     payload = _insight().model_dump(mode="json")
     payload["reuseCost"]["level"] = "free"
     with pytest.raises(ValidationError):
@@ -301,7 +320,7 @@ def test_project_insight_v3_requires_a_bounded_reuse_cost_and_rejects_personaliz
     assert error.value.code == "rardar_llm_personalized_context"
 
 
-def test_project_insight_v3_rejects_a_duplicated_official_definition() -> None:
+def test_project_insight_v4_rejects_a_duplicated_official_definition() -> None:
     duplicated = _insight().model_copy(deep=True)
     duplicated.conclusionSummary.text = "An official developer automation toolkit."
 
@@ -309,6 +328,45 @@ def test_project_insight_v3_rejects_a_duplicated_official_definition() -> None:
         rardar_product._validate_project_insight(duplicated, _evidence())
 
     assert error.value.code == "rardar_llm_repeated_official_intro"
+
+
+@pytest.mark.parametrize(
+    "repeated",
+    [
+        "提供可组合的自动化能力。",
+        "提供灵活且可组合的自动化能力。",
+        "核心亮点：提供 可组合 的自动化能力",
+        "核心亮点：提供　可组合的自动化能力。",
+    ],
+)
+def test_project_insight_hides_differentiators_that_repeat_official_capabilities(repeated: str) -> None:
+    insight = _insight().model_copy(deep=True)
+    insight.differentiators[0].text = repeated
+
+    validated = rardar_product._validate_project_insight(insight, _evidence())
+
+    assert validated.differentiators == []
+    assert validated.reusableAssets
+    assert validated.reuseCost
+
+
+def test_project_insight_keeps_evidence_backed_comparative_judgment() -> None:
+    insight = _insight()
+
+    validated = rardar_product._validate_project_insight(insight, _evidence())
+
+    assert len(validated.differentiators) == 1
+    assert "相比一次性脚本" in validated.differentiators[0].text
+
+
+def test_project_insight_overlap_normalizes_case_whitespace_and_punctuation() -> None:
+    overlaps, exactish = rardar_product._high_text_overlap(
+        "核心亮点： Architecture   Delta",
+        "architecture-delta",
+    )
+
+    assert overlaps is True
+    assert exactish is True
 
 
 def _github_item(index: int) -> dict:

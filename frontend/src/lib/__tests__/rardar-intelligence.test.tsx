@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { compactCapability, DiscoverFoundation, TodayFoundation } from '@/components/RardarFoundationPage';
+import { DiscoverFoundation, TodayFoundation } from '@/components/RardarFoundationPage';
 import {
   loadExplosionBoard,
   loadTodaySnapshot,
@@ -10,7 +10,7 @@ import {
 } from '@/lib/rardar-intelligence';
 
 const readyPayload = {
-  schemaVersion: 1,
+  schemaVersion: 3,
   servingGenerationId: 'fixture-explosion-a--serving',
   profileSummary: { total: 2, complete: 2, partial: 0, sourceUnavailable: 0, chineseSummaries: 2 },
   state: 'ready',
@@ -60,6 +60,12 @@ const readyPayload = {
       sourceLabel: '官方 README（译）',
       sourceLanguage: 'en',
       capabilityBulletsZh: ['提供可组合的开发能力'],
+      capabilities: [{
+        title: '可组合开发能力',
+        detail: '提供可以嵌入既有工程流程的开发组件。',
+        shortDetail: '可嵌入既有工程流程。',
+        evidenceRefs: ['readme:section:1'],
+      }],
       translationState: 'translated',
     },
     {
@@ -87,6 +93,12 @@ const readyPayload = {
       sourceLabel: '官方 README（译）',
       sourceLanguage: 'en',
       capabilityBulletsZh: ['支持开发者自动化'],
+      capabilities: [{
+        title: '开发者自动化',
+        detail: '支持把重复的开发者任务组织成自动化流程。',
+        shortDetail: null,
+        evidenceRefs: ['readme:section:2'],
+      }],
       translationState: 'translated',
     },
   ],
@@ -195,8 +207,8 @@ describe('Rardar intelligence client contract', () => {
   });
 
   it('rejects malformed Serving profile metadata', () => {
-    expect(parseTodaySnapshot({ ...readyPayload, schemaVersion: 2 }).schemaVersion).toBe(2);
-    expect(() => parseTodaySnapshot({ ...readyPayload, schemaVersion: 3 })).toThrow('rardar_response_invalid');
+    expect(parseTodaySnapshot({ ...readyPayload, schemaVersion: 3 }).schemaVersion).toBe(3);
+    expect(() => parseTodaySnapshot({ ...readyPayload, schemaVersion: 4 })).toThrow('rardar_response_invalid');
     expect(() => parseTodaySnapshot({ ...readyPayload, profileSummary: null })).toThrow('rardar_response_invalid');
     expect(() => parseTodaySnapshot({
       ...readyPayload,
@@ -208,11 +220,17 @@ describe('Rardar intelligence client contract', () => {
     })).toThrow('rardar_response_invalid');
   });
 
-  it('keeps Today capabilities to three bounded scan labels and preserves internal navigation', () => {
-    const longCapability = '将非常长的官方能力说明压缩为一行便于快速扫榜，同时通过标题保留完整证据文本。';
+  it('shows complete capability units without ellipsis and bounds Today density by rank', () => {
+    const completeDetail = '将完整的官方能力说明连同证据保留下来，避免为了卡片高度截成无法理解的半句话。';
     const exactRanked = [{
       ...readyPayload.exactRanked[0],
-      capabilityBulletsZh: [longCapability, '第二项能力', '第三项能力', '第四项不应显示'],
+      capabilityBulletsZh: [completeDetail, '第二项完整能力', '第三项完整能力', '第四项不应显示'],
+      capabilities: [
+        { title: '完整能力说明', detail: completeDetail, shortDetail: null, evidenceRefs: ['readme:section:1'] },
+        { title: '第二项能力', detail: '第二项完整能力提供可验证的工程交付。', shortDetail: null, evidenceRefs: ['readme:section:2'] },
+        { title: '第三项能力', detail: '第三项完整能力保留可追溯来源。', shortDetail: null, evidenceRefs: ['readme:section:3'] },
+        { title: '第四项能力', detail: '第四项不应显示在前三名的卡片中。', shortDetail: null, evidenceRefs: ['readme:section:4'] },
+      ],
     }];
     const html = renderToStaticMarkup(
       <TodayFoundation result={{
@@ -225,13 +243,29 @@ describe('Rardar intelligence client contract', () => {
       }} />,
     );
 
-    expect(compactCapability(longCapability).length).toBeLessThanOrEqual(30);
-    expect(html).toContain('第二项能力');
-    expect(html).toContain('第三项能力');
+    expect(html).toContain(completeDetail);
+    expect(html).toContain('第二项完整能力提供可验证的工程交付。');
+    expect(html).toContain('第三项完整能力保留可追溯来源。');
     expect(html).not.toContain('第四项不应显示');
+    expect(html).not.toContain('…');
     expect(html).toContain('/project/github/1?generation=fixture-explosion-a');
     expect(html).toContain('href="https://github.com/fixture-lab/alpha"');
     expect(html).not.toContain('用这个仓库评估我的需求');
+  });
+
+  it('keeps Serving v1 and v2 snapshots readable without inventing structured capabilities', () => {
+    for (const schemaVersion of [1, 2]) {
+      const legacy = {
+        ...readyPayload,
+        schemaVersion,
+        exactRanked: readyPayload.exactRanked.map((project) => Object.fromEntries(
+          Object.entries(project).filter(([key]) => key !== 'capabilities'),
+        )),
+      };
+      const parsed = parseTodaySnapshot(legacy);
+      expect(parsed.schemaVersion).toBe(schemaVersion);
+      expect(parsed.exactRanked.every((project) => project.capabilities.length === 0)).toBe(true);
+    }
   });
 
   it('renders server HTML from facts without inventing AI explanations', () => {

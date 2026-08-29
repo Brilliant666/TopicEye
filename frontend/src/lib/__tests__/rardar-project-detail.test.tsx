@@ -5,7 +5,7 @@ import RardarProjectDetailPage from '@/components/RardarProjectDetailPage';
 import { loadProjectDetail, parseProjectDetail, type ProjectDetail } from '@/lib/rardar-intelligence';
 
 const detail: ProjectDetail = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   generationId: 'generation-v1',
   servingGenerationId: 'generation-v1--serving',
   project: {
@@ -34,11 +34,31 @@ const detail: ProjectDetail = {
     sourceLabel: '官方 README（译）',
     sourceLanguage: 'en',
     capabilityBulletsZh: ['生成独立 HTML / SVG 架构图', '对比架构快照变化', '追踪节点对应的代码路径'],
+    capabilities: [
+      {
+        title: '技术图与交互展示',
+        detail: '生成独立 HTML / SVG 架构图',
+        shortDetail: '生成可独立打开的架构交付。',
+        evidenceRefs: ['readme:section:1', 'readme:section:2'],
+      },
+      {
+        title: '架构变化对比',
+        detail: '对比架构快照变化',
+        shortDetail: null,
+        evidenceRefs: ['readme:section:2'],
+      },
+      {
+        title: '可追溯架构探索',
+        detail: '追踪节点对应的代码路径',
+        shortDetail: null,
+        evidenceRefs: ['readme:section:3'],
+      },
+    ],
     translationState: 'translated',
   },
   profile: {
-    profileSchemaVersion: 'rardar-project-profile-v2',
-    promptVersion: 'rardar-project-profile-zh-v3',
+    profileSchemaVersion: 'rardar-project-profile-v3',
+    promptVersion: 'rardar-project-profile-zh-v4',
     githubRepositoryId: 1211139949,
     repository: 'tt-a1i/archify',
     htmlUrl: 'https://github.com/tt-a1i/archify',
@@ -48,6 +68,26 @@ const detail: ProjectDetail = {
     sourceLabel: '官方 README（译）',
     sourceLanguage: 'en',
     capabilityBulletsZh: ['生成独立 HTML / SVG 架构图', '对比架构快照变化', '追踪节点对应的代码路径'],
+    capabilities: [
+      {
+        title: '技术图与交互展示',
+        detail: '生成独立 HTML / SVG 架构图',
+        shortDetail: '生成可独立打开的架构交付。',
+        evidenceRefs: ['readme:section:1', 'readme:section:2'],
+      },
+      {
+        title: '架构变化对比',
+        detail: '对比架构快照变化',
+        shortDetail: null,
+        evidenceRefs: ['readme:section:2'],
+      },
+      {
+        title: '可追溯架构探索',
+        detail: '追踪节点对应的代码路径',
+        shortDetail: null,
+        evidenceRefs: ['readme:section:3'],
+      },
+    ],
     productFormsZh: ['Agent Skill', 'Node.js 渲染/校验工具'],
     supportedEnvironmentsZh: ['Raven', 'Cursor', 'Claude Code', 'Codex CLI'],
     primaryUseCasesZh: ['理解陌生代码库的系统结构'],
@@ -97,6 +137,9 @@ describe('Rardar project detail', () => {
     expect(html).toContain('tt-a1i/archify');
     expect(html).toContain('根据代码仓库生成可交互架构图');
     expect(html).toContain('生成独立 HTML / SVG 架构图');
+    expect(html).toContain('技术图与交互展示');
+    expect(html).toContain('架构变化对比');
+    expect(html).toContain('可追溯架构探索');
     expect(html).toContain('Agent Skill');
     expect(html).toContain('Claude Code');
     expect(html).toContain('独立 HTML');
@@ -109,6 +152,7 @@ describe('Rardar project detail', () => {
     expect(html).toContain('生成 AI 深度解读');
     expect(html).toContain('/find?repositoryUrl=https%3A%2F%2Fgithub.com%2Ftt-a1i%2Farchify');
     expect(html).not.toContain('稳定性仍需验证');
+    expect(html).toContain('官方 README · 2处证据');
   });
 
   it('rejects a generation or identity mismatch at the client boundary', () => {
@@ -129,6 +173,7 @@ describe('Rardar project detail', () => {
         ...detail.profile,
         profileSchemaVersion: 'rardar-project-profile-v1',
         promptVersion: 'rardar-project-profile-zh-v2',
+        capabilities: undefined,
         productFormsZh: undefined,
         supportedEnvironmentsZh: undefined,
       },
@@ -139,8 +184,25 @@ describe('Rardar project detail', () => {
     const parsed = parseProjectDetail(legacy);
     expect(parsed.profile.productFormsZh).toEqual([]);
     expect(parsed.profile.supportedEnvironmentsZh).toEqual([]);
+    expect(parsed.profile.capabilities).toEqual([]);
     expect(parsed.coverage).toBeNull();
     expect(parsed.conflictCount).toBe(0);
+  });
+
+  it('keeps a v2 Serving detail readable without structured capability duplication', () => {
+    const legacy = {
+      ...detail,
+      schemaVersion: 2,
+      project: { ...detail.project, capabilities: undefined },
+      profile: {
+        ...detail.profile,
+        profileSchemaVersion: 'rardar-project-profile-v2',
+        promptVersion: 'rardar-project-profile-zh-v3',
+        capabilities: undefined,
+      },
+    };
+    const parsed = parseProjectDetail(legacy);
+    expect(parsed.profile.capabilities).toEqual([]);
   });
 
   it('loads an immutable detail by numeric identity and encoded generation', async () => {

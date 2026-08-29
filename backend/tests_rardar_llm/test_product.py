@@ -177,9 +177,9 @@ async def test_project_explanation_binds_prompt_and_cache_to_facts(monkeypatch: 
     assert response.state == "ready"
     assert response.cacheHit is True
     assert calls[0]["reasoning_effort"] is None
-    assert calls[0]["prompt_version"] == "rardar-project-insight-v4"
+    assert calls[0]["prompt_version"] == "rardar-project-insight-v5"
     assert "evidenceDigest=" in calls[0]["messages"][1]["content"]
-    assert "schemaVersion=rardar-project-insight-schema-v4" in calls[0]["messages"][1]["content"]
+    assert "schemaVersion=rardar-project-insight-schema-v5" in calls[0]["messages"][1]["content"]
     assert "local-demo-explosion-v1" not in calls[0]["messages"][1]["content"]
     assert "observedStarDelta" not in calls[0]["messages"][1]["content"]
     assert response.analysis and response.analysis.startHere[0].path == "pyproject.toml"

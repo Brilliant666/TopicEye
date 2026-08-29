@@ -43,6 +43,93 @@ _FIXTURE_CAPABILITIES = [
     },
 ]
 
+_FIXTURE_DIFFERENTIATORS = [
+    {
+        "title": "证据驱动",
+        "detail": "关键结论都绑定到可复核的官方仓库证据，而不是依赖宣传性描述。",
+        "shortDetail": "结论可以回到官方仓库逐项复核。",
+        "evidenceRefs": ["description"],
+    },
+    {
+        "title": "采用边界清晰",
+        "detail": "在展示能力的同时说明适用范围，帮助开发者更快判断是否值得复用。",
+        "shortDetail": "能力与采用边界放在同一条阅读路径。",
+        "evidenceRefs": ["description"],
+    },
+]
+
+_KNOWN_TOP20_REPOSITORIES = {
+    11: "browser-use/browser-use",
+    12: "anywhere-labs/dsh-desktop",
+    14: "firecrawl/firecrawl",
+    15: "openai/codex",
+    17: "b-nnett/grok-bot-0.18-reconstructed",
+    18: "ayghri/i-have-adhd",
+    19: "thedotmack/claude-mem",
+    20: "herdrdev/herdr",
+}
+
+
+def _fixture_identity(repository: str) -> str:
+    return f"{repository} 是一个把公开仓库能力整理成清晰中文项目认知的开发工具。"
+
+
+def _apply_v4_profile(payload: dict, repository: str) -> None:
+    identity = _fixture_identity(repository)
+    core_value = "它把项目身份、关键差异和采用边界绑定到同一组可验证证据，减少阅读完整仓库后才能判断价值的成本。"
+    capabilities = copy.deepcopy(_FIXTURE_CAPABILITIES)
+    differentiators = copy.deepcopy(_FIXTURE_DIFFERENTIATORS)
+    details = [capability["detail"] for capability in capabilities]
+    payload.update(
+        {
+            "officialSummaryZh": identity,
+            "identitySummaryZh": identity,
+            "coreValueZh": core_value,
+            "coreValueEvidenceRefs": ["description"],
+            "keyDifferentiators": differentiators,
+            "productFormsZh": ["开发工具"],
+            "qualityState": "ready",
+            "qualityIssues": [],
+            "capabilities": capabilities,
+            "capabilityBulletsZh": details,
+        }
+    )
+
+
+def _apply_v4_detail(payload: dict) -> None:
+    repository = payload["project"]["repository"]
+    payload["schemaVersion"] = 4
+    _apply_v4_profile(payload["project"], repository)
+    _apply_v4_profile(payload["profile"], repository)
+    payload["profile"]["profileSchemaVersion"] = "rardar-project-profile-v4"
+    payload["profile"]["promptVersion"] = "rardar-project-profile-zh-v6"
+    payload["profile"]["supportedEnvironmentsZh"] = ["本地开发环境", "持续集成"]
+    payload["profile"]["primaryUseCasesZh"] = ["评估开源项目", "复用工程模块"]
+    payload["profile"]["deliveryFormsZh"] = ["命令行工具", "结构化报告"]
+    payload["profile"]["startHere"] = [
+        {
+            "label": label,
+            "path": path,
+            "htmlUrl": f"https://github.com/{repository}/blob/main/{path}",
+            "evidenceRefs": ["description"],
+        }
+        for label, path in [
+            ("项目介绍", "README.md"),
+            ("快速开始", "docs/quick-start.md"),
+            ("核心实现", "src/index.ts"),
+            ("架构说明", "docs/architecture.md"),
+            ("完整示例", "examples/README.md"),
+            ("贡献指南", "CONTRIBUTING.md"),
+        ]
+    ]
+    claims = [
+        payload["profile"]["identitySummaryZh"],
+        payload["profile"]["coreValueZh"],
+        *(item["detail"] for item in payload["profile"]["keyDifferentiators"]),
+        *(item["detail"] for item in payload["profile"]["capabilities"]),
+    ]
+    payload["profile"]["claimEvidenceRefs"].update({claim: ["description"] for claim in claims})
+
 
 @app.middleware("http")
 async def visual_state_fixture(request, call_next):
@@ -69,8 +156,8 @@ async def visual_state_fixture(request, call_next):
                     "repository": repository,
                     "githubRepositoryId": github_repository_id,
                     "generationId": payload["generationId"],
-                    "promptVersion": "rardar-project-insight-v4",
-                    "schemaVersion": "rardar-project-insight-schema-v4",
+                    "promptVersion": "rardar-project-insight-v5",
+                    "schemaVersion": "rardar-project-insight-schema-v5",
                     "format": "none",
                     "officialIntro": official_intro,
                     "analysis": None,
@@ -89,8 +176,8 @@ async def visual_state_fixture(request, call_next):
                 "repository": repository,
                 "githubRepositoryId": github_repository_id,
                 "generationId": payload["generationId"],
-                "promptVersion": "rardar-project-insight-v4",
-                "schemaVersion": "rardar-project-insight-schema-v4",
+                "promptVersion": "rardar-project-insight-v5",
+                "schemaVersion": "rardar-project-insight-schema-v5",
                 "format": "structured",
                 "officialIntro": official_intro,
                 "analysis": {
@@ -140,13 +227,7 @@ async def visual_state_fixture(request, call_next):
         except (RardarArtifactError, ServingProjectionError):
             return await call_next(request)
         payload = detail.model_dump(mode="json")
-        capabilities = copy.deepcopy(_FIXTURE_CAPABILITIES)
-        details = [capability["detail"] for capability in capabilities]
-        payload["project"]["capabilities"] = capabilities
-        payload["project"]["capabilityBulletsZh"] = details
-        payload["profile"]["capabilities"] = capabilities
-        payload["profile"]["capabilityBulletsZh"] = details
-        payload["profile"]["claimEvidenceRefs"].update({detail: ["description"] for detail in details})
+        _apply_v4_detail(payload)
         return JSONResponse(content=payload)
     if request.url.path == "/api/v1/rardar/find-projects":
         payload = await request.json()
@@ -223,9 +304,6 @@ async def visual_state_fixture(request, call_next):
             payload = load_today_snapshot()[0].model_dump(mode="json")
         except RardarArtifactError as exc:
             return JSONResponse(status_code=503, content={"detail": {"code": exc.code, "message": str(exc)}})
-        for item in payload["exactRanked"]:
-            item["capabilities"] = copy.deepcopy(_FIXTURE_CAPABILITIES)
-            item["capabilityBulletsZh"] = [capability["detail"] for capability in _FIXTURE_CAPABILITIES]
         template = payload["exactRanked"][0]
         for index in range(len(payload["exactRanked"]) + 1, 21):
             item = copy.deepcopy(template)
@@ -239,12 +317,22 @@ async def visual_state_fixture(request, call_next):
                 }
             )
             payload["exactRanked"].append(item)
+        payload["schemaVersion"] = 4
+        for item in payload["exactRanked"]:
+            repository = _KNOWN_TOP20_REPOSITORIES.get(item["rank"], item["repository"])
+            item["repository"] = repository
+            item["htmlUrl"] = f"https://github.com/{repository}"
+            _apply_v4_profile(item, repository)
+        profile_states = [item["profileState"] for item in payload["exactRanked"]]
         payload["profileSummary"] = {
             "total": 20,
-            "complete": 0,
-            "partial": 20,
-            "sourceUnavailable": 0,
+            "complete": profile_states.count("complete"),
+            "partial": profile_states.count("partial"),
+            "sourceUnavailable": profile_states.count("source_unavailable"),
             "chineseSummaries": 20,
+            "qualityReady": 20,
+            "qualityPartial": 0,
+            "qualityRejected": 0,
         }
         payload["coverage"]["exactCount"] = 20
         return JSONResponse(content=payload)

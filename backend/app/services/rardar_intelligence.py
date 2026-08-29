@@ -59,6 +59,13 @@ def load_explosion_board(config: Settings = settings) -> ExplosionBoardResponse:
                         "capabilityBulletsZh",
                         "capabilities",
                         "translationState",
+                        "identitySummaryZh",
+                        "coreValueZh",
+                        "coreValueEvidenceRefs",
+                        "keyDifferentiators",
+                        "productFormsZh",
+                        "qualityState",
+                        "qualityIssues",
                     }
                 ),
                 strict=True,

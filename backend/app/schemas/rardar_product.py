@@ -105,8 +105,8 @@ class ProjectExplanationResponse(StrictProductModel):
     repository: str
     githubRepositoryId: int | None = Field(default=None, gt=0)
     generationId: str
-    promptVersion: Literal["rardar-project-insight-v4"]
-    schemaVersion: Literal["rardar-project-insight-schema-v4"]
+    promptVersion: Literal["rardar-project-insight-v5"]
+    schemaVersion: Literal["rardar-project-insight-schema-v5"]
     format: Literal["structured", "none"]
     officialIntro: OfficialIntro
     analysis: ProjectExplanation | None = None

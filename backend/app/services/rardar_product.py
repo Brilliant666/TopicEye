@@ -35,8 +35,8 @@ from app.utils.prompt_safety import sanitize_prompt_input
 
 _FIXTURE = Path(__file__).parents[1] / "integrations" / "rardar" / "fixtures" / "find-project-demo-v1.json"
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-_PROJECT_PROMPT_VERSION = "rardar-project-insight-v4"
-_PROJECT_SCHEMA_VERSION = "rardar-project-insight-schema-v4"
+_PROJECT_PROMPT_VERSION = "rardar-project-insight-v5"
+_PROJECT_SCHEMA_VERSION = "rardar-project-insight-schema-v5"
 _FIND_PROMPT_VERSION = "rardar-find-project-v1"
 _FIND_SCHEMA_VERSION = "rardar-find-project-schema-v1"
 
@@ -127,8 +127,12 @@ def _official_profile_facts(evidence: ProjectEvidence) -> list[str]:
     profile = evidence.payload.get("officialProfile")
     if not isinstance(profile, dict):
         return [str(evidence.official_intro.get("text", ""))]
-    facts: list[str] = [str(profile.get("officialSummaryZh", ""))]
-    for capability in profile.get("capabilities", []):
+    facts: list[str] = [
+        str(profile.get("officialSummaryZh", "")),
+        str(profile.get("identitySummaryZh", "")),
+        str(profile.get("coreValueZh", "")),
+    ]
+    for capability in [*profile.get("capabilities", []), *profile.get("keyDifferentiators", [])]:
         if isinstance(capability, dict):
             facts.extend(str(capability.get(key, "")) for key in ("title", "detail"))
     for key in ("capabilityBulletsZh", "productFormsZh", "deliveryFormsZh"):
@@ -214,7 +218,9 @@ def _static_project_evidence(detail: ServingProjectDetail) -> ProjectEvidence:
         expected_label = "官方介绍（译）"
     else:
         expected_label = "官方介绍"
-    summary_refs = profile.claimEvidenceRefs.get(profile.officialSummaryZh) or ["repository"]
+    summary_refs = profile.claimEvidenceRefs.get(profile.identitySummaryZh or profile.officialSummaryZh) or [
+        "repository"
+    ]
     return ProjectEvidence(
         payload={
             **evidence.model_dump(mode="json"),
@@ -224,7 +230,7 @@ def _static_project_evidence(detail: ServingProjectDetail) -> ProjectEvidence:
         allowed_refs=frozenset(evidence.evidenceIndex),
         path_refs=evidence.pathRefs,
         official_intro={
-            "text": profile.officialSummaryZh,
+            "text": profile.identitySummaryZh or profile.officialSummaryZh,
             "sourceLabel": expected_label,
             "evidenceRefs": summary_refs,
         },

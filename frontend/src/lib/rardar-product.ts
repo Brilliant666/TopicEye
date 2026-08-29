@@ -3,8 +3,8 @@ export type ProjectExplanation = {
   repository: string;
   githubRepositoryId: number | null;
   generationId: string;
-  promptVersion: 'rardar-project-insight-v4';
-  schemaVersion: 'rardar-project-insight-schema-v4';
+  promptVersion: 'rardar-project-insight-v5';
+  schemaVersion: 'rardar-project-insight-schema-v5';
   format: 'structured' | 'none';
   officialIntro: EvidenceBackedIntro;
   analysis: {

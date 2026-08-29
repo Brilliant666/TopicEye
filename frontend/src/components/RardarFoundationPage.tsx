@@ -213,6 +213,10 @@ function DiscoverState({ result }: { result: ExplosionBoardLoadResult }) {
 function ExactProjectCard({ project, generationId }: { project: TodayProject; generationId: string }) {
   const relativeGrowth = project.baselineStars > 0 ? project.observedStarDelta / project.baselineStars : null;
   const detailHref = `/project/github/${project.githubRepositoryId}?generation=${encodeURIComponent(generationId)}`;
+  const rejected = project.qualityState === 'rejected';
+  const keyCapabilities = (project.keyDifferentiators.length > 0
+    ? project.keyDifferentiators
+    : project.capabilities).slice(0, 2);
   return (
     <article className={styles.rankingCard} data-testid={`today-project-${project.rank}`}>
       <div className={styles.rank}>#{project.rank}</div>
@@ -220,10 +224,21 @@ function ExactProjectCard({ project, generationId }: { project: TodayProject; ge
         <Link href={detailHref} className={styles.repository}>
           <FolderGit2 size={18} aria-hidden="true" /> {project.repository} <ArrowRight size={15} aria-hidden="true" />
         </Link>
-        <p className={styles.projectDescription}>{project.officialSummaryZh}</p>
-        {project.capabilities.length > 0 && (
-          <ul className={styles.capabilityList} aria-label="核心能力摘要" data-testid="today-capabilities">
-            {project.capabilities.slice(0, project.rank <= 3 ? 3 : 2).map((capability) => (
+        <p className={styles.projectDescription}>{project.identitySummaryZh}</p>
+        {project.productFormsZh.length > 0 && !rejected && (
+          <div className={styles.productForms} aria-label="产品形态">
+            {project.productFormsZh.slice(0, 3).map((form) => <span key={form}>{form}</span>)}
+          </div>
+        )}
+        {project.coreValueZh && !rejected && (
+          <section className={styles.coreValueBlock} aria-label="核心价值" data-testid="today-core-value">
+            <span>核心价值</span>
+            <p>{project.coreValueZh}</p>
+          </section>
+        )}
+        {keyCapabilities.length > 0 && !rejected && (
+          <ul className={styles.keyCapabilityList} aria-label="关键能力" data-testid="today-key-capabilities">
+            {keyCapabilities.map((capability) => (
               <li key={`${capability.title}-${capability.detail}`}>
                 <strong>{capability.title}</strong>
                 <span>{capability.shortDetail || capability.detail}</span>
@@ -231,6 +246,7 @@ function ExactProjectCard({ project, generationId }: { project: TodayProject; ge
             ))}
           </ul>
         )}
+        {rejected && <p className={styles.profileFallback}>档案内容正在重新整理，当前仅展示已验证的仓库与 Star 事实。</p>}
         <div className={styles.tags}>
           {project.primaryLanguage && <span>{project.primaryLanguage}</span>}
           {project.topics.slice(0, 3).map((topic) => <span key={topic}>{topic}</span>)}

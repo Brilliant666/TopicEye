@@ -121,12 +121,12 @@ def _fallback_profiles(
         description = project.description
         if description and re.search(r"[\u3400-\u9fff]", description):
             summary, fallback_issues = _safe_fallback_identity(description)
-            source_label = "GitHub Description"
+            source_label = "Rardar 整理"
             source_language = "zh"
             translation_state = "not_needed"
         elif description:
             summary, fallback_issues = _safe_fallback_identity(description)
-            source_label = "GitHub Description"
+            source_label = "Rardar 整理"
             source_language = "en"
             translation_state = "pending"
         else:
@@ -154,9 +154,11 @@ def _fallback_profiles(
         evidence_payload["digest"] = _sha(_canonical_bytes(evidence_payload))
         evidence = ProjectEvidenceProjection.model_validate(evidence_payload, strict=True)
         ref = "description" if description else "repository"
+        insufficient = "identity_source_rejected" in fallback_issues
+        source_label = "受限概括" if insufficient else "Rardar 整理"
         profile = OfficialProjectProfile(
-            profileSchemaVersion="rardar-project-profile-v4",
-            promptVersion="rardar-project-profile-zh-v6",
+            profileSchemaVersion="rardar-project-profile-v5",
+            promptVersion="rardar-project-profile-zh-v8",
             githubRepositoryId=project.githubRepositoryId,
             repository=project.repository,
             htmlUrl=project.htmlUrl,
@@ -167,8 +169,25 @@ def _fallback_profiles(
             coreValueZh=None,
             coreValueEvidenceRefs=[],
             keyDifferentiators=[],
-            qualityState="rejected" if "identity_source_rejected" in fallback_issues else "partial",
+            qualityState="rejected" if insufficient else "partial",
             qualityIssues=list(dict.fromkeys([*fallback_issues, "core_value_missing", "capabilities_missing"])),
+            officialTaglineZh=None if insufficient else summary,
+            officialTaglineEvidenceRefs=[] if insufficient else [ref],
+            officialPositioningZh=None,
+            officialPositioningEvidenceRefs=[],
+            officialHighlights=[],
+            officialNarrativeMode="insufficient" if insufficient else "rardar_derived",
+            officialNarrativeIssues=[
+                "positioning_missing",
+                "highlights_missing",
+                "source_structure_weak",
+                *(["official_narrative_insufficient"] if insufficient else []),
+            ],
+            officialNarrativePromptVersion="rardar-official-narrative-zh-v2",
+            rardarAssessmentZh=None,
+            rardarAssessmentEvidenceRefs=[],
+            rardarDifferentiators=[],
+            rardarAssessmentPromptVersion="rardar-assessment-zh-v2",
             sourceLabel=source_label,
             sourceLanguage=source_language,
             capabilityBulletsZh=[],
@@ -219,6 +238,12 @@ def _summary(profiles: dict[int, CollectedProjectProfile]) -> ServingProfileSumm
         qualityReady=sum(value.profile.qualityState == "ready" for value in profiles.values()),
         qualityPartial=sum(value.profile.qualityState == "partial" for value in profiles.values()),
         qualityRejected=sum(value.profile.qualityState == "rejected" for value in profiles.values()),
+        officialZh=sum(value.profile.officialNarrativeMode == "official_zh" for value in profiles.values()),
+        officialTranslated=sum(
+            value.profile.officialNarrativeMode == "official_translated" for value in profiles.values()
+        ),
+        rardarDerived=sum(value.profile.officialNarrativeMode == "rardar_derived" for value in profiles.values()),
+        insufficient=sum(value.profile.officialNarrativeMode == "insufficient" for value in profiles.values()),
     )
 
 
@@ -285,12 +310,22 @@ def build_serving_projection(
                 "productFormsZh": profile.productFormsZh[:3],
                 "qualityState": profile.qualityState,
                 "qualityIssues": profile.qualityIssues,
+                "officialTaglineZh": profile.officialTaglineZh,
+                "officialTaglineEvidenceRefs": profile.officialTaglineEvidenceRefs,
+                "officialPositioningZh": profile.officialPositioningZh,
+                "officialPositioningEvidenceRefs": profile.officialPositioningEvidenceRefs,
+                "officialHighlights": profile.officialHighlights,
+                "officialNarrativeMode": profile.officialNarrativeMode,
+                "officialNarrativeIssues": profile.officialNarrativeIssues,
+                "rardarAssessmentZh": profile.rardarAssessmentZh,
+                "rardarAssessmentEvidenceRefs": profile.rardarAssessmentEvidenceRefs,
+                "rardarDifferentiators": profile.rardarDifferentiators,
             },
             strict=True,
         )
         today_projects.append(today_project)
         record = ServingProjectRecord(
-            schemaVersion=4,
+            schemaVersion=5,
             generationId=generation_id,
             servingGenerationId=serving_generation_id,
             project=today_project,
@@ -302,7 +337,7 @@ def build_serving_projection(
         evidence_files[f"evidence/{project.githubRepositoryId}.json"] = _model_bytes(collected.evidence)
 
     today = ServingTodaySnapshot(
-        schemaVersion=4,
+        schemaVersion=5,
         state=board.state,
         reason=board.reason,
         generationId=generation_id,
@@ -342,7 +377,7 @@ def build_serving_projection(
         for identifier in sorted(expected_ids)
     }
     manifest = ServingManifest(
-        schemaVersion=4,
+        schemaVersion=5,
         state="ready",
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
@@ -357,7 +392,7 @@ def build_serving_projection(
     manifest_raw = _model_bytes(manifest)
     files["manifest.json"] = manifest_raw
     pointer = ServingPointer(
-        schemaVersion=4,
+        schemaVersion=5,
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
         manifestSha256=_sha(manifest_raw),
@@ -400,7 +435,13 @@ def _validate_project_binding(
     allowed_refs = set(evidence.evidenceIndex)
     claims = {
         record.profile.officialSummaryZh,
+        *(value for value in [record.profile.officialTaglineZh] if value is not None),
+        *(value for value in [record.profile.officialPositioningZh] if value is not None),
+        *(highlight.titleZh for highlight in record.profile.officialHighlights),
+        *(highlight.detailZh for highlight in record.profile.officialHighlights),
+        *(value for value in [record.profile.rardarAssessmentZh] if value is not None),
         *(value for value in [record.profile.coreValueZh] if value is not None),
+        *(item.detail for item in record.profile.rardarDifferentiators),
         *(item.detail for item in record.profile.keyDifferentiators),
         *record.profile.capabilityBulletsZh,
         *record.profile.productFormsZh,
@@ -410,10 +451,20 @@ def _validate_project_binding(
     }
     capability_refs = {
         reference
-        for capability in [*record.profile.capabilities, *record.profile.keyDifferentiators]
+        for capability in [
+            *record.profile.capabilities,
+            *record.profile.keyDifferentiators,
+            *record.profile.rardarDifferentiators,
+        ]
         for reference in capability.evidenceRefs
     }
-    core_refs = set(record.profile.coreValueEvidenceRefs)
+    core_refs = {
+        *record.profile.coreValueEvidenceRefs,
+        *record.profile.officialTaglineEvidenceRefs,
+        *record.profile.officialPositioningEvidenceRefs,
+        *record.profile.rardarAssessmentEvidenceRefs,
+        *(reference for highlight in record.profile.officialHighlights for reference in highlight.evidenceRefs),
+    }
     if any(not record.profile.claimEvidenceRefs.get(claim) for claim in claims):
         raise ServingProjectionError("rardar_serving_evidence_ref_invalid", "Serving profile claim is missing evidence")
     claim_refs = {reference for references in record.profile.claimEvidenceRefs.values() for reference in references}

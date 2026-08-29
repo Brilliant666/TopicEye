@@ -82,6 +82,28 @@ const readyPayload = {
         evidenceRefs: ['readme:section:1'],
       }],
       translationState: 'translated',
+      officialTaglineZh: '一个经过官方资料约束的开源开发工具。',
+      officialTaglineEvidenceRefs: ['readme:narrative:tagline'],
+      officialPositioningZh: '该项目提供可组合的开发组件，可以嵌入既有工程流程。',
+      officialPositioningEvidenceRefs: ['readme:narrative:positioning'],
+      officialHighlights: [{
+        sourceOrder: 1,
+        sourceTitle: 'Composable building blocks',
+        sourceDetail: 'Build workflows with components that fit existing projects.',
+        titleZh: '可组合构件',
+        detailZh: '用可以融入现有项目的组件构建工作流。',
+        evidenceRefs: ['readme:narrative:highlight:1'],
+      }],
+      officialNarrativeMode: 'official_translated',
+      officialNarrativeIssues: [],
+      rardarAssessmentZh: '把可组合开发能力与官方证据绑定，便于判断能否直接复用。',
+      rardarAssessmentEvidenceRefs: ['readme:section:1'],
+      rardarDifferentiators: [{
+        title: '证据约束',
+        detail: '每项关键能力都保留官方资料引用。',
+        shortDetail: '关键能力保留官方引用。',
+        evidenceRefs: ['readme:section:1'],
+      }],
     },
     {
       rank: 2,
@@ -127,6 +149,28 @@ const readyPayload = {
         evidenceRefs: ['readme:section:2'],
       }],
       translationState: 'translated',
+      officialTaglineZh: '一个用于开发者工作流的开源项目。',
+      officialTaglineEvidenceRefs: ['readme:narrative:tagline'],
+      officialPositioningZh: '该项目将重复的开发任务组织成可复用工作流。',
+      officialPositioningEvidenceRefs: ['readme:narrative:positioning'],
+      officialHighlights: [{
+        sourceOrder: 1,
+        sourceTitle: 'Workflow automation',
+        sourceDetail: 'Turn repetitive developer tasks into reusable workflows.',
+        titleZh: '工作流自动化',
+        detailZh: '把重复的开发者任务组织成可复用工作流。',
+        evidenceRefs: ['readme:narrative:highlight:1'],
+      }],
+      officialNarrativeMode: 'official_translated',
+      officialNarrativeIssues: [],
+      rardarAssessmentZh: '把重复任务组织成可复用的开发工作流。',
+      rardarAssessmentEvidenceRefs: ['readme:section:2'],
+      rardarDifferentiators: [{
+        title: '工作流自动化',
+        detail: '把重复开发任务组织成可复用流程。',
+        shortDetail: null,
+        evidenceRefs: ['readme:section:2'],
+      }],
     },
   ],
   pendingRanked: [
@@ -163,6 +207,18 @@ const readyPayload = {
   sourceHost: 'rardar-prod',
   manifestSha256: 'a'.repeat(64),
   artifactSha256: 'b'.repeat(64),
+};
+
+const v5ReadyPayload = {
+  ...readyPayload,
+  schemaVersion: 5,
+  profileSummary: {
+    ...readyPayload.profileSummary,
+    officialZh: 0,
+    officialTranslated: 2,
+    rardarDerived: 0,
+    insufficient: 0,
+  },
 };
 
 describe('Rardar intelligence client contract', () => {
@@ -204,7 +260,7 @@ describe('Rardar intelligence client contract', () => {
     const published = await loadTodaySnapshot(async (input, init) => {
       requestedUrl = input;
       requestedInit = init;
-      return new Response(JSON.stringify(readyPayload), {
+      return new Response(JSON.stringify(v5ReadyPayload), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
@@ -235,7 +291,40 @@ describe('Rardar intelligence client contract', () => {
 
   it('rejects malformed Serving profile metadata', () => {
     expect(parseTodaySnapshot({ ...readyPayload, schemaVersion: 4 }).schemaVersion).toBe(4);
-    expect(() => parseTodaySnapshot({ ...readyPayload, schemaVersion: 5 })).toThrow('rardar_response_invalid');
+    expect(parseTodaySnapshot(v5ReadyPayload).schemaVersion).toBe(5);
+    expect(() => parseTodaySnapshot({
+      ...v5ReadyPayload,
+      exactRanked: [{
+        ...v5ReadyPayload.exactRanked[0],
+        officialHighlights: [{
+          ...v5ReadyPayload.exactRanked[0].officialHighlights[0],
+          sourceOrder: 2,
+        }],
+      }],
+      profileSummary: {
+        ...v5ReadyPayload.profileSummary,
+        total: 1,
+        complete: 1,
+        chineseSummaries: 1,
+        qualityReady: 1,
+        officialTranslated: 1,
+      },
+    })).toThrow('rardar_response_invalid');
+    expect(() => parseTodaySnapshot({
+      ...v5ReadyPayload,
+      exactRanked: [{
+        ...v5ReadyPayload.exactRanked[0],
+        sourceLabel: 'Rardar 整理',
+      }],
+      profileSummary: {
+        ...v5ReadyPayload.profileSummary,
+        total: 1,
+        complete: 1,
+        chineseSummaries: 1,
+        qualityReady: 1,
+        officialTranslated: 1,
+      },
+    })).toThrow('rardar_response_invalid');
     expect(() => parseTodaySnapshot({ ...readyPayload, profileSummary: null })).toThrow('rardar_response_invalid');
     expect(() => parseTodaySnapshot({
       ...readyPayload,
@@ -255,49 +344,85 @@ describe('Rardar intelligence client contract', () => {
     })).toThrow('rardar_response_invalid');
   });
 
-  it('shows one core-value block and at most two complete differentiators without equal-weight boxes', () => {
+  it('renders the official tagline and positioning, then preserves only the first two ordered highlights', () => {
     const completeDetail = '将完整的官方能力说明连同证据保留下来，避免为了卡片高度截成无法理解的半句话。';
     const exactRanked = [{
-      ...readyPayload.exactRanked[0],
-      capabilityBulletsZh: [completeDetail, '第二项完整能力', '第三项完整能力', '第四项不应显示'],
-      capabilities: [
-        { title: '完整能力说明', detail: completeDetail, shortDetail: null, evidenceRefs: ['readme:section:1'] },
-        { title: '第二项能力', detail: '第二项完整能力提供可验证的工程交付。', shortDetail: null, evidenceRefs: ['readme:section:2'] },
-        { title: '第三项能力', detail: '第三项完整能力保留可追溯来源。', shortDetail: null, evidenceRefs: ['readme:section:3'] },
-        { title: '第四项能力', detail: '第四项不应显示在前三名的卡片中。', shortDetail: null, evidenceRefs: ['readme:section:4'] },
-      ],
-      coreValueZh: '把完整能力说明与官方证据绑定，避免卡片只剩宣传摘要。',
-      coreValueEvidenceRefs: ['readme:section:1'],
-      keyDifferentiators: [
-        { title: '完整能力说明', detail: completeDetail, shortDetail: null, evidenceRefs: ['readme:section:1'] },
-        { title: '第二项能力', detail: '第二项完整能力提供可验证的工程交付。', shortDetail: null, evidenceRefs: ['readme:section:2'] },
+      ...v5ReadyPayload.exactRanked[0],
+      officialHighlights: [
+        {
+          sourceOrder: 1, sourceTitle: 'First', sourceDetail: completeDetail,
+          titleZh: '作者第一项', detailZh: completeDetail, evidenceRefs: ['readme:narrative:highlight:1'],
+        },
+        {
+          sourceOrder: 2, sourceTitle: 'Second', sourceDetail: 'Second detail',
+          titleZh: '作者第二项', detailZh: '第二项完整能力提供可验证的工程交付。', evidenceRefs: ['readme:narrative:highlight:2'],
+        },
+        {
+          sourceOrder: 3, sourceTitle: 'Third', sourceDetail: 'Third detail',
+          titleZh: '作者第三项', detailZh: '第三项完整能力保留可追溯来源。', evidenceRefs: ['readme:narrative:highlight:3'],
+        },
       ],
     }];
     const html = renderToStaticMarkup(
       <TodayFoundation result={{
         kind: 'published',
         board: parseTodaySnapshot({
-          ...readyPayload,
+          ...v5ReadyPayload,
           exactRanked,
           profileSummary: {
-            ...readyPayload.profileSummary,
+            ...v5ReadyPayload.profileSummary,
             total: 1,
             complete: 1,
             chineseSummaries: 1,
             qualityReady: 1,
+            officialTranslated: 1,
           },
         }),
       }} />,
     );
 
     expect(html).toContain(completeDetail);
+    expect(html).toContain('作者第一项');
+    expect(html).toContain('作者第二项');
     expect(html).toContain('第二项完整能力提供可验证的工程交付。');
+    expect(html).not.toContain('作者第三项');
     expect(html).not.toContain('第三项完整能力保留可追溯来源。');
-    expect(html).not.toContain('第四项不应显示');
     expect(html).not.toContain('…');
+    expect(html).toContain('核心定位 · 官方 README（译）');
+    expect(html).not.toContain('把可组合开发能力与官方证据绑定');
     expect(html).toContain('/project/github/1?generation=fixture-explosion-a');
     expect(html).toContain('href="https://github.com/fixture-lab/alpha"');
     expect(html).not.toContain('用这个仓库评估我的需求');
+  });
+
+  it('labels a derived narrative as Rardar 整理 instead of official content', () => {
+    const project = {
+      ...v5ReadyPayload.exactRanked[0],
+      sourceLabel: 'Rardar 整理',
+      officialNarrativeMode: 'rardar_derived',
+      officialNarrativeIssues: ['source_structure_weak'],
+    };
+    const html = renderToStaticMarkup(
+      <TodayFoundation result={{
+        kind: 'published',
+        board: parseTodaySnapshot({
+          ...v5ReadyPayload,
+          exactRanked: [project],
+          profileSummary: {
+            ...v5ReadyPayload.profileSummary,
+            total: 1,
+            complete: 1,
+            chineseSummaries: 1,
+            qualityReady: 1,
+            officialTranslated: 0,
+            rardarDerived: 1,
+          },
+        }),
+      }} />,
+    );
+
+    expect(html).toContain('核心定位 · Rardar 整理');
+    expect(html).not.toContain('核心定位 · 官方 README（译）');
   });
 
   it('keeps Serving v1, v2, and v3 snapshots readable without inventing v4 semantic fields', () => {
@@ -341,7 +466,7 @@ describe('Rardar intelligence client contract', () => {
   it('isolates a rejected profile and preserves only verified repository and Star facts', () => {
     const unsafe = 'https://github.com/user-attachments/assets/deadbeef';
     const rejected = {
-      ...readyPayload.exactRanked[0],
+      ...v5ReadyPayload.exactRanked[0],
       officialSummaryZh: '官方资料暂不足，当前仅展示可验证的仓库与 Star 事实。',
       identitySummaryZh: '官方资料暂不足，当前仅展示可验证的仓库与 Star 事实。',
       coreValueZh: null,
@@ -353,29 +478,42 @@ describe('Rardar intelligence client contract', () => {
       qualityState: 'rejected',
       qualityIssues: ['identity_source_rejected'],
       description: unsafe,
+      sourceLabel: '受限概括',
+      officialTaglineZh: null,
+      officialTaglineEvidenceRefs: [],
+      officialPositioningZh: null,
+      officialPositioningEvidenceRefs: [],
+      officialHighlights: [],
+      officialNarrativeMode: 'insufficient',
+      officialNarrativeIssues: ['official_narrative_insufficient'],
+      rardarAssessmentZh: null,
+      rardarAssessmentEvidenceRefs: [],
+      rardarDifferentiators: [],
     };
     const html = renderToStaticMarkup(
       <TodayFoundation result={{
         kind: 'published',
         board: parseTodaySnapshot({
-          ...readyPayload,
+          ...v5ReadyPayload,
           exactRanked: [rejected],
           profileSummary: {
-            ...readyPayload.profileSummary,
+            ...v5ReadyPayload.profileSummary,
             total: 1,
             complete: 1,
             chineseSummaries: 1,
             qualityReady: 0,
             qualityRejected: 1,
+            officialTranslated: 0,
+            insufficient: 1,
           },
         }),
       }} />,
     );
 
-    expect(html).toContain('档案内容正在重新整理');
+    expect(html).toContain('官方资料不足');
     expect(html).toContain('+200');
     expect(html).not.toContain(unsafe);
-    expect(html).not.toContain('核心价值</span>');
+    expect(html).not.toContain('核心定位 · 官方');
   });
 
   it('renders Discover from pending only without 24h extrapolation', () => {

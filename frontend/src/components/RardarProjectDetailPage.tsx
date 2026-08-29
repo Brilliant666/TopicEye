@@ -15,7 +15,11 @@ import {
   Target,
 } from 'lucide-react';
 
-import type { ProjectCapability, ProjectDetail } from '@/lib/rardar-intelligence';
+import {
+  narrativeSourceLabel,
+  type ProjectCapability,
+  type ProjectDetail,
+} from '@/lib/rardar-intelligence';
 import styles from './RardarFoundation.module.css';
 import RardarProjectExplanation from './RardarProjectExplanation';
 
@@ -23,9 +27,18 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
   const { project, profile } = detail;
   const relativeGrowth = project.baselineStars > 0 ? project.observedStarDelta / project.baselineStars : null;
   const findHref = `/find?repositoryUrl=${encodeURIComponent(project.htmlUrl)}`;
-  const rejected = profile.qualityState === 'rejected';
+  const insufficient = profile.officialNarrativeMode === 'insufficient';
+  const sourceLabel = narrativeSourceLabel(profile.officialNarrativeMode);
   const primaryLinks = profile.startHere.slice(0, 4);
   const moreLinks = profile.startHere.slice(4);
+  const presentedCapabilities = profile.officialHighlights.length > 0
+    ? profile.officialHighlights.map((highlight) => ({
+        title: highlight.titleZh,
+        detail: highlight.detailZh,
+        shortDetail: null,
+        evidenceRefs: highlight.evidenceRefs,
+      }))
+    : profile.capabilities;
 
   return (
     <div className={`${styles.page} ${styles.detailPage}`} data-rardar-route="/project">
@@ -35,10 +48,14 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
 
       <section className={styles.detailHero} data-testid="project-identity-hero">
         <div className={styles.detailHeroCopy}>
-          <div className={styles.detailEyebrow}><ShieldCheck size={15} /> 静态官方档案 · {profile.sourceLabel}</div>
+          <div className={styles.detailEyebrow}><ShieldCheck size={15} /> 静态项目档案 · {sourceLabel}</div>
           <h1>{project.repository}</h1>
-          <p>{profile.identitySummaryZh}</p>
-          {!rejected && (
+          {profile.officialTaglineZh ? (
+            <p className={styles.officialTagline} data-testid="detail-official-tagline">{profile.officialTaglineZh}</p>
+          ) : (
+            <p className={styles.detailSafeIdentity}>{profile.identitySummaryZh}</p>
+          )}
+          {!insufficient && (
             <div className={styles.profileSignalGrid} aria-label="项目形态、环境与交付形式">
               <ProfileSignal label="产品形态" values={profile.productFormsZh} />
               <ProfileSignal label="适用环境" values={profile.supportedEnvironmentsZh} />
@@ -63,32 +80,31 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
       </section>
 
       <div className={styles.detailFlow} data-testid="project-detail-flow">
-        <section className={styles.detailCoreValue} data-testid="project-core-value">
-          <div className={styles.sectionKicker}><Sparkles size={16} /> 核心价值</div>
-          {profile.coreValueZh && !rejected ? (
+        <section className={styles.detailCoreValue} data-testid="project-official-positioning">
+          <div className={styles.sectionKicker}><Sparkles size={16} /> 核心定位 · {sourceLabel}</div>
+          {profile.officialPositioningZh && !insufficient ? (
             <>
-              <h2>{profile.coreValueZh}</h2>
-              {profile.keyDifferentiators.length > 0 && (
-                <div className={styles.differentiatorGrid} aria-label="关键差异">
-                  {profile.keyDifferentiators.slice(0, 2).map((item) => (
-                    <Differentiator key={`${item.title}-${item.detail}`} item={item} />
-                  ))}
-                </div>
-              )}
-              <EvidenceBadges values={profile.coreValueEvidenceRefs} />
+              <h2>{profile.officialPositioningZh}</h2>
+              <EvidenceBadges values={profile.officialPositioningEvidenceRefs} />
             </>
           ) : (
             <div className={styles.qualityFallback}>
-              <strong>核心价值仍在补证</strong>
-              <p>当前只展示已通过质量门禁的项目身份与事实，不用低质量原文填充判断。</p>
+              <strong>官方核心定位仍在补证</strong>
+              <p>当前只展示已验证的仓库身份与事实，不用 Rardar 判断冒充官方叙事。</p>
             </div>
           )}
         </section>
 
-        {profile.capabilities.length > 0 && !rejected && (
-          <DetailSection icon={Boxes} title="它能做什么" subtitle="按采用价值阅读完整能力，而不是浏览等权功能框。">
+        {presentedCapabilities.length > 0 && !insufficient && (
+          <DetailSection
+            icon={Boxes}
+            title="它能做什么"
+            subtitle={profile.officialHighlights.length > 0
+              ? `保持 ${sourceLabel} 中的标题、数量和顺序。`
+              : '官方资料结构较弱；以下内容明确标记为 Rardar 整理。'}
+          >
             <ol className={styles.capabilityNarrative}>
-              {profile.capabilities.slice(0, 8).map((capability, index) => (
+              {presentedCapabilities.slice(0, 8).map((capability, index) => (
                 <li key={`${capability.title}-${capability.detail}`}>
                   <span>{String(index + 1).padStart(2, '0')}</span>
                   <div><strong>{capability.title}</strong><p>{capability.detail}</p><EvidenceBadges values={capability.evidenceRefs} /></div>
@@ -103,6 +119,20 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
             <div className={styles.sectionKicker}><Gauge size={16} /> Rardar 决策与采用</div>
             <h2>从“看懂项目”进入“是否值得复用”</h2>
             <p>AI 只分析差异、可复用资产、成本、适合场景和落地边界；项目身份、官方能力与今日名次不由模型改写。</p>
+            {profile.rardarAssessmentZh && (
+              <div className={styles.rardarAssessment} data-testid="rardar-assessment">
+                <span>Rardar 判断</span>
+                <strong>{profile.rardarAssessmentZh}</strong>
+                <EvidenceBadges values={profile.rardarAssessmentEvidenceRefs} />
+              </div>
+            )}
+            {profile.rardarDifferentiators.length > 0 && (
+              <div className={styles.rardarDifferentiatorGrid} aria-label="Rardar 关键差异">
+                {profile.rardarDifferentiators.map((item) => (
+                  <Differentiator key={`${item.title}-${item.detail}`} item={item} />
+                ))}
+              </div>
+            )}
             {profile.primaryUseCasesZh.length > 0 && (
               <div className={styles.useCaseStrip} aria-label="适合场景">
                 <Target size={16} />
@@ -165,6 +195,10 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
           <summary><BookOpen size={16} /> 来源、官方原文与审计 <span>按需查看</span></summary>
           <div className={styles.provenanceDetailsBody}>
             <dl className={styles.sourceFacts}>
+              <div><dt>叙事模式</dt><dd>{profile.officialNarrativeMode}</dd></div>
+              <div><dt>叙事来源</dt><dd>{sourceLabel}</dd></div>
+              <div><dt>官方重点</dt><dd>{profile.officialHighlights.length} 项</dd></div>
+              <div><dt>Rardar 判断来源</dt><dd>{profile.rardarAssessmentZh ? '独立分析层' : '未生成'}</dd></div>
               <div><dt>来源</dt><dd>{profile.sourceLabel}</dd></div>
               <div><dt>README</dt><dd>{profile.readmePath || '未取得'}</dd></div>
               <div><dt>Revision</dt><dd><code>{profile.readmeBlobSha || 'GitHub Description'}</code></dd></div>

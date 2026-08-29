@@ -12,6 +12,7 @@ import pytest
 from app.integrations.rardar import serving as serving_module
 from app.integrations.rardar.adapter import RardarIntelligenceAdapter
 from app.integrations.rardar.content_quality import audit_serving_top20
+from app.integrations.rardar.narrative_fidelity import _audit_project, audit_official_narrative
 from app.integrations.rardar.serving import (
     ServingProjectionError,
     ServingProjectionLoader,
@@ -21,7 +22,12 @@ from app.integrations.rardar.serving import (
     install_serving_projection,
     source_hashes,
 )
-from app.integrations.rardar.serving_schemas import ServingProjectRecord, ServingTodaySnapshot
+from app.integrations.rardar.serving_schemas import (
+    OfficialHighlight,
+    ServingCapability,
+    ServingProjectRecord,
+    ServingTodaySnapshot,
+)
 
 FIXTURES = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_intelligence"
 
@@ -99,7 +105,7 @@ def test_raw_artifact_builds_small_bound_projection_in_original_order(tmp_path: 
         *(f"evidence/{item.githubRepositoryId}.json" for item in board.exactRanked[:20]),
     }
     assert etag.startswith('"') and etag.endswith('"')
-    assert today.schemaVersion == 4
+    assert today.schemaVersion == 5
     assert all(project.identitySummaryZh == project.officialSummaryZh for project in today.exactRanked)
     assert all(project.qualityState in {"ready", "partial", "rejected"} for project in today.exactRanked)
     assert all(isinstance(project.capabilities, list) for project in today.exactRanked)
@@ -122,7 +128,7 @@ def test_content_quality_audit_reads_validated_serving_and_fails_incomplete_fixt
     assert report["projects"][0]["repository"] == "fixture-lab/exact-1"
 
 
-@pytest.mark.parametrize("schema_version", [1, 2, 3])
+@pytest.mark.parametrize("schema_version", [1, 2, 3, 4])
 def test_legacy_serving_versions_remain_readable_without_structured_capabilities(
     tmp_path: Path,
     schema_version: int,
@@ -139,9 +145,24 @@ def test_legacy_serving_versions_remain_readable_without_structured_capabilities
         "qualityState",
         "qualityIssues",
     }
+    v5_project_fields = {
+        "officialTaglineZh",
+        "officialTaglineEvidenceRefs",
+        "officialPositioningZh",
+        "officialPositioningEvidenceRefs",
+        "officialHighlights",
+        "officialNarrativeMode",
+        "officialNarrativeIssues",
+        "rardarAssessmentZh",
+        "rardarAssessmentEvidenceRefs",
+        "rardarDifferentiators",
+    }
     for project in today["exactRanked"]:
-        for field in v4_project_fields:
+        for field in v5_project_fields:
             project.pop(field, None)
+        if schema_version < 4:
+            for field in v4_project_fields:
+                project.pop(field, None)
         if schema_version < 3:
             project.pop("capabilities", None)
     parsed_today = ServingTodaySnapshot.model_validate_json(_canonical(today), strict=True)
@@ -149,14 +170,22 @@ def test_legacy_serving_versions_remain_readable_without_structured_capabilities
     identifier = str(today["exactRanked"][0]["githubRepositoryId"])
     record = json.loads(built.files[f"projects/{identifier}.json"])
     record["schemaVersion"] = schema_version
-    for field in v4_project_fields:
+    for field in v5_project_fields:
         record["project"].pop(field, None)
         record["profile"].pop(field, None)
+    record["profile"].pop("officialNarrativePromptVersion", None)
+    record["profile"].pop("rardarAssessmentPromptVersion", None)
+    if schema_version < 4:
+        for field in v4_project_fields:
+            record["project"].pop(field, None)
+            record["profile"].pop(field, None)
     if schema_version < 3:
         record["project"].pop("capabilities", None)
         record["profile"].pop("capabilities", None)
     record["profile"]["profileSchemaVersion"] = f"rardar-project-profile-v{schema_version}"
-    record["profile"]["promptVersion"] = f"rardar-project-profile-zh-v{schema_version + 1}"
+    record["profile"]["promptVersion"] = (
+        "rardar-project-profile-zh-v6" if schema_version == 4 else f"rardar-project-profile-zh-v{schema_version + 1}"
+    )
     parsed_record = ServingProjectRecord.model_validate_json(_canonical(record), strict=True)
 
     if schema_version < 3:
@@ -261,7 +290,7 @@ def test_schema_damage_is_rejected_before_install(tmp_path: Path) -> None:
     assert caught.value.code == "rardar_serving_today_invalid"
 
 
-def test_v4_quality_summary_or_core_evidence_corruption_fails_closed(tmp_path: Path) -> None:
+def test_v5_quality_summary_or_assessment_evidence_corruption_fails_closed(tmp_path: Path) -> None:
     built = _build(_root(tmp_path))
     today = json.loads(built.files["today.json"])
     today["profileSummary"]["qualityPartial"] += 1
@@ -279,11 +308,96 @@ def test_v4_quality_summary_or_core_evidence_corruption_fails_closed(tmp_path: P
         record["profile"]["claimEvidenceRefs"][record["profile"]["coreValueZh"]] = ["repository"]
     record["profile"]["coreValueEvidenceRefs"] = []
     record["project"]["coreValueEvidenceRefs"] = []
+    record["profile"]["rardarAssessmentEvidenceRefs"] = []
+    record["project"]["rardarAssessmentEvidenceRefs"] = []
     pointer, files = _rebundle(built, f"projects/{identifier}.json", record)
 
     with pytest.raises(ServingProjectionError) as caught:
         _validate_built_projection(pointer, files)
     assert caught.value.code == "rardar_serving_project_invalid"
+
+
+def test_v5_missing_narrative_mode_fails_closed(tmp_path: Path) -> None:
+    built = _build(_root(tmp_path))
+    today = json.loads(built.files["today.json"])
+    today["exactRanked"][0].pop("officialNarrativeMode")
+    pointer, files = _rebundle(built, "today.json", today)
+
+    with pytest.raises(ServingProjectionError) as caught:
+        _validate_built_projection(pointer, files)
+
+    assert caught.value.code == "rardar_serving_today_invalid"
+
+
+def test_narrative_audit_passes_validated_fixture_and_detects_boundary_damage(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    install_serving_projection(root, _build(root))
+
+    report = audit_official_narrative(root)
+
+    assert report["status"] == "PASS"
+    assert report["summary"]["total"] == len(report["projects"])
+    today, _ = ServingProjectionLoader(root).load_today_with_etag()
+    detail, _ = ServingProjectionLoader(root).load_project_with_etag(
+        today.exactRanked[0].githubRepositoryId,
+        today.generationId,
+    )
+    damaged_profile = detail.profile.model_copy(
+        update={
+            "officialNarrativeMode": "official_zh",
+            "sourceLabel": "Rardar 整理",
+            "officialPositioningZh": detail.profile.rardarAssessmentZh,
+        }
+    )
+    damaged = detail.model_copy(update={"profile": damaged_profile})
+
+    audited = _audit_project(damaged)
+
+    assert "official_source_falsely_labeled" in audited["boundaryViolations"]
+    if detail.profile.rardarAssessmentZh is not None:
+        assert "rardar_assessment_as_official_positioning" in audited["boundaryViolations"]
+
+
+def test_narrative_audit_does_not_treat_rardar_derived_structure_as_official_source_order(
+    tmp_path: Path,
+) -> None:
+    root = _root(tmp_path)
+    install_serving_projection(root, _build(root))
+    today, _ = ServingProjectionLoader(root).load_today_with_etag()
+    detail, _ = ServingProjectionLoader(root).load_project_with_etag(
+        today.exactRanked[0].githubRepositoryId,
+        today.generationId,
+    )
+    highlight = OfficialHighlight(
+        sourceOrder=3,
+        sourceTitle="Rardar 提炼标题",
+        sourceDetail="Rardar 从非结构化证据提炼的说明。",
+        titleZh="Rardar 提炼标题",
+        detailZh="Rardar 从非结构化证据提炼的说明。",
+        evidenceRefs=["description"],
+    )
+    differentiator = ServingCapability(
+        title=highlight.titleZh,
+        detail=highlight.detailZh,
+        shortDetail=None,
+        evidenceRefs=["description"],
+    )
+    derived_profile = detail.profile.model_copy(
+        update={
+            "officialNarrativeMode": "rardar_derived",
+            "sourceLabel": "Rardar 整理",
+            "officialHighlights": [highlight],
+            "rardarDifferentiators": [differentiator],
+            "officialTaglineZh": None,
+            "officialPositioningZh": None,
+            "rardarAssessmentZh": None,
+        }
+    )
+
+    audited = _audit_project(detail.model_copy(update={"profile": derived_profile}))
+
+    assert "official_highlight_order_changed" not in audited["boundaryViolations"]
+    assert "rardar_differentiator_as_official_highlight" not in audited["boundaryViolations"]
 
 
 def test_repeated_capability_title_and_detail_is_rejected_before_install(tmp_path: Path) -> None:

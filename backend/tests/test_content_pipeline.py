@@ -259,9 +259,15 @@ async def test_ingest_from_source_normalizes_html_summary_before_persisting_or_c
         classified_summaries.append(summary)
         return {"category": "AI", "tags": ["disclosure"], "is_new_category": False, "confidence": 0.8}
 
+    async def fake_ensure_public_hostname(url):
+        return None
+
     monkeypatch.setattr(content_pipeline, "get_scraper_cls", lambda source_type: FakeScraper)
     monkeypatch.setattr(content_pipeline, "_get_active_category_names", fake_get_active_category_names)
     monkeypatch.setattr(content_pipeline, "classify_async", fake_classify_async)
+    # This test owns the scraper and verifies summary normalization, not DNS.
+    # Avoid making its result depend on local DNS interception or IPv6 policy.
+    monkeypatch.setattr(content_pipeline, "ensure_public_hostname", fake_ensure_public_hostname)
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)

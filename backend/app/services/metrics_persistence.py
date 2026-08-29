@@ -8,9 +8,14 @@ cleaned up after 7 days.  Enables historical trend analysis beyond the
 from __future__ import annotations
 
 import logging
+import os
 import platform
-import resource
 from datetime import UTC, datetime, timedelta
+
+try:
+    import resource
+except ModuleNotFoundError:  # pragma: no cover - exercised on Windows
+    resource = None
 
 from sqlalchemy import delete, select
 
@@ -24,17 +29,65 @@ _RETENTION_DAYS = 7
 
 
 def _get_process_metrics() -> dict:
-    """Collect process-level metrics via ``resource.getrusage``.
+    """Collect portable process-level memory and CPU metrics.
 
     macOS reports ru_maxrss in bytes; Linux reports it in KB.
+    Windows has no ``resource`` module, so use the native working-set API and
+    the standard-library process times instead of making metrics persistence
+    unavailable on that platform.
     """
-    rusage = resource.getrusage(resource.RUSAGE_SELF)
-    rss_mb = rusage.ru_maxrss / (1024 * 1024) if platform.system() == "Darwin" else rusage.ru_maxrss / 1024
+    if resource is not None:
+        rusage = resource.getrusage(resource.RUSAGE_SELF)
+        rss_mb = rusage.ru_maxrss / (1024 * 1024) if platform.system() == "Darwin" else rusage.ru_maxrss / 1024
+        cpu_user_s = rusage.ru_utime
+        cpu_sys_s = rusage.ru_stime
+    else:
+        rss_mb = _get_windows_working_set_mb()
+        process_times = os.times()
+        cpu_user_s = process_times.user
+        cpu_sys_s = process_times.system
     return {
         "process_rss_mb": round(rss_mb, 1),
-        "process_cpu_user_s": round(rusage.ru_utime, 2),
-        "process_cpu_sys_s": round(rusage.ru_stime, 2),
+        "process_cpu_user_s": round(cpu_user_s, 2),
+        "process_cpu_sys_s": round(cpu_sys_s, 2),
     }
+
+
+def _get_windows_working_set_mb() -> float:
+    """Return the current process working set using the Windows API."""
+    import ctypes
+    from ctypes import wintypes
+
+    class ProcessMemoryCounters(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD),
+            ("page_fault_count", wintypes.DWORD),
+            ("peak_working_set_size", ctypes.c_size_t),
+            ("working_set_size", ctypes.c_size_t),
+            ("quota_peak_paged_pool_usage", ctypes.c_size_t),
+            ("quota_paged_pool_usage", ctypes.c_size_t),
+            ("quota_peak_non_paged_pool_usage", ctypes.c_size_t),
+            ("quota_non_paged_pool_usage", ctypes.c_size_t),
+            ("pagefile_usage", ctypes.c_size_t),
+            ("peak_pagefile_usage", ctypes.c_size_t),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    psapi = ctypes.WinDLL("psapi", use_last_error=True)
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    psapi.GetProcessMemoryInfo.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(ProcessMemoryCounters),
+        wintypes.DWORD,
+    ]
+    psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+
+    counters = ProcessMemoryCounters()
+    counters.cb = ctypes.sizeof(counters)
+    process = kernel32.GetCurrentProcess()
+    if not psapi.GetProcessMemoryInfo(process, ctypes.byref(counters), counters.cb):
+        raise OSError(ctypes.get_last_error(), "GetProcessMemoryInfo failed")
+    return counters.working_set_size / (1024 * 1024)
 
 
 def _collect_snapshot_fields() -> dict:

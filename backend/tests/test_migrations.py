@@ -97,11 +97,9 @@ def test_unknown_legacy_revision_with_squash_schema_is_stamped(throwaway_pg_data
     migrations_mod.run_startup_migrations()
 
     # 指针被 stamp 回 baseline head，且没有重放任何 DDL
-    from alembic.config import Config
     from alembic.script import ScriptDirectory
 
-    cfg = Config(str(migrations_mod._ALEMBIC_INI))
-    cfg.set_main_option("script_location", str(migrations_mod._BACKEND_DIR / "alembic"))
+    cfg = migrations_mod._build_alembic_config()
     assert _alembic_version(throwaway_pg_database) == ScriptDirectory.from_config(cfg).get_current_head()
     assert len(_table_names(throwaway_pg_database)) == table_count_before
 

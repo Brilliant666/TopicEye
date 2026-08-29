@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from app.integrations.rardar.schemas import (
     ExactExplosionProject,
@@ -30,6 +31,53 @@ ProfileSourceLabel = Literal[
 TranslationState = Literal["not_needed", "translated", "pending", "unavailable"]
 
 
+def _normalized_capability_text(value: str) -> str:
+    return re.sub(r"[^0-9a-z\u3400-\u9fff]+", "", value.casefold())
+
+
+class ServingCapability(StrictServingModel):
+    """One complete, evidence-bound capability for both Today and project detail."""
+
+    title: str = Field(min_length=2, max_length=32)
+    detail: str = Field(min_length=4, max_length=1200)
+    shortDetail: str | None = Field(default=None, min_length=4, max_length=200)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+
+    @field_validator("title", "detail", "shortDetail")
+    @classmethod
+    def validate_complete_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        cleaned = re.sub(r"\s+", " ", value).strip()
+        if not cleaned or cleaned.endswith(("…", "...")):
+            raise ValueError("capability text must be complete")
+        return cleaned
+
+    @field_validator("title")
+    @classmethod
+    def validate_title_width(cls, value: str) -> str:
+        if len(re.findall(r"[\u3400-\u9fff]", value)) > 16:
+            raise ValueError("Chinese capability title is too long")
+        return value
+
+    @field_validator("evidenceRefs")
+    @classmethod
+    def validate_evidence_refs(cls, values: list[str]) -> list[str]:
+        if len(set(values)) != len(values) or any(not value.strip() or len(value) > 240 for value in values):
+            raise ValueError("capability evidence refs must be unique and bounded")
+        return values
+
+    @model_validator(mode="after")
+    def validate_title_detail_separation(self) -> ServingCapability:
+        title = _normalized_capability_text(self.title)
+        detail = _normalized_capability_text(self.detail)
+        if title == detail or (title and detail.startswith(title)):
+            raise ValueError("capability detail must not repeat its title")
+        if self.shortDetail is not None and _normalized_capability_text(self.shortDetail) == title:
+            raise ValueError("capability short detail must explain its title")
+        return self
+
+
 class ServingFile(StrictServingModel):
     path: str = Field(pattern=r"^[A-Za-z0-9._/-]+\.json$")
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -53,7 +101,7 @@ class ServingProfileSummary(StrictServingModel):
 
 
 class ServingPointer(StrictServingModel):
-    schemaVersion: Literal[1, 2]
+    schemaVersion: Literal[1, 2, 3]
     servingGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
     sourceGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
     manifestSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -61,7 +109,7 @@ class ServingPointer(StrictServingModel):
 
 
 class ServingManifest(StrictServingModel):
-    schemaVersion: Literal[1, 2]
+    schemaVersion: Literal[1, 2, 3]
     state: Literal["ready"]
     servingGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
     sourceGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
@@ -88,11 +136,12 @@ class TodayProject(ExactExplosionProject):
     sourceLabel: ProfileSourceLabel
     sourceLanguage: str | None = Field(default=None, max_length=32)
     capabilityBulletsZh: list[str] = Field(max_length=4)
+    capabilities: list[ServingCapability] = Field(default_factory=list, max_length=4)
     translationState: TranslationState
 
 
 class ServingTodaySnapshot(StrictServingModel):
-    schemaVersion: Literal[1, 2]
+    schemaVersion: Literal[1, 2, 3]
     state: Literal["ready", "warming_up", "baseline_missing", "not_ready"]
     reason: Literal["explosion_artifact_not_published"] | None = None
     generationId: str
@@ -139,11 +188,16 @@ class StartHereLink(StrictServingModel):
 
 
 class OfficialProjectProfile(StrictServingModel):
-    profileSchemaVersion: Literal["rardar-project-profile-v1", "rardar-project-profile-v2"]
+    profileSchemaVersion: Literal[
+        "rardar-project-profile-v1",
+        "rardar-project-profile-v2",
+        "rardar-project-profile-v3",
+    ]
     promptVersion: Literal[
         "rardar-project-profile-zh-v1",
         "rardar-project-profile-zh-v2",
         "rardar-project-profile-zh-v3",
+        "rardar-project-profile-zh-v4",
     ]
     githubRepositoryId: int = Field(gt=0)
     repository: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -154,6 +208,7 @@ class OfficialProjectProfile(StrictServingModel):
     sourceLabel: ProfileSourceLabel
     sourceLanguage: str | None = Field(default=None, max_length=32)
     capabilityBulletsZh: list[str] = Field(max_length=8)
+    capabilities: list[ServingCapability] = Field(default_factory=list, max_length=8)
     productFormsZh: list[str] = Field(default_factory=list, max_length=6)
     supportedEnvironmentsZh: list[str] = Field(default_factory=list, max_length=12)
     primaryUseCasesZh: list[str] = Field(max_length=8)
@@ -167,6 +222,15 @@ class OfficialProjectProfile(StrictServingModel):
     evidenceDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
     generatedAt: AwareDatetime
     translationState: TranslationState
+
+    @model_validator(mode="after")
+    def validate_structured_capabilities(self) -> OfficialProjectProfile:
+        if (
+            self.profileSchemaVersion == "rardar-project-profile-v3"
+            and [item.detail for item in self.capabilities] != self.capabilityBulletsZh
+        ):
+            raise ValueError("structured capabilities must project to legacy capability details")
+        return self
 
 
 class ProjectEvidenceProjection(StrictServingModel):
@@ -186,7 +250,7 @@ class ProjectEvidenceProjection(StrictServingModel):
 
 
 class ServingProjectDetail(StrictServingModel):
-    schemaVersion: Literal[1, 2]
+    schemaVersion: Literal[1, 2, 3]
     generationId: str
     servingGenerationId: str
     project: TodayProject
@@ -212,7 +276,7 @@ class ServingProjectDetail(StrictServingModel):
 
 
 class ServingProjectRecord(StrictServingModel):
-    schemaVersion: Literal[1, 2]
+    schemaVersion: Literal[1, 2, 3]
     generationId: str
     servingGenerationId: str
     project: TodayProject
@@ -236,6 +300,7 @@ class ServingProjectRecord(StrictServingModel):
             or self.project.sourceLabel != self.profile.sourceLabel
             or self.project.sourceLanguage != self.profile.sourceLanguage
             or self.project.capabilityBulletsZh != self.profile.capabilityBulletsZh[:4]
+            or self.project.capabilities != self.profile.capabilities[:4]
             or self.project.translationState != self.profile.translationState
         ):
             raise ValueError("project profile projection is inconsistent")

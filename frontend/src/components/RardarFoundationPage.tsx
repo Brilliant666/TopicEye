@@ -58,8 +58,8 @@ export function TodayFoundation({ result }: { result: TodayLoadResult }) {
   const board = result.kind === 'published' ? result.board : null;
 
   return (
-    <div className={styles.page} data-rardar-route="/">
-      <section className={styles.hero}>
+    <div className={`${styles.page} ${styles.todayPage}`} data-rardar-route="/">
+      <section className={`${styles.hero} ${styles.todayHero}`} data-testid="today-hero">
         <div className={styles.heroContent}>
           <p className={styles.eyebrow}>Today · Exact 24h</p>
           <h1 className={styles.heroTitle}>
@@ -67,8 +67,8 @@ export function TodayFoundation({ result }: { result: TodayLoadResult }) {
             <span className={styles.heroTitleAccent}>最多新增关注？</span>
           </h1>
           <p className={styles.heroDescription}>
-            基于 Rardar 多源候选召回与自有连续观察形成的 GitHub 24h 爆发榜。
-            名次严格保持 Artifact 的 observedStarDelta 顺序，AI 不参与排名、过滤或补齐。
+            Rardar 连续观察多源候选，按 observedStarDelta 排出完整 24h 榜；
+            AI 只做解读，不参与排名、过滤或补齐。
           </p>
           <div className={styles.foundationNotice}>
             <span className={styles.noticePill}>
@@ -214,17 +214,20 @@ function ExactProjectCard({ project, generationId }: { project: TodayProject; ge
   const relativeGrowth = project.baselineStars > 0 ? project.observedStarDelta / project.baselineStars : null;
   const detailHref = `/project/github/${project.githubRepositoryId}?generation=${encodeURIComponent(generationId)}`;
   return (
-    <article className={styles.rankingCard}>
+    <article className={styles.rankingCard} data-testid={`today-project-${project.rank}`}>
       <div className={styles.rank}>#{project.rank}</div>
       <div className={styles.projectIdentity}>
         <Link href={detailHref} className={styles.repository}>
           <FolderGit2 size={18} aria-hidden="true" /> {project.repository} <ArrowRight size={15} aria-hidden="true" />
         </Link>
         <p className={styles.projectDescription}>{project.officialSummaryZh}</p>
-        {project.capabilityBulletsZh.length > 0 && (
-          <ul className={styles.capabilityList} aria-label="核心能力摘要">
-            {project.capabilityBulletsZh.slice(0, 3).map((capability) => (
-              <li key={capability} title={capability}>{compactCapability(capability)}</li>
+        {project.capabilities.length > 0 && (
+          <ul className={styles.capabilityList} aria-label="核心能力摘要" data-testid="today-capabilities">
+            {project.capabilities.slice(0, project.rank <= 3 ? 3 : 2).map((capability) => (
+              <li key={`${capability.title}-${capability.detail}`}>
+                <strong>{capability.title}</strong>
+                <span>{capability.shortDetail || capability.detail}</span>
+              </li>
             ))}
           </ul>
         )}
@@ -381,10 +384,4 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(new Date(value));
-}
-
-export function compactCapability(value: string) {
-  const normalized = value.replace(/\s+/g, ' ').trim();
-  const firstClause = normalized.split(/[；;。.!！]/, 1)[0]?.trim() || normalized;
-  return firstClause.length > 30 ? `${firstClause.slice(0, 29).trimEnd()}…` : firstClause;
 }

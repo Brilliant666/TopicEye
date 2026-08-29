@@ -154,8 +154,8 @@ def _fallback_profiles(
         evidence = ProjectEvidenceProjection.model_validate(evidence_payload, strict=True)
         ref = "description" if description else "repository"
         profile = OfficialProjectProfile(
-            profileSchemaVersion="rardar-project-profile-v2",
-            promptVersion="rardar-project-profile-zh-v1",
+            profileSchemaVersion="rardar-project-profile-v3",
+            promptVersion="rardar-project-profile-zh-v4",
             githubRepositoryId=project.githubRepositoryId,
             repository=project.repository,
             htmlUrl=project.htmlUrl,
@@ -165,6 +165,7 @@ def _fallback_profiles(
             sourceLabel=source_label,
             sourceLanguage=source_language,
             capabilityBulletsZh=[],
+            capabilities=[],
             productFormsZh=[],
             supportedEnvironmentsZh=[],
             primaryUseCasesZh=[],
@@ -265,13 +266,14 @@ def build_serving_projection(
                 "sourceLabel": profile.sourceLabel,
                 "sourceLanguage": profile.sourceLanguage,
                 "capabilityBulletsZh": profile.capabilityBulletsZh[:4],
+                "capabilities": profile.capabilities[:4],
                 "translationState": profile.translationState,
             },
             strict=True,
         )
         today_projects.append(today_project)
         record = ServingProjectRecord(
-            schemaVersion=2,
+            schemaVersion=3,
             generationId=generation_id,
             servingGenerationId=serving_generation_id,
             project=today_project,
@@ -283,7 +285,7 @@ def build_serving_projection(
         evidence_files[f"evidence/{project.githubRepositoryId}.json"] = _model_bytes(collected.evidence)
 
     today = ServingTodaySnapshot(
-        schemaVersion=2,
+        schemaVersion=3,
         state=board.state,
         reason=board.reason,
         generationId=generation_id,
@@ -323,7 +325,7 @@ def build_serving_projection(
         for identifier in sorted(expected_ids)
     }
     manifest = ServingManifest(
-        schemaVersion=2,
+        schemaVersion=3,
         state="ready",
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
@@ -338,7 +340,7 @@ def build_serving_projection(
     manifest_raw = _model_bytes(manifest)
     files["manifest.json"] = manifest_raw
     pointer = ServingPointer(
-        schemaVersion=2,
+        schemaVersion=3,
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
         manifestSha256=_sha(manifest_raw),
@@ -387,6 +389,7 @@ def _validate_project_binding(
         *record.profile.primaryUseCasesZh,
         *record.profile.deliveryFormsZh,
     }
+    capability_refs = {reference for capability in record.profile.capabilities for reference in capability.evidenceRefs}
     if any(not record.profile.claimEvidenceRefs.get(claim) for claim in claims):
         raise ServingProjectionError("rardar_serving_evidence_ref_invalid", "Serving profile claim is missing evidence")
     claim_refs = {reference for references in record.profile.claimEvidenceRefs.values() for reference in references}
@@ -394,6 +397,7 @@ def _validate_project_binding(
     link_refs = {reference for link in record.profile.startHere for reference in link.evidenceRefs}
     if (
         not claim_refs.issubset(allowed_refs)
+        or not capability_refs.issubset(allowed_refs)
         or not section_refs.issubset(allowed_refs)
         or not link_refs.issubset(allowed_refs)
     ):

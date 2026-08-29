@@ -14,9 +14,11 @@ from app.integrations.rardar.serving_profiles import (
     _parse_readme,
     _preferred_chinese_readme,
     _source_language,
+    _structure_capability,
     build_official_profiles,
     collect_official_project_profile,
 )
+from app.integrations.rardar.serving_schemas import ServingCapability
 
 FIXTURE = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_intelligence" / "revision-a"
 
@@ -140,8 +142,18 @@ An official developer automation toolkit.
         return ProfileTranslation(
             summary=EvidenceClaim(text="一个面向开发者的官方自动化工具包。", evidenceRefs=["readme:section:1"]),
             capabilities=[
-                EvidenceClaim(text="生成有证据支撑的项目报告。", evidenceRefs=["readme:section:2:item:1"]),
-                EvidenceClaim(text="导出独立 HTML 交付物。", evidenceRefs=["readme:section:2:item:2"]),
+                ServingCapability(
+                    title="证据项目报告",
+                    detail="生成有证据支撑的项目报告。",
+                    shortDetail="生成有证据支撑的项目报告。",
+                    evidenceRefs=["readme:section:2:item:1"],
+                ),
+                ServingCapability(
+                    title="独立 HTML 交付",
+                    detail="导出独立 HTML 交付物。",
+                    shortDetail="导出独立 HTML 交付物。",
+                    evidenceRefs=["readme:section:2:item:2"],
+                ),
             ],
             productForms=[],
             supportedEnvironments=[],
@@ -169,6 +181,7 @@ An official developer automation toolkit.
 
     assert first.profile.sourceLabel == "官方 README（译）"
     assert first.profile.capabilityBulletsZh == ["生成有证据支撑的项目报告。", "导出独立 HTML 交付物。"]
+    assert [item.title for item in first.profile.capabilities] == ["证据项目报告", "独立 HTML 交付"]
     assert second.readme_cache_hit is True
     assert second.translation_cache_hit is True
     assert second.profile == first.profile
@@ -356,12 +369,20 @@ Open examples/ for complete outputs.
         )
 
     profile = collected.profile
-    assert profile.profileSchemaVersion == "rardar-project-profile-v2"
+    assert profile.profileSchemaVersion == "rardar-project-profile-v3"
     assert {"Agent Skill", "Node.js 渲染/校验工具"}.issubset(profile.productFormsZh)
     assert {"Raven", "Cursor", "Claude Code", "Codex CLI", "OpenCode", "浏览器"}.issubset(
         profile.supportedEnvironmentsZh
     )
     assert {"独立 HTML", "PNG", "SVG", "WebM"}.issubset(profile.deliveryFormsZh)
+    assert [capability.title for capability in profile.capabilities[:4]] == [
+        "技术图与交互展示",
+        "架构变化对比",
+        "确定性中间表示",
+        "可验证独立交付",
+    ]
+    assert all(capability.title not in capability.detail for capability in profile.capabilities)
+    assert all(capability.evidenceRefs for capability in profile.capabilities)
     assert any(link.path == "archify/SKILL.md" for link in profile.startHere)
     assert any(link.path == "examples" for link in profile.startHere)
     claims = [*profile.productFormsZh, *profile.supportedEnvironmentsZh, *profile.deliveryFormsZh]
@@ -417,6 +438,78 @@ An Awesome List of public APIs maintained by the community.
     assert collected.profile.productFormsZh == ["Awesome List"]
     assert collected.profile.supportedEnvironmentsZh == []
     assert collected.profile.deliveryFormsZh == []
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected_title", "expected_detail"),
+    [
+        ("架构变化对比 —— 展示新增、删除和重路由。", "架构变化对比", "展示新增、删除和重路由。"),
+        ("证据追踪: 保留每个判断对应的官方来源。", "证据追踪", "保留每个判断对应的官方来源。"),
+        ("安全边界 - 不执行第三方仓库代码。", "安全边界", "不执行第三方仓库代码。"),
+    ],
+)
+def test_capability_builder_parses_semantic_separators_without_truncation(
+    raw: str,
+    expected_title: str,
+    expected_detail: str,
+) -> None:
+    capability = _structure_capability(EvidenceClaim(text=raw, evidenceRefs=["readme:section:1"]), 1)
+
+    assert capability.title == expected_title
+    assert capability.detail == expected_detail
+    assert not (capability.shortDetail or "").endswith("…")
+
+
+def test_capability_builder_replaces_a_repeated_explicit_title() -> None:
+    capability = _structure_capability(
+        EvidenceClaim(
+            text="架构变化对比：架构变化对比展示新增、删除和重路由。",
+            evidenceRefs=["readme:section:1"],
+        ),
+        1,
+    )
+
+    assert capability.title != "架构变化对比"
+    assert not capability.detail.startswith(capability.title)
+
+
+@pytest.mark.parametrize(
+    ("title", "detail"),
+    [
+        ("架构变化对比", "架构变化对比"),
+        ("架构变化对比", "架构变化对比：展示新增和删除"),
+        ("Architecture Delta", "  architecture-delta  "),
+    ],
+)
+def test_capability_schema_rejects_title_detail_repetition(title: str, detail: str) -> None:
+    with pytest.raises(ValueError, match="must not repeat"):
+        ServingCapability(title=title, detail=detail, evidenceRefs=["readme:section:1"])
+
+
+def test_capability_schema_rejects_incomplete_or_unbound_text() -> None:
+    with pytest.raises(ValueError):
+        ServingCapability(title="架构变化对比", detail="展示新增和删除。", evidenceRefs=[])
+    with pytest.raises(ValueError, match="complete"):
+        ServingCapability(
+            title="架构变化对比",
+            detail="展示新增和删除。",
+            shortDetail="展示新增…",
+            evidenceRefs=["readme:section:1"],
+        )
+    with pytest.raises(ValueError, match="too long"):
+        ServingCapability(
+            title="这是一个明显超过十六个中文字符限制的能力标题",
+            detail="展示新增和删除。",
+            evidenceRefs=["readme:section:1"],
+        )
+
+
+def test_capability_builder_never_slices_a_long_detail_for_short_display() -> None:
+    detail = "完整说明" * 30
+    capability = _structure_capability(EvidenceClaim(text=detail, evidenceRefs=["readme:section:1"]), 1)
+
+    assert capability.detail == detail
+    assert capability.shortDetail is None
 
 
 @pytest.mark.asyncio

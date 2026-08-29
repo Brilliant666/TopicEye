@@ -57,6 +57,7 @@ def load_explosion_board(config: Settings = settings) -> ExplosionBoardResponse:
                         "sourceLabel",
                         "sourceLanguage",
                         "capabilityBulletsZh",
+                        "capabilities",
                         "translationState",
                     }
                 ),
@@ -118,7 +119,7 @@ def load_project_detail(
         evidence = _strict_model(evidence_raw, ProjectEvidenceProjection, "rardar_serving_evidence_invalid")
         return (
             ServingProjectDetail(
-                schemaVersion=1,
+                schemaVersion=record.schemaVersion,
                 generationId=generation_id,
                 servingGenerationId=built.serving_generation_id,
                 project=record.project,

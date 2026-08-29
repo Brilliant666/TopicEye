@@ -92,7 +92,7 @@ class ReuseCostAssessment(StrictProductModel):
 
 class ProjectExplanation(StrictProductModel):
     conclusionSummary: EvidenceBackedText
-    coreHighlights: list[EvidenceBackedText] = Field(min_length=1, max_length=3)
+    differentiators: list[EvidenceBackedText] = Field(default_factory=list, max_length=3)
     reusableAssets: list[ReusableAsset] = Field(min_length=1, max_length=3)
     reuseCost: ReuseCostAssessment
     bestFitScenarios: list[EvidenceBackedText] = Field(min_length=1, max_length=3)
@@ -105,8 +105,8 @@ class ProjectExplanationResponse(StrictProductModel):
     repository: str
     githubRepositoryId: int | None = Field(default=None, gt=0)
     generationId: str
-    promptVersion: Literal["rardar-project-insight-v3"]
-    schemaVersion: Literal["rardar-project-insight-schema-v3"]
+    promptVersion: Literal["rardar-project-insight-v4"]
+    schemaVersion: Literal["rardar-project-insight-schema-v4"]
     format: Literal["structured", "none"]
     officialIntro: OfficialIntro
     analysis: ProjectExplanation | None = None

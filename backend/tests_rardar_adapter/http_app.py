@@ -10,10 +10,38 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1.rardar import router
 from app.integrations.rardar import RardarArtifactError
-from app.services.rardar_intelligence import load_explosion_board, load_today_snapshot
+from app.integrations.rardar.serving import ServingProjectionError
+from app.services.rardar_intelligence import load_explosion_board, load_project_detail, load_today_snapshot
 
 app = FastAPI()
 app.include_router(router, prefix="/api/v1")
+
+_FIXTURE_CAPABILITIES = [
+    {
+        "title": "完整事实说明",
+        "detail": "保留经过验证的完整能力事实，不使用省略号截断成半句话。",
+        "shortDetail": "保留完整能力事实，避免截断。",
+        "evidenceRefs": ["description"],
+    },
+    {
+        "title": "可验证工程交付",
+        "detail": "把工程输出绑定到可以复核的官方仓库证据。",
+        "shortDetail": None,
+        "evidenceRefs": ["description"],
+    },
+    {
+        "title": "清晰使用边界",
+        "detail": "说明适用范围和限制，避免把推断包装成项目事实。",
+        "shortDetail": None,
+        "evidenceRefs": ["description"],
+    },
+    {
+        "title": "第四项完整能力",
+        "detail": "只在项目详情中保留，不挤占今日榜卡片的信息密度。",
+        "shortDetail": None,
+        "evidenceRefs": ["description"],
+    },
+]
 
 
 @app.middleware("http")
@@ -41,8 +69,8 @@ async def visual_state_fixture(request, call_next):
                     "repository": repository,
                     "githubRepositoryId": github_repository_id,
                     "generationId": payload["generationId"],
-                    "promptVersion": "rardar-project-insight-v3",
-                    "schemaVersion": "rardar-project-insight-schema-v3",
+                    "promptVersion": "rardar-project-insight-v4",
+                    "schemaVersion": "rardar-project-insight-schema-v4",
                     "format": "none",
                     "officialIntro": official_intro,
                     "analysis": None,
@@ -61,8 +89,8 @@ async def visual_state_fixture(request, call_next):
                 "repository": repository,
                 "githubRepositoryId": github_repository_id,
                 "generationId": payload["generationId"],
-                "promptVersion": "rardar-project-insight-v3",
-                "schemaVersion": "rardar-project-insight-schema-v3",
+                "promptVersion": "rardar-project-insight-v4",
+                "schemaVersion": "rardar-project-insight-schema-v4",
                 "format": "structured",
                 "officialIntro": official_intro,
                 "analysis": {
@@ -70,8 +98,11 @@ async def visual_state_fixture(request, call_next):
                         "text": "它把开发自动化能力封装成可组合模块，适合作为工作流的基础组件。",
                         "evidenceRefs": ["description", "readme:introduction"],
                     },
-                    "coreHighlights": [
-                        {"text": "提供可组合的开发自动化能力。", "evidenceRefs": ["readme:introduction"]}
+                    "differentiators": [
+                        {
+                            "text": "相比一次性脚本，可组合模块便于嵌入持续演进的开发工作流。",
+                            "evidenceRefs": ["readme:introduction", "tree:src"],
+                        }
                     ],
                     "reusableAssets": [
                         {
@@ -101,6 +132,22 @@ async def visual_state_fixture(request, call_next):
                 "evidenceKinds": ["description", "readme:introduction", "tree:src"],
             }
         )
+    if request.method == "GET" and request.url.path.startswith("/api/v1/rardar/projects/"):
+        github_repository_id = int(request.url.path.rsplit("/", 1)[-1])
+        generation_id = request.query_params.get("generationId", "")
+        try:
+            detail, _etag = load_project_detail(github_repository_id, generation_id)
+        except (RardarArtifactError, ServingProjectionError):
+            return await call_next(request)
+        payload = detail.model_dump(mode="json")
+        capabilities = copy.deepcopy(_FIXTURE_CAPABILITIES)
+        details = [capability["detail"] for capability in capabilities]
+        payload["project"]["capabilities"] = capabilities
+        payload["project"]["capabilityBulletsZh"] = details
+        payload["profile"]["capabilities"] = capabilities
+        payload["profile"]["capabilityBulletsZh"] = details
+        payload["profile"]["claimEvidenceRefs"].update({detail: ["description"] for detail in details})
+        return JSONResponse(content=payload)
     if request.url.path == "/api/v1/rardar/find-projects":
         payload = await request.json()
         repository = (
@@ -176,6 +223,9 @@ async def visual_state_fixture(request, call_next):
             payload = load_today_snapshot()[0].model_dump(mode="json")
         except RardarArtifactError as exc:
             return JSONResponse(status_code=503, content={"detail": {"code": exc.code, "message": str(exc)}})
+        for item in payload["exactRanked"]:
+            item["capabilities"] = copy.deepcopy(_FIXTURE_CAPABILITIES)
+            item["capabilityBulletsZh"] = [capability["detail"] for capability in _FIXTURE_CAPABILITIES]
         template = payload["exactRanked"][0]
         for index in range(len(payload["exactRanked"]) + 1, 21):
             item = copy.deepcopy(template)

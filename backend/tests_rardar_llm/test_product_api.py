@@ -34,8 +34,8 @@ def test_explanation_endpoint_keeps_ai_failure_as_a_product_state(monkeypatch) -
             state="unavailable",
             repository=payload.repository,
             generationId=payload.generationId,
-            promptVersion="rardar-project-insight-v3",
-            schemaVersion="rardar-project-insight-schema-v3",
+            promptVersion="rardar-project-insight-v4",
+            schemaVersion="rardar-project-insight-schema-v4",
             format="none",
             officialIntro={
                 "text": "官方资料暂未提供简介。",
@@ -66,8 +66,8 @@ def test_stable_insight_endpoint_uses_numeric_identity_and_generation_only(monke
             repository="owner/repository",
             githubRepositoryId=identifier,
             generationId=generation,
-            promptVersion="rardar-project-insight-v3",
-            schemaVersion="rardar-project-insight-schema-v3",
+            promptVersion="rardar-project-insight-v4",
+            schemaVersion="rardar-project-insight-schema-v4",
             format="none",
             officialIntro={
                 "text": "官方资料暂未提供简介。",

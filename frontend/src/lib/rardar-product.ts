@@ -3,13 +3,13 @@ export type ProjectExplanation = {
   repository: string;
   githubRepositoryId: number | null;
   generationId: string;
-  promptVersion: 'rardar-project-insight-v3';
-  schemaVersion: 'rardar-project-insight-schema-v3';
+  promptVersion: 'rardar-project-insight-v4';
+  schemaVersion: 'rardar-project-insight-schema-v4';
   format: 'structured' | 'none';
   officialIntro: EvidenceBackedIntro;
   analysis: {
     conclusionSummary: EvidenceBackedText;
-    coreHighlights: EvidenceBackedText[];
+    differentiators: EvidenceBackedText[];
     reusableAssets: Array<{
       reuseType: ReuseType;
       asset: string;

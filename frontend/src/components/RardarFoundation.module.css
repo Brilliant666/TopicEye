@@ -405,6 +405,16 @@
   line-height: 1.55;
 }
 
+.officialTagline {
+  max-width: 58rem;
+  margin: 0.42rem 0 0;
+  color: #12335f;
+  font-size: clamp(0.96rem, 1.25vw, 1.08rem);
+  font-weight: 850;
+  line-height: 1.58;
+  letter-spacing: -0.012em;
+}
+
 .capabilityList {
   max-width: 56rem;
   margin: 0.42rem 0 0;
@@ -801,6 +811,18 @@
   color: #475569;
   font-size: clamp(0.98rem, 1.7vw, 1.15rem);
   line-height: 1.78;
+}
+
+.detailHero .officialTagline {
+  max-width: 52rem;
+  color: #12335f;
+  font-size: clamp(1.12rem, 2vw, 1.4rem);
+  font-weight: 880;
+  line-height: 1.62;
+}
+
+.detailSafeIdentity {
+  color: #52647b !important;
 }
 
 .profileSignalGrid {
@@ -2224,7 +2246,7 @@
   }
 }
 
-/* Serving v4 content hierarchy */
+/* Serving v5 official narrative hierarchy */
 .productForms {
   margin-top: 0.52rem;
   display: flex;
@@ -2265,6 +2287,59 @@
   font-size: 0.82rem;
   font-weight: 760;
   line-height: 1.62;
+}
+
+.officialPositioningBlock {
+  max-width: 58rem;
+  margin-top: 0.68rem;
+  padding: 0.72rem 0.85rem 0.78rem 0.95rem;
+  border-left: 3px solid #0891b2;
+  border-radius: 0 0.78rem 0.78rem 0;
+  background: linear-gradient(90deg, #ecfeff, rgb(240 249 255 / 0.28));
+}
+
+.officialPositioningBlock > span {
+  color: #0e7490;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.075em;
+}
+
+.officialPositioningBlock p {
+  margin: 0.24rem 0 0;
+  color: #0f172a;
+  font-size: 0.83rem;
+  font-weight: 760;
+  line-height: 1.65;
+}
+
+.officialHighlightList {
+  max-width: 58rem;
+  margin: 0.58rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.38rem 0.9rem;
+  list-style: none;
+}
+
+.officialHighlightList li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.42rem;
+}
+
+.officialHighlightList strong {
+  color: #1d4ed8;
+  font-size: 0.72rem;
+}
+
+.officialHighlightList span {
+  color: #52647b;
+  font-size: 0.69rem;
+  line-height: 1.52;
 }
 
 .keyCapabilityList {
@@ -2497,6 +2572,66 @@
   color: #475569;
   font-size: 0.78rem;
   line-height: 1.7;
+}
+
+.rardarAssessment {
+  margin-top: 0.9rem;
+  padding: 0.82rem 0.9rem;
+  border: 1px solid #bae6fd;
+  border-radius: 0.85rem;
+  background: rgb(255 255 255 / 0.78);
+}
+
+.rardarAssessment > span,
+.rardarAssessment > strong {
+  display: block;
+}
+
+.rardarAssessment > span {
+  color: #0369a1;
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rardarAssessment > strong {
+  margin-top: 0.32rem;
+  color: #0f172a;
+  font-size: 0.82rem;
+  line-height: 1.62;
+}
+
+.rardarDifferentiatorGrid {
+  margin-top: 0.65rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.rardarDifferentiatorGrid article {
+  min-width: 0;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid #dbeafe;
+  border-radius: 0.78rem;
+  background: rgb(255 255 255 / 0.62);
+}
+
+.rardarDifferentiatorGrid strong,
+.rardarDifferentiatorGrid p {
+  display: block;
+}
+
+.rardarDifferentiatorGrid strong {
+  color: #1e40af;
+  font-size: 0.74rem;
+}
+
+.rardarDifferentiatorGrid p {
+  margin: 0.26rem 0 0;
+  color: #52647b;
+  font-size: 0.7rem;
+  line-height: 1.56;
 }
 
 .useCaseStrip {
@@ -2737,7 +2872,9 @@
   }
 
   .keyCapabilityList,
+  .officialHighlightList,
   .differentiatorGrid,
+  .rardarDifferentiatorGrid,
   .capabilityNarrative,
   .startHerePrimary,
   .observationFacts dl {
@@ -2750,7 +2887,8 @@
 }
 
 @media (max-width: 520px) {
-  .keyCapabilityList li {
+  .keyCapabilityList li,
+  .officialHighlightList li {
     grid-template-columns: 1fr;
     gap: 0.12rem;
   }

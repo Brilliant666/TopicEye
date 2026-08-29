@@ -20,6 +20,7 @@ import { RARDAR_FOUNDATION_PAGES, type RardarFoundationPageKey } from '@/lib/rar
 import {
   loadExplosionBoard,
   loadTodaySnapshot,
+  narrativeSourceLabel,
   type ExplosionBoard,
   type ExplosionBoardLoadResult,
   type ExplosionWindow,
@@ -213,10 +214,9 @@ function DiscoverState({ result }: { result: ExplosionBoardLoadResult }) {
 function ExactProjectCard({ project, generationId }: { project: TodayProject; generationId: string }) {
   const relativeGrowth = project.baselineStars > 0 ? project.observedStarDelta / project.baselineStars : null;
   const detailHref = `/project/github/${project.githubRepositoryId}?generation=${encodeURIComponent(generationId)}`;
-  const rejected = project.qualityState === 'rejected';
-  const keyCapabilities = (project.keyDifferentiators.length > 0
-    ? project.keyDifferentiators
-    : project.capabilities).slice(0, 2);
+  const insufficient = project.officialNarrativeMode === 'insufficient';
+  const sourceLabel = narrativeSourceLabel(project.officialNarrativeMode);
+  const officialHighlights = project.officialHighlights.slice(0, 2);
   return (
     <article className={styles.rankingCard} data-testid={`today-project-${project.rank}`}>
       <div className={styles.rank}>#{project.rank}</div>
@@ -224,34 +224,38 @@ function ExactProjectCard({ project, generationId }: { project: TodayProject; ge
         <Link href={detailHref} className={styles.repository}>
           <FolderGit2 size={18} aria-hidden="true" /> {project.repository} <ArrowRight size={15} aria-hidden="true" />
         </Link>
-        <p className={styles.projectDescription}>{project.identitySummaryZh}</p>
-        {project.productFormsZh.length > 0 && !rejected && (
+        {project.officialTaglineZh ? (
+          <p className={styles.officialTagline} data-testid="today-official-tagline">{project.officialTaglineZh}</p>
+        ) : (
+          <p className={styles.profileFallback}>{project.identitySummaryZh}</p>
+        )}
+        {project.productFormsZh.length > 0 && !insufficient && (
           <div className={styles.productForms} aria-label="产品形态">
             {project.productFormsZh.slice(0, 3).map((form) => <span key={form}>{form}</span>)}
           </div>
         )}
-        {project.coreValueZh && !rejected && (
-          <section className={styles.coreValueBlock} aria-label="核心价值" data-testid="today-core-value">
-            <span>核心价值</span>
-            <p>{project.coreValueZh}</p>
+        {project.officialPositioningZh && !insufficient && (
+          <section className={styles.officialPositioningBlock} aria-label="核心定位" data-testid="today-official-positioning">
+            <span>核心定位 · {sourceLabel}</span>
+            <p>{project.officialPositioningZh}</p>
           </section>
         )}
-        {keyCapabilities.length > 0 && !rejected && (
-          <ul className={styles.keyCapabilityList} aria-label="关键能力" data-testid="today-key-capabilities">
-            {keyCapabilities.map((capability) => (
-              <li key={`${capability.title}-${capability.detail}`}>
-                <strong>{capability.title}</strong>
-                <span>{capability.shortDetail || capability.detail}</span>
+        {officialHighlights.length > 0 && !insufficient && (
+          <ul className={styles.officialHighlightList} aria-label={project.officialNarrativeMode.startsWith('official_') ? '官方卖点' : 'Rardar 整理要点'} data-testid="today-official-highlights">
+            {officialHighlights.map((highlight) => (
+              <li key={highlight.sourceOrder}>
+                <strong>{highlight.titleZh}</strong>
+                <span>{highlight.detailZh}</span>
               </li>
             ))}
           </ul>
         )}
-        {rejected && <p className={styles.profileFallback}>档案内容正在重新整理，当前仅展示已验证的仓库与 Star 事实。</p>}
+        {insufficient && <p className={styles.profileFallback}>官方资料不足，当前仅展示已验证的仓库身份与 Star 事实。</p>}
         <div className={styles.tags}>
           {project.primaryLanguage && <span>{project.primaryLanguage}</span>}
           {project.topics.slice(0, 3).map((topic) => <span key={topic}>{topic}</span>)}
           {project.licenseSpdxId && <span>{project.licenseSpdxId}</span>}
-          <span>{project.sourceLabel}</span>
+          <span>{sourceLabel}</span>
           <span>事实 · 精确 24h</span>
           {relativeGrowth !== null && <span>相对增长 {(relativeGrowth * 100).toFixed(1)}%</span>}
         </div>

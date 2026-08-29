@@ -10,9 +10,14 @@ import pytest
 from app.integrations.rardar.adapter import RardarIntelligenceAdapter
 from app.integrations.rardar.serving_profiles import (
     EvidenceClaim,
+    ExtractedOfficialHighlight,
+    ExtractedOfficialNarrative,
+    OfficialNarrativeTranslation,
     ProfileTranslation,
     ProfileTranslationError,
+    TranslatedOfficialHighlight,
     _bounded_translation_evidence,
+    _extract_official_narrative,
     _github_file_url,
     _parse_readme,
     _preferred_chinese_readme,
@@ -20,6 +25,7 @@ from app.integrations.rardar.serving_profiles import (
     _safe_fallback_identity,
     _source_language,
     _structure_capability,
+    _validate_official_translation,
     _validate_translation,
     build_official_profiles,
     collect_official_project_profile,
@@ -99,6 +105,98 @@ Thanks to a commercial sponsor.
     assert _source_language(markdown, None) == "en"
 
 
+def test_parser_ignores_multiline_html_language_navigation() -> None:
+    markdown = """
+# Project
+<p align="center">
+  <a href="README.vi.md">🇻🇳 Tiếng Việt</a> |
+  <a href="README.zh.md">🇨🇳 简体中文</a> |
+  <a href="README.md">🇺🇸 English</a>
+</p>
+
+一个为多种开发环境提供可验证设计智能的开源工具。
+"""
+
+    sections = _parse_readme(markdown, "README.zh.md")
+
+    assert sections[0].excerpts == ["一个为多种开发环境提供可验证设计智能的开源工具。"]
+
+
+def test_textual_language_navigation_cannot_become_rardar_positioning() -> None:
+    translation = ProfileTranslation(
+        summary=EvidenceClaim(text="这是一个用于生成视频的自动化工具。", evidenceRefs=["description"]),
+        positioning=EvidenceClaim(
+            text="简体中文 | English | 日本語 | 版本发布 | 问题反馈",
+            evidenceRefs=["readme:section:1"],
+        ),
+        capabilities=[],
+        productForms=[],
+        supportedEnvironments=[],
+        useCases=[],
+        deliveryForms=[],
+    )
+
+    with pytest.raises(ProfileTranslationError, match="rardar_profile_translation_invalid"):
+        _validate_translation(translation, {"description", "readme:section:1"})
+
+
+def test_official_translation_preserves_single_token_technical_titles_but_rejects_untranslated_prose() -> None:
+    narrative = ExtractedOfficialNarrative(
+        tagline="Turn repositories into maps.",
+        tagline_ref="readme:narrative:tagline",
+        positioning="A renderer turns typed input into standalone HTML.",
+        positioning_ref="readme:narrative:positioning",
+        highlights=(
+            ExtractedOfficialHighlight(
+                source_order=1,
+                title="@earendil-works/pi-coding-agent",
+                detail="A coding-agent package.",
+                evidence_ref="readme:narrative:highlight:1",
+            ),
+            ExtractedOfficialHighlight(
+                source_order=2,
+                title="Review changes before merge",
+                detail="Compare validated snapshots.",
+                evidence_ref="readme:narrative:highlight:2",
+            ),
+        ),
+        issues=(),
+    )
+    faithful = OfficialNarrativeTranslation(
+        translatedTagline="把代码仓库转化为系统地图。",
+        translatedPositioning="渲染器把类型化输入转化为独立 HTML。",
+        translatedHighlights=[
+            TranslatedOfficialHighlight(
+                sourceOrder=1,
+                titleZh="@earendil-works/pi-coding-agent",
+                detailZh="一个编程智能体软件包。",
+            ),
+            TranslatedOfficialHighlight(
+                sourceOrder=2,
+                titleZh="合并前审查变化",
+                detailZh="比较经过验证的快照。",
+            ),
+        ],
+    )
+
+    _validate_official_translation(faithful, narrative)
+
+    unfaithful = faithful.model_copy(
+        update={
+            "translatedHighlights": [
+                faithful.translatedHighlights[0],
+                TranslatedOfficialHighlight(
+                    sourceOrder=2,
+                    titleZh="Review changes before merge",
+                    detailZh="比较经过验证的快照。",
+                ),
+            ]
+        }
+    )
+    with pytest.raises(ProfileTranslationError, match="rardar_official_translation_content_invalid"):
+        _validate_official_translation(unfaithful, narrative)
+
+
 def test_content_sanitizer_rejects_media_urls_redirects_commands_and_placeholders() -> None:
     markdown = """
 # Safe Toolkit
@@ -135,7 +233,7 @@ npm install unsafe-noise
 def test_content_sanitizer_keeps_meaningful_text_inside_html_containers() -> None:
     markdown = """
 # Safe Toolkit
-<p><strong>Safe Toolkit</strong> 把公开仓库证据整理成可验证的中文项目档案。</p>
+<p align="center"><strong>Safe Toolkit</strong> 把公开仓库证据整理成可验证的中文项目档案。</p>
 <script>window.evil = true</script>
 
 ## 功能
@@ -153,6 +251,44 @@ def test_content_sanitizer_keeps_meaningful_text_inside_html_containers() -> Non
     assert "可验证的中文项目档案" in rendered
     assert "每个结论都回指真实来源" in rendered
     assert "window.evil" not in rendered
+
+
+def test_parser_turns_generic_html_feature_cards_into_evidence_bound_capabilities() -> None:
+    markdown = """
+<h1 align="center">Desktop Toolkit</h1>
+
+<p align="center"><strong>把本地 Web 服务带到原生桌面并负责本地运行管理。</strong></p>
+
+<p align="center">桌面壳负责窗口、托盘和工作配置，并与上游能力组合。</p>
+
+## 主要功能
+
+<table>
+  <tr>
+    <td>
+      <h3>原生桌面</h3>
+      <p>自动启动并管理本地服务，集成系统托盘和桌面窗口。</p>
+    </td>
+    <td>
+      <h3>插件市场</h3>
+      <p>提供插件发现、详情、安装与管理，并支持受审数据源。</p>
+    </td>
+  </tr>
+</table>
+"""
+
+    sections = _parse_readme(markdown, "README.md")
+    overview = next(section for section in sections if section.purpose == "overview")
+    capabilities = next(section for section in sections if section.purpose == "capabilities")
+
+    assert overview.excerpts[:2] == [
+        "把本地 Web 服务带到原生桌面并负责本地运行管理。",
+        "桌面壳负责窗口、托盘和工作配置，并与上游能力组合。",
+    ]
+    assert capabilities.listItems == [
+        "原生桌面 — 自动启动并管理本地服务，集成系统托盘和桌面窗口。",
+        "插件市场 — 提供插件发现、详情、安装与管理，并支持受审数据源。",
+    ]
 
 
 def test_readme_redirect_target_is_same_repository_and_path_safe() -> None:
@@ -318,7 +454,8 @@ An official developer automation toolkit.
             translator=translate,
         )
 
-    assert first.profile.sourceLabel == "官方 README（译）"
+    assert first.profile.sourceLabel == "Rardar 整理"
+    assert first.profile.officialNarrativeMode == "rardar_derived"
     assert first.profile.qualityState == "ready"
     assert first.profile.qualityIssues == []
     assert first.profile.coreValueZh is not None
@@ -374,7 +511,8 @@ async def test_same_repository_readme_redirect_is_followed_and_cached_at_the_fin
     pointer = next((tmp_path / "readmes").rglob("current.json"))
     assert collected.profile.readmePath == "docs/README.zh-CN.md"
     assert collected.profile.readmeBlobSha == "2" * 40
-    assert collected.profile.sourceLabel == "官方中文 README"
+    assert collected.profile.sourceLabel == "Rardar 整理"
+    assert collected.profile.officialNarrativeMode == "rardar_derived"
     assert json.loads(pointer.read_text(encoding="utf-8"))["sha"] == "2" * 40
     assert requested[-1].endswith("/contents/docs/README.zh-CN.md")
 
@@ -449,7 +587,8 @@ async def test_github_and_llm_failure_degrade_to_a_source_labeled_profile(tmp_pa
         )
 
     assert collected.profile.profileState == "partial"
-    assert collected.profile.sourceLabel == "GitHub Description"
+    assert collected.profile.sourceLabel == "Rardar 整理"
+    assert collected.profile.officialNarrativeMode == "rardar_derived"
     assert collected.profile.translationState == "unavailable"
     assert collected.profile.officialSummaryZh.startswith("翻译待补全：")
     assert collected.profile.qualityState == "partial"
@@ -550,7 +689,7 @@ async def test_one_repository_failure_does_not_block_the_profile_batch(tmp_path:
 
     assert set(result.profiles) == {project.githubRepositoryId for project in projects}
     assert result.profiles[projects[0].githubRepositoryId].profile.profileState == "partial"
-    assert result.profiles[projects[1].githubRepositoryId].profile.sourceLabel == "官方中文 README"
+    assert result.profiles[projects[1].githubRepositoryId].profile.sourceLabel == "Rardar 整理"
 
 
 @pytest.mark.asyncio
@@ -671,7 +810,7 @@ Open examples/ for complete outputs.
         )
 
     profile = collected.profile
-    assert profile.profileSchemaVersion == "rardar-project-profile-v4"
+    assert profile.profileSchemaVersion == "rardar-project-profile-v5"
     assert profile.identitySummaryZh == profile.officialSummaryZh
     assert profile.coreValueZh is not None
     assert profile.coreValueEvidenceRefs
@@ -698,6 +837,185 @@ Open examples/ for complete outputs.
         for claim in claims
         for reference in profile.claimEvidenceRefs[claim]
     )
+
+
+def test_official_narrative_parser_preserves_archify_titles_and_order() -> None:
+    markdown = """
+# Archify
+
+**在对话里，把代码仓库或系统描述变成漂亮、可靠、可交互的系统地图。**
+
+Archify 是一套基于 Node.js 的渲染与校验系统，并以 Agent Skill 的形式支持 Raven、Cursor、Claude Code、Codex CLI 和 OpenCode。Agent 负责生成 Typed JSON IR，Archify 再校验并确定性编译为便携、独立的 HTML/SVG 成品。
+
+- **打开就是成品** —— 五种技术图、四套视觉预设、深浅主题、内置品牌徽标，以及显式启用的有限动态
+- **合并前先看清架构变化** —— 把两份已校验快照对比为 Before / Delta / After，准确区分新增、删除、语义变化、移动和重路由
+- **每次探索都有依据** —— 搜索节点、按需打开版本校验过的源码、追踪作者定义的上下游可达范围与精确路径、对比角色、播放故事，但不编造拓扑
+- **一个文件即可放心交付** —— Typed JSON IR 和确定性校验生成独立 HTML，并支持 PNG、SVG、WebM 与 1200×630 分享卡片
+
+## 快速开始
+"""
+
+    narrative = _extract_official_narrative(markdown, "README_ZH.md", None)
+
+    assert narrative.mature is True
+    assert narrative.tagline == "在对话里，把代码仓库或系统描述变成漂亮、可靠、可交互的系统地图。"
+    assert narrative.positioning is not None and "Agent → JSON IR" not in narrative.positioning
+    assert [highlight.title for highlight in narrative.highlights] == [
+        "打开就是成品",
+        "合并前先看清架构变化",
+        "每次探索都有依据",
+        "一个文件即可放心交付",
+    ]
+    assert [highlight.source_order for highlight in narrative.highlights] == [1, 2, 3, 4]
+    assert narrative.issues == ()
+
+
+@pytest.mark.asyncio
+async def test_structured_chinese_readme_publishes_author_narrative_without_llm(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"repository": "fixture-lab/author-first", "description": None})
+    markdown = """
+# 作者优先项目
+
+**把公开仓库证据整理成可验证、可交付的项目地图。**
+
+这是一套基于 Node.js 的渲染与校验系统，由 Agent 生成 Typed JSON IR，再确定性编译为独立 HTML。
+
+- **打开就是成品** —— 生成可交互的独立 HTML 文件
+- **合并前看清变化** —— 对比两份经过校验的架构快照
+- **每次探索都有依据** —— 所有结论都回指版本化源码
+- **一个文件放心交付** —— 同时支持 HTML、PNG 与 SVG
+
+## 快速开始
+"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README_ZH.md", "type": "file"}])
+        return httpx.Response(200, json=_readme_payload(markdown, path="README_ZH.md", sha="6" * 40))
+
+    async def unexpected_model(_payload):
+        raise AssertionError("mature Chinese official narrative must not invoke a model")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=unexpected_model,
+            narrative_translator=unexpected_model,
+        )
+
+    profile = collected.profile
+    assert profile.officialNarrativeMode == "official_zh"
+    assert profile.sourceLabel == "官方中文 README"
+    assert profile.officialTaglineZh == "把公开仓库证据整理成可验证、可交付的项目地图。"
+    assert profile.officialPositioningZh == (
+        "这是一套基于 Node.js 的渲染与校验系统，由 Agent 生成 Typed JSON IR，再确定性编译为独立 HTML。"
+    )
+    assert [item.titleZh for item in profile.officialHighlights] == [
+        "打开就是成品",
+        "合并前看清变化",
+        "每次探索都有依据",
+        "一个文件放心交付",
+    ]
+    assert [item.sourceOrder for item in profile.officialHighlights] == [1, 2, 3, 4]
+    assert profile.identitySummaryZh == profile.officialTaglineZh
+    assert profile.coreValueZh == profile.rardarAssessmentZh
+    assert profile.keyDifferentiators == profile.rardarDifferentiators
+    assert profile.officialPositioningZh != profile.rardarAssessmentZh
+    assert collected.translation_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_structured_english_readme_is_translated_one_to_one(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"repository": "fixture-lab/faithful-translation", "description": None})
+    markdown = """
+# Faithful Map
+
+**Turn source repositories into reliable, interactive system maps.**
+
+Faithful Map is a Node.js renderer and validator that accepts a typed JSON IR and compiles standalone HTML.
+
+- **Open a finished artifact** — Produce an interactive standalone HTML file.
+- **Review changes before merge** — Compare validated Before, Delta, and After snapshots.
+- **Keep exploration grounded** — Bind each conclusion to versioned source evidence.
+
+## Installation
+"""
+    observed_payload: dict | None = None
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README.md", "type": "file"}])
+        return httpx.Response(200, json=_readme_payload(markdown, sha="7" * 40))
+
+    async def translate_official(payload):
+        nonlocal observed_payload
+        observed_payload = payload
+        return OfficialNarrativeTranslation(
+            translatedTagline="把源码仓库转化为可靠、可交互的系统地图。",
+            translatedPositioning="Faithful Map 是一套 Node.js 渲染与校验系统，接收 Typed JSON IR 并编译为独立 HTML。",
+            translatedHighlights=[
+                TranslatedOfficialHighlight(
+                    sourceOrder=1, titleZh="打开即是成品", detailZh="生成可交互的独立 HTML 文件。"
+                ),
+                TranslatedOfficialHighlight(
+                    sourceOrder=2, titleZh="合并前审查变化", detailZh="对比已校验的 Before、Delta 与 After 快照。"
+                ),
+                TranslatedOfficialHighlight(
+                    sourceOrder=3, titleZh="让探索有据可查", detailZh="把每项结论绑定到版本化源码证据。"
+                ),
+            ],
+        )
+
+    async def unexpected_assessment(_payload):
+        raise AssertionError("mature official narrative must not use the weak-source rewrite path")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=unexpected_assessment,
+            narrative_translator=translate_official,
+        )
+
+    profile = collected.profile
+    assert observed_payload is not None
+    assert [item["sourceOrder"] for item in observed_payload["sourceHighlights"]] == [1, 2, 3]
+    assert profile.officialNarrativeMode == "official_translated"
+    assert profile.sourceLabel == "官方 README（译）"
+    assert [item.sourceTitle for item in profile.officialHighlights] == [
+        "Open a finished artifact",
+        "Review changes before merge",
+        "Keep exploration grounded",
+    ]
+    assert [item.titleZh for item in profile.officialHighlights] == [
+        "打开即是成品",
+        "合并前审查变化",
+        "让探索有据可查",
+    ]
+    assert [item.sourceOrder for item in profile.officialHighlights] == [1, 2, 3]
+    official_claims = {(item.titleZh, item.detailZh) for item in profile.officialHighlights}
+    assert all((item.title, item.detail) not in official_claims for item in profile.rardarDifferentiators)
+    assert [item.evidenceRefs for item in profile.officialHighlights] == [
+        ["readme:narrative:highlight:1"],
+        ["readme:narrative:highlight:2"],
+        ["readme:narrative:highlight:3"],
+    ]
+    assert collected.translation_calls == 1
+
+
+def test_serving_profile_builder_contains_no_repository_specific_copy() -> None:
+    source = Path(collect_official_project_profile.__code__.co_filename).read_text(encoding="utf-8").casefold()
+
+    assert "tt-a1i" not in source
+    assert "1211139949" not in source
+    assert 'if "archify" in repository' not in source
 
 
 @pytest.mark.asyncio

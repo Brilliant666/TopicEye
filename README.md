@@ -192,23 +192,37 @@ cannot mix generations. The command never reads D1 or credentials and never
 writes Production.
 
 Serving contains a small `today.json`, one project profile and one static
-evidence record per Top 20 repository. Normal Today and project-detail requests
-verify only the Serving pointer, manifest, selected file hash and strict Schema;
-they do not repeat the full raw Artifact audit, call GitHub or invoke an LLM.
-The loader caches the verified DTO by pointer identity, emits an ETag, and
-invalidates safely when the pointer changes. Rebuild the projection from the
-already verified local generation without contacting Production:
+evidence record per Top 20 repository. Serving v4 separates a concise Chinese
+project identity, an evidence-backed core value, at most two key
+differentiators, the complete capability list, and semantic quality state.
+Images, badges, bare URLs, redirect notices, install-only text and placeholders
+are rejected before a profile can be marked ready. A machine-readable content
+audit checks all Top 20 profiles after a rebuild.
+
+Normal Today and project-detail requests verify only the Serving pointer,
+manifest, selected file hash and strict Schema; they do not repeat the full raw
+Artifact audit, call GitHub or invoke an LLM. The loader caches the verified DTO
+by pointer identity, emits an ETag, and invalidates safely when the pointer
+changes. Rebuild and audit the projection from the already verified local
+generation without contacting Production:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 rebuild-serving
+Push-Location .\backend
+python -m scripts.audit_rardar_serving_content --target "$env:LOCALAPPDATA\TopicEye\rardar-intelligence"
+Pop-Location
 ```
 
 Today links each repository to
 `/project/github/<githubRepositoryId>?generation=<generationId>`. The numeric
 GitHub repository ID is authoritative and the generation query binds the
 official profile, static evidence and 24-hour facts to the same immutable
-snapshot. AI deep insight is an explicit action on that detail page and uses the
-saved evidence; the Find Project action safely pre-fills the canonical public
+snapshot. Today prioritizes project identity and core value before two concise
+adoption signals. The detail page presents identity, core value, capabilities
+and the Rardar adoption decision before start-here links and 24-hour facts;
+official excerpts and generation provenance remain closed until requested. AI
+deep insight is an explicit action on that detail page and uses the saved
+evidence; the single Find Project action safely pre-fills the canonical public
 GitHub URL.
 
 `start` starts the existing PostgreSQL cluster when needed, then the backend

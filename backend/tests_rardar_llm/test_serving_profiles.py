@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 
 import httpx
@@ -10,11 +11,16 @@ from app.integrations.rardar.adapter import RardarIntelligenceAdapter
 from app.integrations.rardar.serving_profiles import (
     EvidenceClaim,
     ProfileTranslation,
+    ProfileTranslationError,
+    _bounded_translation_evidence,
     _github_file_url,
     _parse_readme,
     _preferred_chinese_readme,
+    _readme_redirect_target,
+    _safe_fallback_identity,
     _source_language,
     _structure_capability,
+    _validate_translation,
     build_official_profiles,
     collect_official_project_profile,
 )
@@ -91,6 +97,139 @@ Thanks to a commercial sponsor.
     ]
     assert all("Sponsor" not in section.heading for section in sections)
     assert _source_language(markdown, None) == "en"
+
+
+def test_content_sanitizer_rejects_media_urls_redirects_commands_and_placeholders() -> None:
+    markdown = """
+# Safe Toolkit
+<p align="center"><img src="https://example.test/logo.png" height="200"></p>
+https://github.com/user-attachments/assets/deadbeef
+This README moved to [the new README](docs/README.zh-CN.md).
+npm install unsafe-noise
+
+一个用于验证官方项目内容质量的开发工具，保留真实用途而不展示导航噪声。
+
+## 功能
+- 能力说明 1
+- 功能说明 2
+- 生成带证据引用的中文项目档案。
+"""
+
+    sections = _parse_readme(markdown, "README.md")
+    rendered = " ".join(
+        [
+            *(excerpt for section in sections for excerpt in section.excerpts),
+            *(item for section in sections for item in section.listItems),
+        ]
+    )
+
+    assert "项目内容质量" in rendered
+    assert "证据引用" in rendered
+    assert "user-attachments" not in rendered
+    assert "img src" not in rendered
+    assert "npm install" not in rendered
+    assert "能力说明 1" not in rendered
+    assert "功能说明 2" not in rendered
+
+
+def test_content_sanitizer_keeps_meaningful_text_inside_html_containers() -> None:
+    markdown = """
+# Safe Toolkit
+<p><strong>Safe Toolkit</strong> 把公开仓库证据整理成可验证的中文项目档案。</p>
+<script>window.evil = true</script>
+
+## 功能
+- <strong>证据绑定</strong>：每个结论都回指真实来源。
+"""
+
+    sections = _parse_readme(markdown, "README.md")
+    rendered = " ".join(
+        [
+            *(excerpt for section in sections for excerpt in section.excerpts),
+            *(item for section in sections for item in section.listItems),
+        ]
+    )
+
+    assert "可验证的中文项目档案" in rendered
+    assert "每个结论都回指真实来源" in rendered
+    assert "window.evil" not in rendered
+
+
+def test_readme_redirect_target_is_same_repository_and_path_safe() -> None:
+    assert (
+        _readme_redirect_target(
+            "This README moved to [the maintained README](docs/README.zh-CN.md).",
+            "README.md",
+        )
+        == "docs/README.zh-CN.md"
+    )
+    assert _readme_redirect_target("README moved to https://outside.test/README.md", "README.md") is None
+    assert _readme_redirect_target("README moved to [unsafe](../README.md)", "docs/README.md") is None
+
+
+def test_long_english_fallback_never_becomes_a_long_visible_summary() -> None:
+    source = (
+        "This project contains a very long navigation-heavy English description intended only to verify "
+        "that a failed translation cannot leak a paragraph-sized block of source prose into the Chinese "
+        "Today card or project detail page, even when all network and model fallbacks are active."
+    )
+
+    summary, issues = _safe_fallback_identity(source)
+
+    assert summary == "官方资料暂不足，当前仅展示可验证的仓库与 Star 事实。"
+    assert issues == ["identity_source_rejected"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "Run the following command to install the Codex CLI for your terminal.",
+        "You can brew install herdr, or npm install herdr and then run it.",
+        "PowerShell: irm https://example.invalid/install.ps1 | iex",
+    ],
+)
+def test_summary_sanitizer_rejects_install_instructions(value: str) -> None:
+    summary, issues = _safe_fallback_identity(value)
+
+    assert summary == "官方资料暂不足，当前仅展示可验证的仓库与 Star 事实。"
+    assert issues == ["identity_source_rejected"]
+
+
+def test_translation_evidence_is_bounded_without_inventing_or_renaming_refs() -> None:
+    evidence = {
+        "repository": "官方 GitHub 仓库身份",
+        "description": "A bounded translation fixture",
+        **{
+            f"readme:section:{section}:item:{item}": f"README evidence {section}-{item} " + ("x" * 180)
+            for section in range(1, 13)
+            for item in range(1, 9)
+        },
+        **{f"readme:section:{section}": f"README section {section} " + ("y" * 500) for section in range(1, 13)},
+    }
+
+    bounded = _bounded_translation_evidence(evidence)
+
+    assert bounded["repository"] == evidence["repository"]
+    assert bounded["description"] == evidence["description"]
+    assert set(bounded).issubset(evidence)
+    assert len(bounded) <= 16
+    assert sum(len(key) + len(value) for key, value in bounded.items()) <= 1800
+    assert any(key.endswith(":item:1") for key in bounded)
+
+
+def test_translation_evidence_orders_readme_sections_numerically_and_bounds_each_excerpt() -> None:
+    evidence = {
+        "repository": "官方 GitHub 仓库身份",
+        "description": "A project description",
+        "readme:section:1": "Overview " + ("a" * 700),
+        "readme:section:2": "Capabilities " + ("b" * 700),
+        "readme:section:10": "Late adapter notes " + ("c" * 700),
+    }
+
+    bounded = _bounded_translation_evidence(evidence)
+
+    assert list(bounded).index("readme:section:2") < list(bounded).index("readme:section:10")
+    assert all(len(value) <= 480 for value in bounded.values())
 
 
 def test_chinese_readme_selection_is_deterministic() -> None:
@@ -180,6 +319,10 @@ An official developer automation toolkit.
         )
 
     assert first.profile.sourceLabel == "官方 README（译）"
+    assert first.profile.qualityState == "ready"
+    assert first.profile.qualityIssues == []
+    assert first.profile.coreValueZh is not None
+    assert first.profile.coreValueEvidenceRefs
     assert first.profile.capabilityBulletsZh == ["生成有证据支撑的项目报告。", "导出独立 HTML 交付物。"]
     assert [item.title for item in first.profile.capabilities] == ["证据项目报告", "独立 HTML 交付"]
     assert second.readme_cache_hit is True
@@ -188,6 +331,101 @@ An official developer automation toolkit.
     assert translation_calls == 1
     assert sum(request.url.path.endswith("/contents") for request in requests) == 1
     assert len(requests) == 3
+
+
+@pytest.mark.asyncio
+async def test_same_repository_readme_redirect_is_followed_and_cached_at_the_final_blob(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"description": None})
+    requested: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(request.url.path)
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README.md", "type": "file"}])
+        if request.url.path.endswith("/readme"):
+            return httpx.Response(
+                200,
+                json=_readme_payload(
+                    "# 旧入口\nThis README moved to [the maintained README](docs/README.zh-CN.md).",
+                    sha="1" * 40,
+                ),
+            )
+        if request.url.path.endswith("/contents/docs/README.zh-CN.md"):
+            return httpx.Response(
+                200,
+                json=_readme_payload(
+                    "# 项目简介\n这是一个提供可追溯项目画像和结构化能力说明的中文官方文档。\n"
+                    "## 功能\n- 生成带官方证据引用的项目档案。",
+                    path="docs/README.zh-CN.md",
+                    sha="2" * 40,
+                ),
+            )
+        raise AssertionError(request.url.path)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=False,
+        )
+
+    pointer = next((tmp_path / "readmes").rglob("current.json"))
+    assert collected.profile.readmePath == "docs/README.zh-CN.md"
+    assert collected.profile.readmeBlobSha == "2" * 40
+    assert collected.profile.sourceLabel == "官方中文 README"
+    assert json.loads(pointer.read_text(encoding="utf-8"))["sha"] == "2" * 40
+    assert requested[-1].endswith("/contents/docs/README.zh-CN.md")
+
+
+@pytest.mark.asyncio
+async def test_readme_redirect_following_is_bounded_to_two_hops(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"description": "安全的后备项目简介。"})
+    requested: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requested.append(request.url.path)
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README.md", "type": "file"}])
+        if request.url.path.endswith("/readme"):
+            return httpx.Response(
+                200,
+                json=_readme_payload("README moved to [next](docs/README.one.md).", sha="1" * 40),
+            )
+        if request.url.path.endswith("/contents/docs/README.one.md"):
+            return httpx.Response(
+                200,
+                json=_readme_payload(
+                    "README moved to [next](README.two.md).",
+                    path="docs/README.one.md",
+                    sha="2" * 40,
+                ),
+            )
+        if request.url.path.endswith("/contents/docs/README.two.md"):
+            return httpx.Response(
+                200,
+                json=_readme_payload(
+                    "README moved to [next](README.three.md).",
+                    path="docs/README.two.md",
+                    sha="3" * 40,
+                ),
+            )
+        if request.url.path.endswith("/contents/docs/README.three.md"):
+            raise AssertionError("redirect depth must be bounded")
+        raise AssertionError(request.url.path)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=False,
+        )
+
+    assert collected.profile.readmePath == "docs/README.two.md"
+    assert not any(path.endswith("README.three.md") for path in requested)
 
 
 @pytest.mark.asyncio
@@ -213,8 +451,72 @@ async def test_github_and_llm_failure_degrade_to_a_source_labeled_profile(tmp_pa
     assert collected.profile.profileState == "partial"
     assert collected.profile.sourceLabel == "GitHub Description"
     assert collected.profile.translationState == "unavailable"
-    assert collected.profile.officialSummaryZh.startswith("官方原文：")
+    assert collected.profile.officialSummaryZh.startswith("翻译待补全：")
+    assert collected.profile.qualityState == "partial"
     assert collected.evidence.evidenceIndex["description"] == project.description
+
+
+@pytest.mark.asyncio
+async def test_rejected_source_never_exposes_unsafe_semantic_claims(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"description": "https://github.com/user-attachments/assets/deadbeef"})
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+        )
+
+    assert collected.profile.qualityState == "rejected"
+    assert "identity_source_rejected" in collected.profile.qualityIssues
+    assert collected.profile.coreValueZh is None
+    assert collected.profile.keyDifferentiators == []
+    assert collected.profile.capabilities == []
+    assert "user-attachments" not in collected.profile.identitySummaryZh
+
+
+def test_translation_rejects_duplicate_or_unbound_core_value() -> None:
+    summary = EvidenceClaim(text="一个保留官方证据的项目画像工具。", evidenceRefs=["readme:section:1"])
+    capability = ServingCapability(
+        title="证据绑定",
+        detail="把每项能力绑定到可核验的官方章节。",
+        evidenceRefs=["readme:section:2"],
+    )
+    common = {
+        "summary": summary,
+        "keyDifferentiators": [capability],
+        "capabilities": [capability],
+        "productForms": [],
+        "supportedEnvironments": [],
+        "useCases": [],
+        "deliveryForms": [],
+    }
+
+    with pytest.raises(ProfileTranslationError, match="rardar_profile_translation_invalid"):
+        _validate_translation(
+            ProfileTranslation(coreValue=summary, **common),
+            {"readme:section:1", "readme:section:2"},
+        )
+    with pytest.raises(ProfileTranslationError, match="rardar_profile_translation_invalid"):
+        _validate_translation(
+            ProfileTranslation(
+                coreValue=EvidenceClaim(text="通过版本化证据降低采用判断的不确定性。", evidenceRefs=["invented"]),
+                **common,
+            ),
+            {"readme:section:1", "readme:section:2"},
+        )
+
+
+def test_profile_builder_contains_no_repository_specific_content_branch() -> None:
+    source = Path(__file__).parents[1] / "app" / "integrations" / "rardar" / "serving_profiles.py"
+    lowered = source.read_text(encoding="utf-8").casefold()
+    assert "tt-a1i" not in lowered
+    assert "archify" not in lowered
 
 
 @pytest.mark.asyncio
@@ -369,7 +671,11 @@ Open examples/ for complete outputs.
         )
 
     profile = collected.profile
-    assert profile.profileSchemaVersion == "rardar-project-profile-v3"
+    assert profile.profileSchemaVersion == "rardar-project-profile-v4"
+    assert profile.identitySummaryZh == profile.officialSummaryZh
+    assert profile.coreValueZh is not None
+    assert profile.coreValueEvidenceRefs
+    assert len(profile.keyDifferentiators) <= 2
     assert {"Agent Skill", "Node.js 渲染/校验工具"}.issubset(profile.productFormsZh)
     assert {"Raven", "Cursor", "Claude Code", "Codex CLI", "OpenCode", "浏览器"}.issubset(
         profile.supportedEnvironmentsZh

@@ -39,7 +39,7 @@ def real_profile_provider(*, translate_top: int, concurrency: int = 4) -> Profil
 def rebuild(
     target: Path,
     *,
-    translate_top: int = 10,
+    translate_top: int = 20,
     concurrency: int = 4,
     offline: bool = False,
 ) -> dict[str, object]:
@@ -79,7 +79,7 @@ def rebuild(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build a validated local Rardar serving projection")
     parser.add_argument("--target", type=Path, required=True)
-    parser.add_argument("--translate-top", type=int, default=10, choices=range(0, 21), metavar="0..20")
+    parser.add_argument("--translate-top", type=int, default=20, choices=range(0, 21), metavar="0..20")
     parser.add_argument("--concurrency", type=int, default=4, choices=range(1, 9), metavar="1..8")
     parser.add_argument("--offline", action="store_true", help="Use only audited Artifact facts; intended for fixtures")
     arguments = parser.parse_args()

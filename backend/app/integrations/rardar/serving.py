@@ -21,6 +21,7 @@ from app.integrations.rardar.schemas import ExactExplosionProject, ExplosionBoar
 from app.integrations.rardar.serving_profiles import (
     CollectedProjectProfile,
     ProfileBuildResult,
+    _safe_fallback_identity,
 )
 from app.integrations.rardar.serving_schemas import (
     OfficialProjectProfile,
@@ -119,17 +120,17 @@ def _fallback_profiles(
         generated_at = project.pushedAt or datetime(1970, 1, 1, tzinfo=UTC)
         description = project.description
         if description and re.search(r"[\u3400-\u9fff]", description):
-            summary = description
+            summary, fallback_issues = _safe_fallback_identity(description)
             source_label = "GitHub Description"
             source_language = "zh"
             translation_state = "not_needed"
         elif description:
-            summary = f"官方原文：{description}"
+            summary, fallback_issues = _safe_fallback_identity(description)
             source_label = "GitHub Description"
             source_language = "en"
             translation_state = "pending"
         else:
-            summary = "官方资料暂未提供可验证的项目简介。"
+            summary, fallback_issues = _safe_fallback_identity(None)
             source_label = "受限概括"
             source_language = None
             translation_state = "unavailable"
@@ -154,14 +155,20 @@ def _fallback_profiles(
         evidence = ProjectEvidenceProjection.model_validate(evidence_payload, strict=True)
         ref = "description" if description else "repository"
         profile = OfficialProjectProfile(
-            profileSchemaVersion="rardar-project-profile-v3",
-            promptVersion="rardar-project-profile-zh-v4",
+            profileSchemaVersion="rardar-project-profile-v4",
+            promptVersion="rardar-project-profile-zh-v6",
             githubRepositoryId=project.githubRepositoryId,
             repository=project.repository,
             htmlUrl=project.htmlUrl,
             generationId=generation_id,
             profileState="partial" if description else "source_unavailable",
             officialSummaryZh=summary,
+            identitySummaryZh=summary,
+            coreValueZh=None,
+            coreValueEvidenceRefs=[],
+            keyDifferentiators=[],
+            qualityState="rejected" if "identity_source_rejected" in fallback_issues else "partial",
+            qualityIssues=list(dict.fromkeys([*fallback_issues, "core_value_missing", "capabilities_missing"])),
             sourceLabel=source_label,
             sourceLanguage=source_language,
             capabilityBulletsZh=[],
@@ -209,6 +216,9 @@ def _summary(profiles: dict[int, CollectedProjectProfile]) -> ServingProfileSumm
         partial=states.count("partial"),
         sourceUnavailable=states.count("source_unavailable"),
         chineseSummaries=chinese,
+        qualityReady=sum(value.profile.qualityState == "ready" for value in profiles.values()),
+        qualityPartial=sum(value.profile.qualityState == "partial" for value in profiles.values()),
+        qualityRejected=sum(value.profile.qualityState == "rejected" for value in profiles.values()),
     )
 
 
@@ -268,12 +278,19 @@ def build_serving_projection(
                 "capabilityBulletsZh": profile.capabilityBulletsZh[:4],
                 "capabilities": profile.capabilities[:4],
                 "translationState": profile.translationState,
+                "identitySummaryZh": profile.identitySummaryZh,
+                "coreValueZh": profile.coreValueZh,
+                "coreValueEvidenceRefs": profile.coreValueEvidenceRefs,
+                "keyDifferentiators": profile.keyDifferentiators,
+                "productFormsZh": profile.productFormsZh[:3],
+                "qualityState": profile.qualityState,
+                "qualityIssues": profile.qualityIssues,
             },
             strict=True,
         )
         today_projects.append(today_project)
         record = ServingProjectRecord(
-            schemaVersion=3,
+            schemaVersion=4,
             generationId=generation_id,
             servingGenerationId=serving_generation_id,
             project=today_project,
@@ -285,7 +302,7 @@ def build_serving_projection(
         evidence_files[f"evidence/{project.githubRepositoryId}.json"] = _model_bytes(collected.evidence)
 
     today = ServingTodaySnapshot(
-        schemaVersion=3,
+        schemaVersion=4,
         state=board.state,
         reason=board.reason,
         generationId=generation_id,
@@ -325,7 +342,7 @@ def build_serving_projection(
         for identifier in sorted(expected_ids)
     }
     manifest = ServingManifest(
-        schemaVersion=3,
+        schemaVersion=4,
         state="ready",
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
@@ -340,7 +357,7 @@ def build_serving_projection(
     manifest_raw = _model_bytes(manifest)
     files["manifest.json"] = manifest_raw
     pointer = ServingPointer(
-        schemaVersion=3,
+        schemaVersion=4,
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
         manifestSha256=_sha(manifest_raw),
@@ -383,13 +400,20 @@ def _validate_project_binding(
     allowed_refs = set(evidence.evidenceIndex)
     claims = {
         record.profile.officialSummaryZh,
+        *(value for value in [record.profile.coreValueZh] if value is not None),
+        *(item.detail for item in record.profile.keyDifferentiators),
         *record.profile.capabilityBulletsZh,
         *record.profile.productFormsZh,
         *record.profile.supportedEnvironmentsZh,
         *record.profile.primaryUseCasesZh,
         *record.profile.deliveryFormsZh,
     }
-    capability_refs = {reference for capability in record.profile.capabilities for reference in capability.evidenceRefs}
+    capability_refs = {
+        reference
+        for capability in [*record.profile.capabilities, *record.profile.keyDifferentiators]
+        for reference in capability.evidenceRefs
+    }
+    core_refs = set(record.profile.coreValueEvidenceRefs)
     if any(not record.profile.claimEvidenceRefs.get(claim) for claim in claims):
         raise ServingProjectionError("rardar_serving_evidence_ref_invalid", "Serving profile claim is missing evidence")
     claim_refs = {reference for references in record.profile.claimEvidenceRefs.values() for reference in references}
@@ -398,6 +422,7 @@ def _validate_project_binding(
     if (
         not claim_refs.issubset(allowed_refs)
         or not capability_refs.issubset(allowed_refs)
+        or not core_refs.issubset(allowed_refs)
         or not section_refs.issubset(allowed_refs)
         or not link_refs.issubset(allowed_refs)
     ):

@@ -16,7 +16,7 @@ def main() -> int:
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--host", default="rardar-prod")
     parser.add_argument("--remote-root", default="/var/lib/rardar/data")
-    parser.add_argument("--translate-top", type=int, default=10, choices=range(0, 21), metavar="0..20")
+    parser.add_argument("--translate-top", type=int, default=20, choices=range(0, 21), metavar="0..20")
     arguments = parser.parse_args()
     try:
         result = sync_rardar_intelligence(

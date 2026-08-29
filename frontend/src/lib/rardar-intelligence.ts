@@ -102,6 +102,10 @@ function isFiniteInteger(value: unknown): value is number {
   return Number.isInteger(value) && Number.isFinite(value);
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
 export function parseExplosionBoard(value: unknown): ExplosionBoard {
   if (!isRecord(value)) throw new Error('rardar_response_invalid');
   const state = value.state;
@@ -153,6 +157,7 @@ export function parseExplosionBoard(value: unknown): ExplosionBoard {
 }
 
 export type ProfileState = 'complete' | 'partial' | 'source_unavailable';
+export type ProfileQualityState = 'ready' | 'partial' | 'rejected';
 export type ProfileSourceLabel = '官方中文 README' | '官方 README（译）' | 'GitHub Description' | '官方原文' | '受限概括';
 export type TranslationState = 'not_needed' | 'translated' | 'pending' | 'unavailable';
 
@@ -171,6 +176,13 @@ export interface TodayProject extends ExactExplosionProject {
   capabilityBulletsZh: string[];
   capabilities: ProjectCapability[];
   translationState: TranslationState;
+  identitySummaryZh: string;
+  coreValueZh: string | null;
+  coreValueEvidenceRefs: string[];
+  keyDifferentiators: ProjectCapability[];
+  productFormsZh: string[];
+  qualityState: ProfileQualityState;
+  qualityIssues: string[];
 }
 
 export interface ProfileSummary {
@@ -179,10 +191,13 @@ export interface ProfileSummary {
   partial: number;
   sourceUnavailable: number;
   chineseSummaries: number;
+  qualityReady?: number;
+  qualityPartial?: number;
+  qualityRejected?: number;
 }
 
 export interface TodaySnapshot extends Omit<ExplosionBoard, 'exactRanked' | 'state' | 'reason' | 'dataMode'> {
-  schemaVersion: 1 | 2 | 3;
+  schemaVersion: 1 | 2 | 3 | 4;
   state: 'ready' | 'warming_up' | 'baseline_missing' | 'not_ready';
   reason: 'explosion_artifact_not_published' | null;
   exactRanked: TodayProject[];
@@ -213,13 +228,13 @@ export interface StartHereLink {
 }
 
 export interface ProjectDetail {
-  schemaVersion: 1 | 2 | 3;
+  schemaVersion: 1 | 2 | 3 | 4;
   generationId: string;
   servingGenerationId: string;
   project: TodayProject;
   profile: {
-    profileSchemaVersion: 'rardar-project-profile-v1' | 'rardar-project-profile-v2' | 'rardar-project-profile-v3';
-    promptVersion: 'rardar-project-profile-zh-v1' | 'rardar-project-profile-zh-v2' | 'rardar-project-profile-zh-v3' | 'rardar-project-profile-zh-v4';
+    profileSchemaVersion: 'rardar-project-profile-v1' | 'rardar-project-profile-v2' | 'rardar-project-profile-v3' | 'rardar-project-profile-v4';
+    promptVersion: 'rardar-project-profile-zh-v1' | 'rardar-project-profile-zh-v2' | 'rardar-project-profile-zh-v3' | 'rardar-project-profile-zh-v4' | 'rardar-project-profile-zh-v5' | 'rardar-project-profile-zh-v6';
     githubRepositoryId: number;
     repository: string;
     htmlUrl: string;
@@ -243,6 +258,12 @@ export interface ProjectDetail {
     evidenceDigest: string;
     generatedAt: string;
     translationState: TranslationState;
+    identitySummaryZh: string;
+    coreValueZh: string | null;
+    coreValueEvidenceRefs: string[];
+    keyDifferentiators: ProjectCapability[];
+    qualityState: ProfileQualityState;
+    qualityIssues: string[];
   };
   coverage: ExplosionCoverage | null;
   conflictCount: number;
@@ -298,10 +319,18 @@ export async function loadExplosionBoard(
 
 export function parseTodaySnapshot(value: unknown): TodaySnapshot {
   const board = parseExplosionBoard(value);
-  if (!isRecord(value) || ![1, 2, 3].includes(Number(value.schemaVersion)) || typeof value.servingGenerationId !== 'string') {
+  if (!isRecord(value) || ![1, 2, 3, 4].includes(Number(value.schemaVersion)) || typeof value.servingGenerationId !== 'string') {
     throw new Error('rardar_response_invalid');
   }
-  if (!isRecord(value.profileSummary) || !isFiniteInteger(value.profileSummary.total)) {
+  if (
+    !isRecord(value.profileSummary)
+    || !isFiniteInteger(value.profileSummary.total)
+    || (Number(value.schemaVersion) === 4 && (
+      !isFiniteInteger(value.profileSummary.qualityReady)
+      || !isFiniteInteger(value.profileSummary.qualityPartial)
+      || !isFiniteInteger(value.profileSummary.qualityRejected)
+    ))
+  ) {
     throw new Error('rardar_response_invalid');
   }
   for (const item of value.exactRanked as unknown[]) {
@@ -311,8 +340,25 @@ export function parseTodaySnapshot(value: unknown): TodaySnapshot {
       || typeof item.officialSummaryZh !== 'string'
       || item.officialSummaryZh.length === 0
       || !Array.isArray(item.capabilityBulletsZh)
-      || (Number(value.schemaVersion) === 3 && !Array.isArray(item.capabilities))
+      || (Number(value.schemaVersion) >= 3 && !Array.isArray(item.capabilities))
       || (Array.isArray(item.capabilities) && !item.capabilities.every(isProjectCapability))
+      || (Number(value.schemaVersion) === 4 && (
+        !isStringArray(item.productFormsZh)
+        || !isValidV4ProfileProjection(item)
+      ))
+    ) {
+      throw new Error('rardar_response_invalid');
+    }
+  }
+  if (Number(value.schemaVersion) === 4) {
+    const profiles = value.exactRanked as Array<Record<string, unknown>>;
+    const qualityReady = profiles.filter((item) => item.qualityState === 'ready').length;
+    const qualityPartial = profiles.filter((item) => item.qualityState === 'partial').length;
+    const qualityRejected = profiles.filter((item) => item.qualityState === 'rejected').length;
+    if (
+      value.profileSummary.qualityReady !== qualityReady
+      || value.profileSummary.qualityPartial !== qualityPartial
+      || value.profileSummary.qualityRejected !== qualityRejected
     ) {
       throw new Error('rardar_response_invalid');
     }
@@ -320,6 +366,15 @@ export function parseTodaySnapshot(value: unknown): TodaySnapshot {
   const exactRanked = (value.exactRanked as Array<Record<string, unknown>>).map((item) => ({
     ...item,
     capabilities: Array.isArray(item.capabilities) ? item.capabilities : [],
+    identitySummaryZh: typeof item.identitySummaryZh === 'string' ? item.identitySummaryZh : item.officialSummaryZh,
+    coreValueZh: typeof item.coreValueZh === 'string' ? item.coreValueZh : null,
+    coreValueEvidenceRefs: Array.isArray(item.coreValueEvidenceRefs) ? item.coreValueEvidenceRefs : [],
+    keyDifferentiators: Array.isArray(item.keyDifferentiators) ? item.keyDifferentiators : [],
+    productFormsZh: Array.isArray(item.productFormsZh) ? item.productFormsZh : [],
+    qualityState: ['ready', 'partial', 'rejected'].includes(String(item.qualityState))
+      ? item.qualityState
+      : 'partial',
+    qualityIssues: Array.isArray(item.qualityIssues) ? item.qualityIssues : [],
   }));
   return { ...board, ...value, exactRanked } as unknown as TodaySnapshot;
 }
@@ -333,6 +388,41 @@ function isProjectCapability(value: unknown): value is ProjectCapability {
     && (value.shortDetail === null || typeof value.shortDetail === 'string')
     && Array.isArray(value.evidenceRefs)
     && value.evidenceRefs.every((reference) => typeof reference === 'string');
+}
+
+function isValidV4ProfileProjection(value: Record<string, unknown>): boolean {
+  if (
+    typeof value.identitySummaryZh !== 'string'
+    || value.identitySummaryZh.length === 0
+    || value.identitySummaryZh !== value.officialSummaryZh
+    || !(value.coreValueZh === null || typeof value.coreValueZh === 'string')
+    || !['ready', 'partial', 'rejected'].includes(String(value.qualityState))
+    || !isStringArray(value.qualityIssues)
+    || new Set(value.qualityIssues).size !== value.qualityIssues.length
+    || value.qualityIssues.some((issue) => issue.length === 0 || issue.length > 80)
+    || !isStringArray(value.coreValueEvidenceRefs)
+    || !Array.isArray(value.keyDifferentiators)
+    || !value.keyDifferentiators.every(isProjectCapability)
+  ) {
+    return false;
+  }
+  if (value.coreValueZh !== null && value.coreValueEvidenceRefs.length === 0) return false;
+  if (value.qualityState === 'ready') {
+    return typeof value.coreValueZh === 'string'
+      && value.coreValueEvidenceRefs.length > 0
+      && value.keyDifferentiators.length > 0
+      && Array.isArray(value.capabilities)
+      && value.capabilities.length > 0
+      && value.qualityIssues.length === 0;
+  }
+  if (value.qualityState === 'rejected') {
+    return value.coreValueZh === null
+      && value.keyDifferentiators.length === 0
+      && Array.isArray(value.capabilities)
+      && value.capabilities.length === 0
+      && value.qualityIssues.length > 0;
+  }
+  return true;
 }
 
 export async function loadTodaySnapshot(
@@ -357,7 +447,7 @@ export async function loadTodaySnapshot(
 }
 
 export function parseProjectDetail(value: unknown): ProjectDetail {
-  if (!isRecord(value) || ![1, 2, 3].includes(Number(value.schemaVersion)) || !isRecord(value.project) || !isRecord(value.profile) || !isRecord(value.evidence)) {
+  if (!isRecord(value) || ![1, 2, 3, 4].includes(Number(value.schemaVersion)) || !isRecord(value.project) || !isRecord(value.profile) || !isRecord(value.evidence)) {
     throw new Error('rardar_project_response_invalid');
   }
   const identifier = value.project.githubRepositoryId;
@@ -369,13 +459,34 @@ export function parseProjectDetail(value: unknown): ProjectDetail {
     || typeof value.generationId !== 'string'
     || value.profile.generationId !== value.generationId
     || value.evidence.generationId !== value.generationId
+    || typeof value.project.officialSummaryZh !== 'string'
+    || (Number(value.schemaVersion) >= 3 && !Array.isArray(value.project.capabilities))
+    || (Array.isArray(value.project.capabilities) && !value.project.capabilities.every(isProjectCapability))
     || typeof value.profile.officialSummaryZh !== 'string'
     || !Array.isArray(value.profile.capabilityBulletsZh)
-    || (Number(value.schemaVersion) === 3 && !Array.isArray(value.profile.capabilities))
+    || (Number(value.schemaVersion) >= 3 && !Array.isArray(value.profile.capabilities))
     || (Array.isArray(value.profile.capabilities) && !value.profile.capabilities.every(isProjectCapability))
     || !Array.isArray(value.profile.selectedSections)
     || !Array.isArray(value.profile.startHere)
+    || (Number(value.schemaVersion) === 4 && (
+      !isStringArray(value.project.productFormsZh)
+      || !isValidV4ProfileProjection(value.project)
+    ))
+    || (Number(value.schemaVersion) === 4 && !isValidV4ProfileProjection(value.profile))
   ) {
+    throw new Error('rardar_project_response_invalid');
+  }
+  if (Number(value.schemaVersion) === 4 && (
+    value.project.officialSummaryZh !== value.profile.officialSummaryZh
+    || value.project.identitySummaryZh !== value.profile.identitySummaryZh
+    || value.project.coreValueZh !== value.profile.coreValueZh
+    || JSON.stringify(value.project.coreValueEvidenceRefs) !== JSON.stringify(value.profile.coreValueEvidenceRefs)
+    || JSON.stringify(value.project.keyDifferentiators) !== JSON.stringify(value.profile.keyDifferentiators)
+    || JSON.stringify(value.project.capabilities) !== JSON.stringify((value.profile.capabilities as unknown[]).slice(0, 4))
+    || JSON.stringify(value.project.productFormsZh) !== JSON.stringify((value.profile.productFormsZh as unknown[]).slice(0, 3))
+    || value.project.qualityState !== value.profile.qualityState
+    || JSON.stringify(value.project.qualityIssues) !== JSON.stringify(value.profile.qualityIssues)
+  )) {
     throw new Error('rardar_project_response_invalid');
   }
   const normalizedProfile = {
@@ -385,6 +496,20 @@ export function parseProjectDetail(value: unknown): ProjectDetail {
       ? value.profile.supportedEnvironmentsZh
       : [],
     capabilities: Array.isArray(value.profile.capabilities) ? value.profile.capabilities : [],
+    identitySummaryZh: typeof value.profile.identitySummaryZh === 'string'
+      ? value.profile.identitySummaryZh
+      : value.profile.officialSummaryZh,
+    coreValueZh: typeof value.profile.coreValueZh === 'string' ? value.profile.coreValueZh : null,
+    coreValueEvidenceRefs: Array.isArray(value.profile.coreValueEvidenceRefs)
+      ? value.profile.coreValueEvidenceRefs
+      : [],
+    keyDifferentiators: Array.isArray(value.profile.keyDifferentiators)
+      ? value.profile.keyDifferentiators
+      : [],
+    qualityState: ['ready', 'partial', 'rejected'].includes(String(value.profile.qualityState))
+      ? value.profile.qualityState
+      : 'partial',
+    qualityIssues: Array.isArray(value.profile.qualityIssues) ? value.profile.qualityIssues : [],
   };
   return {
     ...value,

@@ -10,9 +10,12 @@ import {
 } from '@/lib/rardar-intelligence';
 
 const readyPayload = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   servingGenerationId: 'fixture-explosion-a--serving',
-  profileSummary: { total: 2, complete: 2, partial: 0, sourceUnavailable: 0, chineseSummaries: 2 },
+  profileSummary: {
+    total: 2, complete: 2, partial: 0, sourceUnavailable: 0, chineseSummaries: 2,
+    qualityReady: 2, qualityPartial: 0, qualityRejected: 0,
+  },
   state: 'ready',
   reason: null,
   generationId: 'fixture-explosion-a',
@@ -57,6 +60,18 @@ const readyPayload = {
       state: 'exact_window',
       profileState: 'complete',
       officialSummaryZh: '一个经过官方资料约束的开源开发工具。',
+      identitySummaryZh: '一个经过官方资料约束的开源开发工具。',
+      coreValueZh: '把可组合开发能力与官方证据绑定，便于判断能否直接复用。',
+      coreValueEvidenceRefs: ['readme:section:1'],
+      keyDifferentiators: [{
+        title: '证据约束',
+        detail: '每项关键能力都保留官方资料引用。',
+        shortDetail: '关键能力保留官方引用。',
+        evidenceRefs: ['readme:section:1'],
+      }],
+      productFormsZh: ['开发组件'],
+      qualityState: 'ready',
+      qualityIssues: [],
       sourceLabel: '官方 README（译）',
       sourceLanguage: 'en',
       capabilityBulletsZh: ['提供可组合的开发能力'],
@@ -90,6 +105,18 @@ const readyPayload = {
       state: 'exact_window',
       profileState: 'complete',
       officialSummaryZh: '一个用于开发者工作流的开源项目。',
+      identitySummaryZh: '一个用于开发者工作流的开源项目。',
+      coreValueZh: '把重复任务组织成可复用的开发工作流。',
+      coreValueEvidenceRefs: ['readme:section:2'],
+      keyDifferentiators: [{
+        title: '工作流自动化',
+        detail: '把重复开发任务组织成可复用流程。',
+        shortDetail: null,
+        evidenceRefs: ['readme:section:2'],
+      }],
+      productFormsZh: ['工作流工具'],
+      qualityState: 'ready',
+      qualityIssues: [],
       sourceLabel: '官方 README（译）',
       sourceLanguage: 'en',
       capabilityBulletsZh: ['支持开发者自动化'],
@@ -207,8 +234,8 @@ describe('Rardar intelligence client contract', () => {
   });
 
   it('rejects malformed Serving profile metadata', () => {
-    expect(parseTodaySnapshot({ ...readyPayload, schemaVersion: 3 }).schemaVersion).toBe(3);
-    expect(() => parseTodaySnapshot({ ...readyPayload, schemaVersion: 4 })).toThrow('rardar_response_invalid');
+    expect(parseTodaySnapshot({ ...readyPayload, schemaVersion: 4 }).schemaVersion).toBe(4);
+    expect(() => parseTodaySnapshot({ ...readyPayload, schemaVersion: 5 })).toThrow('rardar_response_invalid');
     expect(() => parseTodaySnapshot({ ...readyPayload, profileSummary: null })).toThrow('rardar_response_invalid');
     expect(() => parseTodaySnapshot({
       ...readyPayload,
@@ -218,9 +245,17 @@ describe('Rardar intelligence client contract', () => {
       ...readyPayload,
       exactRanked: [{ ...readyPayload.exactRanked[0], capabilityBulletsZh: 'invented' }],
     })).toThrow('rardar_response_invalid');
+    expect(() => parseTodaySnapshot({
+      ...readyPayload,
+      exactRanked: [{ ...readyPayload.exactRanked[0], keyDifferentiators: 'invented' }],
+    })).toThrow('rardar_response_invalid');
+    expect(() => parseTodaySnapshot({
+      ...readyPayload,
+      exactRanked: [{ ...readyPayload.exactRanked[0], coreValueEvidenceRefs: [7] }],
+    })).toThrow('rardar_response_invalid');
   });
 
-  it('shows complete capability units without ellipsis and bounds Today density by rank', () => {
+  it('shows one core-value block and at most two complete differentiators without equal-weight boxes', () => {
     const completeDetail = '将完整的官方能力说明连同证据保留下来，避免为了卡片高度截成无法理解的半句话。';
     const exactRanked = [{
       ...readyPayload.exactRanked[0],
@@ -231,6 +266,12 @@ describe('Rardar intelligence client contract', () => {
         { title: '第三项能力', detail: '第三项完整能力保留可追溯来源。', shortDetail: null, evidenceRefs: ['readme:section:3'] },
         { title: '第四项能力', detail: '第四项不应显示在前三名的卡片中。', shortDetail: null, evidenceRefs: ['readme:section:4'] },
       ],
+      coreValueZh: '把完整能力说明与官方证据绑定，避免卡片只剩宣传摘要。',
+      coreValueEvidenceRefs: ['readme:section:1'],
+      keyDifferentiators: [
+        { title: '完整能力说明', detail: completeDetail, shortDetail: null, evidenceRefs: ['readme:section:1'] },
+        { title: '第二项能力', detail: '第二项完整能力提供可验证的工程交付。', shortDetail: null, evidenceRefs: ['readme:section:2'] },
+      ],
     }];
     const html = renderToStaticMarkup(
       <TodayFoundation result={{
@@ -238,14 +279,20 @@ describe('Rardar intelligence client contract', () => {
         board: parseTodaySnapshot({
           ...readyPayload,
           exactRanked,
-          profileSummary: { ...readyPayload.profileSummary, total: 1, complete: 1, chineseSummaries: 1 },
+          profileSummary: {
+            ...readyPayload.profileSummary,
+            total: 1,
+            complete: 1,
+            chineseSummaries: 1,
+            qualityReady: 1,
+          },
         }),
       }} />,
     );
 
     expect(html).toContain(completeDetail);
     expect(html).toContain('第二项完整能力提供可验证的工程交付。');
-    expect(html).toContain('第三项完整能力保留可追溯来源。');
+    expect(html).not.toContain('第三项完整能力保留可追溯来源。');
     expect(html).not.toContain('第四项不应显示');
     expect(html).not.toContain('…');
     expect(html).toContain('/project/github/1?generation=fixture-explosion-a');
@@ -253,18 +300,26 @@ describe('Rardar intelligence client contract', () => {
     expect(html).not.toContain('用这个仓库评估我的需求');
   });
 
-  it('keeps Serving v1 and v2 snapshots readable without inventing structured capabilities', () => {
-    for (const schemaVersion of [1, 2]) {
+  it('keeps Serving v1, v2, and v3 snapshots readable without inventing v4 semantic fields', () => {
+    const v4Fields = new Set([
+      'identitySummaryZh', 'coreValueZh', 'coreValueEvidenceRefs', 'keyDifferentiators',
+      'productFormsZh', 'qualityState', 'qualityIssues',
+    ]);
+    for (const schemaVersion of [1, 2, 3]) {
       const legacy = {
         ...readyPayload,
         schemaVersion,
         exactRanked: readyPayload.exactRanked.map((project) => Object.fromEntries(
-          Object.entries(project).filter(([key]) => key !== 'capabilities'),
+          Object.entries(project).filter(([key]) => !v4Fields.has(key) && (schemaVersion >= 3 || key !== 'capabilities')),
         )),
       };
       const parsed = parseTodaySnapshot(legacy);
       expect(parsed.schemaVersion).toBe(schemaVersion);
-      expect(parsed.exactRanked.every((project) => project.capabilities.length === 0)).toBe(true);
+      expect(parsed.exactRanked.every((project) => project.coreValueZh === null)).toBe(true);
+      expect(parsed.exactRanked.every((project) => project.qualityState === 'partial')).toBe(true);
+      if (schemaVersion < 3) {
+        expect(parsed.exactRanked.every((project) => project.capabilities.length === 0)).toBe(true);
+      }
     }
   });
 
@@ -281,6 +336,46 @@ describe('Rardar intelligence client contract', () => {
     expect(html).toContain('查看项目详情');
     expect(html).not.toContain('生成 AI 深度解读');
     expect(html).not.toContain('爆发原因：');
+  });
+
+  it('isolates a rejected profile and preserves only verified repository and Star facts', () => {
+    const unsafe = 'https://github.com/user-attachments/assets/deadbeef';
+    const rejected = {
+      ...readyPayload.exactRanked[0],
+      officialSummaryZh: '官方资料暂不足，当前仅展示可验证的仓库与 Star 事实。',
+      identitySummaryZh: '官方资料暂不足，当前仅展示可验证的仓库与 Star 事实。',
+      coreValueZh: null,
+      coreValueEvidenceRefs: [],
+      keyDifferentiators: [],
+      capabilities: [],
+      capabilityBulletsZh: [],
+      productFormsZh: [],
+      qualityState: 'rejected',
+      qualityIssues: ['identity_source_rejected'],
+      description: unsafe,
+    };
+    const html = renderToStaticMarkup(
+      <TodayFoundation result={{
+        kind: 'published',
+        board: parseTodaySnapshot({
+          ...readyPayload,
+          exactRanked: [rejected],
+          profileSummary: {
+            ...readyPayload.profileSummary,
+            total: 1,
+            complete: 1,
+            chineseSummaries: 1,
+            qualityReady: 0,
+            qualityRejected: 1,
+          },
+        }),
+      }} />,
+    );
+
+    expect(html).toContain('档案内容正在重新整理');
+    expect(html).toContain('+200');
+    expect(html).not.toContain(unsafe);
+    expect(html).not.toContain('核心价值</span>');
   });
 
   it('renders Discover from pending only without 24h extrapolation', () => {
@@ -307,7 +402,7 @@ describe('Rardar intelligence client contract', () => {
       observedStarDelta: 1000 - index,
     }));
     const html = renderToStaticMarkup(
-      <TodayFoundation result={{ kind: 'published', board: parseTodaySnapshot({ ...readyPayload, exactRanked, profileSummary: { ...readyPayload.profileSummary, total: 20, chineseSummaries: 20, complete: 20 } }) }} />,
+      <TodayFoundation result={{ kind: 'published', board: parseTodaySnapshot({ ...readyPayload, exactRanked, profileSummary: { ...readyPayload.profileSummary, total: 20, chineseSummaries: 20, complete: 20, qualityReady: 20 } }) }} />,
     );
     expect(html).toContain('GitHub 精确 24 小时爆发榜 Top 10');
     expect(html).toContain('查看 Top 20');
@@ -323,7 +418,10 @@ describe('Rardar intelligence client contract', () => {
         kind: 'published',
         board: parseTodaySnapshot({
           ...readyPayload,
-          profileSummary: { total: 0, complete: 0, partial: 0, sourceUnavailable: 0, chineseSummaries: 0 },
+          profileSummary: {
+            total: 0, complete: 0, partial: 0, sourceUnavailable: 0, chineseSummaries: 0,
+            qualityReady: 0, qualityPartial: 0, qualityRejected: 0,
+          },
           state: 'warming_up',
           window: { ...readyPayload.window, state: 'warming_up' },
           exactRanked: [],
@@ -336,7 +434,10 @@ describe('Rardar intelligence client contract', () => {
         kind: 'published',
         board: parseTodaySnapshot({
           ...readyPayload,
-          profileSummary: { total: 0, complete: 0, partial: 0, sourceUnavailable: 0, chineseSummaries: 0 },
+          profileSummary: {
+            total: 0, complete: 0, partial: 0, sourceUnavailable: 0, chineseSummaries: 0,
+            qualityReady: 0, qualityPartial: 0, qualityRejected: 0,
+          },
           state: 'baseline_missing',
           window: { ...readyPayload.window, state: 'baseline_missing' },
           exactRanked: [],

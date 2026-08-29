@@ -23,7 +23,7 @@ if (Get-NetTCPConnection -LocalPort $FrontendPort, $BackendPort -State Listen -E
 }
 
 New-Item -ItemType Directory -Path $RuntimeRoot | Out-Null
-[IO.File]::WriteAllText($ModeFile, "ready`n", [Text.UTF8Encoding]::new($false))
+[IO.File]::WriteAllText($ModeFile, "top20`n", [Text.UTF8Encoding]::new($false))
 New-Item -ItemType Directory -Path $MirrorRoot | Out-Null
 Copy-Item -Path (Join-Path $BackendRoot "tests\fixtures\rardar_intelligence\revision-a\*") -Destination $MirrorRoot -Recurse
 
@@ -86,8 +86,16 @@ try {
         throw "The isolated Rardar E2E backend did not become ready. Logs: $RuntimeRoot"
     }
 
+    Push-Location $FrontendRoot
+    try {
+        & $Node "node_modules/next/dist/bin/next" build
+        if ($LASTEXITCODE -ne 0) { throw "Could not build the isolated production frontend." }
+    } finally {
+        Pop-Location
+    }
+
     $frontend = Start-Process -FilePath $Node `
-        -ArgumentList @("node_modules/next/dist/bin/next", "dev", "--webpack", "-H", "127.0.0.1", "-p", "$FrontendPort") `
+        -ArgumentList @("node_modules/next/dist/bin/next", "start", "-H", "127.0.0.1", "-p", "$FrontendPort") `
         -WorkingDirectory $FrontendRoot `
         -RedirectStandardOutput (Join-Path $RuntimeRoot "frontend.out.log") `
         -RedirectStandardError (Join-Path $RuntimeRoot "frontend.err.log") `

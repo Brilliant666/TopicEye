@@ -11,6 +11,7 @@ import pytest
 
 from app.integrations.rardar import serving as serving_module
 from app.integrations.rardar.adapter import RardarIntelligenceAdapter
+from app.integrations.rardar.content_quality import audit_serving_top20
 from app.integrations.rardar.serving import (
     ServingProjectionError,
     ServingProjectionLoader,
@@ -98,7 +99,9 @@ def test_raw_artifact_builds_small_bound_projection_in_original_order(tmp_path: 
         *(f"evidence/{item.githubRepositoryId}.json" for item in board.exactRanked[:20]),
     }
     assert etag.startswith('"') and etag.endswith('"')
-    assert today.schemaVersion == 3
+    assert today.schemaVersion == 4
+    assert all(project.identitySummaryZh == project.officialSummaryZh for project in today.exactRanked)
+    assert all(project.qualityState in {"ready", "partial", "rejected"} for project in today.exactRanked)
     assert all(isinstance(project.capabilities, list) for project in today.exactRanked)
     assert all(
         capability.detail in project.capabilityBulletsZh
@@ -107,7 +110,19 @@ def test_raw_artifact_builds_small_bound_projection_in_original_order(tmp_path: 
     )
 
 
-@pytest.mark.parametrize("schema_version", [1, 2])
+def test_content_quality_audit_reads_validated_serving_and_fails_incomplete_fixture(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    install_serving_projection(root, _build(root))
+
+    report = audit_serving_top20(root)
+
+    assert report["status"] == "FAIL"
+    assert 0 < report["summary"]["total"] < 20
+    assert report["sourceGenerationId"] == "fixture-explosion-a"
+    assert report["projects"][0]["repository"] == "fixture-lab/exact-1"
+
+
+@pytest.mark.parametrize("schema_version", [1, 2, 3])
 def test_legacy_serving_versions_remain_readable_without_structured_capabilities(
     tmp_path: Path,
     schema_version: int,
@@ -115,21 +130,38 @@ def test_legacy_serving_versions_remain_readable_without_structured_capabilities
     built = _build(_root(tmp_path))
     today = json.loads(built.files["today.json"])
     today["schemaVersion"] = schema_version
+    v4_project_fields = {
+        "identitySummaryZh",
+        "coreValueZh",
+        "coreValueEvidenceRefs",
+        "keyDifferentiators",
+        "productFormsZh",
+        "qualityState",
+        "qualityIssues",
+    }
     for project in today["exactRanked"]:
-        project.pop("capabilities", None)
+        for field in v4_project_fields:
+            project.pop(field, None)
+        if schema_version < 3:
+            project.pop("capabilities", None)
     parsed_today = ServingTodaySnapshot.model_validate_json(_canonical(today), strict=True)
 
     identifier = str(today["exactRanked"][0]["githubRepositoryId"])
     record = json.loads(built.files[f"projects/{identifier}.json"])
     record["schemaVersion"] = schema_version
-    record["project"].pop("capabilities", None)
-    record["profile"].pop("capabilities", None)
+    for field in v4_project_fields:
+        record["project"].pop(field, None)
+        record["profile"].pop(field, None)
+    if schema_version < 3:
+        record["project"].pop("capabilities", None)
+        record["profile"].pop("capabilities", None)
     record["profile"]["profileSchemaVersion"] = f"rardar-project-profile-v{schema_version}"
     record["profile"]["promptVersion"] = f"rardar-project-profile-zh-v{schema_version + 1}"
     parsed_record = ServingProjectRecord.model_validate_json(_canonical(record), strict=True)
 
-    assert parsed_today.exactRanked[0].capabilities == []
-    assert parsed_record.profile.capabilities == []
+    if schema_version < 3:
+        assert parsed_today.exactRanked[0].capabilities == []
+        assert parsed_record.profile.capabilities == []
 
 
 def test_project_etag_binds_both_profile_record_and_evidence(tmp_path: Path) -> None:
@@ -227,6 +259,31 @@ def test_schema_damage_is_rejected_before_install(tmp_path: Path) -> None:
         _validate_built_projection(pointer, files)
 
     assert caught.value.code == "rardar_serving_today_invalid"
+
+
+def test_v4_quality_summary_or_core_evidence_corruption_fails_closed(tmp_path: Path) -> None:
+    built = _build(_root(tmp_path))
+    today = json.loads(built.files["today.json"])
+    today["profileSummary"]["qualityPartial"] += 1
+    pointer, files = _rebundle(built, "today.json", today)
+
+    with pytest.raises(ServingProjectionError) as caught:
+        _validate_built_projection(pointer, files)
+    assert caught.value.code == "rardar_serving_today_invalid"
+
+    identifier = next(iter(json.loads(built.files["manifest.json"])["projects"]))
+    record = json.loads(built.files[f"projects/{identifier}.json"])
+    if record["profile"]["coreValueZh"] is None:
+        record["profile"]["coreValueZh"] = "这个受控测试值必须绑定到真实的官方证据。"
+        record["project"]["coreValueZh"] = record["profile"]["coreValueZh"]
+        record["profile"]["claimEvidenceRefs"][record["profile"]["coreValueZh"]] = ["repository"]
+    record["profile"]["coreValueEvidenceRefs"] = []
+    record["project"]["coreValueEvidenceRefs"] = []
+    pointer, files = _rebundle(built, f"projects/{identifier}.json", record)
+
+    with pytest.raises(ServingProjectionError) as caught:
+        _validate_built_projection(pointer, files)
+    assert caught.value.code == "rardar_serving_project_invalid"
 
 
 def test_repeated_capability_title_and_detail_is_rejected_before_install(tmp_path: Path) -> None:

@@ -302,20 +302,31 @@ def test_discover_sync_is_idempotent_and_does_not_touch_today_pointer(tmp_path: 
     today.parent.mkdir()
     today.write_bytes(b'{"today":"unchanged"}\n')
     before = today.read_bytes()
+    profile_provider_calls = 0
+
+    def profile_provider(projects, generation_id, cache_root):
+        nonlocal profile_provider_calls
+        profile_provider_calls += 1
+        if profile_provider_calls > 1:
+            raise AssertionError("an unchanged source generation must reuse its validated Serving projection")
+        return _complete_profiles(projects, generation_id, cache_root)
 
     first = sync_discover_intelligence(
         target=target,
         source_dir=source,
-        profile_provider=_complete_profiles,
+        profile_provider=profile_provider,
     )
     second = sync_discover_intelligence(
         target=target,
         source_dir=source,
-        profile_provider=_complete_profiles,
+        profile_provider=profile_provider,
     )
 
     assert first.changed is True
     assert second.changed is False
+    assert profile_provider_calls == 1
+    assert second.github_requests == 0
+    assert second.translation_calls == 0
     assert first.discover_generation_id == second.discover_generation_id
     assert today.read_bytes() == before
     assert not list(tmp_path.glob(".*discover-stage-*"))

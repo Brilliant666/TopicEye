@@ -7,6 +7,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -108,7 +109,7 @@ def test_raw_artifact_builds_small_bound_projection_in_original_order(tmp_path: 
         *(f"evidence/{item.githubRepositoryId}.json" for item in board.exactRanked[:20]),
     }
     assert etag.startswith('"') and etag.endswith('"')
-    assert today.schemaVersion == 6
+    assert today.schemaVersion == 7
     assert all(project.identitySummaryZh == project.officialSummaryZh for project in today.exactRanked)
     assert all(project.qualityState in {"ready", "partial", "rejected"} for project in today.exactRanked)
     assert all(isinstance(project.capabilities, list) for project in today.exactRanked)
@@ -139,7 +140,7 @@ def test_positioning_precision_audit_reads_only_validated_serving(tmp_path: Path
 
     assert report["status"] == "PASS"
     assert report["sourceGenerationId"] == "fixture-explosion-a"
-    assert report["servingSchemaVersion"] == 6
+    assert report["servingSchemaVersion"] == 7
     assert report["summary"]["total"] == len(report["projects"])
     assert report["summary"]["remainingIssues"] == 0
     assert all(project["qualityResult"] == "PASS" for project in report["projects"])
@@ -656,7 +657,7 @@ def test_unretained_source_is_a_revision_mismatch_not_current_corruption(tmp_pat
     assert caught.value.code == "rardar_serving_source_not_found"
 
 
-def _completeness_audit(built, *, count: int) -> dict[str, object]:
+def _complete_top20_candidate(built, *, count: int) -> ServingTodaySnapshot:
     today = ServingTodaySnapshot.model_validate_json(built.files["today.json"], strict=True)
     template = today.exactRanked[0]
     projects = [
@@ -675,17 +676,47 @@ def _completeness_audit(built, *, count: int) -> dict[str, object]:
                 "positioningEvidenceRefs": ["description"],
                 "positioningIncludedRoles": ["identity", "core_mechanism", "primary_outcome"],
                 "officialNarrativeMode": "rardar_derived",
+                "profileState": "partial",
                 "qualityState": "partial",
+                "capabilities": [
+                    ServingCapability(
+                        title="证据关联",
+                        detail="把项目判断绑定到当前仓库中可核验的原始证据。",
+                        evidenceRefs=["description"],
+                        sourceMode="rardar_derived",
+                    )
+                ],
+                "capabilityBulletsZh": ["把项目判断绑定到当前仓库中可核验的原始证据。"],
             }
         )
         for rank in range(1, count + 1)
     ]
-    candidate = today.model_copy(
+    return today.model_copy(
         update={
             "coverage": today.coverage.model_copy(update={"exactCount": 20}),
             "exactRanked": projects,
+            "profileSummary": today.profileSummary.model_copy(
+                update={
+                    "total": count,
+                    "complete": 0,
+                    "partial": count,
+                    "sourceUnavailable": 0,
+                    "chineseSummaries": count,
+                    "qualityReady": 0,
+                    "qualityPartial": count,
+                    "qualityRejected": 0,
+                    "officialZh": 0,
+                    "officialTranslated": 0,
+                    "rardarDerived": count,
+                    "insufficient": 0,
+                }
+            ),
         }
     )
+
+
+def _completeness_audit(built, *, count: int) -> dict[str, object]:
+    candidate = _complete_top20_candidate(built, count=count)
     return audit_candidate_publication(
         candidate,
         None,
@@ -705,7 +736,103 @@ def test_exact_top20_completeness_requires_twenty_publishable_positions(tmp_path
     assert complete["top20Total"] == 20
     assert complete["identityCompleteCount"] == 20
     assert complete["positioningCompleteCount"] == 20
+    assert complete["capabilityNonEmptyCount"] == 20
+    assert complete["missingCapabilitySourceCount"] == 0
     assert complete["activationAllowed"] is True
+
+
+def test_exact_top20_audit_uses_full_detail_capabilities_instead_of_today_slice(tmp_path: Path) -> None:
+    built = _build(_root(tmp_path))
+    candidate = _complete_top20_candidate(built, count=20)
+    profiles = SimpleNamespace(
+        profiles={
+            project.githubRepositoryId: SimpleNamespace(
+                profile=SimpleNamespace(
+                    capabilities=[
+                        project.capabilities[0],
+                        project.capabilities[0].model_copy(
+                            update={
+                                "title": "采用边界",
+                                "detail": "说明项目适用范围，帮助开发者判断是否适合当前需求。",
+                            }
+                        ),
+                    ]
+                ),
+                evidence=SimpleNamespace(evidenceIndex={"description": "fixture evidence"}),
+                generation_failures=(),
+                deterministic_fallback_used=False,
+                last_known_good_available=True,
+                last_known_good_reused=False,
+                current_evidence_fingerprint="a" * 64,
+                last_known_good_fingerprint="a" * 64,
+            )
+            for project in candidate.exactRanked
+        }
+    )
+
+    audit = audit_candidate_publication(
+        candidate,
+        profiles,
+        candidate_serving_id=built.serving_generation_id,
+    )
+
+    assert audit["capabilityItemTotal"] == 40
+    assert audit["singleCapabilityProjectCount"] == 0
+    assert all(item["capabilityCount"] == 2 for item in audit["profileDiagnostics"])
+    assert audit["activationAllowed"] is True
+
+
+@pytest.mark.parametrize(
+    ("mutation", "audit_field"),
+    [
+        ("empty", "capabilityNonEmptyCount"),
+        ("unsourced", "missingCapabilitySourceCount"),
+        ("placeholder", "capabilityPlaceholderCount"),
+        ("generic", "genericCapabilityTitleCount"),
+        ("operation", "operationDeploymentLeakageCount"),
+    ],
+)
+def test_exact_top20_capability_gate_fails_closed(
+    tmp_path: Path,
+    mutation: str,
+    audit_field: str,
+) -> None:
+    built = _build(_root(tmp_path))
+    candidate = _complete_top20_candidate(built, count=20)
+    project = candidate.exactRanked[4]
+    capability = project.capabilities[0]
+    if mutation == "empty":
+        replacement = []
+    elif mutation == "unsourced":
+        replacement = [capability.model_copy(update={"sourceMode": None})]
+    elif mutation == "placeholder":
+        replacement = [capability.model_copy(update={"title": "能力说明 1"})]
+    elif mutation == "generic":
+        replacement = [capability.model_copy(update={"title": "插件"})]
+    else:
+        replacement = [capability.model_copy(update={"detail": "运行 npm install 后部署本地服务。"})]
+    candidate = candidate.model_copy(
+        update={
+            "exactRanked": [
+                item.model_copy(update={"capabilities": replacement}) if index == 4 else item
+                for index, item in enumerate(candidate.exactRanked)
+            ]
+        }
+    )
+
+    audit = audit_candidate_publication(candidate, None, candidate_serving_id=built.serving_generation_id)
+
+    assert audit["activationAllowed"] is False
+    assert audit[audit_field] != (20 if audit_field == "capabilityNonEmptyCount" else 0)
+
+
+def test_serving_v7_serialized_top20_rejects_missing_capability_source(tmp_path: Path) -> None:
+    candidate = _complete_top20_candidate(_build(_root(tmp_path)), count=20)
+    payload = json.loads(candidate.model_dump_json())
+    del payload["exactRanked"][7]["capabilities"][0]["sourceMode"]
+
+    with pytest.raises(ValueError, match="requires sourced capabilities"):
+        ServingTodaySnapshot.model_validate_json(json.dumps(payload), strict=True)
 
 
 def test_completeness_audit_keeps_non_top20_not_ready_snapshots_compatible(tmp_path: Path) -> None:

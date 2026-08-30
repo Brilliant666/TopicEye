@@ -31,13 +31,9 @@ test('Today links to an immutable internal detail without embedded AI or overflo
   await expect(page.getByRole('link', { name: /用这个仓库评估我的需求/ })).toHaveCount(0);
 
   const firstCard = page.getByTestId('today-project-1');
-  await expect(firstCard.getByTestId('today-core-value')).toBeVisible();
-  const firstCapabilities = firstCard.getByTestId('today-key-capabilities').locator('li');
-  await expect(firstCapabilities).toHaveCount(2);
-  await expect(page.getByTestId('today-project-4').getByTestId('today-key-capabilities').locator('li')).toHaveCount(2);
-  for (const capability of await firstCapabilities.allTextContents()) {
-    expect(capability.trim()).not.toMatch(/(?:…|\.\.\.)$/);
-  }
+  await expect(firstCard.getByTestId('today-official-positioning')).toBeVisible();
+  await expect(firstCard.getByTestId('today-core-value')).toHaveCount(0);
+  await expect(firstCard.getByTestId('today-key-capabilities')).toHaveCount(0);
 
   if (page.viewportSize()?.width === 1440) {
     const box = await firstCard.boundingBox();
@@ -52,10 +48,8 @@ test('Today links to an immutable internal detail without embedded AI or overflo
   await expect(page).toHaveURL(/\/project\/github\/1\?generation=fixture-explosion-a/);
   await expect(page.getByRole('heading', { name: 'fixture-lab/exact-1' })).toBeVisible();
   await expect(page.getByTestId('project-identity-hero')).toContainText('是一个把公开仓库能力整理成清晰中文项目认知的开发工具');
-  await expect(page.getByTestId('project-core-value')).toBeVisible();
-  const coreValueBox = await page.getByTestId('project-core-value').boundingBox();
-  expect(coreValueBox).not.toBeNull();
-  expect(coreValueBox?.height || 0).toBeGreaterThan(180);
+  await expect(page.getByTestId('rardar-assessment')).toBeVisible();
+  await expect(page.getByTestId('rardar-assessment')).toContainText('Rardar 判断');
   await expect(page.getByRole('heading', { name: '它能做什么' })).toBeVisible();
   await expect(page.getByText('Rardar 决策与采用')).toBeVisible();
   await expect(page.getByRole('heading', { name: '如何开始' })).toBeVisible();
@@ -138,12 +132,86 @@ test('keeps ranks 11-20 behind an explicit expansion', async ({ page }) => {
   }
 });
 
+test('serves complete, sourced capability sections for every Top 20 detail route', async ({ page }) => {
+  const browserErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') browserErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => browserErrors.push(error.message));
+
+  const todayResponse = await page.request.get('/api/v1/rardar/today');
+  expect(todayResponse.status()).toBe(200);
+  const today = await todayResponse.json() as {
+    generationId: string;
+    exactRanked: Array<{ rank: number; githubRepositoryId: number; repository: string }>;
+  };
+  expect(today.exactRanked).toHaveLength(20);
+  const results: Array<Record<string, unknown>> = [];
+
+  for (const project of today.exactRanked) {
+    const target = `/project/github/${project.githubRepositoryId}?generation=${encodeURIComponent(today.generationId)}`;
+    const response = await page.goto(target, { waitUntil: 'networkidle' });
+    expect(response?.status(), `${project.repository} should render`).toBe(200);
+    await expect(page.getByRole('heading', { name: project.repository })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '它能做什么' })).toBeVisible();
+    const section = page.getByTestId('project-capability-section');
+    const items = section.getByTestId('project-capability-item');
+    const itemCount = await items.count();
+    expect(itemCount, `${project.repository} capability count`).toBeGreaterThanOrEqual(1);
+    expect(itemCount, `${project.repository} capability count`).toBeLessThanOrEqual(6);
+    for (let index = 0; index < itemCount; index += 1) {
+      const item = items.nth(index);
+      await expect(item.locator('strong')).not.toHaveText('');
+      await expect(item.locator('p')).not.toHaveText('');
+      await expect(item.locator('small')).toContainText(/来源：(?:官方中文 README|官方 README（译）|Rardar 整理) · 证据：/);
+    }
+    const layout = await page.evaluate(() => {
+      const root = document.documentElement;
+      const clipped = Array.from(document.querySelectorAll('[data-testid="project-capability-item"]')).some((node) => {
+        const element = node as HTMLElement;
+        return element.scrollHeight > element.clientHeight + 1 && getComputedStyle(element).overflowY === 'hidden';
+      });
+      return { clientWidth: root.clientWidth, scrollWidth: root.scrollWidth, clipped };
+    });
+    expect(layout.scrollWidth, `${project.repository} horizontal overflow`).toBeLessThanOrEqual(layout.clientWidth);
+    expect(layout.clipped, `${project.repository} clipped capability`).toBe(false);
+    await expect(page.locator('nextjs-portal, [data-nextjs-dialog-overlay]')).toHaveCount(0);
+    results.push({
+      rank: project.rank,
+      repository: project.repository,
+      status: response?.status(),
+      capabilityCount: itemCount,
+      viewport: test.info().project.name,
+      horizontalOverflow: layout.scrollWidth > layout.clientWidth,
+      clipped: layout.clipped,
+    });
+  }
+
+  await page.goto('/');
+  await expect(page.getByLabel('GitHub 精确 24 小时爆发榜 Top 10').locator('article')).toHaveCount(10);
+  await page.getByText('查看 Top 20').click();
+  for (const project of today.exactRanked) {
+    await expect(page.getByTestId(`today-project-${project.rank}`)).toContainText(project.repository);
+  }
+  expect(browserErrors, browserErrors.join('\n')).toEqual([]);
+
+  const reportDirectory = process.env.RARDAR_E2E_REPORT_DIR;
+  if (reportDirectory) {
+    mkdirSync(reportDirectory, { recursive: true });
+    writeFileSync(
+      join(reportDirectory, `top20-detail-${test.info().project.name}.json`),
+      `${JSON.stringify(results, null, 2)}\n`,
+      'utf8',
+    );
+  }
+});
+
 test('keeps official facts usable when detail AI is unavailable', async ({ page }) => {
   setMode('ai_error');
   await page.goto('/project/github/1?generation=fixture-explosion-a');
   await page.getByRole('button', { name: '生成 AI 深度解读' }).click();
   await expect(page.getByText('AI 暂不可用')).toBeVisible();
-  await expect(page.getByTestId('project-core-value')).toBeVisible();
+  await expect(page.getByTestId('rardar-assessment')).toBeVisible();
   await expect(page.getByRole('heading', { name: '24 小时事实' })).toBeVisible();
   await expect(page.getByTestId('official-evidence')).not.toHaveAttribute('open', '');
 });

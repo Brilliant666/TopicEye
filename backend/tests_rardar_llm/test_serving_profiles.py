@@ -22,6 +22,7 @@ from app.integrations.rardar.serving_profiles import (
     TranslatedOfficialHighlight,
     _bounded_translation_evidence,
     _dedupe_context_subject,
+    _derived_core_value,
     _extract_official_narrative,
     _generation_error_code,
     _github_file_url,
@@ -43,6 +44,7 @@ from app.integrations.rardar.serving_profiles import (
     _translate_official_with_control,
     _translate_with_control,
     _translation_required,
+    _valid_capabilities,
     _validate_official_translation,
     _validate_translation,
     build_official_profiles,
@@ -65,6 +67,27 @@ def _readme_payload(markdown: str, *, path: str = "README.md", sha: str = "a" * 
         "encoding": "base64",
         "content": base64.b64encode(markdown.encode()).decode(),
     }
+
+
+def test_single_capability_core_value_is_not_a_copy_of_the_capability_detail() -> None:
+    capability = ServingCapability(
+        title="公共 API 分类索引",
+        detail="维护按主题整理的公共 API 清单，帮助开发者查找可集成的数据与服务接口。",
+        evidenceRefs=["readme:section:3"],
+        sourceMode="official_translated",
+    )
+
+    value, refs = _derived_core_value(
+        "一个公共 API 精选列表。",
+        [capability],
+        [],
+        {capability.detail: capability.evidenceRefs},
+        {"readme:section:3": "A collective list of free APIs."},
+    )
+
+    assert value is not None
+    assert capability.detail not in value
+    assert refs == ["readme:section:3"]
 
 
 def test_section_aware_parser_skips_badges_and_preserves_feature_lists() -> None:
@@ -161,7 +184,9 @@ def test_textual_language_navigation_cannot_become_rardar_positioning() -> None:
 
 
 @pytest.mark.asyncio
-async def test_partial_chinese_official_positioning_is_field_level_and_model_free(tmp_path: Path) -> None:
+async def test_partial_chinese_official_positioning_is_preserved_while_capabilities_are_completed(
+    tmp_path: Path,
+) -> None:
     project = _project().model_copy(
         update={"repository": "deepseek-ai/deepseek-harness", "description": None, "githubRepositoryId": 1333065091}
     )
@@ -182,8 +207,33 @@ DeepSeek Harness（`dsh`）是由 DeepSeek AI 开发的开源 agent harness（�
             return httpx.Response(200, json=[{"path": "README.zh.md", "type": "file"}])
         return httpx.Response(200, json=_readme_payload(markdown, path="README.zh.md", sha="8" * 40))
 
-    async def unexpected_model(_payload):
-        raise AssertionError("official Chinese positioning must not invoke a model")
+    async def complete_capability(payload):
+        evidence = payload["evidenceIndex"]
+        summary_ref = next(reference for reference, text in evidence.items() if "DeepSeek Harness" in text)
+        capability_ref = next(reference for reference, text in evidence.items() if "一切皆插件" in text)
+        return ProfileTranslation(
+            summary=EvidenceClaim(text="一个插件化智能体框架。", evidenceRefs=[summary_ref]),
+            positioning=DerivedPositioning(
+                positioningZh="一个插件化智能体框架，通过 Cordis 组合扩展能力。",
+                includedEvidenceRefs=[capability_ref],
+                includedRoles=["identity", "core_mechanism"],
+            ),
+            capabilities=[
+                ServingCapability(
+                    title="插件化扩展",
+                    detail="通过一切皆插件的架构组合智能体能力，并由 Cordis 驱动扩展。",
+                    evidenceRefs=[capability_ref],
+                    sourceMode="rardar_derived",
+                )
+            ],
+            productForms=[],
+            supportedEnvironments=[],
+            useCases=[],
+            deliveryForms=[],
+        )
+
+    async def unexpected_narrative_model(_payload):
+        raise AssertionError("official Chinese positioning must not invoke a narrative model")
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
         collected = await collect_official_project_profile(
@@ -192,9 +242,9 @@ DeepSeek Harness（`dsh`）是由 DeepSeek AI 开发的开源 agent harness（�
             tmp_path,
             client=client,
             translate=True,
-            translator=unexpected_model,
-            narrative_translator=unexpected_model,
-            positioning_translator=unexpected_model,
+            translator=complete_capability,
+            narrative_translator=unexpected_narrative_model,
+            positioning_translator=unexpected_narrative_model,
         )
 
     profile = collected.profile
@@ -204,7 +254,8 @@ DeepSeek Harness（`dsh`）是由 DeepSeek AI 开发的开源 agent harness（�
     assert profile.positioningEvidenceRefs == ["readme:narrative:positioning"]
     assert profile.officialPositioningZh == profile.positioningZh
     assert profile.officialPositioningEvidenceRefs == profile.positioningEvidenceRefs
-    assert collected.translation_calls == 0
+    assert collected.translation_calls == 1
+    assert [item.sourceMode for item in profile.capabilities] == ["rardar_derived"]
     assert all(marker not in profile.positioningZh for marker in ["Web UI", "SSH", "127.0.0.1", "仅启动服务器"])
 
 
@@ -756,12 +807,14 @@ An official developer automation toolkit.
                     detail="生成有证据支撑的项目报告。",
                     shortDetail="生成有证据支撑的项目报告。",
                     evidenceRefs=["readme:section:2:item:1"],
+                    sourceMode="official_translated",
                 ),
                 ServingCapability(
                     title="独立 HTML 交付",
                     detail="导出独立 HTML 交付物。",
                     shortDetail="导出独立 HTML 交付物。",
                     evidenceRefs=["readme:section:2:item:2"],
+                    sourceMode="official_translated",
                 ),
             ],
             productForms=[],
@@ -1159,7 +1212,7 @@ Open examples/ for complete outputs.
         )
 
     profile = collected.profile
-    assert profile.profileSchemaVersion == "rardar-project-profile-v6"
+    assert profile.profileSchemaVersion == "rardar-project-profile-v7"
     assert profile.identitySummaryZh == profile.officialSummaryZh
     assert profile.coreValueZh is not None
     assert profile.coreValueEvidenceRefs
@@ -1177,6 +1230,7 @@ Open examples/ for complete outputs.
     ]
     assert all(capability.title not in capability.detail for capability in profile.capabilities)
     assert all(capability.evidenceRefs for capability in profile.capabilities)
+    assert {capability.sourceMode for capability in profile.capabilities} == {"deterministic_fallback"}
     assert any(link.path == "archify/SKILL.md" for link in profile.startHere)
     assert any(link.path == "examples" for link in profile.startHere)
     claims = [*profile.productFormsZh, *profile.supportedEnvironmentsZh, *profile.deliveryFormsZh]
@@ -1270,6 +1324,7 @@ async def test_structured_chinese_readme_publishes_author_narrative_without_llm(
         "一个文件放心交付",
     ]
     assert [item.sourceOrder for item in profile.officialHighlights] == [1, 2, 3, 4]
+    assert {item.sourceMode for item in profile.capabilities} == {"official_zh"}
     assert profile.identitySummaryZh == profile.officialTaglineZh
     assert profile.coreValueZh == profile.rardarAssessmentZh
     assert profile.keyDifferentiators == profile.rardarDifferentiators
@@ -1356,6 +1411,7 @@ Faithful Map is a Node.js renderer and validator that accepts a typed JSON IR an
         ["readme:narrative:highlight:2"],
         ["readme:narrative:highlight:3"],
     ]
+    assert {item.sourceMode for item in profile.capabilities} == {"official_translated"}
     assert collected.translation_calls == 1
 
 
@@ -1427,6 +1483,19 @@ An Awesome List of public APIs maintained by the community.
         ("架构变化对比 —— 展示新增、删除和重路由。", "架构变化对比", "展示新增、删除和重路由。"),
         ("证据追踪: 保留每个判断对应的官方来源。", "证据追踪", "保留每个判断对应的官方来源。"),
         ("安全边界 - 不执行第三方仓库代码。", "安全边界", "不执行第三方仓库代码。"),
+        (
+            "有 AI 项目记录、需要梳理事实：先用 /asu-recap 区分个人动作、交付阶段与效果证据。",
+            "项目事实复盘",
+            "先用 /asu-recap 区分个人动作、交付阶段与效果证据。",
+        ),
+        ("支持多种 高清视频 尺寸", "多规格高清视频输出", "支持多种高清视频尺寸"),
+        ("支持 批量视频生成，可以一次生成多个视频", "批量视频生成", "支持批量视频生成，可以一次生成多个视频"),
+        ("插件：扩展窗格和工作流。浏览插件市场 →", "插件化工作流扩展", "扩展窗格和工作流"),
+        (
+            "智能体也能使用 herdr：纯 socket api：智能体可以创建窗格、读取输出、互相等待。智能体技能 →",
+            "智能体也能使用 herdr",
+            "纯 socket api：智能体可以创建窗格、读取输出、互相等待",
+        ),
     ],
 )
 def test_capability_builder_parses_semantic_separators_without_truncation(
@@ -1491,6 +1560,42 @@ def test_capability_builder_never_slices_a_long_detail_for_short_display() -> No
 
     assert capability.detail == detail
     assert capability.shortDetail is None
+
+
+def test_capability_validation_rejects_foreign_evidence_and_non_capability_noise() -> None:
+    allowed = {"readme:section:1"}
+    capabilities = [
+        ServingCapability(
+            title="证据绑定",
+            detail="把项目结论绑定到当前仓库中可核验的官方资料。",
+            evidenceRefs=["readme:section:1"],
+            sourceMode="rardar_derived",
+        ),
+        ServingCapability(
+            title="跨仓库串线",
+            detail="这条能力错误引用了另一个项目的证据。",
+            evidenceRefs=["readme:foreign:section:1"],
+            sourceMode="rardar_derived",
+        ),
+        ServingCapability(
+            title="快速开始",
+            detail="运行 npm install 后启动本地服务。",
+            evidenceRefs=["readme:section:1"],
+            sourceMode="deterministic_fallback",
+        ),
+        ServingCapability(
+            title="单个 Rust 二进制",
+            detail="运行在你已经在用的任何终端里。",
+            evidenceRefs=["readme:section:1"],
+            sourceMode="official_zh",
+        ),
+    ]
+
+    valid, issues = _valid_capabilities(capabilities, allowed)
+
+    assert [item.title for item in valid] == ["证据绑定"]
+    assert "capability_evidence_invalid" in issues
+    assert "capability_invalid_content" in issues
 
 
 @pytest.mark.asyncio
@@ -1571,7 +1676,14 @@ async def test_weak_chinese_readme_still_runs_semantic_structuring(tmp_path: Pat
                 includedEvidenceRefs=["readme:section:1", "readme:section:1:item:1"],
                 includedRoles=["identity", "core_mechanism", "primary_outcome"],
             ),
-            capabilities=[],
+            capabilities=[
+                ServingCapability(
+                    title="求职流程组织",
+                    detail="组织简历分析、岗位搜索和面试准备，覆盖中文求职的主要阶段。",
+                    evidenceRefs=["readme:section:1:item:1"],
+                    sourceMode="rardar_derived",
+                )
+            ],
             productForms=[],
             supportedEnvironments=[],
             useCases=[],
@@ -1623,7 +1735,14 @@ async def test_schema_invalid_structuring_gets_one_bounded_repair_attempt(tmp_pa
                 includedEvidenceRefs=positioning_refs,
                 includedRoles=["identity", "core_mechanism", "primary_outcome"],
             ),
-            capabilities=[],
+            capabilities=[
+                ServingCapability(
+                    title="证据关联",
+                    detail="通过规则引擎把项目原文连接到可核验的交付结果。",
+                    evidenceRefs=["readme:section:1:item:1"],
+                    sourceMode="rardar_derived",
+                )
+            ],
             productForms=[],
             supportedEnvironments=[],
             useCases=[],
@@ -1692,9 +1811,9 @@ async def test_model_failure_uses_evidence_bound_deterministic_chinese_fallback(
     markdown = """
 # 任务工作台
 
-这是一个用于自动整理开发任务的工作台。
+这是一个用于自动整理开发任务并持续保存处理结果的工作台。
 
-- 通过规则引擎组织输入、检查和交付结果。
+流程编排：通过规则引擎组织输入、检查和交付结果，并把每一步结果交给后续流程继续处理。
 """
 
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -1716,9 +1835,10 @@ async def test_model_failure_uses_evidence_bound_deterministic_chinese_fallback(
         )
 
     assert collected.deterministic_fallback_used is True
-    assert collected.profile.positioningSourceMode == "rardar_derived"
+    assert collected.profile.positioningSourceMode == "official_zh"
     assert collected.profile.positioningZh is not None
     assert collected.profile.positioningEvidenceRefs
+    assert {item.sourceMode for item in collected.profile.capabilities} == {"deterministic_fallback"}
     assert not _text_issue_codes(collected.profile.positioningZh)
     assert any(failure.code == "positioning_timeout" and failure.resolved for failure in collected.generation_failures)
 
@@ -1762,7 +1882,14 @@ An evidence-backed toolkit for organizing project research.
                 includedEvidenceRefs=["readme:section:1", "readme:section:2:item:1"],
                 includedRoles=["identity", "core_mechanism", "primary_outcome"],
             ),
-            capabilities=[],
+            capabilities=[
+                ServingCapability(
+                    title="证据追踪",
+                    detail="把每份项目摘要连接到已保存的仓库原文，以保留可追溯性。",
+                    evidenceRefs=["readme:section:2:item:1"],
+                    sourceMode="official_translated",
+                )
+            ],
             productForms=[],
             supportedEnvironments=[],
             useCases=[],
@@ -1808,6 +1935,117 @@ An evidence-backed toolkit for organizing project research.
     assert value is None
     assert available is False
     assert fingerprint != second.last_known_good_fingerprint
+
+
+@pytest.mark.asyncio
+async def test_v7_capability_upgrade_preserves_v6_identity_and_positioning_for_exact_evidence(
+    tmp_path: Path,
+) -> None:
+    project = _project().model_copy(update={"description": None})
+    markdown = """
+# Evidence Workbench
+
+An evidence workbench for reviewing open-source projects.
+
+## Features
+
+- Bind every project decision to a saved repository excerpt.
+"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README.md", "type": "file"}])
+        return httpx.Response(200, json=_readme_payload(markdown, sha="6" * 40))
+
+    async def original(_payload):
+        return ProfileTranslation(
+            summary=EvidenceClaim(text="一个审阅开源项目证据的工作台。", evidenceRefs=["readme:section:1"]),
+            positioning=DerivedPositioning(
+                positioningZh="一个开源项目审阅工作台，通过保存仓库原文来约束后续采用决策。",
+                includedEvidenceRefs=["readme:section:1", "readme:section:2:item:1"],
+                includedRoles=["identity", "core_mechanism", "primary_outcome"],
+            ),
+            capabilities=[
+                ServingCapability(
+                    title="证据绑定",
+                    detail="把项目采用决策连接到已保存的仓库原文。",
+                    evidenceRefs=["readme:section:2:item:1"],
+                    sourceMode="official_translated",
+                )
+            ],
+            productForms=[],
+            supportedEnvironments=[],
+            useCases=[],
+            deliveryForms=[],
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        first = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=original,
+        )
+
+    lkg_path = next((tmp_path / "last-known-good" / str(project.githubRepositoryId)).glob("*.json"))
+    wrapper = json.loads(lkg_path.read_text(encoding="utf-8"))
+    legacy = first.profile.model_copy(
+        update={
+            "profileSchemaVersion": "rardar-project-profile-v6",
+            "promptVersion": "rardar-project-profile-zh-v13",
+            "rardarAssessmentPromptVersion": "rardar-assessment-zh-v10",
+        }
+    )
+    wrapper.update(
+        {
+            "profile": legacy.model_dump(mode="json"),
+            "profileSchemaVersion": "rardar-project-profile-v6",
+            "promptVersion": "rardar-project-profile-zh-v13",
+        }
+    )
+    lkg_path.write_text(json.dumps(wrapper, ensure_ascii=False), encoding="utf-8")
+    shutil.rmtree(tmp_path / "profiles", ignore_errors=True)
+    shutil.rmtree(tmp_path / "rardar-assessments", ignore_errors=True)
+
+    async def revised(_payload):
+        return ProfileTranslation(
+            summary=EvidenceClaim(text="这句新身份不得覆盖已验证文案。", evidenceRefs=["readme:section:1"]),
+            positioning=DerivedPositioning(
+                positioningZh="这句新定位也不得覆盖已验证文案，但仍有完整机制与结果。",
+                includedEvidenceRefs=["readme:section:1", "readme:section:2:item:1"],
+                includedRoles=["identity", "core_mechanism", "primary_outcome"],
+            ),
+            capabilities=[
+                ServingCapability(
+                    title="原文追踪",
+                    detail="保存项目采用判断对应的仓库摘录，以便后续复核。",
+                    evidenceRefs=["readme:section:2:item:1"],
+                    sourceMode="official_translated",
+                )
+            ],
+            productForms=[],
+            supportedEnvironments=[],
+            useCases=[],
+            deliveryForms=[],
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        upgraded = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=revised,
+        )
+
+    assert upgraded.profile.identitySummaryZh == first.profile.identitySummaryZh
+    assert upgraded.profile.positioningZh == first.profile.positioningZh
+    assert upgraded.profile.positioningEvidenceRefs == first.profile.positioningEvidenceRefs
+    assert [item.title for item in upgraded.profile.capabilities] == ["原文追踪"]
+    assert upgraded.profile.profileSchemaVersion == "rardar-project-profile-v7"
 
 
 def test_navigation_and_placeholder_primary_copy_is_never_publishable() -> None:

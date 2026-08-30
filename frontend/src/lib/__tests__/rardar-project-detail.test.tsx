@@ -40,6 +40,13 @@ const officialHighlights = [
     evidenceRefs: ['readme:narrative:highlight:4'],
   },
 ];
+const canonicalCapabilities = officialHighlights.map((highlight) => ({
+  title: highlight.titleZh,
+  detail: highlight.detailZh,
+  shortDetail: null,
+  evidenceRefs: highlight.evidenceRefs,
+  sourceMode: 'official_zh' as const,
+}));
 const rardarAssessmentZh = '通过 Typed JSON IR、Schema 和确定性校验，将生成结果约束为可追溯、可复现的工程交付物，而不只是生成一张外观合理的图。';
 const rardarDifferentiators = [
   {
@@ -57,7 +64,7 @@ const rardarDifferentiators = [
 ];
 
 const detail: ProjectDetail = {
-  schemaVersion: 5,
+  schemaVersion: 7,
   generationId: 'generation-v1',
   servingGenerationId: 'generation-v1--serving',
   project: {
@@ -92,27 +99,8 @@ const detail: ProjectDetail = {
     qualityIssues: [],
     sourceLabel: '官方中文 README',
     sourceLanguage: 'zh',
-    capabilityBulletsZh: ['生成独立 HTML / SVG 架构图', '对比架构快照变化', '追踪节点对应的代码路径'],
-    capabilities: [
-      {
-        title: '技术图与交互展示',
-        detail: '生成独立 HTML / SVG 架构图',
-        shortDetail: '生成可独立打开的架构交付。',
-        evidenceRefs: ['readme:section:1', 'readme:section:2'],
-      },
-      {
-        title: '架构变化对比',
-        detail: '对比架构快照变化',
-        shortDetail: null,
-        evidenceRefs: ['readme:section:2'],
-      },
-      {
-        title: '可追溯架构探索',
-        detail: '追踪节点对应的代码路径',
-        shortDetail: null,
-        evidenceRefs: ['readme:section:3'],
-      },
-    ],
+    capabilityBulletsZh: canonicalCapabilities.map((item) => item.detail),
+    capabilities: canonicalCapabilities,
     translationState: 'not_needed',
     officialTaglineZh,
     officialTaglineEvidenceRefs: ['readme:narrative:tagline'],
@@ -131,8 +119,8 @@ const detail: ProjectDetail = {
     rardarDifferentiators,
   },
   profile: {
-    profileSchemaVersion: 'rardar-project-profile-v5',
-    promptVersion: 'rardar-project-profile-zh-v7',
+    profileSchemaVersion: 'rardar-project-profile-v7',
+    promptVersion: 'rardar-project-profile-zh-v15',
     githubRepositoryId: 1211139949,
     repository: 'tt-a1i/archify',
     htmlUrl: 'https://github.com/tt-a1i/archify',
@@ -147,27 +135,8 @@ const detail: ProjectDetail = {
     qualityIssues: [],
     sourceLabel: '官方中文 README',
     sourceLanguage: 'zh',
-    capabilityBulletsZh: ['生成独立 HTML / SVG 架构图', '对比架构快照变化', '追踪节点对应的代码路径'],
-    capabilities: [
-      {
-        title: '技术图与交互展示',
-        detail: '生成独立 HTML / SVG 架构图',
-        shortDetail: '生成可独立打开的架构交付。',
-        evidenceRefs: ['readme:section:1', 'readme:section:2'],
-      },
-      {
-        title: '架构变化对比',
-        detail: '对比架构快照变化',
-        shortDetail: null,
-        evidenceRefs: ['readme:section:2'],
-      },
-      {
-        title: '可追溯架构探索',
-        detail: '追踪节点对应的代码路径',
-        shortDetail: null,
-        evidenceRefs: ['readme:section:3'],
-      },
-    ],
+    capabilityBulletsZh: canonicalCapabilities.map((item) => item.detail),
+    capabilities: canonicalCapabilities,
     productFormsZh: ['Agent Skill', 'Node.js 渲染/校验工具'],
     supportedEnvironmentsZh: ['Raven', 'Cursor', 'Claude Code', 'Codex CLI'],
     primaryUseCasesZh: ['理解陌生代码库的系统结构'],
@@ -267,6 +236,10 @@ describe('Rardar project detail', () => {
     expect(html).toContain('独立 HTML');
     expect(html).toContain('核心定位 · 官方中文 README');
     expect(html).toContain('它能做什么');
+    expect(html).toContain('来源：官方中文 README · 证据：官方 README');
+    expect((html.match(/data-testid="project-capability-section"/g) || [])).toHaveLength(1);
+    expect((html.match(/data-testid="project-capability-item"/g) || [])).toHaveLength(4);
+    expect(html).not.toContain('能力说明 1');
     expect(html).toContain('Rardar 决策与采用');
     expect(html).toContain('Rardar 判断');
     expect(html).toContain(rardarAssessmentZh);
@@ -361,6 +334,83 @@ describe('Rardar project detail', () => {
     };
     const parsed = parseProjectDetail(legacy);
     expect(parsed.profile.capabilities).toEqual([]);
+  });
+
+  it('keeps a v6 detail readable while requiring sourced non-empty capabilities in v7', () => {
+    const legacyV6 = {
+      ...detail,
+      schemaVersion: 6,
+      project: {
+        ...detail.project,
+        capabilities: detail.project.capabilities.map(({ title, detail, shortDetail, evidenceRefs }) => ({
+          title,
+          detail,
+          shortDetail,
+          evidenceRefs,
+        })),
+      },
+      profile: {
+        ...detail.profile,
+        profileSchemaVersion: 'rardar-project-profile-v6',
+        promptVersion: 'rardar-project-profile-zh-v13',
+        capabilities: detail.profile.capabilities.map(({ title, detail, shortDetail, evidenceRefs }) => ({
+          title,
+          detail,
+          shortDetail,
+          evidenceRefs,
+        })),
+      },
+    };
+    const parsedV6 = parseProjectDetail(legacyV6);
+    expect(parsedV6.profile.capabilities).toHaveLength(4);
+    const legacyHtml = renderToStaticMarkup(<RardarProjectDetailPage detail={parsedV6} />);
+    expect(legacyHtml).toContain('来源：官方中文 README · 证据：官方 README');
+
+    expect(() => parseProjectDetail({
+      ...detail,
+      project: { ...detail.project, capabilities: [] },
+      profile: { ...detail.profile, capabilities: [] },
+    })).toThrow('rardar_project_response_invalid');
+    expect(() => parseProjectDetail({
+      ...detail,
+      project: {
+        ...detail.project,
+        capabilities: detail.project.capabilities.map(({ title, detail, shortDetail, evidenceRefs }) => ({
+          title,
+          detail,
+          shortDetail,
+          evidenceRefs,
+        })),
+      },
+      profile: {
+        ...detail.profile,
+        capabilities: detail.profile.capabilities.map(({ title, detail, shortDetail, evidenceRefs }) => ({
+          title,
+          detail,
+          shortDetail,
+          evidenceRefs,
+        })),
+      },
+    })).toThrow('rardar_project_response_invalid');
+  });
+
+  it('renders a single Rardar-derived capability with one stable source label', () => {
+    const capability = {
+      title: '公共 API 分类索引',
+      detail: '维护按主题整理的公共 API 清单，帮助开发者查找可集成的数据与服务接口。',
+      shortDetail: null,
+      evidenceRefs: ['readme:section:1'],
+      sourceMode: 'rardar_derived' as const,
+    };
+    const single = {
+      ...detail,
+      project: { ...detail.project, capabilities: [capability], capabilityBulletsZh: [capability.detail] },
+      profile: { ...detail.profile, capabilities: [capability], capabilityBulletsZh: [capability.detail] },
+    };
+    const html = renderToStaticMarkup(<RardarProjectDetailPage detail={single} />);
+    expect(html).toContain('公共 API 分类索引');
+    expect(html).toContain('来源：Rardar 整理 · 证据：官方 README');
+    expect((html.match(/data-testid="project-capability-item"/g) || [])).toHaveLength(1);
   });
 
   it('loads an immutable detail by numeric identity and encoded generation', async () => {

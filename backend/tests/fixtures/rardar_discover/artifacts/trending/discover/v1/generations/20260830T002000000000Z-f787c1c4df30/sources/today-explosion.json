@@ -1,0 +1,554 @@
+{
+  "schemaVersion": 1,
+  "policyVersion": "trending-explosion-v1",
+  "generationId": "20260830T185455211358Z-e4496ff2b06c",
+  "generatedAt": "2026-08-30T00:10:00.000000Z",
+  "scheduleTimezone": "Asia/Shanghai",
+  "window": {
+    "state": "exact",
+    "startedAt": "2026-08-29T00:00:00.000000Z",
+    "endedAt": "2026-08-30T00:00:00.000000Z",
+    "durationHours": 24,
+    "toleranceSeconds": 600
+  },
+  "rankingPolicy": {
+    "primary": "observedStarDelta DESC",
+    "tieBreakers": [
+      "totalStars DESC",
+      "repository ASC"
+    ],
+    "exactLimit": 500,
+    "pendingLimit": 500
+  },
+  "sourceCaptures": {
+    "current": {
+      "captureId": "trending-v1-20260830T000000Z",
+      "scheduledAt": "2026-08-30T00:00:00Z",
+      "capturedAt": "2026-08-30T00:05:00Z",
+      "coverageState": "healthy",
+      "generationRelativePath": "trending/sources/current.json",
+      "originalObservationPath": "observations/trending/v1/captures/2026/08/30/trending-v1-20260830T000000Z.json",
+      "payloadDigestSha256": "814b99b25961911288b845b3acde3e7dc5d9f83114566d131b773f0895f27981",
+      "fileSha256": "a0aae6958c2b5feefc2ed73f2c1833ea8cf0dc50baace0d16b45a1169415591f"
+    },
+    "baseline": {
+      "captureId": "trending-v1-20260829T000000Z",
+      "scheduledAt": "2026-08-29T00:00:00Z",
+      "capturedAt": "2026-08-29T00:05:00Z",
+      "coverageState": "healthy",
+      "generationRelativePath": "trending/sources/baseline.json",
+      "originalObservationPath": "observations/trending/v1/captures/2026/08/29/trending-v1-20260829T000000Z.json",
+      "payloadDigestSha256": "cd4e7de5848419110483291323c597f1061e3414c09273f5c1e9a82196b61327",
+      "fileSha256": "6779ed731b68a443677f2952e17bd42f2d1d5bf88b4c1bab054c70826d774bd5"
+    },
+    "partial": [
+      {
+        "captureId": "trending-v1-20260829T020000Z",
+        "scheduledAt": "2026-08-29T02:00:00Z",
+        "capturedAt": "2026-08-29T02:05:00Z",
+        "coverageState": "healthy",
+        "generationRelativePath": "trending/sources/partial-01.json",
+        "originalObservationPath": "observations/trending/v1/captures/2026/08/29/trending-v1-20260829T020000Z.json",
+        "payloadDigestSha256": "ac3d29ace9cadcdc2f684c510da0244c2d17f1228943cb2be8c947844a71a6a4",
+        "fileSha256": "1b31baa19610d3a63580d530ee0ac916b2aedea6e6abecffefb9584c82f35643"
+      },
+      {
+        "captureId": "trending-v1-20260829T040000Z",
+        "scheduledAt": "2026-08-29T04:00:00Z",
+        "capturedAt": "2026-08-29T04:05:00Z",
+        "coverageState": "healthy",
+        "generationRelativePath": "trending/sources/partial-02.json",
+        "originalObservationPath": "observations/trending/v1/captures/2026/08/29/trending-v1-20260829T040000Z.json",
+        "payloadDigestSha256": "a75c133b95f48719c4c504832e21fda7b619f381de74ba8707219988601ccd1d",
+        "fileSha256": "6b1fbf2961d6e81d9188522b991fcb5227fc592de7710e846f1a034fa1578ebc"
+      },
+      {
+        "captureId": "trending-v1-20260829T060000Z",
+        "scheduledAt": "2026-08-29T06:00:00Z",
+        "capturedAt": "2026-08-29T06:05:00Z",
+        "coverageState": "healthy",
+        "generationRelativePath": "trending/sources/partial-03.json",
+        "originalObservationPath": "observations/trending/v1/captures/2026/08/29/trending-v1-20260829T060000Z.json",
+        "payloadDigestSha256": "8c0e32eab34f66797affaf2eafa77930ef64d4d8c18b4f90e29e69c97fcd0c2c",
+        "fileSha256": "cbf9055d3478304ff13053e41d3da56fcfb6313619591c4eafa50fc8d1fcd361"
+      },
+      {
+        "captureId": "trending-v1-20260829T080000Z",
+        "scheduledAt": "2026-08-29T08:00:00Z",
+        "capturedAt": "2026-08-29T08:05:00Z",
+        "coverageState": "healthy",
+        "generationRelativePath": "trending/sources/partial-04.json",
+        "originalObservationPath": "observations/trending/v1/captures/2026/08/29/trending-v1-20260829T080000Z.json",
+        "payloadDigestSha256": "6ee918b03140028890672d4cfe2ee9adf5110a1148667c23ce89a6ca237a9f28",
+        "fileSha256": "3dbfaca6a29a7e953fb9d989d3526d9bcd6e48fe2a85d9e7de9b0a6900086719"
+      },
+      {
+        "captureId": "trending-v1-20260829T100000Z",
+        "scheduledAt": "2026-08-29T10:00:00Z",
+        "capturedAt": "2026-08-29T10:05:00Z",
+        "coverageState": "healthy",
+        "generationRelativePath": "trending/sources/partial-05.json",
+        "originalObservationPath": "observations/trending/v1/captures/2026/08/29/trending-v1-20260829T100000Z.json",
+        "payloadDigestSha256": "6ec5de4d5918df3434daf630ab8d418cf4806e46b489616abb94f298e3994eeb",
+        "fileSha256": "07e15a0b3123b7a515a854356c5b828264fe025ab93dc42693e6dc3c3bc801e3"
+      },
+      {
+        "captureId": "trending-v1-20260829T120000Z",
+        "scheduledAt": "2026-08-29T12:00:00Z",
+        "capturedAt": "2026-08-29T12:05:00Z",
+        "coverageState": "healthy",
+        "generationRelativePath": "trending/sources/partial-06.json",
+        "originalObservationPath": "observations/trending/v1/captures/2026/08/29/trending-v1-20260829T120000Z.json",
+        "payloadDigestSha256": "13f911b4fe9135aaade9dd4b56f8500a998433fe8293a6d339aee6d2fc60910d",
+        "fileSha256": "6f691e24bd82ef1c7b132ef8573889b93b91a2f39d13997ce9c8f3b62509462c"
+      },
+      {
+        "captureId": "trending-v1-20260829T140000Z",
+        "scheduledAt": "2026-08-29T14:00:00Z",
+        "capturedAt": "2026-08-29T14:05:00Z",
+        "coverageState": "healthy",
+        "generationRelativePath": "trending/sources/partial-07.json",
+        "originalObservationPath": "observations/trending/v1/captures/2026/08/29/trending-v1-20260829T140000Z.json",
+        "payloadDigestSha256": "d87bba7bcefbdec320b619a47b379fe7d60cb86a6e8b6868750141b70ad6a6b3",
+        "fileSha256": "40daeeb7b7a9ddd5a1660cf261ffe77d7d4a3bf03225fd460f08e143f5555b24"
+      },
+      {
+        "captureId": "trending-v1-20260829T160000Z",
+        "scheduledAt": "2026-08-29T16:00:00Z",
+        "capturedAt": "2026-08-29T16:05:00Z",
+        "coverageState": "healthy",
+        "generationRelativePath": "trending/sources/partial-08.json",
+        "originalObservationPath": "observations/trending/v1/captures/2026/08/29/trending-v1-20260829T160000Z.json",
+        "payloadDigestSha256": "e0eaf48e15520197ce4b42d920c1ff765236649342bea02462f41a76fef4a2df",
+        "fileSha256": "b803d8dcabef1f6741ee5630db53db6c00a310b7dde0f3b79a07098acaffff4e"
+      },
+      {
+        "captureId": "trending-v1-20260829T180000Z",
+        "scheduledAt": "2026-08-29T18:00:00Z",
+        "capturedAt": "2026-08-29T18:05:00Z",
+        "coverageState": "healthy",
+        "generationRelativePath": "trending/sources/partial-09.json",
+        "originalObservationPath": "observations/trending/v1/captures/2026/08/29/trending-v1-20260829T180000Z.json",
+        "payloadDigestSha256": "2e6b1925e0cf4add7bdd3b9de91b9442e57937aea07b46eba20cc2ebd8e36de6",
+        "fileSha256": "c6919555c9d0450e872a7a069d3e0adab89c44663d169c908ffda5fb620400af"
+      },
+      {
+        "captureId": "trending-v1-20260829T200000Z",
+        "scheduledAt": "2026-08-29T20:00:00Z",
+        "capturedAt": "2026-08-29T20:05:00Z",
+        "coverageState": "healthy",
+        "generationRelativePath": "trending/sources/partial-10.json",
+        "originalObservationPath": "observations/trending/v1/captures/2026/08/29/trending-v1-20260829T200000Z.json",
+        "payloadDigestSha256": "2e3257dbfcebc5e70702a6aa0259c984ee04680bf3b66c3c4ab0a92073e6f3b2",
+        "fileSha256": "4dfee7af6b259a0c57c2b27a42943b6ca2287e98173e205132ba96f84fbba169"
+      },
+      {
+        "captureId": "trending-v1-20260829T220000Z",
+        "scheduledAt": "2026-08-29T22:00:00Z",
+        "capturedAt": "2026-08-29T22:05:00Z",
+        "coverageState": "healthy",
+        "generationRelativePath": "trending/sources/partial-11.json",
+        "originalObservationPath": "observations/trending/v1/captures/2026/08/29/trending-v1-20260829T220000Z.json",
+        "payloadDigestSha256": "2c90d9ab79a10963373db9fbb4901e512187768ae8a36812e548631b5d68977c",
+        "fileSha256": "9c254d32cdbd1bc8cdeeb483a0b779d7b4941b52e605de795879e2fca4633088"
+      }
+    ],
+    "coverageWitness": null
+  },
+  "coverage": {
+    "state": "healthy",
+    "currentSuccessfulQueryCount": 9,
+    "currentFailedQueryCount": 0,
+    "currentMetadataFailureCount": 0,
+    "baselineSuccessfulQueryCount": 9,
+    "baselineFailedQueryCount": 0,
+    "baselineMetadataFailureCount": 0,
+    "exactEligibleCount": 1,
+    "exactPublishedCount": 1,
+    "pendingEligibleCount": 9,
+    "pendingPublishedCount": 9,
+    "conflictCount": 1
+  },
+  "exactRanked": [
+    {
+      "rank": 1,
+      "githubRepositoryId": 1,
+      "repository": "today/exact",
+      "previousRepository": null,
+      "htmlUrl": "https://github.com/today/exact",
+      "totalStars": 1026,
+      "baselineStars": 1002,
+      "observedStarDelta": 24,
+      "windowStartedAt": "2026-08-29T00:00:00.000000Z",
+      "windowEndedAt": "2026-08-30T00:00:00.000000Z",
+      "currentCapturedAt": "2026-08-30T00:05:00Z",
+      "baselineCapturedAt": "2026-08-29T00:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "updatedAt": "2026-08-23T23:00:00Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "defaultBranch": "main",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "licenseSpdxId": "MIT",
+      "archived": false,
+      "disabled": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-30T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-16 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "baselineRecalledBy": [
+        {
+          "capturedAt": "2026-08-29T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-15 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "state": "exact_window"
+    }
+  ],
+  "pendingRanked": [
+    {
+      "pendingRank": 1,
+      "pendingReason": "first_seen",
+      "githubRepositoryId": 3,
+      "repository": "discover/rising",
+      "htmlUrl": "https://github.com/discover/rising",
+      "totalStars": 320,
+      "firstSeenAt": "2026-08-29T14:05:00Z",
+      "observedWindowStartedAt": "2026-08-29T14:05:00Z",
+      "observedWindowEndedAt": "2026-08-30T00:05:00Z",
+      "observedWindowHours": 10.0,
+      "observedWindowStarDelta": 20,
+      "currentCapturedAt": "2026-08-30T00:05:00Z",
+      "firstObservationCaptureId": "trending-v1-20260829T140000Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "archived": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-30T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-16 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ]
+    },
+    {
+      "pendingRank": 2,
+      "pendingReason": "first_seen",
+      "githubRepositoryId": 2,
+      "repository": "discover/near",
+      "htmlUrl": "https://github.com/discover/near",
+      "totalStars": 220,
+      "firstSeenAt": "2026-08-29T04:05:00Z",
+      "observedWindowStartedAt": "2026-08-29T04:05:00Z",
+      "observedWindowEndedAt": "2026-08-30T00:05:00Z",
+      "observedWindowHours": 20.0,
+      "observedWindowStarDelta": 20,
+      "currentCapturedAt": "2026-08-30T00:05:00Z",
+      "firstObservationCaptureId": "trending-v1-20260829T040000Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "archived": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-30T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-16 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ]
+    },
+    {
+      "pendingRank": 3,
+      "pendingReason": "first_seen",
+      "githubRepositoryId": 8,
+      "repository": "new-owner/renamed",
+      "htmlUrl": "https://github.com/new-owner/renamed",
+      "totalStars": 810,
+      "firstSeenAt": "2026-08-29T14:05:00Z",
+      "observedWindowStartedAt": "2026-08-29T14:05:00Z",
+      "observedWindowEndedAt": "2026-08-30T00:05:00Z",
+      "observedWindowHours": 10.0,
+      "observedWindowStarDelta": 10,
+      "currentCapturedAt": "2026-08-30T00:05:00Z",
+      "firstObservationCaptureId": "trending-v1-20260829T140000Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "archived": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-30T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-16 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ]
+    },
+    {
+      "pendingRank": 4,
+      "pendingReason": "first_seen",
+      "githubRepositoryId": 11,
+      "repository": "discover/forked-archive",
+      "htmlUrl": "https://github.com/discover/forked-archive",
+      "totalStars": 1102,
+      "firstSeenAt": "2026-08-29T22:05:00Z",
+      "observedWindowStartedAt": "2026-08-29T22:05:00Z",
+      "observedWindowEndedAt": "2026-08-30T00:05:00Z",
+      "observedWindowHours": 2.0,
+      "observedWindowStarDelta": 2,
+      "currentCapturedAt": "2026-08-30T00:05:00Z",
+      "firstObservationCaptureId": "trending-v1-20260829T220000Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "archived": true,
+      "fork": true,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-30T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-16 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ]
+    },
+    {
+      "pendingRank": 5,
+      "pendingReason": "first_seen",
+      "githubRepositoryId": 9,
+      "repository": "collision/shared",
+      "htmlUrl": "https://github.com/collision/shared",
+      "totalStars": 902,
+      "firstSeenAt": "2026-08-29T22:05:00Z",
+      "observedWindowStartedAt": "2026-08-29T22:05:00Z",
+      "observedWindowEndedAt": "2026-08-30T00:05:00Z",
+      "observedWindowHours": 2.0,
+      "observedWindowStarDelta": 2,
+      "currentCapturedAt": "2026-08-30T00:05:00Z",
+      "firstObservationCaptureId": "trending-v1-20260829T220000Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "archived": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-30T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-16 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ]
+    },
+    {
+      "pendingRank": 6,
+      "pendingReason": "first_seen",
+      "githubRepositoryId": 4,
+      "repository": "discover/just",
+      "htmlUrl": "https://github.com/discover/just",
+      "totalStars": 402,
+      "firstSeenAt": "2026-08-29T22:05:00Z",
+      "observedWindowStartedAt": "2026-08-29T22:05:00Z",
+      "observedWindowEndedAt": "2026-08-30T00:05:00Z",
+      "observedWindowHours": 2.0,
+      "observedWindowStarDelta": 2,
+      "currentCapturedAt": "2026-08-30T00:05:00Z",
+      "firstObservationCaptureId": "trending-v1-20260829T220000Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "archived": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-30T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-16 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ]
+    },
+    {
+      "pendingRank": 7,
+      "pendingReason": "first_seen",
+      "githubRepositoryId": 5,
+      "repository": "discover/flat",
+      "htmlUrl": "https://github.com/discover/flat",
+      "totalStars": 500,
+      "firstSeenAt": "2026-08-29T14:05:00Z",
+      "observedWindowStartedAt": "2026-08-29T14:05:00Z",
+      "observedWindowEndedAt": "2026-08-30T00:05:00Z",
+      "observedWindowHours": 10.0,
+      "observedWindowStarDelta": 0,
+      "currentCapturedAt": "2026-08-30T00:05:00Z",
+      "firstObservationCaptureId": "trending-v1-20260829T140000Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "archived": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-30T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-16 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ]
+    },
+    {
+      "pendingRank": 8,
+      "pendingReason": "first_seen",
+      "githubRepositoryId": 10,
+      "repository": "collision/original",
+      "htmlUrl": "https://github.com/collision/original",
+      "totalStars": 100,
+      "firstSeenAt": "2026-08-29T14:05:00Z",
+      "observedWindowStartedAt": "2026-08-29T14:05:00Z",
+      "observedWindowEndedAt": "2026-08-30T00:05:00Z",
+      "observedWindowHours": 10.0,
+      "observedWindowStarDelta": 0,
+      "currentCapturedAt": "2026-08-30T00:05:00Z",
+      "firstObservationCaptureId": "trending-v1-20260829T140000Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "archived": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-30T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-16 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ]
+    },
+    {
+      "pendingRank": 9,
+      "pendingReason": "first_seen",
+      "githubRepositoryId": 6,
+      "repository": "discover/falling",
+      "htmlUrl": "https://github.com/discover/falling",
+      "totalStars": 590,
+      "firstSeenAt": "2026-08-29T14:05:00Z",
+      "observedWindowStartedAt": "2026-08-29T14:05:00Z",
+      "observedWindowEndedAt": "2026-08-30T00:05:00Z",
+      "observedWindowHours": 10.0,
+      "observedWindowStarDelta": -10,
+      "currentCapturedAt": "2026-08-30T00:05:00Z",
+      "firstObservationCaptureId": "trending-v1-20260829T140000Z",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "primaryLanguage": "Python",
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "archived": false,
+      "fork": false,
+      "mirrorUrl": null,
+      "currentRecalledBy": [
+        {
+          "capturedAt": "2026-08-30T00:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-16 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ]
+    }
+  ],
+  "conflicts": [
+    {
+      "reason": "current_disabled",
+      "githubRepositoryId": 7,
+      "repository": "discover/disabled",
+      "currentStars": 710,
+      "baselineStars": null,
+      "sourceCaptureIds": [
+        "trending-v1-20260830T000000Z"
+      ]
+    }
+  ]
+}

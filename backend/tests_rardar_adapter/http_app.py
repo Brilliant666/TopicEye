@@ -11,7 +11,12 @@ from fastapi.responses import JSONResponse
 from app.api.v1.rardar import router
 from app.integrations.rardar import RardarArtifactError
 from app.integrations.rardar.serving import ServingProjectionError
-from app.services.rardar_intelligence import load_explosion_board, load_project_detail, load_today_snapshot
+from app.services.rardar_intelligence import (
+    load_discover_snapshot,
+    load_explosion_board,
+    load_project_detail,
+    load_today_snapshot,
+)
 
 app = FastAPI()
 app.include_router(router, prefix="/api/v1")
@@ -139,7 +144,44 @@ async def visual_state_fixture(request, call_next):
         return await call_next(request)
     path = Path(mode_path)
     mode = path.read_text(encoding="utf-8").strip() if path.exists() else "ready"
-    if request.url.path.startswith("/api/v1/rardar/projects/") and request.url.path.endswith("/insight"):
+    if request.url.path == "/api/v1/rardar/discover":
+        if mode == "discover_invalid":
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "invalid",
+                    "generation": None,
+                    "freshnessState": "unavailable",
+                    "updateCadenceMinutes": 120,
+                    "stageCounts": {"justDiscovered": 0, "rising": 0, "nearValidation": 0},
+                    "stages": {"justDiscovered": [], "rising": [], "nearValidation": []},
+                    "coverage": None,
+                    "conflicts": {"count": 0, "reasons": {}},
+                    "code": "rardar_discover_invalid",
+                },
+            )
+        if mode in {"discover_stale", "discover_empty_stage"}:
+            payload = load_discover_snapshot()[0].model_dump(mode="json")
+            if mode == "discover_stale":
+                payload.update({"status": "stale", "freshnessState": "stale"})
+            else:
+                removed = len(payload["stages"]["nearValidation"])
+                payload["stages"]["nearValidation"] = []
+                payload["stageCounts"]["nearValidation"] = 0
+                selected = payload["profileSummary"]["selectedCount"] - removed
+                payload["profileSummary"].update(
+                    {
+                        "selectedCount": selected,
+                        "identityComplete": selected,
+                        "positioningComplete": selected,
+                        "capabilitiesComplete": selected,
+                    }
+                )
+            return JSONResponse(content=payload)
+    if (
+        request.url.path.startswith("/api/v1/rardar/projects/")
+        or request.url.path.startswith("/api/v1/rardar/discover/projects/")
+    ) and request.url.path.endswith("/insight"):
         payload = await request.json()
         await asyncio.sleep(0.2)
         github_repository_id = int(request.url.path.split("/")[-2])

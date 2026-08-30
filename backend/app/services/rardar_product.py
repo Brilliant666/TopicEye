@@ -23,7 +23,12 @@ from app.schemas.rardar_product import (
     QuickProjectCandidate,
 )
 from app.services.llm.strict_json import StrictJSONError, loads_strict_json
-from app.services.rardar_intelligence import _demo_allowed, load_explosion_board, load_project_detail
+from app.services.rardar_intelligence import (
+    _demo_allowed,
+    load_discover_project_detail,
+    load_explosion_board,
+    load_project_detail,
+)
 from app.services.rardar_llm_control import (
     RardarLLMError,
     RardarLLMScene,
@@ -209,7 +214,7 @@ async def explain_project(
     return await _explain_project_with_evidence(request, evidence)
 
 
-def _static_project_evidence(detail: ServingProjectDetail) -> ProjectEvidence:
+def _static_project_evidence(detail: ServingProjectDetail | Any) -> ProjectEvidence:
     profile = detail.profile
     evidence = detail.evidence
     if profile.sourceLabel == "受限概括":
@@ -246,6 +251,20 @@ async def explain_project_by_id(
 ) -> ProjectExplanationResponse:
     detail, _etag = load_project_detail(github_repository_id, generation_id, config)
     request = ProjectExplanationRequest(repository=detail.project.repository, generationId=generation_id)
+    return await _explain_project_with_evidence(
+        request,
+        _static_project_evidence(detail),
+        github_repository_id=github_repository_id,
+    )
+
+
+async def explain_discover_project_by_id(
+    github_repository_id: int,
+    generation_id: str,
+    config: Settings = settings,
+) -> ProjectExplanationResponse:
+    detail, _etag = load_discover_project_detail(github_repository_id, generation_id, config)
+    request = ProjectExplanationRequest(repository=detail.facts.repository, generationId=generation_id)
     return await _explain_project_with_evidence(
         request,
         _static_project_evidence(detail),

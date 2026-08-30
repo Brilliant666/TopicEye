@@ -1,0 +1,400 @@
+{
+  "cadenceMinutes": 120,
+  "candidateCount": 8,
+  "captureDelaySeconds": 300.0,
+  "captureId": "trending-v1-20260829T180000Z",
+  "capturedAt": "2026-08-29T18:05:00Z",
+  "coverageState": "healthy",
+  "digest": {
+    "algorithm": "sha256",
+    "value": "2e6b1925e0cf4add7bdd3b9de91b9442e57937aea07b46eba20cc2ebd8e36de6"
+  },
+  "failedQueryCount": 0,
+  "metadataFailureCount": 0,
+  "metadataFailures": [],
+  "observationCount": 8,
+  "observations": [
+    {
+      "archived": false,
+      "capturedAt": "2026-08-29T18:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "defaultBranch": "main",
+      "description": "Description for today/exact",
+      "disabled": false,
+      "fork": false,
+      "forks": 10,
+      "githubRepositoryId": 1,
+      "htmlUrl": "https://github.com/today/exact",
+      "licenseSpdxId": "MIT",
+      "mirrorUrl": null,
+      "openIssues": 2,
+      "primaryLanguage": "Python",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "recalledBy": [
+        {
+          "capturedAt": "2026-08-29T18:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-15 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "repository": "today/exact",
+      "schemaVersion": 1,
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "totalStars": 1020,
+      "updatedAt": "2026-08-23T23:00:00Z"
+    },
+    {
+      "archived": false,
+      "capturedAt": "2026-08-29T18:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "defaultBranch": "main",
+      "description": "Description for discover/near",
+      "disabled": false,
+      "fork": false,
+      "forks": 10,
+      "githubRepositoryId": 2,
+      "htmlUrl": "https://github.com/discover/near",
+      "licenseSpdxId": "MIT",
+      "mirrorUrl": null,
+      "openIssues": 2,
+      "primaryLanguage": "Python",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "recalledBy": [
+        {
+          "capturedAt": "2026-08-29T18:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-15 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "repository": "discover/near",
+      "schemaVersion": 1,
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "totalStars": 214,
+      "updatedAt": "2026-08-23T23:00:00Z"
+    },
+    {
+      "archived": false,
+      "capturedAt": "2026-08-29T18:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "defaultBranch": "main",
+      "description": "Description for discover/rising",
+      "disabled": false,
+      "fork": false,
+      "forks": 10,
+      "githubRepositoryId": 3,
+      "htmlUrl": "https://github.com/discover/rising",
+      "licenseSpdxId": "MIT",
+      "mirrorUrl": null,
+      "openIssues": 2,
+      "primaryLanguage": "Python",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "recalledBy": [
+        {
+          "capturedAt": "2026-08-29T18:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-15 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "repository": "discover/rising",
+      "schemaVersion": 1,
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "totalStars": 308,
+      "updatedAt": "2026-08-23T23:00:00Z"
+    },
+    {
+      "archived": false,
+      "capturedAt": "2026-08-29T18:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "defaultBranch": "main",
+      "description": "Description for discover/flat",
+      "disabled": false,
+      "fork": false,
+      "forks": 10,
+      "githubRepositoryId": 5,
+      "htmlUrl": "https://github.com/discover/flat",
+      "licenseSpdxId": "MIT",
+      "mirrorUrl": null,
+      "openIssues": 2,
+      "primaryLanguage": "Python",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "recalledBy": [
+        {
+          "capturedAt": "2026-08-29T18:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-15 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "repository": "discover/flat",
+      "schemaVersion": 1,
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "totalStars": 500,
+      "updatedAt": "2026-08-23T23:00:00Z"
+    },
+    {
+      "archived": false,
+      "capturedAt": "2026-08-29T18:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "defaultBranch": "main",
+      "description": "Description for discover/falling",
+      "disabled": false,
+      "fork": false,
+      "forks": 10,
+      "githubRepositoryId": 6,
+      "htmlUrl": "https://github.com/discover/falling",
+      "licenseSpdxId": "MIT",
+      "mirrorUrl": null,
+      "openIssues": 2,
+      "primaryLanguage": "Python",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "recalledBy": [
+        {
+          "capturedAt": "2026-08-29T18:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-15 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "repository": "discover/falling",
+      "schemaVersion": 1,
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "totalStars": 596,
+      "updatedAt": "2026-08-23T23:00:00Z"
+    },
+    {
+      "archived": false,
+      "capturedAt": "2026-08-29T18:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "defaultBranch": "main",
+      "description": "Description for discover/disabled",
+      "disabled": false,
+      "fork": false,
+      "forks": 10,
+      "githubRepositoryId": 7,
+      "htmlUrl": "https://github.com/discover/disabled",
+      "licenseSpdxId": "MIT",
+      "mirrorUrl": null,
+      "openIssues": 2,
+      "primaryLanguage": "Python",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "recalledBy": [
+        {
+          "capturedAt": "2026-08-29T18:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-15 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "repository": "discover/disabled",
+      "schemaVersion": 1,
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "totalStars": 704,
+      "updatedAt": "2026-08-23T23:00:00Z"
+    },
+    {
+      "archived": false,
+      "capturedAt": "2026-08-29T18:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "defaultBranch": "main",
+      "description": "Description for old-owner/renamed",
+      "disabled": false,
+      "fork": false,
+      "forks": 10,
+      "githubRepositoryId": 8,
+      "htmlUrl": "https://github.com/old-owner/renamed",
+      "licenseSpdxId": "MIT",
+      "mirrorUrl": null,
+      "openIssues": 2,
+      "primaryLanguage": "Python",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "recalledBy": [
+        {
+          "capturedAt": "2026-08-29T18:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-15 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "repository": "old-owner/renamed",
+      "schemaVersion": 1,
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "totalStars": 804,
+      "updatedAt": "2026-08-23T23:00:00Z"
+    },
+    {
+      "archived": false,
+      "capturedAt": "2026-08-29T18:05:00Z",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "defaultBranch": "main",
+      "description": "Description for collision/shared",
+      "disabled": false,
+      "fork": false,
+      "forks": 10,
+      "githubRepositoryId": 10,
+      "htmlUrl": "https://github.com/collision/shared",
+      "licenseSpdxId": "MIT",
+      "mirrorUrl": null,
+      "openIssues": 2,
+      "primaryLanguage": "Python",
+      "pushedAt": "2026-08-23T22:00:00Z",
+      "recalledBy": [
+        {
+          "capturedAt": "2026-08-29T18:05:00Z",
+          "page": 1,
+          "query": "created:>=2026-08-15 stars:>=25 archived:false fork:false",
+          "queryId": "query-01",
+          "source": "github_search",
+          "sourceKey": "query-01",
+          "sourceRank": 1
+        }
+      ],
+      "repository": "collision/shared",
+      "schemaVersion": 1,
+      "topics": [
+        "ai",
+        "productivity"
+      ],
+      "totalStars": 100,
+      "updatedAt": "2026-08-23T23:00:00Z"
+    }
+  ],
+  "policyVersion": "trending-observation-v1",
+  "queryStatus": [
+    {
+      "errorCode": null,
+      "errorMessage": null,
+      "incompleteResults": false,
+      "query": "created:>=2026-08-15 stars:>=25 archived:false fork:false",
+      "queryId": "query-01",
+      "resultCount": 1,
+      "state": "healthy"
+    },
+    {
+      "errorCode": null,
+      "errorMessage": null,
+      "incompleteResults": false,
+      "query": "pushed:>=2026-08-22 stars:>=500 archived:false fork:false",
+      "queryId": "query-02",
+      "resultCount": 0,
+      "state": "healthy"
+    },
+    {
+      "errorCode": null,
+      "errorMessage": null,
+      "incompleteResults": false,
+      "query": "pushed:>=2026-05-31 stars:>=5000 archived:false fork:false",
+      "queryId": "query-03",
+      "resultCount": 0,
+      "state": "healthy"
+    },
+    {
+      "errorCode": null,
+      "errorMessage": null,
+      "incompleteResults": false,
+      "query": "topic:productivity pushed:>=2026-05-31 stars:>=1000 archived:false fork:false",
+      "queryId": "query-04",
+      "resultCount": 0,
+      "state": "healthy"
+    },
+    {
+      "errorCode": null,
+      "errorMessage": null,
+      "incompleteResults": false,
+      "query": "topic:developer-tools pushed:>=2026-05-31 stars:>=2000 archived:false fork:false",
+      "queryId": "query-05",
+      "resultCount": 0,
+      "state": "healthy"
+    },
+    {
+      "errorCode": null,
+      "errorMessage": null,
+      "incompleteResults": false,
+      "query": "topic:productivity pushed:>=2026-08-22 stars:>=50 archived:false fork:false",
+      "queryId": "query-06",
+      "resultCount": 0,
+      "state": "healthy"
+    },
+    {
+      "errorCode": null,
+      "errorMessage": null,
+      "incompleteResults": false,
+      "query": "topic:artificial-intelligence pushed:>=2026-08-22 stars:>=100 archived:false fork:false",
+      "queryId": "query-07",
+      "resultCount": 0,
+      "state": "healthy"
+    },
+    {
+      "errorCode": null,
+      "errorMessage": null,
+      "incompleteResults": false,
+      "query": "topic:developer-tools pushed:>=2026-08-22 stars:>=100 archived:false fork:false",
+      "queryId": "query-08",
+      "resultCount": 0,
+      "state": "healthy"
+    },
+    {
+      "errorCode": null,
+      "errorMessage": null,
+      "incompleteResults": false,
+      "query": "topic:self-hosted pushed:>=2026-08-22 stars:>=100 archived:false fork:false",
+      "queryId": "query-09",
+      "resultCount": 0,
+      "state": "healthy"
+    }
+  ],
+  "retention": {
+    "retainUntil": "2026-11-27T18:05:00Z",
+    "retentionClass": "raw_2h_observation",
+    "retentionDays": 90
+  },
+  "scheduleTimezone": "Asia/Shanghai",
+  "scheduledAt": "2026-08-29T18:00:00Z",
+  "schemaVersion": 1,
+  "successfulQueryCount": 9,
+  "windowEligible": true
+}

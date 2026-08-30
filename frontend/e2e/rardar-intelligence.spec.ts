@@ -221,13 +221,61 @@ test('fails closed when the requested generation is not retained', async ({ page
   await expect(page.getByRole('heading', { name: '这个项目快照已不匹配' })).toBeVisible();
 });
 
-test('keeps Discover on the existing pending-only fact contract', async ({ page }) => {
-  setMode('ready');
+test('renders audited near-real-time Discover and reuses detail, AI, and Find Project', async ({ page }) => {
+  const browserErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') browserErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => browserErrors.push(error.message));
   await page.goto('/discover');
-  await expect(page.getByRole('heading', { name: /刚被雷达捕获/ })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '待验证项目' })).toBeVisible();
-  await expect(page.getByLabel('正在积累观察的项目')).toBeVisible();
-  await expect(page.getByText('预计 24')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '发现刚刚开始升温的项目' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '刚刚发现' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '持续升温' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '接近验证' })).toBeVisible();
+  await expect(page.getByTestId('discover-project-card')).toHaveCount(5);
+  await expect(page.getByTestId('discover-project-card').first()).toContainText(/\/ 实际 \d+(?:\.\d)? 小时/);
+  await expect(page.getByText('每 2 小时', { exact: true })).toBeVisible();
+  await expect(page.getByText('预计 24h')).toHaveCount(0);
+  await expect(page.getByText('全网排名')).toHaveCount(0);
+  const dimensions = await page.evaluate(() => ({
+    width: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width);
+  await expect(page.locator('nextjs-portal, [data-nextjs-dialog-overlay]')).toHaveCount(0);
+  await captureEvidence(page, 'discover');
+
+  const detailLink = page.getByRole('link', { name: '查看项目详情' }).first();
+  await expect(detailLink).toHaveAttribute('href', /\/project\/github\/\d+\?discoverGeneration=/);
+  await detailLink.click();
+  await expect(page.getByRole('heading', { name: '近实时发现事实' })).toBeVisible();
+  await expect(page.getByText('实际窗口', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '24 小时事实' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: /打开 GitHub/ })).toHaveAttribute('href', /^https:\/\/github\.com\//);
+  await page.getByRole('button', { name: '生成 AI 深度解读' }).click();
+  await expect(page.getByText('AI 深度解读', { exact: true }).last()).toBeVisible();
+  await captureEvidence(page, 'discover-detail');
+  await page.getByRole('link', { name: /用这个仓库评估我的需求/ }).first().click();
+  await expect(page).toHaveURL(/\/find\?repositoryUrl=/);
+  await expect(page.getByLabel('公开 GitHub 仓库 URL （可选）')).toHaveValue(/^https:\/\/github\.com\//);
+  expect(browserErrors, browserErrors.join('\n')).toEqual([]);
+});
+
+test('renders stale, honest empty-stage, and fail-closed Discover states', async ({ page }) => {
+  setMode('discover_stale');
+  await page.goto('/discover');
+  await expect(page.getByText('数据已延迟')).toBeVisible();
+
+  setMode('discover_empty_stage');
+  await page.reload();
+  await expect(page.getByTestId('discover-stage-near_validation')).toContainText(
+    '本次已验证 Observation 中没有符合该阶段条件的项目',
+  );
+
+  setMode('discover_invalid');
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '近实时发现完整性验证失败' })).toBeVisible();
+  await expect(page.getByText(/没有回退到 Demo/)).toBeVisible();
 });
 
 test('frontend health stays lightweight and Admin remains outside the product shell', async ({ page, request }) => {

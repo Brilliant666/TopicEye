@@ -26,6 +26,7 @@ New-Item -ItemType Directory -Path $RuntimeRoot | Out-Null
 [IO.File]::WriteAllText($ModeFile, "top20`n", [Text.UTF8Encoding]::new($false))
 New-Item -ItemType Directory -Path $MirrorRoot | Out-Null
 Copy-Item -Path (Join-Path $BackendRoot "tests\fixtures\rardar_intelligence\revision-a\*") -Destination $MirrorRoot -Recurse
+Copy-Item -Path (Join-Path $BackendRoot "tests\fixtures\rardar_discover\artifacts") -Destination $MirrorRoot -Recurse
 
 # Next's persistent fetch cache must not leak a prior E2E mode into this run.
 # The path is verified before deleting generated build output.
@@ -56,6 +57,8 @@ Push-Location $BackendRoot
 try {
     & $Python -m scripts.rebuild_rardar_serving --target $MirrorRoot --translate-top 0 --offline
     if ($LASTEXITCODE -ne 0) { throw "Could not build the isolated Serving Projection." }
+    & $Python -m tests_rardar_adapter.build_discover_e2e_fixture --target $MirrorRoot
+    if ($LASTEXITCODE -ne 0) { throw "Could not build the isolated Discover Serving Projection." }
 } finally {
     Pop-Location
 }

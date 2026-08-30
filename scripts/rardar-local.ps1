@@ -264,6 +264,19 @@ function Sync-RardarData {
     try {
         & $Python -m scripts.sync_rardar_intelligence --target $MirrorRoot --host $sourceHost --remote-root $remoteRoot
         if ($LASTEXITCODE -ne 0) { throw "Rardar read-only data sync failed." }
+        $discoverArguments = @(
+            "-m", "scripts.sync_rardar_discover",
+            "--target", $MirrorRoot,
+            "--host", $sourceHost,
+            "--remote-root", $remoteRoot
+        )
+        if ($env:RARDAR_DISCOVER_SYNC_SOURCE_DIR) {
+            $discoverArguments += @("--source-dir", $env:RARDAR_DISCOVER_SYNC_SOURCE_DIR)
+        }
+        & $Python @discoverArguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "Rardar Discover sync failed after the independent Today sync; the active Today pointer was preserved."
+        }
     } finally {
         Pop-Location
         $env:PYTHONPATH = $savedPythonPath
@@ -289,6 +302,13 @@ function Rebuild-RardarServing {
     try {
         & $Python -m scripts.rebuild_rardar_serving --target $MirrorRoot
         if ($LASTEXITCODE -ne 0) { throw "Rardar serving projection rebuild failed." }
+        $discoverPointer = Join-Path $MirrorRoot "artifacts\trending\discover\v1\current.json"
+        if (Test-Path -LiteralPath $discoverPointer -PathType Leaf) {
+            & $Python -m scripts.rebuild_rardar_discover_serving --target $MirrorRoot
+            if ($LASTEXITCODE -ne 0) {
+                throw "Rardar Discover Serving rebuild failed; the active Today Serving pointer was preserved."
+            }
+        }
     } finally {
         Pop-Location
         $env:PYTHONPATH = $savedPythonPath

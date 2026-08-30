@@ -127,6 +127,10 @@ export function explainProjectById(githubRepositoryId: number, generationId: str
   return postJson<ProjectExplanation>(`/api/v1/rardar/projects/${githubRepositoryId}/insight`, { generationId });
 }
 
+export function explainDiscoverProjectById(githubRepositoryId: number, generationId: string) {
+  return postJson<ProjectExplanation>(`/api/v1/rardar/discover/projects/${githubRepositoryId}/insight`, { generationId });
+}
+
 export function findProjects(requirement: string, repositoryUrl: string | null) {
   return postJson<FindProjectResponse>('/api/v1/rardar/find-projects', { requirement, repositoryUrl });
 }

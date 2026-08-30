@@ -90,6 +90,34 @@ def test_single_capability_core_value_is_not_a_copy_of_the_capability_detail() -
     assert refs == ["readme:section:3"]
 
 
+def test_capability_structure_strips_markdown_blockquote_marker() -> None:
+    capability = _structure_capability(
+        EvidenceClaim(
+            text="> 配套套件：J-Space Cognition Suite V3.7，用于对照评测模型能力。",
+            evidenceRefs=["readme:section:1"],
+        ),
+        1,
+        source_mode="deterministic_fallback",
+    )
+
+    assert capability.title == "配套套件"
+    assert capability.detail == "J-Space Cognition Suite V3.7，用于对照评测模型能力。"
+    assert not capability.title.startswith(">")
+    assert "markdown_format_noise" in _text_issue_codes("> 配套套件", capability=True)
+
+    escaped = _structure_capability(
+        EvidenceClaim(
+            text=r"\ HLE 数据未披露能力：沿用可验证的现有数据。",
+            evidenceRefs=["readme:section:2"],
+        ),
+        2,
+        source_mode="deterministic_fallback",
+    )
+    assert escaped.title == "HLE 数据未披露能力"
+    assert not escaped.title.startswith("\\")
+    assert "markdown_format_noise" in _text_issue_codes(r"\ HLE 数据未披露能力", capability=True)
+
+
 def test_section_aware_parser_skips_badges_and_preserves_feature_lists() -> None:
     markdown = """
 # Fixture

@@ -17,6 +17,7 @@ from app.api.v1 import rardar as rardar_api
 from app.integrations.rardar.adapter import RardarArtifactError, _SafeRoot
 from app.integrations.rardar.discover import DISCOVER_ROOT, DiscoverArtifactAdapter
 from app.integrations.rardar.discover_serving import (
+    DISCOVER_SERVING_PROJECTION_VERSION,
     DiscoverServingError,
     DiscoverServingLoader,
     build_discover_serving,
@@ -330,6 +331,124 @@ def test_discover_sync_is_idempotent_and_does_not_touch_today_pointer(tmp_path: 
     assert first.discover_generation_id == second.discover_generation_id
     assert today.read_bytes() == before
     assert not list(tmp_path.glob(".*discover-stage-*"))
+
+
+def test_discover_sync_rebuilds_after_projection_contract_changes(tmp_path: Path) -> None:
+    source = _copy_fixture(tmp_path, "source")
+    target = (tmp_path / "mirror").resolve()
+    target.mkdir()
+    profile_provider_calls = 0
+
+    def profile_provider(projects, generation_id, cache_root):
+        nonlocal profile_provider_calls
+        profile_provider_calls += 1
+        return _complete_profiles(projects, generation_id, cache_root)
+
+    first = sync_discover_intelligence(target=target, source_dir=source, profile_provider=profile_provider)
+    metadata_path = target / "discover-sync" / "generations" / f"{first.discover_generation_id}.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata.pop("projectionVersion")
+    metadata_path.write_text(json.dumps(metadata, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+
+    rebuilt = sync_discover_intelligence(target=target, source_dir=source, profile_provider=profile_provider)
+    repeated = sync_discover_intelligence(target=target, source_dir=source, profile_provider=profile_provider)
+
+    assert profile_provider_calls == 2
+    assert rebuilt.changed is True
+    assert repeated.changed is False
+    assert (
+        json.loads(metadata_path.read_text(encoding="utf-8"))["projectionVersion"]
+        == DISCOVER_SERVING_PROJECTION_VERSION
+    )
+
+
+def test_discover_serving_identity_changes_with_profile_content(tmp_path: Path) -> None:
+    source_root = _copy_fixture(tmp_path)
+    source = DiscoverArtifactAdapter.from_config(str(source_root.resolve())).load()
+    first = build_discover_serving(
+        source,
+        cache_root=tmp_path / "cache",
+        profile_provider=_complete_profiles,
+    )
+
+    def changed_profiles(projects, generation_id, cache_root):
+        result = _complete_profiles(projects, generation_id, cache_root)
+        identifier = projects[0].githubRepositoryId
+        collected = result.profiles[identifier]
+        capability = collected.profile.capabilities[0].model_copy(update={"title": "格式清理后的能力"})
+        profile = collected.profile.model_copy(update={"capabilities": [capability]})
+        result.profiles[identifier] = CollectedProjectProfile(
+            profile=profile,
+            evidence=collected.evidence,
+            github_requests=collected.github_requests,
+            readme_cache_hit=collected.readme_cache_hit,
+            translation_calls=collected.translation_calls,
+            translation_cache_hit=collected.translation_cache_hit,
+        )
+        return result
+
+    rebuilt = build_discover_serving(
+        source,
+        cache_root=tmp_path / "cache",
+        profile_provider=changed_profiles,
+    )
+
+    assert rebuilt.serving_generation_id != first.serving_generation_id
+
+
+def test_discover_serving_replaces_profile_invalidated_by_new_projection(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import app.integrations.rardar.discover_serving as serving_module
+
+    source_root = _copy_fixture(tmp_path)
+    source = DiscoverArtifactAdapter.from_config(str(source_root.resolve())).load()
+    first = build_discover_serving(
+        source,
+        cache_root=tmp_path / "cache",
+        profile_provider=_complete_profiles,
+    )
+    install_discover_serving(source_root, first)
+    original_complete = serving_module._complete_profile
+
+    def changed_profiles(projects, generation_id, cache_root):
+        result = _complete_profiles(projects, generation_id, cache_root)
+        identifier = projects[0].githubRepositoryId
+        collected = result.profiles[identifier]
+        capability = collected.profile.capabilities[0].model_copy(update={"title": "格式清理后的能力"})
+        profile = collected.profile.model_copy(update={"capabilities": [capability]})
+        result.profiles[identifier] = CollectedProjectProfile(
+            profile=profile,
+            evidence=collected.evidence,
+            github_requests=collected.github_requests,
+            readme_cache_hit=collected.readme_cache_hit,
+            translation_calls=collected.translation_calls,
+            translation_cache_hit=collected.translation_cache_hit,
+        )
+        return result
+
+    rebuilt = build_discover_serving(
+        source,
+        cache_root=tmp_path / "cache",
+        profile_provider=changed_profiles,
+    )
+
+    def tightened_complete(profile, evidence):
+        if profile.githubRepositoryId == source.board.justDiscovered[0].githubRepositoryId and (
+            profile.capabilities[0].title == "证据驱动能力"
+        ):
+            return False
+        return original_complete(profile, evidence)
+
+    monkeypatch.setattr(serving_module, "_complete_profile", tightened_complete)
+    installed = install_discover_serving(source_root, rebuilt)
+    active, _ = DiscoverServingLoader(source_root).load_with_etag()
+
+    assert installed.changed is True
+    assert installed.serving_generation_id == rebuilt.serving_generation_id
+    assert active.servingGenerationId == rebuilt.serving_generation_id
+    assert active.justDiscovered[0].capabilities[0].title == "格式清理后的能力"
 
 
 def test_discover_sync_activation_rollback_removes_candidates_and_is_retryable(

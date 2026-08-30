@@ -342,7 +342,7 @@ def build_serving_projection(
         )
         today_projects.append(today_project)
         record = ServingProjectRecord(
-            schemaVersion=6,
+            schemaVersion=7,
             generationId=generation_id,
             servingGenerationId=serving_generation_id,
             project=today_project,
@@ -354,7 +354,7 @@ def build_serving_projection(
         evidence_files[f"evidence/{project.githubRepositoryId}.json"] = _model_bytes(collected.evidence)
 
     today = ServingTodaySnapshot(
-        schemaVersion=6,
+        schemaVersion=7,
         state=board.state,
         reason=board.reason,
         generationId=generation_id,
@@ -399,7 +399,7 @@ def build_serving_projection(
         for identifier in sorted(expected_ids)
     }
     manifest = ServingManifest(
-        schemaVersion=6,
+        schemaVersion=7,
         state="ready",
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
@@ -414,7 +414,7 @@ def build_serving_projection(
     manifest_raw = _model_bytes(manifest)
     files["manifest.json"] = manifest_raw
     pointer = ServingPointer(
-        schemaVersion=6,
+        schemaVersion=7,
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
         manifestSha256=_sha(manifest_raw),

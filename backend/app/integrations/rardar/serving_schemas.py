@@ -24,6 +24,12 @@ ProfileState = Literal["complete", "partial", "source_unavailable"]
 ProfileQualityState = Literal["ready", "partial", "rejected"]
 OfficialNarrativeMode = Literal["official_zh", "official_translated", "rardar_derived", "insufficient"]
 PositioningSourceMode = Literal["official_zh", "official_translated", "rardar_derived", "insufficient"]
+CapabilitySourceMode = Literal[
+    "official_zh",
+    "official_translated",
+    "rardar_derived",
+    "deterministic_fallback",
+]
 PositioningIncludedRole = Literal["identity", "core_mechanism", "primary_outcome"]
 PositioningExcludedRole = Literal["operation", "deployment", "validation", "example", "boundary"]
 OfficialNarrativeIssue = Literal[
@@ -78,6 +84,7 @@ class ServingCapability(StrictServingModel):
     detail: str = Field(min_length=4, max_length=1200)
     shortDetail: str | None = Field(default=None, min_length=4, max_length=200)
     evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+    sourceMode: CapabilitySourceMode | None = None
 
     @field_validator("title", "detail", "shortDetail")
     @classmethod
@@ -199,7 +206,7 @@ class ServingProfileSummary(StrictServingModel):
 
 
 class ServingPointer(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5, 6]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7]
     servingGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
     sourceGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
     manifestSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -207,7 +214,7 @@ class ServingPointer(StrictServingModel):
 
 
 class ServingManifest(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5, 6]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7]
     state: Literal["ready"]
     servingGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
     sourceGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
@@ -261,7 +268,7 @@ class TodayProject(ExactExplosionProject):
 
 
 class ServingTodaySnapshot(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5, 6]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7]
     state: Literal["ready", "warming_up", "baseline_missing", "not_ready"]
     reason: Literal["explosion_artifact_not_published"] | None = None
     generationId: str
@@ -343,6 +350,15 @@ class ServingTodaySnapshot(StrictServingModel):
                 or self.profileSummary.insufficient != narrative_counts["insufficient"]
             ):
                 raise ValueError("Serving v5 narrative summary is inconsistent")
+        if (
+            self.schemaVersion >= 7
+            and len(self.exactRanked) == 20
+            and any(
+                not project.capabilities or any(item.sourceMode is None for item in project.capabilities)
+                for project in self.exactRanked
+            )
+        ):
+            raise ValueError("Serving v7 exact Top 20 requires sourced capabilities")
         return self
 
 
@@ -378,6 +394,7 @@ class OfficialProjectProfile(StrictServingModel):
         "rardar-project-profile-v4",
         "rardar-project-profile-v5",
         "rardar-project-profile-v6",
+        "rardar-project-profile-v7",
     ]
     promptVersion: Literal[
         "rardar-project-profile-zh-v1",
@@ -393,6 +410,8 @@ class OfficialProjectProfile(StrictServingModel):
         "rardar-project-profile-zh-v11",
         "rardar-project-profile-zh-v12",
         "rardar-project-profile-zh-v13",
+        "rardar-project-profile-zh-v14",
+        "rardar-project-profile-zh-v15",
     ]
     githubRepositoryId: int = Field(gt=0)
     repository: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -450,6 +469,7 @@ class OfficialProjectProfile(StrictServingModel):
                 "rardar-project-profile-v4",
                 "rardar-project-profile-v5",
                 "rardar-project-profile-v6",
+                "rardar-project-profile-v7",
             }
             and [item.detail for item in self.capabilities] != self.capabilityBulletsZh
         ):
@@ -458,6 +478,7 @@ class OfficialProjectProfile(StrictServingModel):
             "rardar-project-profile-v4",
             "rardar-project-profile-v5",
             "rardar-project-profile-v6",
+            "rardar-project-profile-v7",
         }:
             if self.identitySummaryZh is None or self.qualityState is None:
                 raise ValueError("profile v4 requires identity and quality state")
@@ -483,12 +504,20 @@ class OfficialProjectProfile(StrictServingModel):
                 raise ValueError("rejected profile must not expose rejected semantic claims")
             if self.qualityState == "rejected" and not self.qualityIssues:
                 raise ValueError("rejected profile requires a stable quality reason")
-        if self.profileSchemaVersion in {"rardar-project-profile-v5", "rardar-project-profile-v6"}:
+        if self.profileSchemaVersion in {
+            "rardar-project-profile-v5",
+            "rardar-project-profile-v6",
+            "rardar-project-profile-v7",
+        }:
             _validate_v5_narrative(self)
             if self.officialNarrativePromptVersion is None or self.rardarAssessmentPromptVersion is None:
                 raise ValueError("profile v5 requires both narrative prompt versions")
-        if self.profileSchemaVersion == "rardar-project-profile-v6":
+        if self.profileSchemaVersion in {"rardar-project-profile-v6", "rardar-project-profile-v7"}:
             _validate_v6_positioning(self)
+        if self.profileSchemaVersion == "rardar-project-profile-v7" and any(
+            item.sourceMode is None for item in self.capabilities
+        ):
+            raise ValueError("profile v7 requires sourced capabilities")
         return self
 
 
@@ -509,7 +538,7 @@ class ProjectEvidenceProjection(StrictServingModel):
 
 
 class ServingProjectDetail(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5, 6]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7]
     generationId: str
     servingGenerationId: str
     project: TodayProject
@@ -535,7 +564,7 @@ class ServingProjectDetail(StrictServingModel):
 
 
 class ServingProjectRecord(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5, 6]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7]
     generationId: str
     servingGenerationId: str
     project: TodayProject

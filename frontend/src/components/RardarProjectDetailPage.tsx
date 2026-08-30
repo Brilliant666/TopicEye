@@ -17,6 +17,7 @@ import {
 
 import {
   assertPublishableProject,
+  type CapabilitySourceMode,
   narrativeSourceLabel,
   positioningSourceLabel,
   type ProjectCapability,
@@ -38,14 +39,7 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
   const positioningLabel = positioningSourceLabel(profile.positioningSourceMode);
   const primaryLinks = profile.startHere.slice(0, 4);
   const moreLinks = profile.startHere.slice(4);
-  const presentedCapabilities = profile.officialHighlights.length > 0
-    ? profile.officialHighlights.map((highlight) => ({
-        title: highlight.titleZh,
-        detail: highlight.detailZh,
-        shortDetail: null,
-        evidenceRefs: highlight.evidenceRefs,
-      }))
-    : profile.capabilities;
+  const presentedCapabilities = profile.capabilities;
 
   return (
     <div className={`${styles.page} ${styles.detailPage}`} data-rardar-route="/project">
@@ -95,15 +89,17 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
           <DetailSection
             icon={Boxes}
             title="它能做什么"
-            subtitle={profile.officialHighlights.length > 0
-              ? `保持 ${sourceLabel} 中的标题、数量和顺序。`
-              : '官方资料结构较弱；以下内容明确标记为 Rardar 整理。'}
+            subtitle="能力来自同一份已验证项目档案；来源类型与仓库证据逐项标明。"
           >
-            <ol className={styles.capabilityNarrative}>
-              {presentedCapabilities.slice(0, 8).map((capability, index) => (
-                <li key={`${capability.title}-${capability.detail}`}>
+            <ol className={styles.capabilityNarrative} data-testid="project-capability-section">
+              {presentedCapabilities.slice(0, 6).map((capability, index) => (
+                <li
+                  key={`${capability.title}-${capability.detail}`}
+                  data-testid="project-capability-item"
+                  data-source-mode={capability.sourceMode || 'rardar_derived'}
+                >
                   <span>{String(index + 1).padStart(2, '0')}</span>
-                  <div><strong>{capability.title}</strong><p>{capability.detail}</p><EvidenceBadges values={capability.evidenceRefs} /></div>
+                  <div><strong>{capability.title}</strong><p>{capability.detail}</p><CapabilityEvidence capability={capability} legacyProfile={profile} /></div>
                 </li>
               ))}
             </ol>
@@ -236,6 +232,45 @@ function EvidenceBadges({ values }: { values: string[] }) {
     counts.set(label, (counts.get(label) || 0) + 1);
   });
   return <small className={styles.capabilityEvidence}>{Array.from(counts, ([label, count]) => count > 1 ? `${label} · ${count}处证据` : label).join(' · ')}</small>;
+}
+
+function CapabilityEvidence({
+  capability,
+  legacyProfile,
+}: {
+  capability: ProjectCapability;
+  legacyProfile: ProjectDetail['profile'];
+}) {
+  const labels = Array.from(new Set(capability.evidenceRefs.map(evidenceSourceLabel)));
+  const sourceMode = capability.sourceMode || legacyCapabilitySourceMode(capability, legacyProfile);
+  return (
+    <small className={styles.capabilityEvidence}>
+      来源：{capabilitySourceLabel(sourceMode)} · 证据：{labels.join(' · ')}
+    </small>
+  );
+}
+
+function legacyCapabilitySourceMode(
+  capability: ProjectCapability,
+  profile: ProjectDetail['profile'],
+): CapabilitySourceMode {
+  const matchesOfficialHighlight = profile.officialHighlights.some((highlight) => (
+    highlight.titleZh === capability.title
+    && highlight.detailZh === capability.detail
+    && highlight.evidenceRefs.join('\u0000') === capability.evidenceRefs.join('\u0000')
+  ));
+  if (matchesOfficialHighlight && profile.officialNarrativeMode === 'official_zh') return 'official_zh';
+  if (matchesOfficialHighlight && profile.officialNarrativeMode === 'official_translated') return 'official_translated';
+  return 'rardar_derived';
+}
+
+function capabilitySourceLabel(mode: CapabilitySourceMode | null | undefined) {
+  return {
+    official_zh: '官方中文 README',
+    official_translated: '官方 README（译）',
+    rardar_derived: 'Rardar 整理',
+    deterministic_fallback: 'Rardar 整理',
+  }[mode || 'rardar_derived'];
 }
 
 function evidenceSourceLabel(value: string) {

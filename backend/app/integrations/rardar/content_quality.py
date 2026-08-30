@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from app.integrations.rardar.serving import ServingProjectionLoader
+from app.integrations.rardar.serving_completeness import _capability_audit
 from app.integrations.rardar.serving_schemas import ServingCapability, ServingProjectDetail
 
 _CHINESE = re.compile(r"[\u3400-\u9fff]")
@@ -62,6 +63,7 @@ def _audit_project(detail: ServingProjectDetail) -> dict[str, Any]:
     profile = detail.profile
     identity = profile.identitySummaryZh
     allowed_refs = set(detail.evidence.evidenceIndex)
+    capability_audit = _capability_audit(profile.capabilities, allowed_refs)
     reasons: list[str] = []
     if _PURE_URL.fullmatch(identity):
         reasons.append("url_summary")
@@ -96,6 +98,8 @@ def _audit_project(detail: ServingProjectDetail) -> dict[str, Any]:
         "identitySummaryZh": identity,
         "coreValueZh": profile.coreValueZh,
         "capabilityCount": len(profile.capabilities),
+        "capabilitySourceModes": dict(Counter(item.sourceMode for item in profile.capabilities)),
+        "capabilityAudit": capability_audit,
         "invalidContentReasons": reasons,
         "translationState": profile.translationState,
         "recommendedRepairPath": "none" if not reasons else "rebuild_from_sanitized_official_evidence",
@@ -142,6 +146,27 @@ def audit_serving_top20(target: Path) -> dict[str, Any]:
         "coreValueDuplicates": invalid["core_value_duplicates_identity"] + invalid["core_value_duplicates_capability"],
         "titleBodyDuplicates": invalid["title_body_duplicate"],
         "invalidEvidenceRefs": invalid["invalid_evidence_ref"],
+        "capabilityNonEmpty": sum(entry["capabilityCount"] > 0 for entry in entries),
+        "capabilityItemTotal": sum(entry["capabilityCount"] for entry in entries),
+        "singleCapabilityProjects": sum(entry["capabilityCount"] == 1 for entry in entries),
+        "capabilityOfficialZh": sum(entry["capabilitySourceModes"].get("official_zh", 0) for entry in entries),
+        "capabilityOfficialTranslated": sum(
+            entry["capabilitySourceModes"].get("official_translated", 0) for entry in entries
+        ),
+        "capabilityRardarDerived": sum(entry["capabilitySourceModes"].get("rardar_derived", 0) for entry in entries),
+        "capabilityDeterministicFallback": sum(
+            entry["capabilitySourceModes"].get("deterministic_fallback", 0) for entry in entries
+        ),
+        "capabilityPlaceholders": sum(entry["capabilityAudit"].get("placeholder", 0) for entry in entries),
+        "genericCapabilityTitles": sum(entry["capabilityAudit"].get("generic", 0) for entry in entries),
+        "untranslatedCapabilities": sum(entry["capabilityAudit"].get("untranslated", 0) for entry in entries),
+        "capabilityNavigationNoise": sum(entry["capabilityAudit"].get("navigation", 0) for entry in entries),
+        "capabilityHtmlImageNoise": sum(entry["capabilityAudit"].get("html_image", 0) for entry in entries),
+        "capabilityPureUrls": sum(entry["capabilityAudit"].get("pure_url", 0) for entry in entries),
+        "operationDeploymentLeakage": sum(entry["capabilityAudit"].get("operation", 0) for entry in entries),
+        "duplicateCapabilities": sum(entry["capabilityAudit"].get("duplicate", 0) for entry in entries),
+        "missingCapabilityEvidence": sum(entry["capabilityAudit"].get("missing_evidence", 0) for entry in entries),
+        "missingCapabilitySource": sum(entry["capabilityAudit"].get("missing_source", 0) for entry in entries),
     }
     zero_fields = (
         "urlSummaries",
@@ -154,9 +179,20 @@ def audit_serving_top20(target: Path) -> dict[str, Any]:
         "coreValueDuplicates",
         "titleBodyDuplicates",
         "invalidEvidenceRefs",
+        "capabilityPlaceholders",
+        "genericCapabilityTitles",
+        "untranslatedCapabilities",
+        "capabilityNavigationNoise",
+        "capabilityHtmlImageNoise",
+        "capabilityPureUrls",
+        "operationDeploymentLeakage",
+        "duplicateCapabilities",
+        "missingCapabilityEvidence",
+        "missingCapabilitySource",
     )
     passed = (
         summary["total"] == 20
+        and summary["capabilityNonEmpty"] == 20
         and summary["chineseIdentitySummaries"] == 20
         and summary["top10ChineseIdentitySummaries"] == 10
         and summary["top10ChineseCoreValues"] == 10

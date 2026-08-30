@@ -262,6 +262,21 @@ function v6Top20Payload() {
   };
 }
 
+function v7Top20Payload() {
+  const payload = v6Top20Payload();
+  return {
+    ...payload,
+    schemaVersion: 7,
+    exactRanked: payload.exactRanked.map((project) => ({
+      ...project,
+      capabilities: project.capabilities.map((capability) => ({
+        ...capability,
+        sourceMode: 'official_translated',
+      })),
+    })),
+  };
+}
+
 describe('Rardar intelligence client contract', () => {
   it('preserves the audited API order and rejects invented repository shapes', () => {
     const parsed = parseExplosionBoard(readyPayload);
@@ -718,6 +733,29 @@ describe('Rardar intelligence client contract', () => {
       exactRanked: payload.exactRanked.map((project, index) => (
         index === 9 ? incompleteProject : project
       )),
+    })).toThrow('rardar_response_invalid');
+  });
+
+  it('accepts v6 compatibility but requires sourced, non-empty capabilities for every v7 Top 20 project', () => {
+    expect(parseTodaySnapshot(v6Top20Payload()).schemaVersion).toBe(6);
+    expect(parseTodaySnapshot(v7Top20Payload()).schemaVersion).toBe(7);
+
+    const empty = v7Top20Payload();
+    empty.exactRanked[5] = { ...empty.exactRanked[5], capabilities: [] };
+    expect(() => parseTodaySnapshot(empty)).toThrow('rardar_response_invalid');
+
+    const unsourced = v7Top20Payload();
+    expect(() => parseTodaySnapshot({
+      ...unsourced,
+      exactRanked: unsourced.exactRanked.map((project, index) => index === 9 ? {
+        ...project,
+        capabilities: project.capabilities.map(({ title, detail, shortDetail, evidenceRefs }) => ({
+          title,
+          detail,
+          shortDetail,
+          evidenceRefs,
+        })),
+      } : project),
     })).toThrow('rardar_response_invalid');
   });
 

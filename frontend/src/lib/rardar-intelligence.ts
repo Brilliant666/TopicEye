@@ -162,6 +162,7 @@ export type ProfileSourceLabel = '官方中文 README' | '官方 README（译）
 export type TranslationState = 'not_needed' | 'translated' | 'pending' | 'unavailable';
 export type OfficialNarrativeMode = 'official_zh' | 'official_translated' | 'rardar_derived' | 'insufficient';
 export type PositioningSourceMode = OfficialNarrativeMode;
+export type CapabilitySourceMode = 'official_zh' | 'official_translated' | 'rardar_derived' | 'deterministic_fallback';
 export type PositioningIncludedRole = 'identity' | 'core_mechanism' | 'primary_outcome';
 export type PositioningExcludedRole = 'operation' | 'deployment' | 'validation' | 'example' | 'boundary';
 export type OfficialNarrativeIssue =
@@ -179,6 +180,7 @@ export interface ProjectCapability {
   detail: string;
   shortDetail: string | null;
   evidenceRefs: string[];
+  sourceMode?: CapabilitySourceMode | null;
 }
 
 export interface OfficialHighlight {
@@ -244,7 +246,7 @@ export interface ProfileSummary {
 }
 
 export interface TodaySnapshot extends Omit<ExplosionBoard, 'exactRanked' | 'state' | 'reason' | 'dataMode'> {
-  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6;
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7;
   state: 'ready' | 'warming_up' | 'baseline_missing' | 'not_ready';
   reason: 'explosion_artifact_not_published' | null;
   exactRanked: TodayProject[];
@@ -275,13 +277,13 @@ export interface StartHereLink {
 }
 
 export interface ProjectDetail {
-  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6;
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7;
   generationId: string;
   servingGenerationId: string;
   project: TodayProject;
   profile: {
-    profileSchemaVersion: 'rardar-project-profile-v1' | 'rardar-project-profile-v2' | 'rardar-project-profile-v3' | 'rardar-project-profile-v4' | 'rardar-project-profile-v5' | 'rardar-project-profile-v6';
-    promptVersion: 'rardar-project-profile-zh-v1' | 'rardar-project-profile-zh-v2' | 'rardar-project-profile-zh-v3' | 'rardar-project-profile-zh-v4' | 'rardar-project-profile-zh-v5' | 'rardar-project-profile-zh-v6' | 'rardar-project-profile-zh-v7' | 'rardar-project-profile-zh-v8' | 'rardar-project-profile-zh-v9' | 'rardar-project-profile-zh-v10' | 'rardar-project-profile-zh-v11' | 'rardar-project-profile-zh-v12' | 'rardar-project-profile-zh-v13';
+    profileSchemaVersion: 'rardar-project-profile-v1' | 'rardar-project-profile-v2' | 'rardar-project-profile-v3' | 'rardar-project-profile-v4' | 'rardar-project-profile-v5' | 'rardar-project-profile-v6' | 'rardar-project-profile-v7';
+    promptVersion: 'rardar-project-profile-zh-v1' | 'rardar-project-profile-zh-v2' | 'rardar-project-profile-zh-v3' | 'rardar-project-profile-zh-v4' | 'rardar-project-profile-zh-v5' | 'rardar-project-profile-zh-v6' | 'rardar-project-profile-zh-v7' | 'rardar-project-profile-zh-v8' | 'rardar-project-profile-zh-v9' | 'rardar-project-profile-zh-v10' | 'rardar-project-profile-zh-v11' | 'rardar-project-profile-zh-v12' | 'rardar-project-profile-zh-v13' | 'rardar-project-profile-zh-v14' | 'rardar-project-profile-zh-v15';
     githubRepositoryId: number;
     repository: string;
     htmlUrl: string;
@@ -458,7 +460,7 @@ export function assertPublishableProject(project: unknown, requireIncludedRoles 
 export function parseTodaySnapshot(value: unknown): TodaySnapshot {
   const board = parseExplosionBoard(value);
   const schemaVersion = Number(isRecord(value) ? value.schemaVersion : NaN);
-  if (!isRecord(value) || ![1, 2, 3, 4, 5, 6].includes(schemaVersion) || typeof value.servingGenerationId !== 'string') {
+  if (!isRecord(value) || ![1, 2, 3, 4, 5, 6, 7].includes(schemaVersion) || typeof value.servingGenerationId !== 'string') {
     throw new Error('rardar_response_invalid');
   }
   if (
@@ -493,6 +495,7 @@ export function parseTodaySnapshot(value: unknown): TodaySnapshot {
       ))
       || (schemaVersion >= 5 && !isValidV5NarrativeProjection(item))
       || (schemaVersion >= 6 && !isValidV6PositioningProjection(item))
+      || (schemaVersion >= 7 && !isValidV7CapabilityProjection(item))
     ) {
       throw new Error('rardar_response_invalid');
     }
@@ -563,7 +566,25 @@ function isProjectCapability(value: unknown): value is ProjectCapability {
     && value.detail.length > 0
     && (value.shortDetail === null || typeof value.shortDetail === 'string')
     && Array.isArray(value.evidenceRefs)
-    && value.evidenceRefs.every((reference) => typeof reference === 'string');
+    && value.evidenceRefs.every((reference) => typeof reference === 'string')
+    && (value.sourceMode === undefined || value.sourceMode === null || capabilitySourceModes.includes(value.sourceMode as CapabilitySourceMode));
+}
+
+const capabilitySourceModes: CapabilitySourceMode[] = [
+  'official_zh',
+  'official_translated',
+  'rardar_derived',
+  'deterministic_fallback',
+];
+
+function isValidV7CapabilityProjection(value: Record<string, unknown>): boolean {
+  return Array.isArray(value.capabilities)
+    && value.capabilities.length > 0
+    && value.capabilities.every((capability) => (
+      isProjectCapability(capability)
+      && capability.sourceMode !== null
+      && capability.sourceMode !== undefined
+    ));
 }
 
 function isOfficialHighlight(value: unknown): value is OfficialHighlight {
@@ -843,7 +864,7 @@ export async function loadTodaySnapshot(
 
 export function parseProjectDetail(value: unknown): ProjectDetail {
   const schemaVersion = Number(isRecord(value) ? value.schemaVersion : NaN);
-  if (!isRecord(value) || ![1, 2, 3, 4, 5, 6].includes(schemaVersion) || !isRecord(value.project) || !isRecord(value.profile) || !isRecord(value.evidence)) {
+  if (!isRecord(value) || ![1, 2, 3, 4, 5, 6, 7].includes(schemaVersion) || !isRecord(value.project) || !isRecord(value.profile) || !isRecord(value.evidence)) {
     throw new Error('rardar_project_response_invalid');
   }
   const identifier = value.project.githubRepositoryId;
@@ -873,6 +894,8 @@ export function parseProjectDetail(value: unknown): ProjectDetail {
     || (schemaVersion >= 5 && !isValidV5NarrativeProjection(value.profile))
     || (schemaVersion >= 6 && !isValidV6PositioningProjection(value.project))
     || (schemaVersion >= 6 && !isValidV6PositioningProjection(value.profile))
+    || (schemaVersion >= 7 && !isValidV7CapabilityProjection(value.project))
+    || (schemaVersion >= 7 && !isValidV7CapabilityProjection(value.profile))
     || (schemaVersion >= 5 && (
       typeof value.profile.officialNarrativePromptVersion !== 'string'
       || typeof value.profile.rardarAssessmentPromptVersion !== 'string'

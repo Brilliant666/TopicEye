@@ -225,8 +225,36 @@ async def visual_state_fixture(request, call_next):
         try:
             detail, _etag = load_project_detail(github_repository_id, generation_id)
         except (RardarArtifactError, ServingProjectionError):
-            return await call_next(request)
+            rank = github_repository_id - 10_000
+            if mode != "top20" or rank not in range(6, 21):
+                return await call_next(request)
+            detail, _etag = load_project_detail(1, generation_id)
         payload = detail.model_dump(mode="json")
+        if 10_006 <= github_repository_id <= 10_020:
+            rank = github_repository_id - 10_000
+            repository = _KNOWN_TOP20_REPOSITORIES.get(rank, f"fixture-lab/top-{rank}")
+            html_url = f"https://github.com/{repository}"
+            payload["project"].update(
+                {
+                    "rank": rank,
+                    "githubRepositoryId": github_repository_id,
+                    "repository": repository,
+                    "htmlUrl": html_url,
+                }
+            )
+            payload["profile"].update(
+                {
+                    "githubRepositoryId": github_repository_id,
+                    "repository": repository,
+                    "htmlUrl": html_url,
+                }
+            )
+            payload["evidence"].update(
+                {
+                    "githubRepositoryId": github_repository_id,
+                    "repository": repository,
+                }
+            )
         _apply_v4_detail(payload)
         return JSONResponse(content=payload)
     if request.url.path == "/api/v1/rardar/find-projects":

@@ -51,6 +51,26 @@ def _normalized_capability_text(value: str) -> str:
     return re.sub(r"[^0-9a-z\u3400-\u9fff]+", "", value.casefold())
 
 
+def _normalized_primary_text(value: str) -> str:
+    cleaned = re.sub(r"\s+", " ", value).strip()
+    cleaned = re.sub(
+        r"^(?:这是|它是|该项目是|该仓库是|本项目是|本仓库是|作为|是)?\s*(?:一个|一种|一款|一套|一项)?\s*",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"(?:这是|它是|该项目|该仓库|本项目|本仓库|公开发布|进行|面向|项目|的)", "", cleaned)
+    return re.sub(r"[^0-9a-z\u3400-\u9fff]+", "", cleaned.casefold())
+
+
+def _primary_texts_duplicate(identity: str, positioning: str) -> bool:
+    first = _normalized_primary_text(identity)
+    second = _normalized_primary_text(positioning)
+    if not first or not second:
+        return False
+    shorter, longer = sorted((len(first), len(second)))
+    return first == second or (shorter >= 8 and longer <= int(shorter * 1.35) and (first in second or second in first))
+
+
 class ServingCapability(StrictServingModel):
     """One complete, evidence-bound capability for both Today and project detail."""
 
@@ -372,6 +392,7 @@ class OfficialProjectProfile(StrictServingModel):
         "rardar-project-profile-zh-v10",
         "rardar-project-profile-zh-v11",
         "rardar-project-profile-zh-v12",
+        "rardar-project-profile-zh-v13",
     ]
     githubRepositoryId: int = Field(gt=0)
     repository: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -633,8 +654,13 @@ def _validate_v6_positioning(value: TodayProject | OfficialProjectProfile) -> No
             or value.positioningExcludedClauses
         ):
             raise ValueError("Serving v6 insufficient positioning must expose no claims")
-    elif value.positioningZh is None or not value.positioningEvidenceRefs or not value.positioningIncludedRoles:
-        raise ValueError("Serving v6 positioning requires text, evidence, and semantic roles")
+    else:
+        if value.positioningZh is None or not value.positioningEvidenceRefs or not value.positioningIncludedRoles:
+            raise ValueError("Serving v6 positioning requires text, evidence, and semantic roles")
+        if not {"core_mechanism", "primary_outcome"}.intersection(value.positioningIncludedRoles):
+            raise ValueError("Serving v6 positioning requires a mechanism or primary outcome")
+        if value.identitySummaryZh and _primary_texts_duplicate(value.identitySummaryZh, value.positioningZh):
+            raise ValueError("Serving v6 positioning must not repeat the identity summary")
     if value.officialPositioningZh != value.positioningZh:
         raise ValueError("Serving v6 legacy positioning text projection is inconsistent")
     if value.officialPositioningEvidenceRefs != value.positioningEvidenceRefs:

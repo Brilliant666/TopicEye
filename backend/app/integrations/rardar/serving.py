@@ -18,6 +18,7 @@ from typing import Any, Protocol
 
 from app.integrations.rardar.adapter import RardarArtifactError, _SafeRoot, _strict_json
 from app.integrations.rardar.schemas import ExactExplosionProject, ExplosionBoardResponse
+from app.integrations.rardar.serving_completeness import audit_candidate_publication
 from app.integrations.rardar.serving_profiles import (
     CollectedProjectProfile,
     ProfileBuildResult,
@@ -46,6 +47,10 @@ _MAX_PROJECT_BYTES = 4 * 1024 * 1024
 class ServingProjectionError(RardarArtifactError):
     """A stable fail-closed error for serving projection consumers."""
 
+    def __init__(self, code: str, message: str, *, audit: dict[str, Any] | None = None) -> None:
+        super().__init__(code, message)
+        self.audit = audit
+
 
 class ProfileProvider(Protocol):
     def __call__(
@@ -67,6 +72,7 @@ class BuiltServingProjection:
     files: dict[str, bytes]
     profile_summary: ServingProfileSummary
     profile_result: ProfileBuildResult
+    publication_audit: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -76,6 +82,7 @@ class ServingInstallResult:
     manifest_sha256: str
     created: bool
     changed: bool
+    publication_audit: dict[str, Any]
 
 
 @dataclass
@@ -158,7 +165,7 @@ def _fallback_profiles(
         source_label = "受限概括" if insufficient else "Rardar 整理"
         profile = OfficialProjectProfile(
             profileSchemaVersion="rardar-project-profile-v6",
-            promptVersion="rardar-project-profile-zh-v12",
+            promptVersion="rardar-project-profile-zh-v13",
             githubRepositoryId=project.githubRepositoryId,
             repository=project.repository,
             htmlUrl=project.htmlUrl,
@@ -192,7 +199,7 @@ def _fallback_profiles(
             rardarAssessmentZh=None,
             rardarAssessmentEvidenceRefs=[],
             rardarDifferentiators=[],
-            rardarAssessmentPromptVersion="rardar-assessment-zh-v5",
+            rardarAssessmentPromptVersion="rardar-assessment-zh-v10",
             sourceLabel=source_label,
             sourceLanguage=source_language,
             capabilityBulletsZh=[],
@@ -368,6 +375,11 @@ def build_serving_projection(
         servingGenerationId=serving_generation_id,
         profileSummary=profile_summary,
     )
+    publication_audit = audit_candidate_publication(
+        today,
+        profile_result,
+        candidate_serving_id=serving_generation_id,
+    )
     today_raw = _model_bytes(today)
     files = {"today.json": today_raw, **project_files, **evidence_files}
     project_inventory = {
@@ -420,6 +432,7 @@ def build_serving_projection(
         files=files,
         profile_summary=profile_summary,
         profile_result=profile_result,
+        publication_audit=publication_audit,
     )
 
 
@@ -629,6 +642,34 @@ def install_serving_projection(target: Path, built: BuiltServingProjection) -> S
     _plain_directory(serving_root)
     _plain_directory(generations)
     _plain_directory(sources)
+    source_pointer = sources / f"{built.source_generation_id}.json"
+    current_pointer = serving_root / "current.json"
+    old_source = _optional_plain_bytes(source_pointer)
+    old_current = _optional_plain_bytes(current_pointer)
+    previous_serving_id: str | None = None
+    if old_current:
+        try:
+            previous_serving_id = _strict_model(
+                old_current,
+                ServingPointer,
+                "rardar_serving_pointer_invalid",
+            ).servingGenerationId
+        except ServingProjectionError:
+            previous_serving_id = None
+    publication_audit = dict(built.publication_audit)
+    publication_audit.update(
+        {
+            "activationPerformed": False,
+            "previousServingId": previous_serving_id,
+            "finalServingId": previous_serving_id,
+        }
+    )
+    if not publication_audit["activationAllowed"]:
+        raise ServingProjectionError(
+            "candidate_completeness_failed",
+            "Rardar candidate failed the exact Top 20 publication gate",
+            audit=publication_audit,
+        )
     generation_path = generations / built.serving_generation_id
     created = False
     if generation_path.exists():
@@ -648,10 +689,6 @@ def install_serving_projection(target: Path, built: BuiltServingProjection) -> S
             shutil.rmtree(stage, ignore_errors=True)
             raise
 
-    source_pointer = sources / f"{built.source_generation_id}.json"
-    current_pointer = serving_root / "current.json"
-    old_source = _optional_plain_bytes(source_pointer)
-    old_current = _optional_plain_bytes(current_pointer)
     active_matches = False
     if old_current:
         try:
@@ -672,12 +709,14 @@ def install_serving_projection(target: Path, built: BuiltServingProjection) -> S
         except ServingProjectionError:
             active_matches = False
     if active_matches:
+        publication_audit["finalServingId"] = built.serving_generation_id
         return ServingInstallResult(
             serving_generation_id=built.serving_generation_id,
             source_generation_id=built.source_generation_id,
             manifest_sha256=built.manifest_sha256,
             created=created,
             changed=False,
+            publication_audit=publication_audit,
         )
     changed = old_source != built.pointer_raw or old_current != built.pointer_raw
     source_changed = False
@@ -706,12 +745,19 @@ def install_serving_projection(target: Path, built: BuiltServingProjection) -> S
         clear_serving_cache()
         raise
     clear_serving_cache()
+    publication_audit.update(
+        {
+            "activationPerformed": changed,
+            "finalServingId": built.serving_generation_id,
+        }
+    )
     return ServingInstallResult(
         serving_generation_id=built.serving_generation_id,
         source_generation_id=built.source_generation_id,
         manifest_sha256=built.manifest_sha256,
         created=created,
         changed=changed,
+        publication_audit=publication_audit,
     )
 
 

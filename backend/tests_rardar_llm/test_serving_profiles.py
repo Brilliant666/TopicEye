@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,29 +16,40 @@ from app.integrations.rardar.serving_profiles import (
     ExtractedOfficialHighlight,
     ExtractedOfficialNarrative,
     OfficialNarrativeTranslation,
+    OfficialPositioningTranslation,
     ProfileTranslation,
     ProfileTranslationError,
     TranslatedOfficialHighlight,
     _bounded_translation_evidence,
     _dedupe_context_subject,
     _extract_official_narrative,
+    _generation_error_code,
     _github_file_url,
+    _load_last_known_good,
+    _navigation_noise,
     _official_chinese_positioning,
     _official_english_positioning_is_high_signal,
     _official_positioning_is_high_signal,
     _parse_readme,
     _preferred_chinese_readme,
+    _primary_semantic_duplicate,
     _readme_redirect_target,
     _safe_fallback_identity,
+    _semantic_structuring_required,
     _source_language,
     _structure_capability,
+    _text_issue_codes,
+    _translate_official_positioning_with_control,
+    _translate_official_with_control,
     _translate_with_control,
+    _translation_required,
     _validate_official_translation,
     _validate_translation,
     build_official_profiles,
     collect_official_project_profile,
 )
 from app.integrations.rardar.serving_schemas import PositioningExcludedClause, ServingCapability
+from app.services.rardar_llm_control import RardarLLMError
 
 FIXTURE = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_intelligence" / "revision-a"
 
@@ -391,8 +403,47 @@ async def test_rardar_prompt_requires_complementary_forms_and_preserves_core_saf
     assert "技能、规则集和插件" in system_prompt
     assert "保留安全边界" in system_prompt
     assert "benchmark" in system_prompt
+    assert captured["reasoning_effort"] is None
     assert translated.positioning is not None
     assert translated.positioning.includedRoles == ["identity", "core_mechanism", "primary_outcome"]
+
+
+@pytest.mark.asyncio
+async def test_official_translation_calls_preserve_provider_default_effort(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    async def fake_call(**kwargs):
+        calls.append(kwargs)
+        response_model = kwargs["response_model"]
+        if response_model is OfficialNarrativeTranslation:
+            value = OfficialNarrativeTranslation(
+                translatedTagline="一个项目身份说明。",
+                translatedPositioning="一个通过结构化证据说明核心能力的开发工具。",
+                translatedHighlights=[
+                    TranslatedOfficialHighlight(sourceOrder=1, titleZh="核心能力", detailZh="整理项目证据。")
+                ],
+            )
+        else:
+            value = OfficialPositioningTranslation(translatedPositioning="一个通过结构化证据说明核心能力的开发工具。")
+        return SimpleNamespace(value=value)
+
+    monkeypatch.setattr("app.services.rardar_llm_control.call_rardar_structured", fake_call)
+    await _translate_official_with_control(
+        {
+            "repository": "owner/example",
+            "sourceTagline": "A project identity.",
+            "sourcePositioning": "A tool that explains capabilities from structured evidence.",
+            "sourceHighlights": [{"sourceOrder": 1, "sourceTitle": "Core", "sourceDetail": "Organize evidence."}],
+        }
+    )
+    await _translate_official_positioning_with_control(
+        {
+            "repository": "owner/example",
+            "sourcePositioning": "A tool that explains capabilities from structured evidence.",
+        }
+    )
+
+    assert [call["reasoning_effort"] for call in calls] == [None, None]
 
 
 def test_official_translation_preserves_single_token_technical_titles_but_rejects_untranslated_prose() -> None:
@@ -607,9 +658,28 @@ def test_translation_evidence_is_bounded_without_inventing_or_renaming_refs() ->
     assert bounded["repository"] == evidence["repository"]
     assert bounded["description"] == evidence["description"]
     assert set(bounded).issubset(evidence)
-    assert len(bounded) <= 16
-    assert sum(len(key) + len(value) for key, value in bounded.items()) <= 1800
-    assert any(key.endswith(":item:1") for key in bounded)
+    assert len(bounded) <= 12
+    assert sum(len(key) + len(value) for key, value in bounded.items()) <= 1200
+    assert "readme:section:1" in bounded
+    assert "readme:section:2" in bounded
+
+
+def test_translation_evidence_keeps_later_identity_sections_before_early_list_items() -> None:
+    evidence = {
+        "repository": "官方 GitHub 仓库身份",
+        "description": "A collection of public resources",
+        "readme:section:1": "Commercial preface " + ("a" * 360),
+        **{f"readme:section:1:item:{index}": f"Product {index}" for index in range(1, 9)},
+        "readme:section:2": "Learn more",
+        "readme:section:3": (
+            "The repository is manually curated by community members and organizes resources from many domains."
+        ),
+    }
+
+    bounded = _bounded_translation_evidence(evidence)
+
+    assert "readme:section:3" in bounded
+    assert list(bounded).index("readme:section:3") < list(bounded).index("readme:section:1:item:1")
 
 
 def test_translation_evidence_orders_readme_sections_numerically_and_bounds_each_excerpt() -> None:
@@ -675,6 +745,11 @@ An official developer automation toolkit.
         assert "readme:section:1" in payload["evidenceIndex"]
         return ProfileTranslation(
             summary=EvidenceClaim(text="一个面向开发者的官方自动化工具包。", evidenceRefs=["readme:section:1"]),
+            positioning=DerivedPositioning(
+                positioningZh="一个面向开发者的自动化工具包，通过证据绑定生成项目报告并导出独立 HTML 交付物。",
+                includedEvidenceRefs=["readme:section:1", "readme:section:2:item:1", "readme:section:2:item:2"],
+                includedRoles=["identity", "core_mechanism", "primary_outcome"],
+            ),
             capabilities=[
                 ServingCapability(
                     title="证据项目报告",
@@ -900,10 +975,25 @@ def test_translation_rejects_duplicate_or_unbound_core_value() -> None:
             ProfileTranslation(coreValue=summary, **common),
             {"readme:section:1", "readme:section:2"},
         )
-    with pytest.raises(ProfileTranslationError, match="rardar_profile_translation_invalid"):
+    with pytest.raises(ProfileTranslationError, match="rardar_profile_translation_evidence_mismatch"):
         _validate_translation(
             ProfileTranslation(
                 coreValue=EvidenceClaim(text="通过版本化证据降低采用判断的不确定性。", evidenceRefs=["invented"]),
+                **common,
+            ),
+            {"readme:section:1", "readme:section:2"},
+        )
+
+    with pytest.raises(ProfileTranslationError, match="rardar_profile_translation_positioning_incomplete"):
+        _validate_translation(
+            ProfileTranslation(
+                positioning=DerivedPositioning(
+                    positioningZh=summary.text,
+                    includedRoles=["identity", "core_mechanism"],
+                    includedEvidenceRefs=["readme:section:1"],
+                    excludedClauses=[],
+                ),
+                coreValue=None,
                 **common,
             ),
             {"readme:section:1", "readme:section:2"},
@@ -1423,3 +1513,333 @@ async def test_missing_structured_evidence_is_hidden_instead_of_invented(tmp_pat
     assert collected.profile.productFormsZh == []
     assert collected.profile.supportedEnvironmentsZh == []
     assert collected.profile.deliveryFormsZh == []
+
+
+def test_translation_and_semantic_structuring_are_independent_decisions() -> None:
+    assert _translation_required("zh", True) is False
+    assert (
+        _semantic_structuring_required(
+            requested=True,
+            source_language="zh",
+            source_summary="一个面向中文求职流程的技能集合。",
+            description=None,
+            official_positioning=None,
+        )
+        is True
+    )
+
+
+def test_primary_positioning_rejects_restatements_but_allows_added_mechanism() -> None:
+    assert _primary_semantic_duplicate(
+        "这是一个轻量级编码代理。",
+        "它是一个轻量级编码代理。",
+    )
+    assert _primary_semantic_duplicate(
+        "一个对 Grok Bot 0.18.0 macOS 应用进行非官方、面向源码重构与扩展的项目。",
+        "这是对公开发布的 Grok Bot 0.18.0 macOS 应用进行的非官方、面向源码的重构与扩展。",
+    )
+    assert not _primary_semantic_duplicate(
+        "一个用于整理项目证据的工作台。",
+        "一个用于整理项目证据的工作台，通过规则引擎连接原文与交付结果。",
+    )
+
+
+@pytest.mark.asyncio
+async def test_weak_chinese_readme_still_runs_semantic_structuring(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"description": None})
+    markdown = """
+# 求职工作流
+
+这是一个面向中文求职流程的技能集合。
+
+- 组织简历分析、岗位搜索和面试准备。
+"""
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README.md", "type": "file"}])
+        return httpx.Response(200, json=_readme_payload(markdown, sha="c" * 40))
+
+    async def structure(_payload):
+        nonlocal calls
+        calls += 1
+        return ProfileTranslation(
+            summary=EvidenceClaim(text="一个面向中文求职流程的技能集合。", evidenceRefs=["readme:section:1"]),
+            positioning=DerivedPositioning(
+                positioningZh="一套面向中文求职流程的技能工作流，通过组织简历分析、岗位搜索和面试准备覆盖主要环节。",
+                includedEvidenceRefs=["readme:section:1", "readme:section:1:item:1"],
+                includedRoles=["identity", "core_mechanism", "primary_outcome"],
+            ),
+            capabilities=[],
+            productForms=[],
+            supportedEnvironments=[],
+            useCases=[],
+            deliveryForms=[],
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=structure,
+        )
+
+    assert calls == 1
+    assert collected.profile.translationState == "not_needed"
+    assert collected.profile.positioningSourceMode == "rardar_derived"
+    assert collected.profile.positioningZh is not None
+
+
+@pytest.mark.asyncio
+async def test_schema_invalid_structuring_gets_one_bounded_repair_attempt(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"description": None})
+    markdown = """
+# 证据工作台
+
+这是一个用于整理项目证据的工作台。
+
+- 通过规则引擎连接原文与交付结果。
+"""
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README.md", "type": "file"}])
+        return httpx.Response(200, json=_readme_payload(markdown, sha="7" * 40))
+
+    async def structure(payload):
+        nonlocal calls
+        calls += 1
+        assert payload["validationAttempt"] == calls
+        positioning_refs = ["missing:evidence"] if calls == 1 else ["readme:section:1", "readme:section:1:item:1"]
+        return ProfileTranslation(
+            summary=EvidenceClaim(text="一个用于整理项目证据的工作台。", evidenceRefs=["readme:section:1"]),
+            positioning=DerivedPositioning(
+                positioningZh="一个整理项目证据的工作台，通过规则引擎连接原文与交付结果。",
+                includedEvidenceRefs=positioning_refs,
+                includedRoles=["identity", "core_mechanism", "primary_outcome"],
+            ),
+            capabilities=[],
+            productForms=[],
+            supportedEnvironments=[],
+            useCases=[],
+            deliveryForms=[],
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=structure,
+        )
+
+    assert calls == 2
+    assert collected.translation_calls == 2
+    assert collected.profile.positioningSourceMode == "rardar_derived"
+    assert collected.generation_failures == ()
+
+
+@pytest.mark.parametrize(
+    ("stage", "error", "expected"),
+    [
+        ("translation", RardarLLMError("rardar_llm_unavailable", classification="timeout"), "translation_timeout"),
+        (
+            "translation",
+            RardarLLMError("rardar_llm_unavailable", classification="rate_limited"),
+            "translation_rate_limited",
+        ),
+        (
+            "translation",
+            RardarLLMError("rardar_llm_unavailable", classification="provider_error"),
+            "translation_provider_error",
+        ),
+        (
+            "positioning",
+            RardarLLMError("rardar_llm_invalid_output", classification="invalid_json"),
+            "positioning_invalid_json",
+        ),
+        (
+            "positioning",
+            RardarLLMError("rardar_llm_invalid_output", classification="schema_invalid"),
+            "positioning_schema_invalid",
+        ),
+        (
+            "positioning",
+            RardarLLMError("rardar_llm_invalid_output", classification="empty"),
+            "positioning_empty",
+        ),
+        (
+            "positioning",
+            ProfileTranslationError("rardar_profile_translation_evidence_mismatch"),
+            "positioning_evidence_mismatch",
+        ),
+    ],
+)
+def test_generation_failures_keep_stable_error_categories(stage: str, error: Exception, expected: str) -> None:
+    assert _generation_error_code(stage, error) == expected
+
+
+@pytest.mark.asyncio
+async def test_model_failure_uses_evidence_bound_deterministic_chinese_fallback(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"description": None})
+    markdown = """
+# 任务工作台
+
+这是一个用于自动整理开发任务的工作台。
+
+- 通过规则引擎组织输入、检查和交付结果。
+"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README.md", "type": "file"}])
+        return httpx.Response(200, json=_readme_payload(markdown, sha="d" * 40))
+
+    async def timeout(_payload):
+        raise TimeoutError("provider timeout")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=timeout,
+        )
+
+    assert collected.deterministic_fallback_used is True
+    assert collected.profile.positioningSourceMode == "rardar_derived"
+    assert collected.profile.positioningZh is not None
+    assert collected.profile.positioningEvidenceRefs
+    assert not _text_issue_codes(collected.profile.positioningZh)
+    assert any(failure.code == "positioning_timeout" and failure.resolved for failure in collected.generation_failures)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        cached = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=timeout,
+        )
+
+    assert cached.translation_calls == 0
+    assert cached.deterministic_fallback_used is True
+
+
+@pytest.mark.asyncio
+async def test_last_known_good_reuse_requires_the_exact_evidence_fingerprint(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"description": None})
+    markdown = """
+# Evidence Toolkit
+
+An evidence-backed toolkit for organizing project research.
+
+## Features
+
+- Connect every summary to a saved repository excerpt.
+"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README.md", "type": "file"}])
+        return httpx.Response(200, json=_readme_payload(markdown, sha="e" * 40))
+
+    async def healthy(_payload):
+        return ProfileTranslation(
+            summary=EvidenceClaim(text="一个用仓库证据组织项目研究的工具包。", evidenceRefs=["readme:section:1"]),
+            positioning=DerivedPositioning(
+                positioningZh="一个以仓库证据组织项目研究的工具包，通过把摘要连接到已保存的原文来保留可追溯性。",
+                includedEvidenceRefs=["readme:section:1", "readme:section:2:item:1"],
+                includedRoles=["identity", "core_mechanism", "primary_outcome"],
+            ),
+            capabilities=[],
+            productForms=[],
+            supportedEnvironments=[],
+            useCases=[],
+            deliveryForms=[],
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        first = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=healthy,
+        )
+
+    shutil.rmtree(tmp_path / "profiles", ignore_errors=True)
+    shutil.rmtree(tmp_path / "rardar-assessments", ignore_errors=True)
+
+    async def unavailable(_payload):
+        raise RuntimeError("provider unavailable")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        second = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=unavailable,
+        )
+
+    assert second.last_known_good_available is True
+    assert second.last_known_good_reused is True
+    assert second.profile == first.profile
+    changed_evidence = first.evidence.model_copy(update={"digest": "f" * 64})
+    value, available, fingerprint = _load_last_known_good(
+        tmp_path,
+        project,
+        "fixture-explosion-a",
+        changed_evidence,
+    )
+    assert value is None
+    assert available is False
+    assert fingerprint != second.last_known_good_fingerprint
+
+
+def test_navigation_and_placeholder_primary_copy_is_never_publishable() -> None:
+    assert _navigation_noise("herdr.dev · 安装 · 快速开始 · 文档") is True
+    assert "navigation_noise" in _text_issue_codes("Home · Docs · Install · Quick Start")
+    assert "placeholder_text" in _text_issue_codes("翻译待补全：A collective list of free APIs")
+    assert "placeholder_text" in _text_issue_codes("官方资料不足，当前仅展示仓库身份。")
+
+
+@pytest.mark.parametrize(
+    "positioning",
+    [
+        "翻译待补全：This is a project positioning placeholder.",
+        "<div>这是一个通过证据连接原文与交付结果的工具。</div>",
+        "herdr.dev · 安装 · 快速开始 · 文档",
+        "这是一个工具。 " + "This untranslated positioning remains long English product prose. " * 5,
+    ],
+)
+def test_generated_positioning_rejects_every_publication_noise_class(positioning: str) -> None:
+    value = ProfileTranslation(
+        summary=EvidenceClaim(text="这是一个用于整理项目证据的工具。", evidenceRefs=["description"]),
+        positioning=DerivedPositioning(
+            positioningZh=positioning,
+            includedEvidenceRefs=["description"],
+            includedRoles=["core_mechanism"],
+        ),
+        capabilities=[],
+        productForms=[],
+        supportedEnvironments=[],
+        useCases=[],
+        deliveryForms=[],
+    )
+
+    with pytest.raises(ProfileTranslationError, match="rardar_profile_translation_invalid"):
+        _validate_translation(value, {"description"})

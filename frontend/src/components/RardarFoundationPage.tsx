@@ -18,6 +18,7 @@ import {
 import { isRardarProduct } from '@/lib/product-profile';
 import { RARDAR_FOUNDATION_PAGES, type RardarFoundationPageKey } from '@/lib/rardar-foundation';
 import {
+  assertPublishableProject,
   loadExplosionBoard,
   loadTodaySnapshot,
   narrativeSourceLabel,
@@ -122,11 +123,14 @@ function TodayState({ result }: { result: TodayLoadResult }) {
   }
 
   const exact = board.exactRanked.slice(0, 20);
+  const enforceNarrativeCompleteness = board.schemaVersion >= 5;
+  const enforceV6Completeness = board.schemaVersion >= 6
+    && (exact.length >= 20 || (board.coverage?.exactCount ?? 0) >= 20);
   return (
     <>
       <section className={styles.rankingList} aria-label="GitHub 精确 24 小时爆发榜 Top 10">
         {exact.slice(0, 10).map((project) => (
-          <ExactProjectCard key={project.githubRepositoryId} project={project} generationId={generationId} />
+          <ExactProjectCard key={project.githubRepositoryId} project={project} generationId={generationId} enforceNarrativeCompleteness={enforceNarrativeCompleteness} enforceV6Completeness={enforceV6Completeness} />
         ))}
       </section>
       {exact.length > 10 && (
@@ -134,7 +138,7 @@ function TodayState({ result }: { result: TodayLoadResult }) {
           <summary><span className={styles.expandClosed}>查看 Top {exact.length}</span><span className={styles.expandOpen}>收起</span></summary>
           <section className={styles.rankingList} aria-label={`GitHub 精确 24 小时爆发榜第 11 至 ${exact.length} 名`}>
             {exact.slice(10).map((project) => (
-              <ExactProjectCard key={project.githubRepositoryId} project={project} generationId={generationId} />
+              <ExactProjectCard key={project.githubRepositoryId} project={project} generationId={generationId} enforceNarrativeCompleteness={enforceNarrativeCompleteness} enforceV6Completeness={enforceV6Completeness} />
             ))}
           </section>
         </details>
@@ -212,10 +216,20 @@ function DiscoverState({ result }: { result: ExplosionBoardLoadResult }) {
   );
 }
 
-function ExactProjectCard({ project, generationId }: { project: TodayProject; generationId: string }) {
+function ExactProjectCard({
+  project,
+  generationId,
+  enforceNarrativeCompleteness,
+  enforceV6Completeness,
+}: {
+  project: TodayProject;
+  generationId: string;
+  enforceNarrativeCompleteness: boolean;
+  enforceV6Completeness: boolean;
+}) {
+  if (enforceNarrativeCompleteness) assertPublishableProject(project, enforceV6Completeness);
   const relativeGrowth = project.baselineStars > 0 ? project.observedStarDelta / project.baselineStars : null;
   const detailHref = `/project/github/${project.githubRepositoryId}?generation=${encodeURIComponent(generationId)}`;
-  const insufficient = project.officialNarrativeMode === 'insufficient';
   const sourceLabel = narrativeSourceLabel(project.officialNarrativeMode);
   const positioningLabel = positioningSourceLabel(project.positioningSourceMode);
   return (
@@ -230,18 +244,15 @@ function ExactProjectCard({ project, generationId }: { project: TodayProject; ge
         ) : (
           <p className={styles.profileFallback}>{project.identitySummaryZh}</p>
         )}
-        {project.productFormsZh.length > 0 && !insufficient && (
+        {project.productFormsZh.length > 0 && (
           <div className={styles.productForms} aria-label="产品形态">
             {project.productFormsZh.slice(0, 3).map((form) => <span key={form}>{form}</span>)}
           </div>
         )}
-        {project.positioningZh && project.positioningSourceMode !== 'insufficient' && (
-          <section className={styles.officialPositioningBlock} aria-label="核心定位" data-testid="today-official-positioning">
-            <span>核心定位 · {positioningLabel}</span>
-            <p>{project.positioningZh}</p>
-          </section>
-        )}
-        {insufficient && <p className={styles.profileFallback}>官方资料不足，当前仅展示已验证的仓库身份与 Star 事实。</p>}
+        <section className={styles.officialPositioningBlock} aria-label="核心定位" data-testid="today-official-positioning">
+          <span>核心定位 · {positioningLabel}</span>
+          <p>{project.positioningZh}</p>
+        </section>
         <div className={styles.tags}>
           {project.primaryLanguage && <span>{project.primaryLanguage}</span>}
           {project.topics.slice(0, 3).map((topic) => <span key={topic}>{topic}</span>)}

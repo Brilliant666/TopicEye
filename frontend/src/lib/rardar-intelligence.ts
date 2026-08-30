@@ -281,7 +281,7 @@ export interface ProjectDetail {
   project: TodayProject;
   profile: {
     profileSchemaVersion: 'rardar-project-profile-v1' | 'rardar-project-profile-v2' | 'rardar-project-profile-v3' | 'rardar-project-profile-v4' | 'rardar-project-profile-v5' | 'rardar-project-profile-v6';
-    promptVersion: 'rardar-project-profile-zh-v1' | 'rardar-project-profile-zh-v2' | 'rardar-project-profile-zh-v3' | 'rardar-project-profile-zh-v4' | 'rardar-project-profile-zh-v5' | 'rardar-project-profile-zh-v6' | 'rardar-project-profile-zh-v7' | 'rardar-project-profile-zh-v8' | 'rardar-project-profile-zh-v9' | 'rardar-project-profile-zh-v10' | 'rardar-project-profile-zh-v11' | 'rardar-project-profile-zh-v12';
+    promptVersion: 'rardar-project-profile-zh-v1' | 'rardar-project-profile-zh-v2' | 'rardar-project-profile-zh-v3' | 'rardar-project-profile-zh-v4' | 'rardar-project-profile-zh-v5' | 'rardar-project-profile-zh-v6' | 'rardar-project-profile-zh-v7' | 'rardar-project-profile-zh-v8' | 'rardar-project-profile-zh-v9' | 'rardar-project-profile-zh-v10' | 'rardar-project-profile-zh-v11' | 'rardar-project-profile-zh-v12' | 'rardar-project-profile-zh-v13';
     githubRepositoryId: number;
     repository: string;
     htmlUrl: string;
@@ -381,6 +381,80 @@ export async function loadExplosionBoard(
   }
 }
 
+const publicationPlaceholder = /(?:翻译待补全|官方资料不足|资料不足|生成待补全|分析待补全|模型调用失败|定位生成失败|官方原文：|能力说明\s*[12]|\bTODO\b|\bTBD\b|\bN\/A\b)/i;
+const publicationMediaNoise = /(?:user-attachments\/assets|raw\.githubusercontent\.com|shields\.io|badge(?:\.svg)?|<\s*(?:img|picture|source)\b|!\[[^\]]*\]\(|(?:^|\s)(?:src|height|width)\s*=)/i;
+const publicationHtmlNoise = /<\/?(?:div|p|picture|img|source|table|tbody|tr|td|summary|details)\b/i;
+const publicationPureUrl = /^\s*(?:https?:\/\/|www\.)\S+[\s.:;,!?，。；：！？]*$/i;
+const navigationTerms = new Set([
+  '安装', '快速开始', '文档', '首页', '示例', '指南',
+  'readme', 'docs', 'documentation', 'install', 'quick start', 'examples', 'home',
+]);
+
+function isNavigationNoise(value: string): boolean {
+  const fragments = value
+    .split(/\s*(?:·|\||｜|\/|>|—|–|•|»|→)\s*/)
+    .map((fragment) => fragment.toLocaleLowerCase().replace(/[^a-z0-9\u3400-\u9fff ]+/g, ' ').trim())
+    .filter(Boolean);
+  if (fragments.length < 3) return false;
+  const navigationCount = fragments.filter((fragment) => navigationTerms.has(fragment)).length;
+  return navigationCount >= 2 && navigationCount >= fragments.length - 1;
+}
+
+function isPublishablePrimaryText(value: unknown): value is string {
+  if (typeof value !== 'string' || !/[\u3400-\u9fff]/.test(value)) return false;
+  const chineseCount = (value.match(/[\u3400-\u9fff]/g) ?? []).length;
+  const latinCount = (value.match(/[A-Za-z]/g) ?? []).length;
+  return !publicationPlaceholder.test(value)
+    && !publicationMediaNoise.test(value)
+    && !publicationHtmlNoise.test(value)
+    && !publicationPureUrl.test(value)
+    && !isNavigationNoise(value)
+    && !(value.length > 180 && latinCount >= 32 && chineseCount * 8 < latinCount);
+}
+
+function primarySemanticKey(value: string): string {
+  return value
+    .trim()
+    .replace(/^(?:这是|它是|该项目是|该仓库是|本项目是|本仓库是|作为|是)?\s*(?:一个|一种|一款|一套|一项)?\s*/, '')
+    .replace(/(?:这是|它是|该项目|该仓库|本项目|本仓库|公开发布|进行|面向|项目|的)/g, '')
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9\u3400-\u9fff]+/g, '');
+}
+
+function isPrimarySemanticDuplicate(identity: unknown, positioning: unknown): boolean {
+  if (typeof identity !== 'string' || typeof positioning !== 'string') return false;
+  const first = primarySemanticKey(identity);
+  const second = primarySemanticKey(positioning);
+  if (!first || !second) return false;
+  const shorter = Math.min(first.length, second.length);
+  const longer = Math.max(first.length, second.length);
+  return first === second || (shorter >= 8
+    && longer <= Math.floor(shorter * 1.35)
+    && (first.includes(second) || second.includes(first)));
+}
+
+function isPublishableProject(value: Record<string, unknown>, requireIncludedRoles: boolean): boolean {
+  return value.qualityState !== 'rejected'
+    && value.officialNarrativeMode !== 'insufficient'
+    && value.positioningSourceMode !== 'insufficient'
+    && isPublishablePrimaryText(value.identitySummaryZh)
+    && isPublishablePrimaryText(value.positioningZh)
+    && !isPrimarySemanticDuplicate(value.identitySummaryZh, value.positioningZh)
+    && isStringArray(value.positioningEvidenceRefs)
+    && value.positioningEvidenceRefs.length > 0
+    && (!requireIncludedRoles || (
+      isStringArray(value.positioningIncludedRoles)
+      && value.positioningIncludedRoles.length > 0
+      && value.positioningIncludedRoles.some((role) => role === 'core_mechanism' || role === 'primary_outcome')
+    ));
+}
+
+export function assertPublishableProject(project: unknown, requireIncludedRoles = true): void {
+  if (!isRecord(project) || !isPublishableProject(project, requireIncludedRoles)) {
+    throw new Error('rardar_serving_completeness_invalid');
+  }
+}
+
 export function parseTodaySnapshot(value: unknown): TodaySnapshot {
   const board = parseExplosionBoard(value);
   const schemaVersion = Number(isRecord(value) ? value.schemaVersion : NaN);
@@ -452,6 +526,17 @@ export function parseTodaySnapshot(value: unknown): TodaySnapshot {
     ) {
       throw new Error('rardar_response_invalid');
     }
+  }
+  const exactProfiles = value.exactRanked as Array<Record<string, unknown>>;
+  const exactCount = isRecord(value.coverage) && isFiniteInteger(value.coverage.exactCount)
+    ? value.coverage.exactCount
+    : 0;
+  if (
+    schemaVersion >= 6
+    && (exactProfiles.length >= 20 || exactCount >= 20)
+    && (exactProfiles.length !== 20 || !exactProfiles.every((profile) => isPublishableProject(profile, true)))
+  ) {
+    throw new Error('rardar_serving_completeness_invalid');
   }
   const exactRanked = (value.exactRanked as Array<Record<string, unknown>>).map((item) => ({
     ...item,
@@ -826,6 +911,9 @@ export function parseProjectDetail(value: unknown): ProjectDetail {
     ))
   )) {
     throw new Error('rardar_project_response_invalid');
+  }
+  if (schemaVersion >= 6 && !isPublishableProject(value.profile, true)) {
+    throw new Error('rardar_project_completeness_invalid');
   }
   const normalizedProfile = {
     ...value.profile,

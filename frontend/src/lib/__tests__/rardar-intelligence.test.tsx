@@ -234,6 +234,34 @@ const v6ReadyPayload = {
   })),
 };
 
+function v6Top20Payload() {
+  return {
+    ...v6ReadyPayload,
+    coverage: { ...v6ReadyPayload.coverage, exactCount: 20 },
+    exactRanked: Array.from({ length: 20 }, (_, index) => ({
+      ...v6ReadyPayload.exactRanked[0],
+      rank: index + 1,
+      githubRepositoryId: index + 100,
+      repository: `fixture-lab/project-${index + 1}`,
+      htmlUrl: `https://github.com/fixture-lab/project-${index + 1}`,
+      observedStarDelta: 1000 - index,
+    })),
+    profileSummary: {
+      ...v6ReadyPayload.profileSummary,
+      total: 20,
+      complete: 20,
+      chineseSummaries: 20,
+      qualityReady: 20,
+      qualityPartial: 0,
+      qualityRejected: 0,
+      officialZh: 0,
+      officialTranslated: 20,
+      rardarDerived: 0,
+      insufficient: 0,
+    },
+  };
+}
+
 describe('Rardar intelligence client contract', () => {
   it('preserves the audited API order and rejects invented repository shapes', () => {
     const parsed = parseExplosionBoard(readyPayload);
@@ -607,7 +635,7 @@ describe('Rardar intelligence client contract', () => {
     expect(html).not.toContain('爆发原因：');
   });
 
-  it('isolates a rejected profile and preserves only verified repository and Star facts', () => {
+  it('fails closed instead of rendering rejected or placeholder profile content', () => {
     const unsafe = 'https://github.com/user-attachments/assets/deadbeef';
     const rejected = {
       ...v5ReadyPayload.exactRanked[0],
@@ -634,7 +662,7 @@ describe('Rardar intelligence client contract', () => {
       rardarAssessmentEvidenceRefs: [],
       rardarDifferentiators: [],
     };
-    const html = renderToStaticMarkup(
+    expect(() => renderToStaticMarkup(
       <TodayFoundation result={{
         kind: 'published',
         board: parseTodaySnapshot({
@@ -652,12 +680,62 @@ describe('Rardar intelligence client contract', () => {
           },
         }),
       }} />,
-    );
+    )).toThrow('rardar_serving_completeness_invalid');
+  });
 
-    expect(html).toContain('官方资料不足');
-    expect(html).toContain('+200');
-    expect(html).not.toContain(unsafe);
-    expect(html).not.toContain('核心定位 · 官方');
+  it.each([
+    ['placeholder identity', { identitySummaryZh: '翻译待补全：A collective list of free APIs' }],
+    ['navigation identity', { identitySummaryZh: 'herdr.dev · 安装 · 快速开始 · 文档' }],
+    ['pure URL identity', { identitySummaryZh: 'https://github.com/user-attachments/assets/deadbeef' }],
+    ['HTML identity', { identitySummaryZh: '<div>这是一个项目。</div>' }],
+    ['long untranslated identity', { identitySummaryZh: `这是一个项目。 ${'This is long untranslated primary project copy. '.repeat(6)}` }],
+  ])('rejects %s before a complete v6 Top 20 can render', (_label, corruptFields) => {
+    const payload = v6Top20Payload();
+    payload.exactRanked[4] = {
+      ...payload.exactRanked[4],
+      ...corruptFields,
+      officialSummaryZh: corruptFields.identitySummaryZh,
+      officialTaglineZh: corruptFields.identitySummaryZh,
+    };
+
+    expect(() => parseTodaySnapshot(payload)).toThrow('rardar_serving_completeness_invalid');
+  });
+
+  it('rejects a v6 Top 20 with one missing positioning', () => {
+    const payload = v6Top20Payload();
+    const incompleteProject = {
+      ...payload.exactRanked[9],
+      officialPositioningZh: null,
+      officialPositioningEvidenceRefs: [],
+      positioningZh: null,
+      positioningSourceMode: 'insufficient',
+      positioningEvidenceRefs: [],
+      positioningIncludedRoles: [],
+    };
+
+    expect(() => parseTodaySnapshot({
+      ...payload,
+      exactRanked: payload.exactRanked.map((project, index) => (
+        index === 9 ? incompleteProject : project
+      )),
+    })).toThrow('rardar_response_invalid');
+  });
+
+  it.each([
+    ['a positioning that only repeats identity', (project: typeof v6ReadyPayload.exactRanked[number]) => ({
+      ...project,
+      officialPositioningZh: project.identitySummaryZh,
+      positioningZh: project.identitySummaryZh,
+    })],
+    ['identity-only positioning roles', (project: typeof v6ReadyPayload.exactRanked[number]) => ({
+      ...project,
+      positioningIncludedRoles: ['identity'],
+    })],
+  ])('rejects %s before a complete v6 Top 20 can render', (_label, corrupt) => {
+    const payload = v6Top20Payload();
+    payload.exactRanked[4] = corrupt(payload.exactRanked[4]);
+
+    expect(() => parseTodaySnapshot(payload)).toThrow('rardar_serving_completeness_invalid');
   });
 
   it('renders Discover from pending only without 24h extrapolation', () => {
@@ -675,21 +753,18 @@ describe('Rardar intelligence client contract', () => {
   });
 
   it('keeps the first ten visible and places ranks 11-20 behind an explicit expansion', () => {
-    const exactRanked = Array.from({ length: 20 }, (_, index) => ({
-      ...readyPayload.exactRanked[0],
-      rank: index + 1,
-      githubRepositoryId: index + 100,
-      repository: `fixture-lab/project-${index + 1}`,
-      htmlUrl: `https://github.com/fixture-lab/project-${index + 1}`,
-      observedStarDelta: 1000 - index,
-    }));
+    const payload = v6Top20Payload();
     const html = renderToStaticMarkup(
-      <TodayFoundation result={{ kind: 'published', board: parseTodaySnapshot({ ...readyPayload, exactRanked, profileSummary: { ...readyPayload.profileSummary, total: 20, chineseSummaries: 20, complete: 20, qualityReady: 20 } }) }} />,
+      <TodayFoundation result={{ kind: 'published', board: parseTodaySnapshot(payload) }} />,
     );
     expect(html).toContain('GitHub 精确 24 小时爆发榜 Top 10');
     expect(html).toContain('查看 Top 20');
     expect(html).toContain('<details');
     expect(html).toContain('第 11 至 20 名');
+    expect(html.match(/data-testid="today-official-positioning"/g)).toHaveLength(20);
+    expect(html).not.toContain('翻译待补全');
+    expect(html).not.toContain('官方资料不足');
+    expect(html.indexOf('fixture-lab/project-1')).toBeLessThan(html.indexOf('fixture-lab/project-20'));
   });
 
   it.each([

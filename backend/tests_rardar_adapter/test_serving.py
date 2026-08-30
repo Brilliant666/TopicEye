@@ -5,6 +5,7 @@ import json
 import shutil
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,7 @@ from app.integrations.rardar.serving import (
     install_serving_projection,
     source_hashes,
 )
+from app.integrations.rardar.serving_completeness import audit_candidate_publication
 from app.integrations.rardar.serving_schemas import (
     OfficialHighlight,
     ServingCapability,
@@ -652,3 +654,143 @@ def test_unretained_source_is_a_revision_mismatch_not_current_corruption(tmp_pat
         ServingProjectionLoader(root).load_project_with_etag(1, "missing-generation")
 
     assert caught.value.code == "rardar_serving_source_not_found"
+
+
+def _completeness_audit(built, *, count: int) -> dict[str, object]:
+    today = ServingTodaySnapshot.model_validate_json(built.files["today.json"], strict=True)
+    template = today.exactRanked[0]
+    projects = [
+        template.model_copy(
+            update={
+                "rank": rank,
+                "githubRepositoryId": 90_000 + rank,
+                "identitySummaryZh": "一个以证据组织项目研究的开发工具。",
+                "officialSummaryZh": "一个以证据组织项目研究的开发工具。",
+                "officialTaglineZh": "一个以证据组织项目研究的开发工具。",
+                "officialTaglineEvidenceRefs": ["description"],
+                "officialPositioningZh": "一个以证据组织项目研究的工具，通过绑定仓库原文保留可追溯性。",
+                "officialPositioningEvidenceRefs": ["description"],
+                "positioningZh": "一个以证据组织项目研究的工具，通过绑定仓库原文保留可追溯性。",
+                "positioningSourceMode": "rardar_derived",
+                "positioningEvidenceRefs": ["description"],
+                "positioningIncludedRoles": ["identity", "core_mechanism", "primary_outcome"],
+                "officialNarrativeMode": "rardar_derived",
+                "qualityState": "partial",
+            }
+        )
+        for rank in range(1, count + 1)
+    ]
+    candidate = today.model_copy(
+        update={
+            "coverage": today.coverage.model_copy(update={"exactCount": 20}),
+            "exactRanked": projects,
+        }
+    )
+    return audit_candidate_publication(
+        candidate,
+        None,
+        candidate_serving_id=built.serving_generation_id,
+    )
+
+
+def test_exact_top20_completeness_requires_twenty_publishable_positions(tmp_path: Path) -> None:
+    built = _build(_root(tmp_path))
+
+    incomplete = _completeness_audit(built, count=19)
+    complete = _completeness_audit(built, count=20)
+
+    assert incomplete["top20Total"] == 19
+    assert incomplete["positioningCompleteCount"] == 19
+    assert incomplete["activationAllowed"] is False
+    assert complete["top20Total"] == 20
+    assert complete["identityCompleteCount"] == 20
+    assert complete["positioningCompleteCount"] == 20
+    assert complete["activationAllowed"] is True
+
+
+def test_completeness_audit_keeps_non_top20_not_ready_snapshots_compatible(tmp_path: Path) -> None:
+    built = _build(_root(tmp_path))
+    today = ServingTodaySnapshot.model_validate_json(built.files["today.json"], strict=True)
+    not_ready = today.model_copy(update={"coverage": None, "exactRanked": []})
+
+    audit = audit_candidate_publication(
+        not_ready,
+        None,
+        candidate_serving_id=built.serving_generation_id,
+    )
+
+    assert audit["top20GateRequired"] is False
+    assert audit["top20Total"] == 0
+    assert audit["activationAllowed"] is True
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {
+            "officialPositioningZh": "一个以证据组织项目研究的开发工具。",
+            "positioningZh": "一个以证据组织项目研究的开发工具。",
+        },
+        {
+            "positioningIncludedRoles": ["identity"],
+        },
+    ],
+)
+def test_exact_top20_rejects_repeated_or_identity_only_positioning(tmp_path: Path, updates: dict[str, object]) -> None:
+    built = _build(_root(tmp_path))
+    today = ServingTodaySnapshot.model_validate_json(built.files["today.json"], strict=True)
+    audit = _completeness_audit(built, count=20)
+    template = today.exactRanked[0]
+    projects = [
+        template.model_copy(
+            update={
+                "rank": rank,
+                "githubRepositoryId": 91_000 + rank,
+                "identitySummaryZh": "一个以证据组织项目研究的开发工具。",
+                "officialSummaryZh": "一个以证据组织项目研究的开发工具。",
+                "officialTaglineZh": "一个以证据组织项目研究的开发工具。",
+                "officialTaglineEvidenceRefs": ["description"],
+                "officialPositioningZh": "通过绑定仓库原文保留项目研究结论的可追溯性。",
+                "officialPositioningEvidenceRefs": ["description"],
+                "positioningZh": "通过绑定仓库原文保留项目研究结论的可追溯性。",
+                "positioningSourceMode": "rardar_derived",
+                "positioningEvidenceRefs": ["description"],
+                "positioningIncludedRoles": ["core_mechanism", "primary_outcome"],
+                "officialNarrativeMode": "rardar_derived",
+                "qualityState": "partial",
+                **(updates if rank == 5 else {}),
+            }
+        )
+        for rank in range(1, 21)
+    ]
+    candidate = today.model_copy(
+        update={
+            "coverage": today.coverage.model_copy(update={"exactCount": 20}),
+            "exactRanked": projects,
+        }
+    )
+    audit = audit_candidate_publication(candidate, None, candidate_serving_id=built.serving_generation_id)
+
+    assert audit["positioningCompleteCount"] == 19
+    assert audit["activationAllowed"] is False
+
+
+def test_failed_candidate_gate_preserves_current_and_raw_pointer_bytes(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    built = _build(root)
+    install_serving_projection(root, built)
+    serving_pointer = root / "serving" / "current.json"
+    before_serving = serving_pointer.read_bytes()
+    before_raw = (root / "current.json").read_bytes()
+    before_generations = sorted(path.name for path in (root / "serving" / "generations").iterdir())
+    blocked = replace(built, publication_audit=_completeness_audit(built, count=19))
+
+    with pytest.raises(ServingProjectionError) as caught:
+        install_serving_projection(root, blocked)
+
+    assert caught.value.code == "candidate_completeness_failed"
+    assert caught.value.audit is not None
+    assert caught.value.audit["activationPerformed"] is False
+    assert serving_pointer.read_bytes() == before_serving
+    assert (root / "current.json").read_bytes() == before_raw
+    assert sorted(path.name for path in (root / "serving" / "generations").iterdir()) == before_generations

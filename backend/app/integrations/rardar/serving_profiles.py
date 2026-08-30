@@ -667,6 +667,39 @@ def _safe_fallback_identity(description: str | None) -> tuple[str, list[str]]:
     return "官方资料暂不足，当前仅展示可验证的仓库与 Star 事实。", ["identity_source_rejected"]
 
 
+_DETERMINISTIC_ENGLISH_PRIMARY_RULES: tuple[tuple[str, str, str], ...] = (
+    (
+        r"(?:\b(?:framework|toolkit|tool)\b.{0,48}\b(?:manag(?:e|ing)|organiz(?:e|ing))\b"
+        r".{0,32}\bbash\b.{0,24}\bconfig(?:uration)?\b|"
+        r"\bbash\b.{0,24}\bconfig(?:uration)?\b.{0,48}\b(?:framework|toolkit|tool)\b)",
+        "一个用于管理 Bash 配置的工具框架。",
+        "通过集中管理 Bash 配置，帮助用户维护终端 Shell 的设置。",
+    ),
+    (
+        r"(?:\b(?:framework|toolkit|tool)\b.{0,48}\b(?:manag(?:e|ing)|organiz(?:e|ing))\b"
+        r".{0,32}\bshell\b.{0,24}\bconfig(?:uration)?\b|"
+        r"\bshell\b.{0,24}\bconfig(?:uration)?\b.{0,48}\b(?:framework|toolkit|tool)\b)",
+        "一个用于管理 Shell 配置的工具框架。",
+        "通过集中管理 Shell 配置，帮助用户维护终端环境的设置。",
+    ),
+)
+
+
+def _deterministic_english_primary(
+    source_summary: str | None,
+    reference: str,
+) -> tuple[str, str, list[str]] | None:
+    """Translate only narrowly recognized English product facts without a model guess."""
+
+    cleaned = _safe_source_text(source_summary, maximum=360)
+    if not cleaned:
+        return None
+    for pattern, identity, positioning in _DETERMINISTIC_ENGLISH_PRIMARY_RULES:
+        if re.search(pattern, cleaned, re.IGNORECASE):
+            return identity, positioning, [reference]
+    return None
+
+
 def _anchor(title: str) -> str:
     value = re.sub(r"[^\w\u3400-\u9fff -]", "", title.lower(), flags=re.UNICODE)
     return re.sub(r"\s+", "-", value).strip("-")
@@ -1236,18 +1269,23 @@ def _cached_profile(
         )
     except (TypeError, ValueError):
         return None
+    deterministic_fallback_used = cached.get("deterministicFallbackUsed")
+    if not isinstance(deterministic_fallback_used, bool):
+        return None
     if (
         cached_evidence != evidence
         or profile.githubRepositoryId != project.githubRepositoryId
         or profile.repository != project.repository
         or profile.generationId != generation_id
         or profile.evidenceDigest != evidence.digest
-        or (translate and evidence.sourceLanguage == "en" and profile.translationState != "translated")
+        or (
+            translate
+            and evidence.sourceLanguage == "en"
+            and profile.translationState != "translated"
+            and not deterministic_fallback_used
+        )
         or not _profile_is_publishable(profile)
     ):
-        return None
-    deterministic_fallback_used = cached.get("deterministicFallbackUsed")
-    if not isinstance(deterministic_fallback_used, bool):
         return None
     return profile, deterministic_fallback_used
 
@@ -1951,6 +1989,25 @@ _CAPABILITY_OPERATION_NOISE = re.compile(
 
 _DETERMINISTIC_CAPABILITY_RULES: tuple[tuple[str, str, str], ...] = (
     (
+        r"(?:\b(?:framework|toolkit|tool)\b.{0,48}\b(?:manag(?:e|ing)|organiz(?:e|ing))\b"
+        r".{0,32}\bbash\b.{0,24}\bconfig(?:uration)?\b|"
+        r"\bbash\b.{0,24}\bconfig(?:uration)?\b.{0,48}\b(?:framework|toolkit|tool)\b)",
+        "Bash 配置管理",
+        "集中管理 README 明确描述的 Bash 配置，让终端 Shell 设置可以在同一套框架中维护。",
+    ),
+    (
+        r"(?:\b(?:comes\s+with|includes?|bundles?)\b.{0,64}\bplugins?\b|"
+        r"\bplugins?\b.{0,48}\b(?:directory|available)\b)",
+        "插件扩展",
+        "通过 README 列出的插件扩展项目功能。",
+    ),
+    (
+        r"(?:hundreds?\s+of\s+(?:powerful\s+)?plugins?|\bplugins?\b.{0,220}\b(?:terminal|shell|command prompt)\b|"
+        r"\b(?:terminal|shell|command prompt)\b.{0,220}\bplugins?\b)",
+        "终端插件扩展",
+        "通过 README 列出的插件扩展终端 Shell 的使用能力。",
+    ),
+    (
         r"(?:architecture|workflow|sequence|data[- ]flow|lifecycle).{0,40}(?:diagram|map)|"
         r"(?:interactive|technical).{0,24}(?:diagram|system map)|架构.{0,20}(?:图|地图)",
         "技术图与交互展示",
@@ -2047,7 +2104,13 @@ def _deterministic_capabilities(
         re.IGNORECASE,
     )
     for sequence, section in enumerate(sections, 1):
-        include = section.purpose in {"capabilities", "overview"} or capability_heading.search(section.heading)
+        include = section.purpose in {
+            "capabilities",
+            "overview",
+            "architecture",
+            "use_cases",
+            "other",
+        } or capability_heading.search(section.heading)
         if not include:
             continue
         for index, item in enumerate(section.listItems, 1):
@@ -2901,6 +2964,12 @@ def _deterministic_positioning(
 ) -> tuple[str, list[str], list[Literal["identity", "core_mechanism", "primary_outcome"]]] | None:
     """Build a conservative Chinese positioning only from already indexed facts."""
 
+    if source_language == "en":
+        deterministic = _deterministic_english_primary(source_summary, summary_ref)
+        if deterministic is None:
+            return None
+        _, positioning, references = deterministic
+        return positioning, references, ["identity", "core_mechanism", "primary_outcome"]
     if source_language != "zh":
         return None
     identity = _safe_source_text(source_summary, maximum=260)
@@ -3198,8 +3267,17 @@ async def collect_official_project_profile(
             summary = source_summary
             translation_state = "not_needed"
         elif source_summary:
-            summary, base_quality_issues = _safe_fallback_identity(source_summary)
-            claim_refs[summary] = [summary_ref]
+            deterministic = (
+                _deterministic_english_primary(source_summary, summary_ref) if source_language == "en" else None
+            )
+            if deterministic is not None:
+                summary, _, references = deterministic
+                base_quality_issues = []
+                claim_refs[summary] = references
+                deterministic_fallback_used = True
+            else:
+                summary, base_quality_issues = _safe_fallback_identity(source_summary)
+                claim_refs[summary] = [summary_ref]
             translation_state = "unavailable" if translate else "pending"
         else:
             summary, base_quality_issues = _safe_fallback_identity(description)

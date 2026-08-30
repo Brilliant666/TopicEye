@@ -1857,6 +1857,76 @@ async def test_model_failure_uses_evidence_bound_deterministic_chinese_fallback(
 
 
 @pytest.mark.asyncio
+async def test_schema_invalid_english_shell_profile_uses_narrow_evidence_bound_fallback(tmp_path: Path) -> None:
+    project = _project().model_copy(
+        update={
+            "repository": "example/shell-kit",
+            "description": "An open-source framework for managing your Bash configuration.",
+            "githubRepositoryId": 85459264,
+        }
+    )
+    markdown = """
+# Shell Kit
+
+Shell Kit is an open-source, community-driven framework for managing your Bash configuration.
+
+Once installed, the terminal shell can use hundreds of powerful plugins from the project.
+
+## Plugins
+
+Shell Kit comes with plugins, with more entries listed in the plugins directory.
+"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README.md", "type": "file"}])
+        return httpx.Response(200, json=_readme_payload(markdown, sha="f" * 40))
+
+    async def schema_invalid(_payload):
+        raise RardarLLMError("rardar_llm_invalid_output", classification="schema_invalid")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-discover-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=schema_invalid,
+            narrative_translator=schema_invalid,
+            positioning_translator=schema_invalid,
+        )
+
+    profile = collected.profile
+    assert profile.identitySummaryZh == "一个用于管理 Bash 配置的工具框架。"
+    assert profile.positioningZh == "通过集中管理 Bash 配置，帮助用户维护终端 Shell 的设置。"
+    assert profile.positioningEvidenceRefs == ["readme:section:1"]
+    assert profile.positioningIncludedRoles == ["identity", "core_mechanism", "primary_outcome"]
+    assert [item.title for item in profile.capabilities] == ["终端插件扩展", "插件扩展"]
+    assert {item.sourceMode for item in profile.capabilities} == {"deterministic_fallback"}
+    assert profile.qualityState == "ready"
+    assert collected.deterministic_fallback_used is True
+    assert collected.generation_failures
+    assert all(failure.resolved for failure in collected.generation_failures)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        cached = await collect_official_project_profile(
+            project,
+            "fixture-discover-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=schema_invalid,
+            narrative_translator=schema_invalid,
+            positioning_translator=schema_invalid,
+        )
+
+    assert cached.translation_calls == 0
+    assert cached.profile == profile
+    assert cached.deterministic_fallback_used is True
+
+
+@pytest.mark.asyncio
 async def test_last_known_good_reuse_requires_the_exact_evidence_fingerprint(tmp_path: Path) -> None:
     project = _project().model_copy(update={"description": None})
     markdown = """

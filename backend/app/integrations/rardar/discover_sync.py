@@ -21,6 +21,7 @@ from typing import Any
 from app.integrations.rardar.adapter import _SafeRoot, _strict_json
 from app.integrations.rardar.discover import DISCOVER_ROOT, DiscoverArtifactAdapter
 from app.integrations.rardar.discover_serving import (
+    DISCOVER_SERVING_PROJECTION_VERSION,
     DiscoverServingError,
     DiscoverServingLoader,
     build_discover_serving,
@@ -354,7 +355,7 @@ def sync_discover_intelligence(
                     synced_at = datetime.fromisoformat(str(existing["syncedAt"]).replace("Z", "+00:00"))
                     if synced_at.tzinfo is None:
                         raise ValueError("stored sync time lacks a timezone")
-                    metadata_matches = True
+                    metadata_matches = existing.get("projectionVersion") == DISCOVER_SERVING_PROJECTION_VERSION
         if (
             metadata_matches
             and old_raw_pointer == pointer_raw
@@ -407,6 +408,7 @@ def sync_discover_intelligence(
 
         metadata = {
             "schemaVersion": 1,
+            "projectionVersion": DISCOVER_SERVING_PROJECTION_VERSION,
             "syncedAt": synced_at.isoformat(),
             "sourceHost": source_host,
             "generationId": generation_id,

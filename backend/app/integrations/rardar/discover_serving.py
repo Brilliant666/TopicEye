@@ -40,6 +40,7 @@ _STORE = "discover-serving"
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
 _SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
 _REPARSE_POINT = 0x400
+DISCOVER_SERVING_PROJECTION_VERSION = 3
 
 
 class DiscoverServingError(RardarArtifactError):
@@ -208,15 +209,17 @@ def build_discover_serving(
     summary = _profile_summary(result, len(selected))
     profile_fingerprint = _sha(
         _canonical_bytes(
-            [
-                {
-                    "id": item.githubRepositoryId,
-                    "evidence": result.profiles[item.githubRepositoryId].profile.evidenceDigest,
-                    "profile": result.profiles[item.githubRepositoryId].profile.profileSchemaVersion,
-                    "prompt": result.profiles[item.githubRepositoryId].profile.promptVersion,
-                }
-                for item in selected
-            ]
+            {
+                "projectionVersion": DISCOVER_SERVING_PROJECTION_VERSION,
+                "projects": [
+                    {
+                        "id": item.githubRepositoryId,
+                        "profile": result.profiles[item.githubRepositoryId].profile.model_dump(mode="json"),
+                        "evidence": result.profiles[item.githubRepositoryId].evidence.model_dump(mode="json"),
+                    }
+                    for item in selected
+                ],
+            }
         )
     )
     serving_id = f"{board.discoverGenerationId}--{profile_fingerprint[:16]}"
@@ -476,7 +479,16 @@ def install_discover_serving(target: Path, built: BuiltDiscoverServing) -> Disco
                 "rardar_discover_serving_current_invalid",
                 "Existing Discover Serving pointer is invalid",
             ) from exc
-        DiscoverServingLoader(target).load_with_etag()
+        try:
+            DiscoverServingLoader(target).load_with_etag()
+        except DiscoverServingError as exc:
+            # A stricter profile projection may intentionally invalidate the
+            # previous generation after its pointer, manifest, hashes, schema,
+            # and identity bindings have already passed validation. A complete
+            # replacement is the recovery path; every other integrity failure
+            # remains fail-closed.
+            if exc.code != "rardar_discover_profile_incomplete":
+                raise
         previous = old_pointer.generationId
         if (
             old_pointer.generationId == built.serving_generation_id

@@ -534,6 +534,11 @@ def _profile_is_publishable(profile: OfficialProjectProfile) -> bool:
         and bool({"core_mechanism", "primary_outcome"}.intersection(profile.positioningIncludedRoles))
         and profile.capabilities
         and all(capability.sourceMode is not None for capability in profile.capabilities)
+        and all(
+            not _MARKDOWN_BLOCKQUOTE.match(text) and not _MARKDOWN_LEADING_ESCAPE.match(text)
+            for capability in profile.capabilities
+            for text in (capability.title, capability.detail, capability.shortDetail or "")
+        )
     )
 
 
@@ -619,6 +624,8 @@ def _text_issue_codes(value: str, *, capability: bool = False) -> list[str]:
         issues.append("install_instruction")
     if capability and _PLACEHOLDER_CAPABILITY.fullmatch(cleaned):
         issues.append("placeholder_capability")
+    if capability and (_MARKDOWN_BLOCKQUOTE.match(raw) or _MARKDOWN_LEADING_ESCAPE.match(raw)):
+        issues.append("markdown_format_noise")
     if _PUBLICATION_PLACEHOLDER.search(cleaned):
         issues.append("placeholder_text")
     if _navigation_noise(cleaned):
@@ -1829,7 +1836,9 @@ def _start_here(
 
 
 _CAPABILITY_SEPARATOR = re.compile(r"(?:\s*(?:——|—|–|：|:)\s*|\s+-\s+)")
-_CAPABILITY_LEADING_MARKER = re.compile(r"^\s*(?:\[[ xX]\]\s*)?(?:[-*+]\s*)?")
+_MARKDOWN_BLOCKQUOTE = re.compile(r"^\s*>+\s*")
+_MARKDOWN_LEADING_ESCAPE = re.compile(r"^\s*\\+\s*")
+_CAPABILITY_LEADING_MARKER = re.compile(r"^\s*(?:(?:>+|\\+)\s*)?(?:\[[ xX]\]\s*)?(?:[-*+]\s*)?")
 _CAPABILITY_TITLE_RULES: tuple[tuple[str, str, str | None], ...] = (
     (r"/asu-recap|区分个人动作.{0,24}(?:交付阶段|效果证据)", "项目事实复盘", None),
     (r"/project-guide|梳理项目学习路径", "求职项目与简历准备", None),
@@ -2201,6 +2210,7 @@ def _valid_capabilities(
                 "install_command",
                 "install_instruction",
                 "navigation_noise",
+                "markdown_format_noise",
             }
         ) or _CAPABILITY_OPERATION_NOISE.search(f"{capability.title} {capability.detail}"):
             issues.append("capability_invalid_content")

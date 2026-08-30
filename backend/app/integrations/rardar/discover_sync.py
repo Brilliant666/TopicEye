@@ -325,10 +325,20 @@ def sync_discover_intelligence(
         if loaded.board.discoverGenerationId != generation_id:
             raise DiscoverSyncError("rardar_discover_sync_bundle_invalid", "Discover generation identity changed")
         _ensure_chain(target)
+        raw_store = target.joinpath(*DISCOVER_ROOT.split("/"))
+        _ensure_chain(raw_store / "generations")
+        final_generation = raw_store / "generations" / generation_id
+        raw_pointer_path = raw_store / "current.json"
+        serving_pointer_path = target / "discover-serving" / "current.json"
+        serving_source_path = target / "discover-serving" / "sources" / f"{generation_id}.json"
         metadata_path = target / "discover-sync" / "generations" / f"{generation_id}.json"
+        old_raw_pointer = _optional(raw_pointer_path)
+        old_serving_pointer = _optional(serving_pointer_path)
+        old_serving_source = _optional(serving_source_path)
         old_metadata = _optional(metadata_path)
         synced_at = datetime.now(UTC)
         source_host = "local-isolated-copy" if source_dir is not None else host
+        metadata_matches = False
         if old_metadata:
             with suppress(Exception):
                 existing = _strict_json(old_metadata)
@@ -344,6 +354,35 @@ def sync_discover_intelligence(
                     synced_at = datetime.fromisoformat(str(existing["syncedAt"]).replace("Z", "+00:00"))
                     if synced_at.tzinfo is None:
                         raise ValueError("stored sync time lacks a timezone")
+                    metadata_matches = True
+        if (
+            metadata_matches
+            and old_raw_pointer == pointer_raw
+            and old_serving_pointer is not None
+            and old_serving_source == old_serving_pointer
+            and _identical(final_generation, files)
+        ):
+            activated = DiscoverArtifactAdapter.from_config(str(target)).load()
+            serving, _ = DiscoverServingLoader(target).load_with_etag()
+            if (
+                activated.board.discoverGenerationId == generation_id
+                and activated.manifest_sha256 == bundle["manifestSha256"]
+                and activated.artifact_sha256 == bundle["artifactSha256"]
+                and serving.discoverGenerationId == generation_id
+            ):
+                return DiscoverSyncResult(
+                    discover_generation_id=generation_id,
+                    serving_generation_id=serving.servingGenerationId,
+                    manifest_sha256=bundle["manifestSha256"],
+                    artifact_sha256=bundle["artifactSha256"],
+                    latest_capture_id=loaded.board.latestCaptureId,
+                    published_count=loaded.board.coverage.publishedCount,
+                    changed=False,
+                    github_requests=0,
+                    readme_cache_hits=0,
+                    translation_calls=0,
+                    translation_cache_hits=0,
+                )
         built = build_discover_serving(
             loaded,
             cache_root=target / "discover-profile-cache",
@@ -351,9 +390,6 @@ def sync_discover_intelligence(
             synced_at=synced_at,
             source_host=source_host,
         )
-        raw_store = target.joinpath(*DISCOVER_ROOT.split("/"))
-        _ensure_chain(raw_store / "generations")
-        final_generation = raw_store / "generations" / generation_id
         raw_files = files
         if final_generation.exists():
             if not _identical(final_generation, raw_files):
@@ -369,12 +405,6 @@ def sync_discover_intelligence(
             os.replace(candidate, final_generation)
             created_generation = final_generation
 
-        raw_pointer_path = raw_store / "current.json"
-        serving_pointer_path = target / "discover-serving" / "current.json"
-        serving_source_path = target / "discover-serving" / "sources" / f"{generation_id}.json"
-        old_raw_pointer = _optional(raw_pointer_path)
-        old_serving_pointer = _optional(serving_pointer_path)
-        old_serving_source = _optional(serving_source_path)
         metadata = {
             "schemaVersion": 1,
             "syncedAt": synced_at.isoformat(),

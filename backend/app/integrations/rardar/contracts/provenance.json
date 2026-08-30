@@ -1,7 +1,7 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "sourceRepository": "Brilliant666/rardar",
-  "sourceCommit": "cb92274d5c3d3f8f17ab7f87b708040cc3635620",
+  "sourceCommit": "b99a8b88a9b46b830f5170824a7c90ead41cc51a",
   "contracts": [
     {
       "sourcePath": "contracts/current-generation.schema.json",
@@ -26,10 +26,29 @@
       "vendoredPath": "trending-explosion-artifact.schema.json",
       "sourceSha256": "bc10126473dbd782b774f38dcc03a5428f3e85a4136ee4c57655924198b5b45e",
       "vendoredSha256": "bc10126473dbd782b774f38dcc03a5428f3e85a4136ee4c57655924198b5b45e"
+    },
+    {
+      "sourcePath": "contracts/trending-discover-current.schema.json",
+      "vendoredPath": "trending-discover-current.schema.json",
+      "sourceSha256": "4e72ea6c19e45f9c6f5d55269abea989ad09df8ef5b3019fcf8a6d9772827033",
+      "vendoredSha256": "4e72ea6c19e45f9c6f5d55269abea989ad09df8ef5b3019fcf8a6d9772827033"
+    },
+    {
+      "sourcePath": "contracts/trending-discover-manifest.schema.json",
+      "vendoredPath": "trending-discover-manifest.schema.json",
+      "sourceSha256": "52fa29d1407167bc03f622733844f99161c77450d7462f67fbfb2f445334ab37",
+      "vendoredSha256": "52fa29d1407167bc03f622733844f99161c77450d7462f67fbfb2f445334ab37"
+    },
+    {
+      "sourcePath": "contracts/trending-discover-artifact.schema.json",
+      "vendoredPath": "trending-discover-artifact.schema.json",
+      "sourceSha256": "0db66fbcb7ddfd7f83e56971b54d81d9301ebdb2ec695d54a299986ebfe4f02e",
+      "vendoredSha256": "0db66fbcb7ddfd7f83e56971b54d81d9301ebdb2ec695d54a299986ebfe4f02e"
     }
   ],
   "fixture": {
     "kind": "isolated_minimal_extract",
+    "sourceCommit": "cb92274d5c3d3f8f17ab7f87b708040cc3635620",
     "generationCommand": "python build_adapter_fixture.py (isolated Rardar main worktree; derive_trending_explosion)",
     "productionDataUsed": false,
     "validation": "Rardar Schema healthy; Audit healthy; retained generations present before minimal extraction",

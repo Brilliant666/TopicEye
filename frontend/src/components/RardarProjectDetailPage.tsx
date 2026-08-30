@@ -23,17 +23,36 @@ import {
   type ProjectCapability,
   type ProjectDetail,
 } from '@/lib/rardar-intelligence';
+import type { DiscoverProjectDetail } from '@/lib/rardar-discover';
 import styles from './RardarFoundation.module.css';
 import RardarProjectExplanation from './RardarProjectExplanation';
 
-export default function RardarProjectDetailPage({ detail }: { detail: ProjectDetail }) {
-  const { project, profile } = detail;
-  if (detail.schemaVersion >= 5) {
-    const requireIncludedRoles = detail.schemaVersion >= 6;
-    assertPublishableProject(project, requireIncludedRoles);
+export default function RardarProjectDetailPage({ detail }: { detail: ProjectDetail | DiscoverProjectDetail }) {
+  const discoverDetail = 'facts' in detail ? detail : null;
+  const todayDetail = 'project' in detail ? detail : null;
+  const isDiscover = discoverDetail !== null;
+  const profile = detail.profile;
+  const project = discoverDetail
+    ? {
+        githubRepositoryId: discoverDetail.facts.githubRepositoryId,
+        repository: discoverDetail.facts.repository,
+        htmlUrl: discoverDetail.facts.url,
+        primaryLanguage: discoverDetail.facts.language,
+        topics: discoverDetail.facts.topics,
+        licenseSpdxId: discoverDetail.facts.license,
+      }
+    : todayDetail!.project;
+  if (discoverDetail) {
+    assertPublishableProject(profile, true);
+  } else if (todayDetail && todayDetail.schemaVersion >= 5) {
+    const requireIncludedRoles = todayDetail.schemaVersion >= 6;
+    assertPublishableProject(todayDetail.project, requireIncludedRoles);
     assertPublishableProject(profile, requireIncludedRoles);
   }
-  const relativeGrowth = project.baselineStars > 0 ? project.observedStarDelta / project.baselineStars : null;
+  const relativeGrowth = todayDetail && todayDetail.project.baselineStars > 0
+    ? todayDetail.project.observedStarDelta / todayDetail.project.baselineStars
+    : null;
+  const generationId = discoverDetail ? discoverDetail.discoverGenerationId : todayDetail!.generationId;
   const findHref = `/find?repositoryUrl=${encodeURIComponent(project.htmlUrl)}`;
   const sourceLabel = narrativeSourceLabel(profile.officialNarrativeMode);
   const positioningLabel = positioningSourceLabel(profile.positioningSourceMode);
@@ -44,7 +63,7 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
   return (
     <div className={`${styles.page} ${styles.detailPage}`} data-rardar-route="/project">
       <nav className={styles.breadcrumb} aria-label="面包屑">
-        <Link href="/"><ArrowLeft size={14} /> 今日</Link><span>/</span><span>{project.repository}</span>
+        <Link href={isDiscover ? '/discover' : '/'}><ArrowLeft size={14} /> {isDiscover ? '发现' : '今日'}</Link><span>/</span><span>{project.repository}</span>
       </nav>
 
       <section className={styles.detailHero} data-testid="project-identity-hero">
@@ -72,10 +91,17 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
             <Link href={findHref}>用这个仓库评估我的需求 <ArrowRight size={15} /></Link>
           </div>
         </div>
-        <dl className={styles.heroFactPair} aria-label="今日核心事实">
-          <Fact label="今日排名" value={`#${project.rank}`} />
-          <Fact label="24h 新增" value={`+${formatNumber(project.observedStarDelta)}`} accent />
-        </dl>
+        {discoverDetail ? (
+          <dl className={styles.heroFactPair} aria-label="发现核心事实">
+            <Fact label="发现阶段" value={discoverStageLabel(discoverDetail.facts.stage)} />
+            <Fact label="实际增长" value={`+${formatNumber(discoverDetail.facts.observedStarDelta)} / ${formatHours(discoverDetail.facts.observedWindowHours)}`} accent />
+          </dl>
+        ) : (
+          <dl className={styles.heroFactPair} aria-label="今日核心事实">
+            <Fact label="今日排名" value={`#${todayDetail!.project.rank}`} />
+            <Fact label="24h 新增" value={`+${formatNumber(todayDetail!.project.observedStarDelta)}`} accent />
+          </dl>
+        )}
       </section>
 
       <div className={styles.detailFlow} data-testid="project-detail-flow">
@@ -110,7 +136,7 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
           <div className={styles.adoptionIntro}>
             <div className={styles.sectionKicker}><Gauge size={16} /> Rardar 决策与采用</div>
             <h2>从“看懂项目”进入“是否值得复用”</h2>
-            <p>AI 只分析差异、可复用资产、成本、适合场景和落地边界；项目身份、官方能力与今日名次不由模型改写。</p>
+            <p>AI 只分析差异、可复用资产、成本、适合场景和落地边界；项目身份、官方能力与{isDiscover ? '发现阶段和事实顺序' : '今日名次'}不由模型改写。</p>
             {profile.rardarAssessmentZh && (
               <div className={styles.rardarAssessment} data-testid="rardar-assessment">
                 <span>Rardar 判断</span>
@@ -137,7 +163,8 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
             <RardarProjectExplanation
               repository={project.repository}
               githubRepositoryId={project.githubRepositoryId}
-              generationId={detail.generationId}
+              generationId={generationId}
+              source={isDiscover ? 'discover' : 'today'}
             />
           </div>
         </section>
@@ -168,20 +195,40 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
           </DetailSection>
         )}
 
-        <section className={styles.observationFacts} data-testid="project-observation-facts">
-          <header><Star size={17} /><div><h2>24 小时事实</h2><p>Hero 已给出结果，这里补充基线、窗口与覆盖，不重复名次和增量。</p></div></header>
-          <dl>
-            <Fact label="基线 Star" value={formatNumber(project.baselineStars)} />
-            <Fact label="当前 Star" value={formatNumber(project.totalStars)} />
-            <Fact label="相对增长" value={relativeGrowth === null ? '—' : `${(relativeGrowth * 100).toFixed(1)}%`} />
-            <Fact label="窗口开始" value={formatTime(project.windowStartedAt)} />
-            <Fact label="窗口结束" value={formatTime(project.windowEndedAt)} />
-            <Fact label="覆盖状态" value={detail.coverage?.state === 'degraded' ? '部分来源降级' : '覆盖健康'} />
-          </dl>
-          {detail.coverage?.state === 'degraded' && (
-            <p className={styles.coverageNote}>本轮仍按已验证事实排序；{coverageReason(detail.coverage.metadataFailureCount, detail.conflictCount)}。</p>
-          )}
-        </section>
+        {discoverDetail ? (
+          <section className={styles.observationFacts} data-testid="project-discover-facts">
+            <header><Star size={17} /><div><h2>近实时发现事实</h2><p>全部为实际 Observation，不折算或外推 24 小时增长。</p></div></header>
+            <dl>
+              <Fact label="发现阶段" value={discoverStageLabel(discoverDetail.facts.stage)} />
+              <Fact label="当前 Star" value={formatNumber(discoverDetail.facts.totalStars)} />
+              <Fact label="实际增量" value={`+${formatNumber(discoverDetail.facts.observedStarDelta)}`} />
+              <Fact label="实际窗口" value={formatHours(discoverDetail.facts.observedWindowHours)} />
+              <Fact label="首次发现" value={formatTime(discoverDetail.facts.firstSeenAt)} />
+              <Fact label="最新观察" value={formatTime(discoverDetail.facts.lastObservedAt)} />
+              <Fact label="Capture 数" value={String(discoverDetail.facts.captureCount)} />
+              <Fact label="连续 Capture" value={String(discoverDetail.facts.consecutiveCaptureCount)} />
+              <Fact label="覆盖状态" value={discoverDetail.coverage.state === 'degraded' ? '部分来源降级' : '覆盖健康'} />
+            </dl>
+            {discoverDetail.coverage.state === 'degraded' && (
+              <p className={styles.coverageNote}>本轮仍保持 Artifact 阶段与事实顺序；{coverageReason(discoverDetail.coverage.metadataFailureCount, discoverDetail.conflictCount)}。</p>
+            )}
+          </section>
+        ) : (
+          <section className={styles.observationFacts} data-testid="project-observation-facts">
+            <header><Star size={17} /><div><h2>24 小时事实</h2><p>Hero 已给出结果，这里补充基线、窗口与覆盖，不重复名次和增量。</p></div></header>
+            <dl>
+              <Fact label="基线 Star" value={formatNumber(todayDetail!.project.baselineStars)} />
+              <Fact label="当前 Star" value={formatNumber(todayDetail!.project.totalStars)} />
+              <Fact label="相对增长" value={relativeGrowth === null ? '—' : `${(relativeGrowth * 100).toFixed(1)}%`} />
+              <Fact label="窗口开始" value={formatTime(todayDetail!.project.windowStartedAt)} />
+              <Fact label="窗口结束" value={formatTime(todayDetail!.project.windowEndedAt)} />
+              <Fact label="覆盖状态" value={todayDetail!.coverage?.state === 'degraded' ? '部分来源降级' : '覆盖健康'} />
+            </dl>
+            {todayDetail!.coverage?.state === 'degraded' && (
+              <p className={styles.coverageNote}>本轮仍按已验证事实排序；{coverageReason(todayDetail!.coverage.metadataFailureCount, todayDetail!.conflictCount)}。</p>
+            )}
+          </section>
+        )}
 
         <details className={styles.provenanceDetails} data-testid="official-evidence">
           <summary><BookOpen size={16} /> 来源、官方原文与审计 <span>按需查看</span></summary>
@@ -197,7 +244,7 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
               <div><dt>Revision</dt><dd><code>{profile.readmeBlobSha || 'GitHub Description'}</code></dd></div>
               <div><dt>翻译状态</dt><dd>{translationLabel(profile.translationState)}</dd></div>
               <div><dt>Profile 质量</dt><dd>{qualityLabel(profile.qualityState)}</dd></div>
-              <div><dt>Generation</dt><dd><code>{detail.generationId}</code></dd></div>
+              <div><dt>{isDiscover ? 'Discover Generation' : 'Generation'}</dt><dd><code>{generationId}</code></dd></div>
               <div><dt>Serving</dt><dd><code>{detail.servingGenerationId}</code></dd></div>
               <div><dt>Evidence</dt><dd><code>{profile.evidenceDigest}</code></dd></div>
             </dl>
@@ -316,6 +363,14 @@ function formatTime(value: string) {
   return new Intl.DateTimeFormat('zh-CN', {
     timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(new Date(value));
+}
+
+function discoverStageLabel(value: DiscoverProjectDetail['facts']['stage']) {
+  return { just_discovered: '刚刚发现', rising: '持续升温', near_validation: '接近验证' }[value];
+}
+
+function formatHours(value: number) {
+  return `${Number.isInteger(value) ? value : value.toFixed(1)} 小时`;
 }
 
 function translationLabel(value: ProjectDetail['profile']['translationState']) {

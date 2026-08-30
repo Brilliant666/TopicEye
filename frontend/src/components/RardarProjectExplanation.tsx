@@ -3,17 +3,24 @@
 import { type ReactNode, useState } from 'react';
 import { AlertTriangle, BookOpen, Boxes, Compass, Gauge, Loader2, Sparkles, Target } from 'lucide-react';
 
-import { explainProject, explainProjectById, type ProjectExplanation } from '@/lib/rardar-product';
+import {
+  explainDiscoverProjectById,
+  explainProject,
+  explainProjectById,
+  type ProjectExplanation,
+} from '@/lib/rardar-product';
 import styles from './RardarFoundation.module.css';
 
 export default function RardarProjectExplanation({
   repository,
   githubRepositoryId,
   generationId,
+  source = 'today',
 }: {
   repository: string;
   githubRepositoryId?: number;
   generationId: string;
+  source?: 'today' | 'discover';
 }) {
   const usesStaticEvidence = githubRepositoryId !== undefined;
   const [result, setResult] = useState<ProjectExplanation | null>(null);
@@ -25,11 +32,13 @@ export default function RardarProjectExplanation({
     setError(null);
     setResult(null);
     try {
-      setResult(
-        githubRepositoryId === undefined
-          ? await explainProject(repository, generationId)
-          : await explainProjectById(githubRepositoryId, generationId),
-      );
+      if (githubRepositoryId === undefined) {
+        setResult(await explainProject(repository, generationId));
+      } else if (source === 'discover') {
+        setResult(await explainDiscoverProjectById(githubRepositoryId, generationId));
+      } else {
+        setResult(await explainProjectById(githubRepositoryId, generationId));
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'rardar_request_failed');
     } finally {
@@ -49,7 +58,7 @@ export default function RardarProjectExplanation({
         {loading && (
           <div className={`${styles.aiPanel} ${styles.aiLoading}`} role="status" aria-live="polite">
             <div><Loader2 size={15} className={styles.spin} /><strong>正在基于静态证据分析</strong></div>
-            <p>首次生成预计需要一些时间。页面其他官方档案与 Today 事实仍可继续阅读，请勿重复提交。</p>
+            <p>首次生成预计需要一些时间。页面其他官方档案与{source === 'discover' ? ' Discover' : ' Today'}事实仍可继续阅读，请勿重复提交。</p>
           </div>
         )}
       </>
@@ -60,7 +69,7 @@ export default function RardarProjectExplanation({
     return (
       <div className={`${styles.aiPanel} ${styles.aiUnavailable}`}>
         <div><AlertTriangle size={15} /><strong>AI 暂不可用</strong></div>
-        <p>{usesStaticEvidence ? '官方档案和今日事实不受影响，可以稍后安全重试。' : '事实榜单不受影响，可以稍后安全重试。'}</p>
+        <p>{usesStaticEvidence ? `官方档案和${source === 'discover' ? '发现' : '今日'}事实不受影响，可以稍后安全重试。` : '事实榜单不受影响，可以稍后安全重试。'}</p>
         <button type="button" onClick={run} disabled={loading}>重试</button>
       </div>
     );

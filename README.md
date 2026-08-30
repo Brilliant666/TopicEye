@@ -182,14 +182,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 sync-data
 powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 start
 ```
 
-`sync-data` reads the configured `rardar-prod` host without changing it,
-verifies one stable `current.json` pointer, its ready manifest, every required
-artifact hash and source copy, stages an immutable generation below
-`%LOCALAPPDATA%\TopicEye\rardar-intelligence`, builds and validates `serving/`
-from that exact source generation, then atomically switches the raw and Serving
-pointers. A failed or interrupted sync restores both old pointers so a page
-cannot mix generations. The command never reads D1 or credentials and never
-writes Production.
+`sync-data` reads the configured `rardar-prod` host without changing it and
+independently synchronizes Today and Discover below
+`%LOCALAPPDATA%\TopicEye\rardar-intelligence`. Each path verifies a stable
+pointer, ready manifest, every required artifact hash and source copy, stages
+an immutable generation, builds its own static Serving projection, and switches
+only its own pointers. Today can remain healthy if Discover is unavailable;
+Discover can advance without rewriting Today. A failed or interrupted
+activation restores the affected pointers, so a page cannot mix generations.
+The command never reads D1 or credentials and never writes Production.
 
 Serving contains a small `today.json`, one project profile and one static
 evidence record per Top 20 repository. Serving v4 separates a concise Chinese
@@ -212,6 +213,14 @@ Push-Location .\backend
 python -m scripts.audit_rardar_serving_content --target "$env:LOCALAPPDATA\TopicEye\rardar-intelligence"
 Pop-Location
 ```
+
+`/discover` is a separate near-real-time product surface backed by
+`TrendingDiscoverArtifact v1`. It is grouped into 刚刚发现、持续升温 and
+接近验证 rather than presented as a second ranking. Cards show only actual
+observed Star change and its actual window. Normal Discover and detail requests
+read `discover-serving/` only: zero GitHub calls, zero LLM calls, zero raw
+Artifact reads and zero PostgreSQL fact writes. See
+[Rardar Discover Adapter](docs/platform/RARDAR_DISCOVER_ADAPTER.md).
 
 Today links each repository to
 `/project/github/<githubRepositoryId>?generation=<generationId>`. The numeric

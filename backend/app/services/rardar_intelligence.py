@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.core.config import Settings, settings
 from app.integrations.rardar import ExplosionBoardResponse, RardarArtifactError
+from app.integrations.rardar.discover_serving import DiscoverServingLoader
+from app.integrations.rardar.discover_serving_schemas import DiscoverApiResponse, DiscoverProjectDetail
 from app.integrations.rardar.schemas import ExactExplosionProject
 from app.integrations.rardar.serving import ServingProjectionLoader, build_serving_projection
 from app.integrations.rardar.serving_schemas import ServingProjectDetail, ServingTodaySnapshot
@@ -153,4 +156,56 @@ def load_project_detail(
     return ServingProjectionLoader(config.RARDAR_INTELLIGENCE_DATA_DIR).load_project_with_etag(
         github_repository_id,
         generation_id,
+    )
+
+
+def load_discover_snapshot(
+    config: Settings = settings,
+    *,
+    now: datetime | None = None,
+) -> tuple[DiscoverApiResponse, str]:
+    """Load only the immutable Discover Serving projection, never the raw artifact."""
+
+    snapshot, etag = DiscoverServingLoader(config.RARDAR_INTELLIGENCE_DATA_DIR).load_with_etag()
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    stale_after = snapshot.nextExpectedAt + timedelta(minutes=30)
+    empty = snapshot.profileSummary.selectedCount == 0
+    stale = current > stale_after
+    status = "stale" if stale else "empty" if empty else "ready"
+    return (
+        DiscoverApiResponse(
+            status=status,
+            generation=snapshot.discoverGenerationId,
+            generatedAt=snapshot.generatedAt,
+            latestCaptureId=snapshot.latestCaptureId,
+            latestCaptureAt=snapshot.latestCaptureAt,
+            nextExpectedAt=snapshot.nextExpectedAt,
+            freshnessState="stale" if stale else "fresh",
+            updateCadenceMinutes=120,
+            stageCounts=snapshot.stageCounts,
+            stages={
+                "justDiscovered": snapshot.justDiscovered,
+                "rising": snapshot.rising,
+                "nearValidation": snapshot.nearValidation,
+            },
+            coverage=snapshot.coverage,
+            conflicts={"count": snapshot.conflictCount, "reasons": snapshot.conflictReasons},
+            todayExplosionGenerationId=snapshot.todayExplosionGenerationId,
+            sourceWindowStart=snapshot.sourceWindowStart,
+            sourceWindowEnd=snapshot.sourceWindowEnd,
+            sourceCaptureCount=snapshot.sourceCaptureCount,
+            profileSummary=snapshot.profileSummary,
+        ),
+        etag,
+    )
+
+
+def load_discover_project_detail(
+    github_repository_id: int,
+    discover_generation_id: str,
+    config: Settings = settings,
+) -> tuple[DiscoverProjectDetail, str]:
+    return DiscoverServingLoader(config.RARDAR_INTELLIGENCE_DATA_DIR).load_project_with_etag(
+        github_repository_id,
+        discover_generation_id,
     )

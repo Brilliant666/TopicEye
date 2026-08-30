@@ -13,6 +13,7 @@ from app.integrations.rardar import serving as serving_module
 from app.integrations.rardar.adapter import RardarIntelligenceAdapter
 from app.integrations.rardar.content_quality import audit_serving_top20
 from app.integrations.rardar.narrative_fidelity import _audit_project, audit_official_narrative
+from app.integrations.rardar.positioning_precision import audit_positioning_precision
 from app.integrations.rardar.serving import (
     ServingProjectionError,
     ServingProjectionLoader,
@@ -105,7 +106,7 @@ def test_raw_artifact_builds_small_bound_projection_in_original_order(tmp_path: 
         *(f"evidence/{item.githubRepositoryId}.json" for item in board.exactRanked[:20]),
     }
     assert etag.startswith('"') and etag.endswith('"')
-    assert today.schemaVersion == 5
+    assert today.schemaVersion == 6
     assert all(project.identitySummaryZh == project.officialSummaryZh for project in today.exactRanked)
     assert all(project.qualityState in {"ready", "partial", "rejected"} for project in today.exactRanked)
     assert all(isinstance(project.capabilities, list) for project in today.exactRanked)
@@ -128,7 +129,21 @@ def test_content_quality_audit_reads_validated_serving_and_fails_incomplete_fixt
     assert report["projects"][0]["repository"] == "fixture-lab/exact-1"
 
 
-@pytest.mark.parametrize("schema_version", [1, 2, 3, 4])
+def test_positioning_precision_audit_reads_only_validated_serving(tmp_path: Path) -> None:
+    root = _root(tmp_path)
+    install_serving_projection(root, _build(root))
+
+    report = audit_positioning_precision(root)
+
+    assert report["status"] == "PASS"
+    assert report["sourceGenerationId"] == "fixture-explosion-a"
+    assert report["servingSchemaVersion"] == 6
+    assert report["summary"]["total"] == len(report["projects"])
+    assert report["summary"]["remainingIssues"] == 0
+    assert all(project["qualityResult"] == "PASS" for project in report["projects"])
+
+
+@pytest.mark.parametrize("schema_version", [1, 2, 3, 4, 5])
 def test_legacy_serving_versions_remain_readable_without_structured_capabilities(
     tmp_path: Path,
     schema_version: int,
@@ -157,9 +172,19 @@ def test_legacy_serving_versions_remain_readable_without_structured_capabilities
         "rardarAssessmentEvidenceRefs",
         "rardarDifferentiators",
     }
+    v6_project_fields = {
+        "positioningZh",
+        "positioningSourceMode",
+        "positioningEvidenceRefs",
+        "positioningIncludedRoles",
+        "positioningExcludedClauses",
+    }
     for project in today["exactRanked"]:
-        for field in v5_project_fields:
+        for field in v6_project_fields:
             project.pop(field, None)
+        if schema_version < 5:
+            for field in v5_project_fields:
+                project.pop(field, None)
         if schema_version < 4:
             for field in v4_project_fields:
                 project.pop(field, None)
@@ -170,11 +195,15 @@ def test_legacy_serving_versions_remain_readable_without_structured_capabilities
     identifier = str(today["exactRanked"][0]["githubRepositoryId"])
     record = json.loads(built.files[f"projects/{identifier}.json"])
     record["schemaVersion"] = schema_version
-    for field in v5_project_fields:
+    for field in v6_project_fields:
         record["project"].pop(field, None)
         record["profile"].pop(field, None)
-    record["profile"].pop("officialNarrativePromptVersion", None)
-    record["profile"].pop("rardarAssessmentPromptVersion", None)
+    if schema_version < 5:
+        for field in v5_project_fields:
+            record["project"].pop(field, None)
+            record["profile"].pop(field, None)
+        record["profile"].pop("officialNarrativePromptVersion", None)
+        record["profile"].pop("rardarAssessmentPromptVersion", None)
     if schema_version < 4:
         for field in v4_project_fields:
             record["project"].pop(field, None)
@@ -183,9 +212,13 @@ def test_legacy_serving_versions_remain_readable_without_structured_capabilities
         record["project"].pop("capabilities", None)
         record["profile"].pop("capabilities", None)
     record["profile"]["profileSchemaVersion"] = f"rardar-project-profile-v{schema_version}"
-    record["profile"]["promptVersion"] = (
-        "rardar-project-profile-zh-v6" if schema_version == 4 else f"rardar-project-profile-zh-v{schema_version + 1}"
-    )
+    record["profile"]["promptVersion"] = {
+        1: "rardar-project-profile-zh-v2",
+        2: "rardar-project-profile-zh-v3",
+        3: "rardar-project-profile-zh-v4",
+        4: "rardar-project-profile-zh-v6",
+        5: "rardar-project-profile-zh-v8",
+    }[schema_version]
     parsed_record = ServingProjectRecord.model_validate_json(_canonical(record), strict=True)
 
     if schema_version < 3:

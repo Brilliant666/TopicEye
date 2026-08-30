@@ -3,12 +3,14 @@ from __future__ import annotations
 import base64
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 from app.integrations.rardar.adapter import RardarIntelligenceAdapter
 from app.integrations.rardar.serving_profiles import (
+    DerivedPositioning,
     EvidenceClaim,
     ExtractedOfficialHighlight,
     ExtractedOfficialNarrative,
@@ -17,20 +19,25 @@ from app.integrations.rardar.serving_profiles import (
     ProfileTranslationError,
     TranslatedOfficialHighlight,
     _bounded_translation_evidence,
+    _dedupe_context_subject,
     _extract_official_narrative,
     _github_file_url,
+    _official_chinese_positioning,
+    _official_english_positioning_is_high_signal,
+    _official_positioning_is_high_signal,
     _parse_readme,
     _preferred_chinese_readme,
     _readme_redirect_target,
     _safe_fallback_identity,
     _source_language,
     _structure_capability,
+    _translate_with_control,
     _validate_official_translation,
     _validate_translation,
     build_official_profiles,
     collect_official_project_profile,
 )
-from app.integrations.rardar.serving_schemas import ServingCapability
+from app.integrations.rardar.serving_schemas import PositioningExcludedClause, ServingCapability
 
 FIXTURE = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_intelligence" / "revision-a"
 
@@ -125,9 +132,10 @@ def test_parser_ignores_multiline_html_language_navigation() -> None:
 def test_textual_language_navigation_cannot_become_rardar_positioning() -> None:
     translation = ProfileTranslation(
         summary=EvidenceClaim(text="这是一个用于生成视频的自动化工具。", evidenceRefs=["description"]),
-        positioning=EvidenceClaim(
-            text="简体中文 | English | 日本語 | 版本发布 | 问题反馈",
-            evidenceRefs=["readme:section:1"],
+        positioning=DerivedPositioning(
+            positioningZh="简体中文 | English | 日本語 | 版本发布 | 问题反馈",
+            includedEvidenceRefs=["readme:section:1"],
+            includedRoles=["identity"],
         ),
         capabilities=[],
         productForms=[],
@@ -138,6 +146,253 @@ def test_textual_language_navigation_cannot_become_rardar_positioning() -> None:
 
     with pytest.raises(ProfileTranslationError, match="rardar_profile_translation_invalid"):
         _validate_translation(translation, {"description", "readme:section:1"})
+
+
+@pytest.mark.asyncio
+async def test_partial_chinese_official_positioning_is_field_level_and_model_free(tmp_path: Path) -> None:
+    project = _project().model_copy(
+        update={"repository": "deepseek-ai/deepseek-harness", "description": None, "githubRepositoryId": 1333065091}
+    )
+    markdown = """
+# DeepSeek Harness
+
+DeepSeek Harness（`dsh`）是由 DeepSeek AI 开发的开源 agent harness（智能体框架）。
+
+它构建于**一切皆插件**的架构之上，由 [Cordis](https://example.test/cordis) 驱动，其设计参见论文。
+
+## 运行
+
+默认在 127.0.0.1 启动 Web UI，也可通过 SSH 暴露 URL 或仅启动服务器。
+"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README.zh.md", "type": "file"}])
+        return httpx.Response(200, json=_readme_payload(markdown, path="README.zh.md", sha="8" * 40))
+
+    async def unexpected_model(_payload):
+        raise AssertionError("official Chinese positioning must not invoke a model")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=unexpected_model,
+            narrative_translator=unexpected_model,
+            positioning_translator=unexpected_model,
+        )
+
+    profile = collected.profile
+    assert profile.officialNarrativeMode == "rardar_derived"
+    assert profile.positioningSourceMode == "official_zh"
+    assert profile.positioningZh == "以“一切皆插件”为架构，由 Cordis 驱动。"
+    assert profile.positioningEvidenceRefs == ["readme:narrative:positioning"]
+    assert profile.officialPositioningZh == profile.positioningZh
+    assert profile.officialPositioningEvidenceRefs == profile.positioningEvidenceRefs
+    assert collected.translation_calls == 0
+    assert all(marker not in profile.positioningZh for marker in ["Web UI", "SSH", "127.0.0.1", "仅启动服务器"])
+
+
+@pytest.mark.asyncio
+async def test_rardar_positioning_uses_roles_exclusions_and_context_subject_dedupe(tmp_path: Path) -> None:
+    project = _project().model_copy(
+        update={"repository": "DietrichGebert/ponytail", "description": None, "githubRepositoryId": 1266797999}
+    )
+    markdown = """
+# Ponytail
+
+Ponytail puts a lazy senior developer inside your AI agent.
+
+## How it works
+
+The agent first reads the affected code and traces the real flow, then chooses the first viable rung.
+
+## Validation
+
+Measured in real FastAPI and React repositories using Claude Code sessions and final Git diff output.
+"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(
+                200,
+                json=[
+                    {"path": "README.md", "type": "file"},
+                    {"path": "skills", "type": "dir"},
+                    {"path": "rules", "type": "dir"},
+                    {"path": "plugin.json", "type": "file"},
+                ],
+            )
+        return httpx.Response(200, json=_readme_payload(markdown, sha="9" * 40))
+
+    async def translate(payload):
+        refs = set(payload["evidenceIndex"])
+        assert {item["text"] for item in payload["structuredPositioningForms"]} == {"技能", "规则集", "插件"}
+        how_ref = next(reference for reference in refs if "section:2" in reference)
+        validation_ref = next(reference for reference in refs if "section:3" in reference)
+        return ProfileTranslation(
+            summary=EvidenceClaim(
+                text="Ponytail 是让 AI 编程代理优先采用精简实现的技能。",
+                evidenceRefs=["readme:section:1"],
+            ),
+            positioning=DerivedPositioning(
+                positioningZh=(
+                    "Ponytail 是一套面向 AI 编程代理的技能、规则集与插件，指导代理先理解真实代码流程，"
+                    "再选择尽可能精简且保留安全边界的实现。"
+                ),
+                includedEvidenceRefs=[how_ref],
+                includedRoles=["identity", "core_mechanism", "primary_outcome"],
+                excludedClauses=[
+                    PositioningExcludedClause(
+                        role="validation",
+                        text="在真实 FastAPI 与 React 仓库的 Claude Code 会话中通过最终 Git diff 测量。",
+                        evidenceRefs=[validation_ref],
+                    )
+                ],
+            ),
+            capabilities=[],
+            productForms=[],
+            supportedEnvironments=[],
+            useCases=[],
+            deliveryForms=[],
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=translate,
+        )
+
+    profile = collected.profile
+    assert profile.positioningSourceMode == "rardar_derived"
+    assert profile.positioningZh == (
+        "一套面向 AI 编程代理的技能、规则集与插件，指导代理先理解真实代码流程，"
+        "再选择尽可能精简且保留安全边界的实现。"
+    )
+    assert profile.positioningIncludedRoles == ["identity", "core_mechanism", "primary_outcome"]
+    assert [item.role for item in profile.positioningExcludedClauses] == ["validation"]
+    assert {"技能", "规则集", "插件"}.issubset(profile.productFormsZh)
+    assert all(marker not in profile.positioningZh for marker in ["FastAPI", "React", "Claude Code", "Git diff"])
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("Ponytail 是一套面向代理的精简实现规则集。", "一套面向代理的精简实现规则集。"),
+        ("Ponytail 通过理解代码流程选择精简实现。", "通过理解代码流程选择精简实现。"),
+        ("该项目是一个本地优先工具，用于整理公开仓库。", "一个本地优先工具，用于整理公开仓库。"),
+        ("该项目是一款本地优先工具，用于整理公开仓库。", "一款本地优先工具，用于整理公开仓库。"),
+        ("这是一个用于管理公开仓库的本地工具。", "用于管理公开仓库的本地工具。"),
+        ("Ponytail 是。", "Ponytail 是。"),
+    ],
+)
+def test_context_subject_dedupe_is_grammar_guarded(source: str, expected: str) -> None:
+    assert _dedupe_context_subject(source) == expected
+
+
+def test_positioning_contract_preserves_semantic_clauses_without_string_splitting() -> None:
+    value = DerivedPositioning(
+        positioningZh="一套可组合的工作流；第二个分句描述由规则引擎驱动的核心机制。",
+        includedEvidenceRefs=["readme:section:1"],
+        includedRoles=["identity", "core_mechanism"],
+        excludedClauses=[
+            PositioningExcludedClause(
+                role="operation",
+                text="运行命令会先启动本地服务。",
+                evidenceRefs=["readme:section:2"],
+            )
+        ],
+    )
+
+    assert value.positioningZh.endswith("核心机制。")
+    assert "；" in value.positioningZh
+    assert value.excludedClauses[0].text.startswith("运行命令")
+
+
+def test_official_chinese_positioning_never_receives_context_subject_dedupe() -> None:
+    source = "Archify 是一套基于 Node.js 的渲染与校验系统。"
+
+    assert _official_chinese_positioning(source) == source
+
+
+def test_official_english_positioning_rejects_benchmark_and_operation_prose() -> None:
+    assert _official_english_positioning_is_high_signal(
+        "A rendering engine turns typed input into standalone HTML artifacts."
+    )
+    assert not _official_english_positioning_is_high_signal(
+        "54% less code and 27% faster, measured in real sessions against a baseline; reproduce the benchmark."
+    )
+    assert not _official_english_positioning_is_high_signal(
+        "Run npm install, start the server on localhost, and expose the port through SSH."
+    )
+    assert not _official_english_positioning_is_high_signal(
+        "Building real applications is hard. Other methodologies try to help, but they take away your control."
+    )
+    assert _official_positioning_is_high_signal("万物皆插件，桌面本身也是插件。", "zh")
+    assert _official_positioning_is_high_signal("一款在本地计算机终端中运行的轻量级编程智能体。", "zh")
+    assert not _official_positioning_is_high_signal(
+        "其他项目 NextLevelBuilder.io | GoClaw.sh | ClaudeKit.cc。",
+        "zh",
+    )
+
+
+@pytest.mark.asyncio
+async def test_rardar_prompt_requires_complementary_forms_and_preserves_core_safety_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_call(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            value=ProfileTranslation(
+                summary=EvidenceClaim(text="面向 AI 编程代理的精简实现规则集。", evidenceRefs=["description"]),
+                positioning=DerivedPositioning(
+                    positioningZh=(
+                        "一套面向 AI 编程代理的技能、规则集与插件，指导代理理解真实代码流程，"
+                        "再选择尽可能精简且保留安全边界的实现。"
+                    ),
+                    includedEvidenceRefs=["description", "readme:section:1"],
+                    includedRoles=["identity", "core_mechanism", "primary_outcome"],
+                ),
+                capabilities=[],
+                productForms=[],
+                supportedEnvironments=[],
+                useCases=[],
+                deliveryForms=[],
+            )
+        )
+
+    monkeypatch.setattr("app.services.rardar_llm_control.call_rardar_structured", fake_call)
+    translated = await _translate_with_control(
+        {
+            "repository": "owner/example",
+            "sourceLanguage": "en",
+            "evidenceIndex": {
+                "description": "A skill, ruleset, and plugin for AI coding agents.",
+                "readme:section:1": "Understand the real flow, then keep the smallest safe implementation.",
+            },
+            "structuredPositioningForms": [
+                {"text": "技能", "evidenceRefs": ["description"]},
+                {"text": "规则集", "evidenceRefs": ["description"]},
+                {"text": "插件", "evidenceRefs": ["description"]},
+            ],
+        }
+    )
+
+    system_prompt = captured["messages"][0]["content"]
+    assert "技能、规则集和插件" in system_prompt
+    assert "保留安全边界" in system_prompt
+    assert "benchmark" in system_prompt
+    assert translated.positioning is not None
+    assert translated.positioning.includedRoles == ["identity", "core_mechanism", "primary_outcome"]
 
 
 def test_official_translation_preserves_single_token_technical_titles_but_rejects_untranslated_prose() -> None:
@@ -195,6 +450,10 @@ def test_official_translation_preserves_single_token_technical_titles_but_reject
     )
     with pytest.raises(ProfileTranslationError, match="rardar_official_translation_content_invalid"):
         _validate_official_translation(unfaithful, narrative)
+
+    navigation_positioning = faithful.model_copy(update={"translatedPositioning": "要进一步了解这个项目："})
+    with pytest.raises(ProfileTranslationError, match="rardar_official_positioning_translation_invalid"):
+        _validate_official_translation(navigation_positioning, narrative)
 
 
 def test_content_sanitizer_rejects_media_urls_redirects_commands_and_placeholders() -> None:
@@ -810,7 +1069,7 @@ Open examples/ for complete outputs.
         )
 
     profile = collected.profile
-    assert profile.profileSchemaVersion == "rardar-project-profile-v5"
+    assert profile.profileSchemaVersion == "rardar-project-profile-v6"
     assert profile.identitySummaryZh == profile.officialSummaryZh
     assert profile.coreValueZh is not None
     assert profile.coreValueEvidenceRefs
@@ -1013,8 +1272,16 @@ Faithful Map is a Node.js renderer and validator that accepts a typed JSON IR an
 def test_serving_profile_builder_contains_no_repository_specific_copy() -> None:
     source = Path(collect_official_project_profile.__code__.co_filename).read_text(encoding="utf-8").casefold()
 
-    assert "tt-a1i" not in source
-    assert "1211139949" not in source
+    for forbidden in {
+        "tt-a1i",
+        "archify",
+        "deepseek-harness",
+        "ponytail",
+        "1211139949",
+        "1333065091",
+        "1266797999",
+    }:
+        assert forbidden not in source
     assert 'if "archify" in repository' not in source
 
 

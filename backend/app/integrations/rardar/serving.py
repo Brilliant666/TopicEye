@@ -157,8 +157,8 @@ def _fallback_profiles(
         insufficient = "identity_source_rejected" in fallback_issues
         source_label = "受限概括" if insufficient else "Rardar 整理"
         profile = OfficialProjectProfile(
-            profileSchemaVersion="rardar-project-profile-v5",
-            promptVersion="rardar-project-profile-zh-v8",
+            profileSchemaVersion="rardar-project-profile-v6",
+            promptVersion="rardar-project-profile-zh-v12",
             githubRepositoryId=project.githubRepositoryId,
             repository=project.repository,
             htmlUrl=project.htmlUrl,
@@ -175,6 +175,11 @@ def _fallback_profiles(
             officialTaglineEvidenceRefs=[] if insufficient else [ref],
             officialPositioningZh=None,
             officialPositioningEvidenceRefs=[],
+            positioningZh=None,
+            positioningSourceMode="insufficient",
+            positioningEvidenceRefs=[],
+            positioningIncludedRoles=[],
+            positioningExcludedClauses=[],
             officialHighlights=[],
             officialNarrativeMode="insufficient" if insufficient else "rardar_derived",
             officialNarrativeIssues=[
@@ -187,7 +192,7 @@ def _fallback_profiles(
             rardarAssessmentZh=None,
             rardarAssessmentEvidenceRefs=[],
             rardarDifferentiators=[],
-            rardarAssessmentPromptVersion="rardar-assessment-zh-v2",
+            rardarAssessmentPromptVersion="rardar-assessment-zh-v5",
             sourceLabel=source_label,
             sourceLanguage=source_language,
             capabilityBulletsZh=[],
@@ -314,6 +319,11 @@ def build_serving_projection(
                 "officialTaglineEvidenceRefs": profile.officialTaglineEvidenceRefs,
                 "officialPositioningZh": profile.officialPositioningZh,
                 "officialPositioningEvidenceRefs": profile.officialPositioningEvidenceRefs,
+                "positioningZh": profile.positioningZh,
+                "positioningSourceMode": profile.positioningSourceMode,
+                "positioningEvidenceRefs": profile.positioningEvidenceRefs,
+                "positioningIncludedRoles": profile.positioningIncludedRoles,
+                "positioningExcludedClauses": profile.positioningExcludedClauses,
                 "officialHighlights": profile.officialHighlights,
                 "officialNarrativeMode": profile.officialNarrativeMode,
                 "officialNarrativeIssues": profile.officialNarrativeIssues,
@@ -325,7 +335,7 @@ def build_serving_projection(
         )
         today_projects.append(today_project)
         record = ServingProjectRecord(
-            schemaVersion=5,
+            schemaVersion=6,
             generationId=generation_id,
             servingGenerationId=serving_generation_id,
             project=today_project,
@@ -337,7 +347,7 @@ def build_serving_projection(
         evidence_files[f"evidence/{project.githubRepositoryId}.json"] = _model_bytes(collected.evidence)
 
     today = ServingTodaySnapshot(
-        schemaVersion=5,
+        schemaVersion=6,
         state=board.state,
         reason=board.reason,
         generationId=generation_id,
@@ -377,7 +387,7 @@ def build_serving_projection(
         for identifier in sorted(expected_ids)
     }
     manifest = ServingManifest(
-        schemaVersion=5,
+        schemaVersion=6,
         state="ready",
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
@@ -392,7 +402,7 @@ def build_serving_projection(
     manifest_raw = _model_bytes(manifest)
     files["manifest.json"] = manifest_raw
     pointer = ServingPointer(
-        schemaVersion=5,
+        schemaVersion=6,
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
         manifestSha256=_sha(manifest_raw),
@@ -437,6 +447,7 @@ def _validate_project_binding(
         record.profile.officialSummaryZh,
         *(value for value in [record.profile.officialTaglineZh] if value is not None),
         *(value for value in [record.profile.officialPositioningZh] if value is not None),
+        *(value for value in [record.profile.positioningZh] if value is not None),
         *(highlight.titleZh for highlight in record.profile.officialHighlights),
         *(highlight.detailZh for highlight in record.profile.officialHighlights),
         *(value for value in [record.profile.rardarAssessmentZh] if value is not None),
@@ -462,6 +473,8 @@ def _validate_project_binding(
         *record.profile.coreValueEvidenceRefs,
         *record.profile.officialTaglineEvidenceRefs,
         *record.profile.officialPositioningEvidenceRefs,
+        *record.profile.positioningEvidenceRefs,
+        *(reference for clause in record.profile.positioningExcludedClauses for reference in clause.evidenceRefs),
         *record.profile.rardarAssessmentEvidenceRefs,
         *(reference for highlight in record.profile.officialHighlights for reference in highlight.evidenceRefs),
     }

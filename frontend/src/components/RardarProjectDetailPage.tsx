@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 
 import {
+  assertPublishableProject,
   narrativeSourceLabel,
   positioningSourceLabel,
   type ProjectCapability,
@@ -26,9 +27,13 @@ import RardarProjectExplanation from './RardarProjectExplanation';
 
 export default function RardarProjectDetailPage({ detail }: { detail: ProjectDetail }) {
   const { project, profile } = detail;
+  if (detail.schemaVersion >= 5) {
+    const requireIncludedRoles = detail.schemaVersion >= 6;
+    assertPublishableProject(project, requireIncludedRoles);
+    assertPublishableProject(profile, requireIncludedRoles);
+  }
   const relativeGrowth = project.baselineStars > 0 ? project.observedStarDelta / project.baselineStars : null;
   const findHref = `/find?repositoryUrl=${encodeURIComponent(project.htmlUrl)}`;
-  const insufficient = profile.officialNarrativeMode === 'insufficient';
   const sourceLabel = narrativeSourceLabel(profile.officialNarrativeMode);
   const positioningLabel = positioningSourceLabel(profile.positioningSourceMode);
   const primaryLinks = profile.startHere.slice(0, 4);
@@ -57,13 +62,11 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
           ) : (
             <p className={styles.detailSafeIdentity}>{profile.identitySummaryZh}</p>
           )}
-          {!insufficient && (
-            <div className={styles.profileSignalGrid} aria-label="项目形态、环境与交付形式">
-              <ProfileSignal label="产品形态" values={profile.productFormsZh} />
-              <ProfileSignal label="适用环境" values={profile.supportedEnvironmentsZh} />
-              <ProfileSignal label="交付形式" values={profile.deliveryFormsZh} />
-            </div>
-          )}
+          <div className={styles.profileSignalGrid} aria-label="项目形态、环境与交付形式">
+            <ProfileSignal label="产品形态" values={profile.productFormsZh} />
+            <ProfileSignal label="适用环境" values={profile.supportedEnvironmentsZh} />
+            <ProfileSignal label="交付形式" values={profile.deliveryFormsZh} />
+          </div>
           <div className={styles.tags}>
             {project.primaryLanguage && <span>{project.primaryLanguage}</span>}
             {project.topics.slice(0, 4).map((topic) => <span key={topic}>{topic}</span>)}
@@ -84,20 +87,11 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
       <div className={styles.detailFlow} data-testid="project-detail-flow">
         <section className={styles.detailCoreValue} data-testid="project-official-positioning">
           <div className={styles.sectionKicker}><Sparkles size={16} /> 核心定位 · {positioningLabel}</div>
-          {profile.positioningZh && profile.positioningSourceMode !== 'insufficient' ? (
-            <>
-              <h2>{profile.positioningZh}</h2>
-              <EvidenceBadges values={profile.positioningEvidenceRefs} />
-            </>
-          ) : (
-            <div className={styles.qualityFallback}>
-              <strong>官方核心定位仍在补证</strong>
-              <p>当前只展示已验证的仓库身份与事实，不用 Rardar 判断冒充官方叙事。</p>
-            </div>
-          )}
+          <h2>{profile.positioningZh}</h2>
+          <EvidenceBadges values={profile.positioningEvidenceRefs} />
         </section>
 
-        {presentedCapabilities.length > 0 && !insufficient && (
+        {presentedCapabilities.length > 0 && (
           <DetailSection
             icon={Boxes}
             title="它能做什么"
@@ -218,7 +212,6 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
                 {profile.originalExcerpts.slice(0, 4).map((excerpt) => <blockquote key={excerpt}>{excerpt}</blockquote>)}
               </div>
             )}
-            {profile.qualityIssues.length > 0 && <p className={styles.qualityIssues}>质量说明：{profile.qualityIssues.join(' · ')}</p>}
           </div>
         </details>
       </div>
@@ -291,5 +284,5 @@ function formatTime(value: string) {
 }
 
 function translationLabel(value: ProjectDetail['profile']['translationState']) {
-  return { not_needed: '官方中文原文', translated: '官方英文内容忠实翻译', pending: '翻译待补全', unavailable: '模型不可用，使用安全降级' }[value];
+  return { not_needed: '官方中文原文', translated: '官方英文内容忠实翻译', pending: 'Rardar 证据整理', unavailable: 'Rardar 证据整理' }[value];
 }

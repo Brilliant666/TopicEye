@@ -41,7 +41,7 @@ def _source_claim(detail: ServingProjectDetail) -> str | None:
     return raw.split(": ", 1)[1] if ": " in raw else raw
 
 
-def _audit_project(detail: ServingProjectDetail) -> dict[str, Any]:
+def _audit_project(detail: ServingProjectDetail, *, require_complete: bool = False) -> dict[str, Any]:
     profile = detail.profile
     text = profile.positioningZh or ""
     leakages = {role: bool(pattern.search(text)) for role, pattern in _LEAKAGE_PATTERNS.items()}
@@ -68,6 +68,8 @@ def _audit_project(detail: ServingProjectDetail) -> dict[str, Any]:
     if profile.positioningSourceMode == "insufficient":
         if text or profile.positioningEvidenceRefs or profile.positioningIncludedRoles:
             violations.append("insufficient_positioning_exposed")
+        if require_complete:
+            violations.append("positioning_missing")
     elif not text or not profile.positioningEvidenceRefs or not profile.positioningIncludedRoles:
         violations.append("positioning_contract_incomplete")
 
@@ -97,9 +99,10 @@ def audit_positioning_precision(target: Path) -> dict[str, Any]:
     loader = ServingProjectionLoader(target)
     today, _etag = loader.load_today_with_etag()
     projects: list[dict[str, Any]] = []
+    require_complete = bool(today.coverage is not None and today.coverage.exactCount >= 20)
     for project in today.exactRanked[:20]:
         detail, _etag = loader.load_project_with_etag(project.githubRepositoryId, today.generationId)
-        projects.append(_audit_project(detail))
+        projects.append(_audit_project(detail, require_complete=require_complete))
     modes = Counter(project["positioningSourceMode"] for project in projects)
     violations = Counter(violation for project in projects for violation in project["violations"])
     return {

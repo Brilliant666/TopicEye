@@ -456,7 +456,7 @@ describe('Rardar project detail', () => {
     expect(html).toContain('打开 GitHub');
   });
 
-  it('keeps a rejected detail useful while hiding every rejected semantic claim', () => {
+  it('fails closed instead of rendering rejected detail content', () => {
     const rejected = {
       ...detail,
       profile: {
@@ -491,12 +491,35 @@ describe('Rardar project detail', () => {
         rardarDifferentiators: [],
       },
     };
-    const html = renderToStaticMarkup(<RardarProjectDetailPage detail={rejected} />);
+    expect(() => renderToStaticMarkup(
+      <RardarProjectDetailPage detail={rejected} />,
+    )).toThrow('rardar_serving_completeness_invalid');
+  });
 
-    expect(html).toContain('低质量内容已隔离');
-    expect(html).toContain('官方核心定位仍在补证');
-    expect(html).not.toContain('它能做什么');
-    expect(html).not.toContain('确定性中间表示');
-    expect(html).toContain('打开 GitHub');
+  it('rejects a v6 detail when the shared positioning is missing', () => {
+    const missingPositioning = {
+      ...detail,
+      schemaVersion: 6 as const,
+      project: {
+        ...detail.project,
+        officialPositioningZh: null,
+        officialPositioningEvidenceRefs: [],
+        positioningZh: null,
+        positioningSourceMode: 'insufficient' as const,
+        positioningEvidenceRefs: [],
+        positioningIncludedRoles: [],
+      },
+      profile: {
+        ...detail.profile,
+        officialPositioningZh: null,
+        officialPositioningEvidenceRefs: [],
+        positioningZh: null,
+        positioningSourceMode: 'insufficient' as const,
+        positioningEvidenceRefs: [],
+        positioningIncludedRoles: [],
+      },
+    };
+
+    expect(() => parseProjectDetail(missingPositioning)).toThrow('rardar_project_response_invalid');
   });
 });

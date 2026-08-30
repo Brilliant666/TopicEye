@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
+import os
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -42,6 +45,7 @@ def rebuild(
     translate_top: int = 20,
     concurrency: int = 4,
     offline: bool = False,
+    publication_audit: Path | None = None,
 ) -> dict[str, object]:
     board = RardarIntelligenceAdapter.from_config(str(target)).load_explosion_board()
     if not board.generationId:
@@ -59,7 +63,14 @@ def rebuild(
         if offline
         else real_profile_provider(translate_top=translate_top, concurrency=concurrency),
     )
-    installed = install_serving_projection(target, built)
+    try:
+        installed = install_serving_projection(target, built)
+    except ServingProjectionError as exc:
+        if publication_audit is not None and exc.audit is not None:
+            _write_json_atomic(publication_audit, exc.audit)
+        raise
+    if publication_audit is not None:
+        _write_json_atomic(publication_audit, installed.publication_audit)
     profiles = built.profile_result
     return {
         "status": "healthy",
@@ -73,7 +84,24 @@ def rebuild(
         "readmeCacheHits": profiles.readme_cache_hits,
         "translationCalls": profiles.translation_calls,
         "translationCacheHits": profiles.translation_cache_hits,
+        "publicationAudit": installed.publication_audit,
     }
+
+
+def _write_json_atomic(path: Path, value: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(value, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except Exception:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temporary)
+        raise
 
 
 def main() -> int:
@@ -82,6 +110,7 @@ def main() -> int:
     parser.add_argument("--translate-top", type=int, default=20, choices=range(0, 21), metavar="0..20")
     parser.add_argument("--concurrency", type=int, default=4, choices=range(1, 9), metavar="1..8")
     parser.add_argument("--offline", action="store_true", help="Use only audited Artifact facts; intended for fixtures")
+    parser.add_argument("--publication-audit", type=Path)
     arguments = parser.parse_args()
     try:
         result = rebuild(
@@ -89,6 +118,7 @@ def main() -> int:
             translate_top=arguments.translate_top,
             concurrency=arguments.concurrency,
             offline=arguments.offline,
+            publication_audit=arguments.publication_audit,
         )
     except (RardarArtifactError, ServingProjectionError) as exc:
         print(json.dumps({"status": "failed", "code": exc.code}, sort_keys=True), file=sys.stderr)

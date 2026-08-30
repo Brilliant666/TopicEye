@@ -7,6 +7,7 @@ shared route/failover/rate-limit/retry/circuit/cache/logging implementation.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
@@ -16,7 +17,7 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from app.services.llm._call_engine import _is_deterministic_request_error
+from app.services.llm._call_engine import _is_deterministic_request_error, _is_rate_limit_error
 from app.services.llm.provider import LlmRouteNotConfiguredError, call_llm_with_metadata
 from app.services.llm.strict_json import StrictJSONError, loads_strict_json
 
@@ -40,8 +41,9 @@ class ReasoningEffort(StrEnum):
 class RardarLLMError(RuntimeError):
     """Stable, non-secret error exposed to Rardar business callers."""
 
-    def __init__(self, code: str):
+    def __init__(self, code: str, *, classification: str | None = None):
         self.code = code
+        self.classification = classification
         super().__init__(code)
 
 
@@ -149,7 +151,11 @@ def _map_control_error(error: Exception) -> RardarLLMError:
         return RardarLLMError("rardar_llm_not_configured")
     if isinstance(error, ValueError) or _is_deterministic_request_error(error):
         return RardarLLMError("rardar_llm_request_rejected")
-    return RardarLLMError("rardar_llm_unavailable")
+    if isinstance(error, TimeoutError | asyncio.TimeoutError) or "timeout" in str(error).casefold():
+        return RardarLLMError("rardar_llm_unavailable", classification="timeout")
+    if _is_rate_limit_error(error):
+        return RardarLLMError("rardar_llm_unavailable", classification="rate_limited")
+    return RardarLLMError("rardar_llm_unavailable", classification="provider_error")
 
 
 async def call_rardar_llm(
@@ -215,8 +221,11 @@ async def call_rardar_structured(
         )
         parsed = loads_strict_json(raw)
         value = response_model.model_validate(parsed, strict=True)
-    except (StrictJSONError, ValidationError):
-        raise RardarLLMError("rardar_llm_invalid_output") from None
+    except StrictJSONError as exc:
+        classification = "empty" if "empty" in str(exc).casefold() else "invalid_json"
+        raise RardarLLMError("rardar_llm_invalid_output", classification=classification) from None
+    except ValidationError:
+        raise RardarLLMError("rardar_llm_invalid_output", classification="schema_invalid") from None
     except Exception as exc:
         raise _map_control_error(exc) from None
     return RardarStructuredResult(

@@ -17,6 +17,7 @@ import {
 
 import {
   narrativeSourceLabel,
+  positioningSourceLabel,
   type ProjectCapability,
   type ProjectDetail,
 } from '@/lib/rardar-intelligence';
@@ -29,6 +30,7 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
   const findHref = `/find?repositoryUrl=${encodeURIComponent(project.htmlUrl)}`;
   const insufficient = profile.officialNarrativeMode === 'insufficient';
   const sourceLabel = narrativeSourceLabel(profile.officialNarrativeMode);
+  const positioningLabel = positioningSourceLabel(profile.positioningSourceMode);
   const primaryLinks = profile.startHere.slice(0, 4);
   const moreLinks = profile.startHere.slice(4);
   const presentedCapabilities = profile.officialHighlights.length > 0
@@ -81,11 +83,11 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
 
       <div className={styles.detailFlow} data-testid="project-detail-flow">
         <section className={styles.detailCoreValue} data-testid="project-official-positioning">
-          <div className={styles.sectionKicker}><Sparkles size={16} /> 核心定位 · {sourceLabel}</div>
-          {profile.officialPositioningZh && !insufficient ? (
+          <div className={styles.sectionKicker}><Sparkles size={16} /> 核心定位 · {positioningLabel}</div>
+          {profile.positioningZh && profile.positioningSourceMode !== 'insufficient' ? (
             <>
-              <h2>{profile.officialPositioningZh}</h2>
-              <EvidenceBadges values={profile.officialPositioningEvidenceRefs} />
+              <h2>{profile.positioningZh}</h2>
+              <EvidenceBadges values={profile.positioningEvidenceRefs} />
             </>
           ) : (
             <div className={styles.qualityFallback}>
@@ -197,6 +199,7 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
             <dl className={styles.sourceFacts}>
               <div><dt>叙事模式</dt><dd>{profile.officialNarrativeMode}</dd></div>
               <div><dt>叙事来源</dt><dd>{sourceLabel}</dd></div>
+              <div><dt>核心定位来源</dt><dd>{positioningLabel}</dd></div>
               <div><dt>官方重点</dt><dd>{profile.officialHighlights.length} 项</dd></div>
               <div><dt>Rardar 判断来源</dt><dd>{profile.rardarAssessmentZh ? '独立分析层' : '未生成'}</dd></div>
               <div><dt>来源</dt><dd>{profile.sourceLabel}</dd></div>

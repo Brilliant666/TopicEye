@@ -221,6 +221,19 @@ const v5ReadyPayload = {
   },
 };
 
+const v6ReadyPayload = {
+  ...v5ReadyPayload,
+  schemaVersion: 6,
+  exactRanked: v5ReadyPayload.exactRanked.map((project) => ({
+    ...project,
+    positioningZh: project.officialPositioningZh,
+    positioningSourceMode: project.officialNarrativeMode,
+    positioningEvidenceRefs: project.officialPositioningEvidenceRefs,
+    positioningIncludedRoles: ['identity', 'core_mechanism', 'primary_outcome'],
+    positioningExcludedClauses: [],
+  })),
+};
+
 describe('Rardar intelligence client contract', () => {
   it('preserves the audited API order and rejects invented repository shapes', () => {
     const parsed = parseExplosionBoard(readyPayload);
@@ -292,6 +305,23 @@ describe('Rardar intelligence client contract', () => {
   it('rejects malformed Serving profile metadata', () => {
     expect(parseTodaySnapshot({ ...readyPayload, schemaVersion: 4 }).schemaVersion).toBe(4);
     expect(parseTodaySnapshot(v5ReadyPayload).schemaVersion).toBe(5);
+    expect(parseTodaySnapshot(v6ReadyPayload).schemaVersion).toBe(6);
+    expect(() => parseTodaySnapshot({
+      ...v6ReadyPayload,
+      exactRanked: [{
+        ...v6ReadyPayload.exactRanked[0],
+        positioningSourceMode: 'invented',
+      }],
+      profileSummary: { ...v6ReadyPayload.profileSummary, total: 1, complete: 1, chineseSummaries: 1, qualityReady: 1, officialTranslated: 1 },
+    })).toThrow('rardar_response_invalid');
+    expect(() => parseTodaySnapshot({
+      ...v6ReadyPayload,
+      exactRanked: [{
+        ...v6ReadyPayload.exactRanked[0],
+        positioningIncludedRoles: ['identity', 'operation'],
+      }],
+      profileSummary: { ...v6ReadyPayload.profileSummary, total: 1, complete: 1, chineseSummaries: 1, qualityReady: 1, officialTranslated: 1 },
+    })).toThrow('rardar_response_invalid');
     expect(() => parseTodaySnapshot({
       ...v5ReadyPayload,
       exactRanked: [{
@@ -344,7 +374,7 @@ describe('Rardar intelligence client contract', () => {
     })).toThrow('rardar_response_invalid');
   });
 
-  it('renders the official tagline and positioning, then preserves only the first two ordered highlights', () => {
+  it('renders the positioning without duplicating official highlights on Today cards', () => {
     const completeDetail = '将完整的官方能力说明连同证据保留下来，避免为了卡片高度截成无法理解的半句话。';
     const exactRanked = [{
       ...v5ReadyPayload.exactRanked[0],
@@ -381,10 +411,10 @@ describe('Rardar intelligence client contract', () => {
       }} />,
     );
 
-    expect(html).toContain(completeDetail);
-    expect(html).toContain('作者第一项');
-    expect(html).toContain('作者第二项');
-    expect(html).toContain('第二项完整能力提供可验证的工程交付。');
+    expect(html).not.toContain(completeDetail);
+    expect(html).not.toContain('作者第一项');
+    expect(html).not.toContain('作者第二项');
+    expect(html).not.toContain('第二项完整能力提供可验证的工程交付。');
     expect(html).not.toContain('作者第三项');
     expect(html).not.toContain('第三项完整能力保留可追溯来源。');
     expect(html).not.toContain('…');
@@ -393,6 +423,120 @@ describe('Rardar intelligence client contract', () => {
     expect(html).toContain('/project/github/1?generation=fixture-explosion-a');
     expect(html).toContain('href="https://github.com/fixture-lab/alpha"');
     expect(html).not.toContain('用这个仓库评估我的需求');
+  });
+
+  it('uses the field-level positioning source without changing the overall narrative source', () => {
+    const project = {
+      ...v6ReadyPayload.exactRanked[0],
+      sourceLabel: 'Rardar 整理',
+      officialNarrativeMode: 'rardar_derived',
+      officialNarrativeIssues: ['highlights_missing'],
+      positioningSourceMode: 'official_zh',
+      positioningZh: '一个采用官方中文定位、但其余画像由 Rardar 整理的项目。',
+      officialPositioningZh: '一个采用官方中文定位、但其余画像由 Rardar 整理的项目。',
+    };
+    const html = renderToStaticMarkup(
+      <TodayFoundation result={{
+        kind: 'published',
+        board: parseTodaySnapshot({
+          ...v6ReadyPayload,
+          exactRanked: [project],
+          profileSummary: {
+            ...v6ReadyPayload.profileSummary,
+            total: 1,
+            complete: 1,
+            chineseSummaries: 1,
+            qualityReady: 1,
+            officialTranslated: 0,
+            rardarDerived: 1,
+          },
+        }),
+      }} />,
+    );
+
+    expect(html).toContain('核心定位 · 官方中文 README');
+    expect(html).toContain('一个采用官方中文定位、但其余画像由 Rardar 整理的项目。');
+    expect(html).not.toContain('核心定位 · Rardar 整理');
+  });
+
+  it('renders audited DeepSeek and Ponytail positioning without operational or validation anecdotes', () => {
+    const deepSeekPositioning = '以“一切皆插件”为架构，由 Cordis 驱动。';
+    const ponytailPositioning = (
+      '一套面向 AI 编程代理的技能、规则集与插件，指导代理先理解真实代码流程，'
+      + '再选择尽可能精简且保留安全边界的实现。'
+    );
+    const deepSeek = {
+      ...v6ReadyPayload.exactRanked[0],
+      githubRepositoryId: 1333065091,
+      repository: 'deepseek-ai/deepseek-harness',
+      htmlUrl: 'https://github.com/deepseek-ai/deepseek-harness',
+      sourceLabel: 'Rardar 整理',
+      officialNarrativeMode: 'rardar_derived',
+      officialNarrativeIssues: ['highlights_missing'],
+      officialPositioningZh: deepSeekPositioning,
+      officialPositioningEvidenceRefs: ['readme:narrative:positioning'],
+      positioningZh: deepSeekPositioning,
+      positioningSourceMode: 'official_zh',
+      positioningEvidenceRefs: ['readme:narrative:positioning'],
+      positioningIncludedRoles: ['core_mechanism'],
+      positioningExcludedClauses: [],
+      officialHighlights: [{
+        sourceOrder: 1,
+        sourceTitle: '运行',
+        sourceDetail: '默认启动 Web UI，也可通过 SSH 仅启动服务器。',
+        titleZh: '运行',
+        detailZh: '默认启动 Web UI，也可通过 SSH 仅启动服务器。',
+        evidenceRefs: ['readme:narrative:highlight:1'],
+      }],
+    };
+    const ponytail = {
+      ...v6ReadyPayload.exactRanked[1],
+      githubRepositoryId: 1266797999,
+      repository: 'DietrichGebert/ponytail',
+      htmlUrl: 'https://github.com/DietrichGebert/ponytail',
+      sourceLabel: 'Rardar 整理',
+      officialNarrativeMode: 'rardar_derived',
+      officialNarrativeIssues: ['source_structure_weak'],
+      officialPositioningZh: ponytailPositioning,
+      officialPositioningEvidenceRefs: ['readme:section:2'],
+      positioningZh: ponytailPositioning,
+      positioningSourceMode: 'rardar_derived',
+      positioningEvidenceRefs: ['readme:section:2'],
+      positioningIncludedRoles: ['identity', 'core_mechanism', 'primary_outcome'],
+      positioningExcludedClauses: [{
+        role: 'validation',
+        text: '在真实 FastAPI 与 React 仓库的 Claude Code 会话中通过最终 Git diff 测量。',
+        evidenceRefs: ['readme:section:3'],
+      }],
+      officialHighlights: [],
+    };
+    const html = renderToStaticMarkup(
+      <TodayFoundation result={{
+        kind: 'published',
+        board: parseTodaySnapshot({
+          ...v6ReadyPayload,
+          exactRanked: [deepSeek, ponytail],
+          profileSummary: {
+            ...v6ReadyPayload.profileSummary,
+            total: 2,
+            complete: 2,
+            chineseSummaries: 2,
+            qualityReady: 2,
+            officialTranslated: 0,
+            rardarDerived: 2,
+          },
+        }),
+      }} />,
+    );
+
+    expect(html).toContain(deepSeekPositioning);
+    expect(html).toContain('核心定位 · 官方中文 README');
+    expect(html).toContain(ponytailPositioning);
+    expect(html).toContain('核心定位 · Rardar 整理');
+    expect(ponytailPositioning.startsWith('Ponytail 是')).toBe(false);
+    for (const leakage of ['Web UI', 'SSH', '仅启动服务器', 'FastAPI', 'React', 'Claude Code', 'Git diff']) {
+      expect(html).not.toContain(leakage);
+    }
   });
 
   it('labels a derived narrative as Rardar 整理 instead of official content', () => {

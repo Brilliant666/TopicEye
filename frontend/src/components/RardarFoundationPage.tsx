@@ -21,6 +21,7 @@ import {
   loadExplosionBoard,
   loadTodaySnapshot,
   narrativeSourceLabel,
+  positioningSourceLabel,
   type ExplosionBoard,
   type ExplosionBoardLoadResult,
   type ExplosionWindow,
@@ -216,7 +217,7 @@ function ExactProjectCard({ project, generationId }: { project: TodayProject; ge
   const detailHref = `/project/github/${project.githubRepositoryId}?generation=${encodeURIComponent(generationId)}`;
   const insufficient = project.officialNarrativeMode === 'insufficient';
   const sourceLabel = narrativeSourceLabel(project.officialNarrativeMode);
-  const officialHighlights = project.officialHighlights.slice(0, 2);
+  const positioningLabel = positioningSourceLabel(project.positioningSourceMode);
   return (
     <article className={styles.rankingCard} data-testid={`today-project-${project.rank}`}>
       <div className={styles.rank}>#{project.rank}</div>
@@ -234,21 +235,11 @@ function ExactProjectCard({ project, generationId }: { project: TodayProject; ge
             {project.productFormsZh.slice(0, 3).map((form) => <span key={form}>{form}</span>)}
           </div>
         )}
-        {project.officialPositioningZh && !insufficient && (
+        {project.positioningZh && project.positioningSourceMode !== 'insufficient' && (
           <section className={styles.officialPositioningBlock} aria-label="核心定位" data-testid="today-official-positioning">
-            <span>核心定位 · {sourceLabel}</span>
-            <p>{project.officialPositioningZh}</p>
+            <span>核心定位 · {positioningLabel}</span>
+            <p>{project.positioningZh}</p>
           </section>
-        )}
-        {officialHighlights.length > 0 && !insufficient && (
-          <ul className={styles.officialHighlightList} aria-label={project.officialNarrativeMode.startsWith('official_') ? '官方卖点' : 'Rardar 整理要点'} data-testid="today-official-highlights">
-            {officialHighlights.map((highlight) => (
-              <li key={highlight.sourceOrder}>
-                <strong>{highlight.titleZh}</strong>
-                <span>{highlight.detailZh}</span>
-              </li>
-            ))}
-          </ul>
         )}
         {insufficient && <p className={styles.profileFallback}>官方资料不足，当前仅展示已验证的仓库身份与 Star 事实。</p>}
         <div className={styles.tags}>

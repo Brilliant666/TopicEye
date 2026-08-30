@@ -161,6 +161,9 @@ export type ProfileQualityState = 'ready' | 'partial' | 'rejected';
 export type ProfileSourceLabel = '官方中文 README' | '官方 README（译）' | 'GitHub Description' | '官方原文' | '受限概括' | 'Rardar 整理';
 export type TranslationState = 'not_needed' | 'translated' | 'pending' | 'unavailable';
 export type OfficialNarrativeMode = 'official_zh' | 'official_translated' | 'rardar_derived' | 'insufficient';
+export type PositioningSourceMode = OfficialNarrativeMode;
+export type PositioningIncludedRole = 'identity' | 'core_mechanism' | 'primary_outcome';
+export type PositioningExcludedRole = 'operation' | 'deployment' | 'validation' | 'example' | 'boundary';
 export type OfficialNarrativeIssue =
   | 'tagline_missing'
   | 'positioning_missing'
@@ -187,6 +190,12 @@ export interface OfficialHighlight {
   evidenceRefs: string[];
 }
 
+export interface PositioningExcludedClause {
+  role: PositioningExcludedRole;
+  text: string;
+  evidenceRefs: string[];
+}
+
 export interface TodayProject extends ExactExplosionProject {
   profileState: ProfileState;
   officialSummaryZh: string;
@@ -206,6 +215,11 @@ export interface TodayProject extends ExactExplosionProject {
   officialTaglineEvidenceRefs: string[];
   officialPositioningZh: string | null;
   officialPositioningEvidenceRefs: string[];
+  positioningZh: string | null;
+  positioningSourceMode: PositioningSourceMode;
+  positioningEvidenceRefs: string[];
+  positioningIncludedRoles: PositioningIncludedRole[];
+  positioningExcludedClauses: PositioningExcludedClause[];
   officialHighlights: OfficialHighlight[];
   officialNarrativeMode: OfficialNarrativeMode;
   officialNarrativeIssues: OfficialNarrativeIssue[];
@@ -230,7 +244,7 @@ export interface ProfileSummary {
 }
 
 export interface TodaySnapshot extends Omit<ExplosionBoard, 'exactRanked' | 'state' | 'reason' | 'dataMode'> {
-  schemaVersion: 1 | 2 | 3 | 4 | 5;
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6;
   state: 'ready' | 'warming_up' | 'baseline_missing' | 'not_ready';
   reason: 'explosion_artifact_not_published' | null;
   exactRanked: TodayProject[];
@@ -261,13 +275,13 @@ export interface StartHereLink {
 }
 
 export interface ProjectDetail {
-  schemaVersion: 1 | 2 | 3 | 4 | 5;
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6;
   generationId: string;
   servingGenerationId: string;
   project: TodayProject;
   profile: {
-    profileSchemaVersion: 'rardar-project-profile-v1' | 'rardar-project-profile-v2' | 'rardar-project-profile-v3' | 'rardar-project-profile-v4' | 'rardar-project-profile-v5';
-    promptVersion: 'rardar-project-profile-zh-v1' | 'rardar-project-profile-zh-v2' | 'rardar-project-profile-zh-v3' | 'rardar-project-profile-zh-v4' | 'rardar-project-profile-zh-v5' | 'rardar-project-profile-zh-v6' | 'rardar-project-profile-zh-v7';
+    profileSchemaVersion: 'rardar-project-profile-v1' | 'rardar-project-profile-v2' | 'rardar-project-profile-v3' | 'rardar-project-profile-v4' | 'rardar-project-profile-v5' | 'rardar-project-profile-v6';
+    promptVersion: 'rardar-project-profile-zh-v1' | 'rardar-project-profile-zh-v2' | 'rardar-project-profile-zh-v3' | 'rardar-project-profile-zh-v4' | 'rardar-project-profile-zh-v5' | 'rardar-project-profile-zh-v6' | 'rardar-project-profile-zh-v7' | 'rardar-project-profile-zh-v8' | 'rardar-project-profile-zh-v9' | 'rardar-project-profile-zh-v10' | 'rardar-project-profile-zh-v11' | 'rardar-project-profile-zh-v12';
     githubRepositoryId: number;
     repository: string;
     htmlUrl: string;
@@ -301,6 +315,11 @@ export interface ProjectDetail {
     officialTaglineEvidenceRefs: string[];
     officialPositioningZh: string | null;
     officialPositioningEvidenceRefs: string[];
+    positioningZh: string | null;
+    positioningSourceMode: PositioningSourceMode;
+    positioningEvidenceRefs: string[];
+    positioningIncludedRoles: PositioningIncludedRole[];
+    positioningExcludedClauses: PositioningExcludedClause[];
     officialHighlights: OfficialHighlight[];
     officialNarrativeMode: OfficialNarrativeMode;
     officialNarrativeIssues: OfficialNarrativeIssue[];
@@ -365,7 +384,7 @@ export async function loadExplosionBoard(
 export function parseTodaySnapshot(value: unknown): TodaySnapshot {
   const board = parseExplosionBoard(value);
   const schemaVersion = Number(isRecord(value) ? value.schemaVersion : NaN);
-  if (!isRecord(value) || ![1, 2, 3, 4, 5].includes(schemaVersion) || typeof value.servingGenerationId !== 'string') {
+  if (!isRecord(value) || ![1, 2, 3, 4, 5, 6].includes(schemaVersion) || typeof value.servingGenerationId !== 'string') {
     throw new Error('rardar_response_invalid');
   }
   if (
@@ -376,7 +395,7 @@ export function parseTodaySnapshot(value: unknown): TodaySnapshot {
       || !isFiniteInteger(value.profileSummary.qualityPartial)
       || !isFiniteInteger(value.profileSummary.qualityRejected)
     ))
-    || (schemaVersion === 5 && (
+    || (schemaVersion >= 5 && (
       !isFiniteInteger(value.profileSummary.officialZh)
       || !isFiniteInteger(value.profileSummary.officialTranslated)
       || !isFiniteInteger(value.profileSummary.rardarDerived)
@@ -398,7 +417,8 @@ export function parseTodaySnapshot(value: unknown): TodaySnapshot {
         !isStringArray(item.productFormsZh)
         || !isValidV4ProfileProjection(item)
       ))
-      || (schemaVersion === 5 && !isValidV5NarrativeProjection(item))
+      || (schemaVersion >= 5 && !isValidV5NarrativeProjection(item))
+      || (schemaVersion >= 6 && !isValidV6PositioningProjection(item))
     ) {
       throw new Error('rardar_response_invalid');
     }
@@ -416,7 +436,7 @@ export function parseTodaySnapshot(value: unknown): TodaySnapshot {
       throw new Error('rardar_response_invalid');
     }
   }
-  if (schemaVersion === 5) {
+  if (schemaVersion >= 5) {
     const profiles = value.exactRanked as Array<Record<string, unknown>>;
     const modeCounts = {
       official_zh: profiles.filter((item) => item.officialNarrativeMode === 'official_zh').length,
@@ -507,6 +527,52 @@ export function narrativeSourceLabel(mode: OfficialNarrativeMode): ProfileSource
   return narrativeSourceLabels[mode];
 }
 
+export function positioningSourceLabel(mode: PositioningSourceMode): ProfileSourceLabel {
+  return narrativeSourceLabels[mode];
+}
+
+const positioningIncludedRoles: PositioningIncludedRole[] = ['identity', 'core_mechanism', 'primary_outcome'];
+const positioningExcludedRoles: PositioningExcludedRole[] = [
+  'operation',
+  'deployment',
+  'validation',
+  'example',
+  'boundary',
+];
+
+function isPositioningExcludedClause(value: unknown): value is PositioningExcludedClause {
+  return isRecord(value)
+    && positioningExcludedRoles.includes(value.role as PositioningExcludedRole)
+    && typeof value.text === 'string'
+    && value.text.length > 0
+    && isStringArray(value.evidenceRefs)
+    && value.evidenceRefs.length > 0;
+}
+
+function isValidV6PositioningProjection(value: Record<string, unknown>): boolean {
+  if (
+    !narrativeModes.includes(value.positioningSourceMode as PositioningSourceMode)
+    || !(value.positioningZh === null || typeof value.positioningZh === 'string')
+    || !isStringArray(value.positioningEvidenceRefs)
+    || !isStringArray(value.positioningIncludedRoles)
+    || !value.positioningIncludedRoles.every((role) => positioningIncludedRoles.includes(role as PositioningIncludedRole))
+    || new Set(value.positioningIncludedRoles).size !== value.positioningIncludedRoles.length
+    || !Array.isArray(value.positioningExcludedClauses)
+    || !value.positioningExcludedClauses.every(isPositioningExcludedClause)
+    || value.officialPositioningZh !== value.positioningZh
+    || JSON.stringify(value.officialPositioningEvidenceRefs) !== JSON.stringify(value.positioningEvidenceRefs)
+  ) return false;
+  if (value.positioningSourceMode === 'insufficient') {
+    return value.positioningZh === null
+      && value.positioningEvidenceRefs.length === 0
+      && value.positioningIncludedRoles.length === 0
+      && value.positioningExcludedClauses.length === 0;
+  }
+  return typeof value.positioningZh === 'string'
+    && value.positioningEvidenceRefs.length > 0
+    && value.positioningIncludedRoles.length > 0;
+}
+
 function isValidV5NarrativeProjection(value: Record<string, unknown>): boolean {
   if (
     !narrativeModes.includes(value.officialNarrativeMode as OfficialNarrativeMode)
@@ -563,20 +629,41 @@ function normalizeNarrativeProjection(
   | 'officialTaglineEvidenceRefs'
   | 'officialPositioningZh'
   | 'officialPositioningEvidenceRefs'
+  | 'positioningZh'
+  | 'positioningSourceMode'
+  | 'positioningEvidenceRefs'
+  | 'positioningIncludedRoles'
+  | 'positioningExcludedClauses'
   | 'officialHighlights'
   | 'officialNarrativeMode'
   | 'officialNarrativeIssues'
   | 'rardarAssessmentZh'
   | 'rardarAssessmentEvidenceRefs'
   | 'rardarDifferentiators'> {
-  if (schemaVersion === 5) {
+  if (schemaVersion >= 5) {
+    const mode = value.officialNarrativeMode as OfficialNarrativeMode;
     return {
       officialTaglineZh: value.officialTaglineZh as string | null,
       officialTaglineEvidenceRefs: value.officialTaglineEvidenceRefs as string[],
       officialPositioningZh: value.officialPositioningZh as string | null,
       officialPositioningEvidenceRefs: value.officialPositioningEvidenceRefs as string[],
+      positioningZh: schemaVersion >= 6
+        ? value.positioningZh as string | null
+        : value.officialPositioningZh as string | null,
+      positioningSourceMode: schemaVersion >= 6
+        ? value.positioningSourceMode as PositioningSourceMode
+        : (value.officialPositioningZh === null ? 'insufficient' : mode),
+      positioningEvidenceRefs: schemaVersion >= 6
+        ? value.positioningEvidenceRefs as string[]
+        : value.officialPositioningEvidenceRefs as string[],
+      positioningIncludedRoles: schemaVersion >= 6
+        ? value.positioningIncludedRoles as PositioningIncludedRole[]
+        : [],
+      positioningExcludedClauses: schemaVersion >= 6
+        ? value.positioningExcludedClauses as PositioningExcludedClause[]
+        : [],
       officialHighlights: value.officialHighlights as OfficialHighlight[],
-      officialNarrativeMode: value.officialNarrativeMode as OfficialNarrativeMode,
+      officialNarrativeMode: mode,
       officialNarrativeIssues: value.officialNarrativeIssues as OfficialNarrativeIssue[],
       rardarAssessmentZh: value.rardarAssessmentZh as string | null,
       rardarAssessmentEvidenceRefs: value.rardarAssessmentEvidenceRefs as string[],
@@ -593,6 +680,11 @@ function normalizeNarrativeProjection(
     officialTaglineEvidenceRefs: [],
     officialPositioningZh: null,
     officialPositioningEvidenceRefs: [],
+    positioningZh: null,
+    positioningSourceMode: 'insufficient',
+    positioningEvidenceRefs: [],
+    positioningIncludedRoles: [],
+    positioningExcludedClauses: [],
     officialHighlights: [],
     officialNarrativeMode: insufficient ? 'insufficient' : 'rardar_derived',
     officialNarrativeIssues: insufficient
@@ -666,7 +758,7 @@ export async function loadTodaySnapshot(
 
 export function parseProjectDetail(value: unknown): ProjectDetail {
   const schemaVersion = Number(isRecord(value) ? value.schemaVersion : NaN);
-  if (!isRecord(value) || ![1, 2, 3, 4, 5].includes(schemaVersion) || !isRecord(value.project) || !isRecord(value.profile) || !isRecord(value.evidence)) {
+  if (!isRecord(value) || ![1, 2, 3, 4, 5, 6].includes(schemaVersion) || !isRecord(value.project) || !isRecord(value.profile) || !isRecord(value.evidence)) {
     throw new Error('rardar_project_response_invalid');
   }
   const identifier = value.project.githubRepositoryId;
@@ -692,9 +784,11 @@ export function parseProjectDetail(value: unknown): ProjectDetail {
       || !isValidV4ProfileProjection(value.project)
     ))
     || (schemaVersion >= 4 && !isValidV4ProfileProjection(value.profile))
-    || (schemaVersion === 5 && !isValidV5NarrativeProjection(value.project))
-    || (schemaVersion === 5 && !isValidV5NarrativeProjection(value.profile))
-    || (schemaVersion === 5 && (
+    || (schemaVersion >= 5 && !isValidV5NarrativeProjection(value.project))
+    || (schemaVersion >= 5 && !isValidV5NarrativeProjection(value.profile))
+    || (schemaVersion >= 6 && !isValidV6PositioningProjection(value.project))
+    || (schemaVersion >= 6 && !isValidV6PositioningProjection(value.profile))
+    || (schemaVersion >= 5 && (
       typeof value.profile.officialNarrativePromptVersion !== 'string'
       || typeof value.profile.rardarAssessmentPromptVersion !== 'string'
     ))
@@ -711,7 +805,7 @@ export function parseProjectDetail(value: unknown): ProjectDetail {
     || JSON.stringify(value.project.productFormsZh) !== JSON.stringify((value.profile.productFormsZh as unknown[]).slice(0, 3))
     || value.project.qualityState !== value.profile.qualityState
     || JSON.stringify(value.project.qualityIssues) !== JSON.stringify(value.profile.qualityIssues)
-    || (schemaVersion === 5 && (
+    || (schemaVersion >= 5 && (
       value.project.officialTaglineZh !== value.profile.officialTaglineZh
       || JSON.stringify(value.project.officialTaglineEvidenceRefs) !== JSON.stringify(value.profile.officialTaglineEvidenceRefs)
       || value.project.officialPositioningZh !== value.profile.officialPositioningZh
@@ -722,6 +816,13 @@ export function parseProjectDetail(value: unknown): ProjectDetail {
       || value.project.rardarAssessmentZh !== value.profile.rardarAssessmentZh
       || JSON.stringify(value.project.rardarAssessmentEvidenceRefs) !== JSON.stringify(value.profile.rardarAssessmentEvidenceRefs)
       || JSON.stringify(value.project.rardarDifferentiators) !== JSON.stringify(value.profile.rardarDifferentiators)
+      || (schemaVersion >= 6 && (
+        value.project.positioningZh !== value.profile.positioningZh
+        || value.project.positioningSourceMode !== value.profile.positioningSourceMode
+        || JSON.stringify(value.project.positioningEvidenceRefs) !== JSON.stringify(value.profile.positioningEvidenceRefs)
+        || JSON.stringify(value.project.positioningIncludedRoles) !== JSON.stringify(value.profile.positioningIncludedRoles)
+        || JSON.stringify(value.project.positioningExcludedClauses) !== JSON.stringify(value.profile.positioningExcludedClauses)
+      ))
     ))
   )) {
     throw new Error('rardar_project_response_invalid');

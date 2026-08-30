@@ -23,6 +23,9 @@ class StrictServingModel(BaseModel):
 ProfileState = Literal["complete", "partial", "source_unavailable"]
 ProfileQualityState = Literal["ready", "partial", "rejected"]
 OfficialNarrativeMode = Literal["official_zh", "official_translated", "rardar_derived", "insufficient"]
+PositioningSourceMode = Literal["official_zh", "official_translated", "rardar_derived", "insufficient"]
+PositioningIncludedRole = Literal["identity", "core_mechanism", "primary_outcome"]
+PositioningExcludedRole = Literal["operation", "deployment", "validation", "example", "boundary"]
 OfficialNarrativeIssue = Literal[
     "tagline_missing",
     "positioning_missing",
@@ -117,6 +120,29 @@ class OfficialHighlight(StrictServingModel):
         return values
 
 
+class PositioningExcludedClause(StrictServingModel):
+    """One evidence-bound clause deliberately excluded from the primary positioning."""
+
+    role: PositioningExcludedRole
+    text: str = Field(min_length=1, max_length=1200)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=12)
+
+    @field_validator("text")
+    @classmethod
+    def validate_complete_text(cls, value: str) -> str:
+        cleaned = re.sub(r"\s+", " ", value).strip()
+        if not cleaned or cleaned.endswith(("…", "...")):
+            raise ValueError("excluded positioning clause must be complete")
+        return cleaned
+
+    @field_validator("evidenceRefs")
+    @classmethod
+    def validate_evidence_refs(cls, values: list[str]) -> list[str]:
+        if len(set(values)) != len(values) or any(not value.strip() or len(value) > 240 for value in values):
+            raise ValueError("excluded positioning evidence refs must be unique and bounded")
+        return values
+
+
 class ServingFile(StrictServingModel):
     path: str = Field(pattern=r"^[A-Za-z0-9._/-]+\.json$")
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -153,7 +179,7 @@ class ServingProfileSummary(StrictServingModel):
 
 
 class ServingPointer(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6]
     servingGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
     sourceGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
     manifestSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -161,7 +187,7 @@ class ServingPointer(StrictServingModel):
 
 
 class ServingManifest(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6]
     state: Literal["ready"]
     servingGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
     sourceGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
@@ -201,6 +227,11 @@ class TodayProject(ExactExplosionProject):
     officialTaglineEvidenceRefs: list[str] = Field(default_factory=list, max_length=12)
     officialPositioningZh: str | None = Field(default=None, min_length=1, max_length=2000)
     officialPositioningEvidenceRefs: list[str] = Field(default_factory=list, max_length=12)
+    positioningZh: str | None = Field(default=None, min_length=1, max_length=2000)
+    positioningSourceMode: PositioningSourceMode | None = None
+    positioningEvidenceRefs: list[str] = Field(default_factory=list, max_length=12)
+    positioningIncludedRoles: list[PositioningIncludedRole] = Field(default_factory=list, max_length=3)
+    positioningExcludedClauses: list[PositioningExcludedClause] = Field(default_factory=list, max_length=12)
     officialHighlights: list[OfficialHighlight] = Field(default_factory=list, max_length=8)
     officialNarrativeMode: OfficialNarrativeMode | None = None
     officialNarrativeIssues: list[OfficialNarrativeIssue] = Field(default_factory=list, max_length=12)
@@ -210,7 +241,7 @@ class TodayProject(ExactExplosionProject):
 
 
 class ServingTodaySnapshot(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6]
     state: Literal["ready", "warming_up", "baseline_missing", "not_ready"]
     reason: Literal["explosion_artifact_not_published"] | None = None
     generationId: str
@@ -270,9 +301,11 @@ class ServingTodaySnapshot(StrictServingModel):
                 or self.profileSummary.qualityRejected != actual_quality["rejected"]
             ):
                 raise ValueError("Serving v4 quality summary is inconsistent")
-        if self.schemaVersion == 5:
+        if self.schemaVersion >= 5:
             for project in self.exactRanked:
                 _validate_v5_narrative(project)
+                if self.schemaVersion >= 6:
+                    _validate_v6_positioning(project)
             narrative_counts = {
                 "official_zh": sum(project.officialNarrativeMode == "official_zh" for project in self.exactRanked),
                 "official_translated": sum(
@@ -324,6 +357,7 @@ class OfficialProjectProfile(StrictServingModel):
         "rardar-project-profile-v3",
         "rardar-project-profile-v4",
         "rardar-project-profile-v5",
+        "rardar-project-profile-v6",
     ]
     promptVersion: Literal[
         "rardar-project-profile-zh-v1",
@@ -334,6 +368,10 @@ class OfficialProjectProfile(StrictServingModel):
         "rardar-project-profile-zh-v6",
         "rardar-project-profile-zh-v7",
         "rardar-project-profile-zh-v8",
+        "rardar-project-profile-zh-v9",
+        "rardar-project-profile-zh-v10",
+        "rardar-project-profile-zh-v11",
+        "rardar-project-profile-zh-v12",
     ]
     githubRepositoryId: int = Field(gt=0)
     repository: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -368,6 +406,11 @@ class OfficialProjectProfile(StrictServingModel):
     officialTaglineEvidenceRefs: list[str] = Field(default_factory=list, max_length=12)
     officialPositioningZh: str | None = Field(default=None, min_length=1, max_length=2000)
     officialPositioningEvidenceRefs: list[str] = Field(default_factory=list, max_length=12)
+    positioningZh: str | None = Field(default=None, min_length=1, max_length=2000)
+    positioningSourceMode: PositioningSourceMode | None = None
+    positioningEvidenceRefs: list[str] = Field(default_factory=list, max_length=12)
+    positioningIncludedRoles: list[PositioningIncludedRole] = Field(default_factory=list, max_length=3)
+    positioningExcludedClauses: list[PositioningExcludedClause] = Field(default_factory=list, max_length=12)
     officialHighlights: list[OfficialHighlight] = Field(default_factory=list, max_length=8)
     officialNarrativeMode: OfficialNarrativeMode | None = None
     officialNarrativeIssues: list[OfficialNarrativeIssue] = Field(default_factory=list, max_length=12)
@@ -381,11 +424,20 @@ class OfficialProjectProfile(StrictServingModel):
     def validate_structured_capabilities(self) -> OfficialProjectProfile:
         if (
             self.profileSchemaVersion
-            in {"rardar-project-profile-v3", "rardar-project-profile-v4", "rardar-project-profile-v5"}
+            in {
+                "rardar-project-profile-v3",
+                "rardar-project-profile-v4",
+                "rardar-project-profile-v5",
+                "rardar-project-profile-v6",
+            }
             and [item.detail for item in self.capabilities] != self.capabilityBulletsZh
         ):
             raise ValueError("structured capabilities must project to legacy capability details")
-        if self.profileSchemaVersion in {"rardar-project-profile-v4", "rardar-project-profile-v5"}:
+        if self.profileSchemaVersion in {
+            "rardar-project-profile-v4",
+            "rardar-project-profile-v5",
+            "rardar-project-profile-v6",
+        }:
             if self.identitySummaryZh is None or self.qualityState is None:
                 raise ValueError("profile v4 requires identity and quality state")
             if self.officialSummaryZh != self.identitySummaryZh:
@@ -410,10 +462,12 @@ class OfficialProjectProfile(StrictServingModel):
                 raise ValueError("rejected profile must not expose rejected semantic claims")
             if self.qualityState == "rejected" and not self.qualityIssues:
                 raise ValueError("rejected profile requires a stable quality reason")
-        if self.profileSchemaVersion == "rardar-project-profile-v5":
+        if self.profileSchemaVersion in {"rardar-project-profile-v5", "rardar-project-profile-v6"}:
             _validate_v5_narrative(self)
             if self.officialNarrativePromptVersion is None or self.rardarAssessmentPromptVersion is None:
                 raise ValueError("profile v5 requires both narrative prompt versions")
+        if self.profileSchemaVersion == "rardar-project-profile-v6":
+            _validate_v6_positioning(self)
         return self
 
 
@@ -434,7 +488,7 @@ class ProjectEvidenceProjection(StrictServingModel):
 
 
 class ServingProjectDetail(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6]
     generationId: str
     servingGenerationId: str
     project: TodayProject
@@ -460,7 +514,7 @@ class ServingProjectDetail(StrictServingModel):
 
 
 class ServingProjectRecord(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6]
     generationId: str
     servingGenerationId: str
     project: TodayProject
@@ -497,6 +551,11 @@ class ServingProjectRecord(StrictServingModel):
             or self.project.officialTaglineEvidenceRefs != self.profile.officialTaglineEvidenceRefs
             or self.project.officialPositioningZh != self.profile.officialPositioningZh
             or self.project.officialPositioningEvidenceRefs != self.profile.officialPositioningEvidenceRefs
+            or self.project.positioningZh != self.profile.positioningZh
+            or self.project.positioningSourceMode != self.profile.positioningSourceMode
+            or self.project.positioningEvidenceRefs != self.profile.positioningEvidenceRefs
+            or self.project.positioningIncludedRoles != self.profile.positioningIncludedRoles
+            or self.project.positioningExcludedClauses != self.profile.positioningExcludedClauses
             or self.project.officialHighlights != self.profile.officialHighlights
             or self.project.officialNarrativeMode != self.profile.officialNarrativeMode
             or self.project.officialNarrativeIssues != self.profile.officialNarrativeIssues
@@ -556,3 +615,27 @@ def _validate_v5_narrative(value: TodayProject | OfficialProjectProfile) -> None
         raise ValueError("Serving v5 assessment evidence projection is invalid")
     if value.keyDifferentiators != value.rardarDifferentiators:
         raise ValueError("Serving v5 differentiator compatibility projection is invalid")
+
+
+def _validate_v6_positioning(value: TodayProject | OfficialProjectProfile) -> None:
+    mode = value.positioningSourceMode
+    if mode is None:
+        raise ValueError("Serving v6 requires a field-level positioning source mode")
+    if len(set(value.positioningEvidenceRefs)) != len(value.positioningEvidenceRefs):
+        raise ValueError("Serving v6 positioning evidence refs must be unique")
+    if len(set(value.positioningIncludedRoles)) != len(value.positioningIncludedRoles):
+        raise ValueError("Serving v6 positioning roles must be unique")
+    if mode == "insufficient":
+        if (
+            value.positioningZh is not None
+            or value.positioningEvidenceRefs
+            or value.positioningIncludedRoles
+            or value.positioningExcludedClauses
+        ):
+            raise ValueError("Serving v6 insufficient positioning must expose no claims")
+    elif value.positioningZh is None or not value.positioningEvidenceRefs or not value.positioningIncludedRoles:
+        raise ValueError("Serving v6 positioning requires text, evidence, and semantic roles")
+    if value.officialPositioningZh != value.positioningZh:
+        raise ValueError("Serving v6 legacy positioning text projection is inconsistent")
+    if value.officialPositioningEvidenceRefs != value.positioningEvidenceRefs:
+        raise ValueError("Serving v6 legacy positioning evidence projection is inconsistent")

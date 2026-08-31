@@ -32,6 +32,7 @@ from app.integrations.rardar.serving_profiles import (
     _official_english_positioning_is_high_signal,
     _official_positioning_is_high_signal,
     _parse_readme,
+    _positioning_roles,
     _preferred_chinese_readme,
     _primary_semantic_duplicate,
     _readme_redirect_target,
@@ -411,6 +412,15 @@ def test_official_chinese_positioning_never_receives_context_subject_dedupe() ->
     source = "Archify 是一套基于 Node.js 的渲染与校验系统。"
 
     assert _official_chinese_positioning(source) == source
+
+
+def test_official_chinese_positioning_recognizes_file_backed_mechanism_and_outcome() -> None:
+    positioning = (
+        "以真实文件夹支撑或映射已有文件夹的轻量格子覆盖原生 Windows 桌面，"
+        "在不替换资源管理器、不改变文件原有使用方式的前提下集中管理文件与日常信息。"
+    )
+
+    assert _positioning_roles(positioning) == ["core_mechanism", "primary_outcome"]
 
 
 def test_official_english_positioning_rejects_benchmark_and_operation_prose() -> None:

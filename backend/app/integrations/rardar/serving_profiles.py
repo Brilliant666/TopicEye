@@ -410,12 +410,17 @@ def _positioning_roles(value: str) -> list[Literal["identity", "core_mechanism",
         roles.append("identity")
     if re.search(
         r"(?:架构|驱动|机制|方法|流程|引擎|编译|渲染|校验|工作方式|"
+        r"通过|采用|利用|基于|借助|依靠|支撑|映射|覆盖|挂载|连接|组合|调度|"
         r"(?:皆|都是|本身也是).{0,8}插件|支持任意模型|模型切换|无锁定)",
         value,
         re.IGNORECASE,
     ):
         roles.append("core_mechanism")
-    if re.search(r"(?:用于|帮助|生成|转换|指导|减少|避免|交付|解决|使得)", value, re.IGNORECASE):
+    if re.search(
+        r"(?:用于|帮助|生成|转换|指导|减少|避免|交付|解决|使得|管理|组织|集中|收纳|整理)",
+        value,
+        re.IGNORECASE,
+    ):
         roles.append("primary_outcome")
     return roles or ["identity"]
 

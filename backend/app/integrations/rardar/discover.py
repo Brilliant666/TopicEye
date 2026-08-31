@@ -25,14 +25,27 @@ from app.integrations.rardar.adapter import (
 DISCOVER_ROOT = "artifacts/trending/discover/v1"
 _DISCOVER_FILE = "discover.json"
 _REPARSE_POINT = 0x400
-_STAGE_KEYS = {
+_LEGACY_STAGE_KEYS = {
     "just_discovered": "justDiscovered",
     "rising": "rising",
     "near_validation": "nearValidation",
 }
-_STAGE_SECTIONS = ("just_discovered", "rising", "near_validation")
+_STAGE_KEYS = {
+    "just_discovered": "justDiscovered",
+    "outside_today_momentum": "outsideTodayMomentum",
+    "rising": "rising",
+    "near_validation": "nearValidation",
+}
+_LEGACY_STAGE_SECTIONS = ("just_discovered", "rising", "near_validation")
+_STAGE_SECTIONS = ("just_discovered", "outside_today_momentum", "rising", "near_validation")
 _SIGNAL_FACT_ORDER = (
     "first_seen_recently",
+    "outside_today_top20",
+    "exact_rank_available",
+    "recent_absolute_growth",
+    "recent_relative_growth",
+    "continuous_recent_growth",
+    "recent_acceleration",
     "continuous_positive_growth",
     "absolute_growth_gate",
     "relative_growth_gate",
@@ -44,11 +57,26 @@ class StrictDiscoverModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
+DiscoverSignalFact = Literal[
+    "first_seen_recently",
+    "outside_today_top20",
+    "exact_rank_available",
+    "recent_absolute_growth",
+    "recent_relative_growth",
+    "continuous_recent_growth",
+    "recent_acceleration",
+    "continuous_positive_growth",
+    "absolute_growth_gate",
+    "relative_growth_gate",
+    "awaiting_today_settlement",
+]
+
+
 class DiscoverItem(StrictDiscoverModel):
     githubRepositoryId: int = Field(gt=0)
     repository: str = Field(pattern=r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
     url: HttpUrl
-    stage: Literal["just_discovered", "rising", "near_validation"]
+    stage: Literal["just_discovered", "outside_today_momentum", "rising", "near_validation"]
     firstSeenAt: AwareDatetime
     lastObservedAt: AwareDatetime
     observedWindowStart: AwareDatetime
@@ -71,30 +99,16 @@ class DiscoverItem(StrictDiscoverModel):
     positiveIntervalCount: int | None = Field(default=None, ge=0, le=13)
     consecutivePositiveIntervalCount: int | None = Field(default=None, ge=0, le=13)
     latestIntervalDelta: int | None = None
-    publishReasonCodes: (
-        list[
-            Literal[
-                "first_seen_recently",
-                "continuous_positive_growth",
-                "absolute_growth_gate",
-                "relative_growth_gate",
-                "awaiting_today_settlement",
-            ]
-        ]
-        | None
-    ) = Field(default=None, min_length=1, max_length=5)
-    signalFacts: (
-        list[
-            Literal[
-                "first_seen_recently",
-                "continuous_positive_growth",
-                "absolute_growth_gate",
-                "relative_growth_gate",
-                "awaiting_today_settlement",
-            ]
-        ]
-        | None
-    ) = Field(default=None, min_length=1, max_length=5)
+    publishReasonCodes: list[DiscoverSignalFact] | None = Field(default=None, min_length=1, max_length=11)
+    signalFacts: list[DiscoverSignalFact] | None = Field(default=None, min_length=1, max_length=11)
+    eligibilityClass: Literal["pre_exact", "exact_outside_published"] | None = None
+    todayExactRank: int | None = Field(default=None, ge=21, le=500)
+    todayExact24hDelta: int | None = Field(default=None, ge=0)
+    recentWindowHours: float | None = Field(default=None, ge=0, le=4)
+    recentObservedStarDelta: int | None = None
+    priorComparableWindowDelta: int | None = None
+    accelerationDelta: int | None = None
+    recentRelativeGrowthPercent: float | None = None
 
 
 class DiscoverCoverage(StrictDiscoverModel):
@@ -106,11 +120,18 @@ class DiscoverCoverage(StrictDiscoverModel):
     candidateCount: int = Field(ge=0, le=500)
     publishedCount: int = Field(ge=0, le=500)
     conflictCount: int = Field(ge=0, le=500)
-    excludedExactCount: int = Field(ge=0, le=500)
+    excludedExactCount: int | None = Field(default=None, ge=0, le=500)
+    todayExactCount: int | None = Field(default=None, ge=0, le=500)
+    todayPublishedCount: int | None = Field(default=None, ge=0, le=20)
+    excludedPublishedCount: int | None = Field(default=None, ge=0, le=20)
+    exactOutsidePublishedEvaluatedCount: int | None = Field(default=None, ge=0, le=500)
+    preExactEvaluatedCount: int | None = Field(default=None, ge=0, le=500)
+    invalidCount: int | None = Field(default=None, ge=0, le=500)
 
 
 class DiscoverStageCounts(StrictDiscoverModel):
     justDiscovered: int = Field(ge=0, le=500)
+    outsideTodayMomentum: int = Field(default=0, ge=0, le=500)
     rising: int = Field(ge=0, le=500)
     nearValidation: int = Field(ge=0, le=500)
 
@@ -121,6 +142,9 @@ class DiscoverSignalPolicy(StrictDiscoverModel):
     consecutivePositiveIntervalGate: int = Field(gt=0, le=13)
     recentDiscoveryHours: int = Field(gt=0, le=27)
     nearValidationHours: int = Field(gt=0, le=27)
+    todayPublishedTopCount: Literal[20] | None = None
+    outsideRecentWindowHours: Literal[4] | None = None
+    outsideRequiresAcceleration: Literal[True] | None = None
 
 
 class DiscoverSuppressionReasons(StrictDiscoverModel):
@@ -144,9 +168,39 @@ class DiscoverSuppressionSummary(StrictDiscoverModel):
     reasons: DiscoverSuppressionReasons
 
 
+class DiscoverSuppressionReasonsV3(StrictDiscoverModel):
+    today_published: int = Field(ge=0, le=20)
+    weak_recent_absolute_growth: int = Field(ge=0, le=500)
+    weak_recent_relative_growth: int = Field(ge=0, le=500)
+    no_recent_continuous_growth: int = Field(ge=0, le=500)
+    no_recent_acceleration: int = Field(ge=0, le=500)
+    weak_pre_exact_growth: int = Field(ge=0, le=500)
+    already_exact_without_momentum: int = Field(ge=0, le=500)
+    identity_conflict: int = Field(ge=0, le=500)
+    negative_growth: int = Field(ge=0, le=500)
+    disabled: int = Field(ge=0, le=500)
+    metadata_incomplete: int = Field(ge=0, le=500)
+
+
+class DiscoverSuppressionSummaryV3(StrictDiscoverModel):
+    candidateCount: int = Field(ge=0, le=500)
+    publishedCount: int = Field(ge=0, le=500)
+    suppressedSignalCount: int = Field(ge=0, le=500)
+    excludedPublishedCount: int = Field(ge=0, le=20)
+    conflictCount: int = Field(ge=0, le=500)
+    reasons: DiscoverSuppressionReasonsV3
+
+
+class DiscoverEligibilityCounts(StrictDiscoverModel):
+    todayPublished: int = Field(ge=0, le=20)
+    exactOutsidePublished: int = Field(ge=0, le=500)
+    preExact: int = Field(ge=0, le=500)
+    invalid: int = Field(ge=0, le=500)
+
+
 class DiscoverBoard(StrictDiscoverModel):
-    schemaVersion: Literal[1, 2]
-    policyVersion: Literal["trending-discover-v1", "trending-discover-v2"]
+    schemaVersion: Literal[1, 2, 3]
+    policyVersion: Literal["trending-discover-v1", "trending-discover-v2", "trending-discover-v3"]
     discoverGenerationId: str
     generatedAt: AwareDatetime
     latestCaptureId: str
@@ -159,6 +213,7 @@ class DiscoverBoard(StrictDiscoverModel):
     todayExplosionDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
     updateCadenceMinutes: Literal[120]
     justDiscovered: list[DiscoverItem] = Field(max_length=500)
+    outsideTodayMomentum: list[DiscoverItem] = Field(default_factory=list, max_length=500)
     rising: list[DiscoverItem] = Field(max_length=500)
     nearValidation: list[DiscoverItem] = Field(max_length=500)
     coverage: DiscoverCoverage
@@ -166,7 +221,15 @@ class DiscoverBoard(StrictDiscoverModel):
     conflictReasons: dict[str, int]
     stageCounts: DiscoverStageCounts
     signalPolicy: DiscoverSignalPolicy | None = None
-    suppressionSummary: DiscoverSuppressionSummary | None = None
+    suppressionSummary: DiscoverSuppressionSummary | DiscoverSuppressionSummaryV3 | None = None
+    todayExactCount: int | None = Field(default=None, ge=0, le=500)
+    todayPublishedTopCount: Literal[20] | None = None
+    todayPublishedCount: int | None = Field(default=None, ge=0, le=20)
+    todayPublishedSetDigest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    excludedPublishedCount: int | None = Field(default=None, ge=0, le=20)
+    exactOutsidePublishedEvaluatedCount: int | None = Field(default=None, ge=0, le=500)
+    preExactEvaluatedCount: int | None = Field(default=None, ge=0, le=500)
+    eligibilityCounts: DiscoverEligibilityCounts | None = None
     payloadDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
 
     @model_validator(mode="after")
@@ -174,10 +237,24 @@ class DiscoverBoard(StrictDiscoverModel):
         if self.schemaVersion == 1:
             if self.policyVersion != "trending-discover-v1" or self.signalPolicy or self.suppressionSummary:
                 raise ValueError("Discover v1 projection contains v2 policy fields")
-        elif (
+        elif self.schemaVersion == 2 and (
             self.policyVersion != "trending-discover-v2" or self.signalPolicy is None or self.suppressionSummary is None
         ):
             raise ValueError("Discover v2 projection is missing policy fields")
+        elif self.schemaVersion == 3 and (
+            self.policyVersion != "trending-discover-v3"
+            or self.signalPolicy is None
+            or not isinstance(self.suppressionSummary, DiscoverSuppressionSummaryV3)
+            or self.todayPublishedTopCount != 20
+            or self.todayExactCount is None
+            or self.todayPublishedCount is None
+            or self.todayPublishedSetDigest is None
+            or self.excludedPublishedCount is None
+            or self.exactOutsidePublishedEvaluatedCount is None
+            or self.preExactEvaluatedCount is None
+            or self.eligibilityCounts is None
+        ):
+            raise ValueError("Discover v3 projection is missing eligibility fields")
         return self
 
 
@@ -325,8 +402,10 @@ class DiscoverArtifactAdapter:
             rebuilt, source_projects = self._rebuild_v1(artifact, captures, today)
             if rebuilt != artifact:
                 raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover source recomputation failed")
-        else:
+        elif artifact["policyVersion"] == "trending-discover-v2":
             source_projects = self._audit_v2(artifact, captures, today)
+        else:
+            source_projects = self._audit_v3(artifact, captures, today)
         expected_audit = {
             "status": artifact["coverage"]["state"],
             "validatedSourceCount": artifact["sourceCaptureCount"] + 1,
@@ -335,6 +414,15 @@ class DiscoverArtifactAdapter:
         }
         if artifact["policyVersion"] == "trending-discover-v2":
             expected_audit["suppressedWeakSignalCount"] = artifact["suppressionSummary"]["suppressedWeakSignalCount"]
+        elif artifact["policyVersion"] == "trending-discover-v3":
+            expected_audit.update(
+                {
+                    "suppressedSignalCount": artifact["suppressionSummary"]["suppressedSignalCount"],
+                    "excludedPublishedCount": artifact["excludedPublishedCount"],
+                    "exactOutsidePublishedEvaluatedCount": artifact["exactOutsidePublishedEvaluatedCount"],
+                    "outsideTodayMomentumCount": len(artifact["stages"]["outsideTodayMomentum"]),
+                }
+            )
         if manifest["audit"] != expected_audit:
             raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover manifest audit is inconsistent")
         board = self._project_board(artifact)
@@ -352,11 +440,14 @@ class DiscoverArtifactAdapter:
         captures: list[tuple[dict[str, Any], bytes, dict[str, Any]]] = []
         previous: datetime | None = None
         for reference in artifact["sourceInventory"]:
-            relative = reference["generationRelativePath"]
-            payload, raw = self._json(f"{base}/{relative}", 16 * 1024 * 1024, "source capture")
+            canonical = artifact["policyVersion"] == "trending-discover-v3"
+            relative = reference["originalObservationPath"] if canonical else reference["generationRelativePath"]
+            payload, raw = self._json(
+                relative if canonical else f"{base}/{relative}", 16 * 1024 * 1024, "source capture"
+            )
             self._schema("trending-capture-bundle.schema.json", payload, "source capture")
             if (
-                manifest["artifacts"].get(relative) != _sha(raw)
+                (not canonical and manifest["artifacts"].get(relative) != _sha(raw))
                 or reference["fileSha256"] != _sha(raw)
                 or _capture_payload_digest(payload) != payload["digest"]["value"]
                 or payload["digest"]["value"] != reference["payloadDigestSha256"]
@@ -457,6 +548,41 @@ class DiscoverArtifactAdapter:
             else:
                 current_run = 0
         return positive_count, longest_run, latest_delta
+
+    @classmethod
+    def _comparable_window_facts(
+        cls,
+        observations: list[tuple[dict[str, Any], dict[str, Any]]],
+        *,
+        latest_scheduled_at: datetime,
+    ) -> tuple[int | None, int | None, int | None, float | None, int]:
+        recent_start = latest_scheduled_at - timedelta(hours=4)
+        prior_start = recent_start - timedelta(hours=4)
+        recent = [
+            value
+            for value in observations
+            if recent_start <= _timestamp(value[0]["scheduledAt"]) <= latest_scheduled_at
+        ]
+        prior = [value for value in observations if prior_start <= _timestamp(value[0]["scheduledAt"]) <= recent_start]
+
+        def complete_delta(values: list[tuple[dict[str, Any], dict[str, Any]]]) -> int | None:
+            if len(values) != 3 or any(
+                _timestamp(current[0]["scheduledAt"]) - _timestamp(previous[0]["scheduledAt"]) != timedelta(minutes=120)
+                for previous, current in zip(values, values[1:], strict=False)
+            ):
+                return None
+            return int(values[-1][1]["totalStars"]) - int(values[0][1]["totalStars"])
+
+        recent_delta = complete_delta(recent)
+        prior_delta = complete_delta(prior)
+        acceleration = recent_delta - prior_delta if recent_delta is not None and prior_delta is not None else None
+        relative = (
+            round(recent_delta / int(recent[0][1]["totalStars"]) * 100, 6)
+            if recent_delta is not None and recent and int(recent[0][1]["totalStars"]) > 0
+            else None
+        )
+        _, consecutive, _ = cls._positive_interval_facts(recent)
+        return recent_delta, prior_delta, acceleration, relative, consecutive
 
     @staticmethod
     def _consecutive_capture_count(
@@ -578,7 +704,7 @@ class DiscoverArtifactAdapter:
 
         source_projects: dict[int, DiscoverSourceProject] = {}
         published_ids: list[int] = []
-        for stage, key in _STAGE_KEYS.items():
+        for stage, key in _LEGACY_STAGE_KEYS.items():
             raw_items = artifact["stages"][key]
             expected_order = sorted(
                 raw_items,
@@ -735,6 +861,341 @@ class DiscoverArtifactAdapter:
             raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v2 suppression audit is inconsistent")
         return source_projects
 
+    def _audit_v3(
+        self,
+        artifact: dict[str, Any],
+        captures: list[tuple[dict[str, Any], bytes, dict[str, Any]]],
+        today_source: tuple[dict[str, Any], bytes, dict[str, Any]],
+    ) -> dict[int, DiscoverSourceProject]:
+        """Validate the producer-issued v3 proof without selecting additional candidates."""
+
+        payloads = [entry[0] for entry in captures]
+        indexes = [self._observation_index(payload) for payload in payloads]
+        latest = payloads[-1]
+        latest_index = indexes[-1]
+        today, today_raw, today_reference = today_source
+        exact_by_id = {int(item["githubRepositoryId"]): item for item in today["exactRanked"]}
+        if len(exact_by_id) != len(today["exactRanked"]):
+            raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover Today identities are duplicated")
+        published_ranks = sorted(int(item["rank"]) for item in today["exactRanked"] if int(item["rank"]) <= 20)
+        if published_ranks != list(range(1, 21)):
+            raise RardarArtifactError(
+                "rardar_discover_invalid",
+                "Rardar Discover Today published rank boundary is incomplete",
+            )
+        published_ids = {repository_id for repository_id, item in exact_by_id.items() if int(item["rank"]) <= 20}
+        published_digest = _sha(_canonical_bytes(sorted(published_ids)))
+        expected_policy = {
+            "absoluteGrowthGateStars": 10,
+            "relativeGrowthGatePercent": 1.0,
+            "consecutivePositiveIntervalGate": 2,
+            "recentDiscoveryHours": 4,
+            "nearValidationHours": 20,
+            "todayPublishedTopCount": 20,
+            "outsideRecentWindowHours": 4,
+            "outsideRequiresAcceleration": True,
+        }
+        if artifact["signalPolicy"] != expected_policy:
+            raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v3 policy is unsupported")
+        expected_header = {
+            "latestCaptureId": latest["captureId"],
+            "latestCaptureScheduledAt": latest["scheduledAt"],
+            "latestCaptureCapturedAt": latest["capturedAt"],
+            "sourceWindowStart": payloads[0]["capturedAt"],
+            "sourceWindowEnd": latest["capturedAt"],
+            "sourceCaptureCount": len(payloads),
+            "todayExplosionGenerationId": today_reference["generationId"],
+            "todayExplosionDigest": _sha(today_raw),
+            "updateCadenceMinutes": 120,
+            "todayExactCount": len(exact_by_id),
+            "todayPublishedTopCount": 20,
+            "todayPublishedCount": len(published_ids),
+            "todayPublishedSetDigest": published_digest,
+        }
+        if any(artifact[key] != value for key, value in expected_header.items()):
+            raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v3 source header is inconsistent")
+
+        name_ids: dict[str, set[int]] = {}
+        for index in indexes:
+            for repository_id, item in index.items():
+                name_ids.setdefault(str(item["repository"]).casefold(), set()).add(repository_id)
+
+        expected_conflicts: list[dict[str, Any]] = []
+        eligibility = {"todayPublished": 0, "exactOutsidePublished": 0, "preExact": 0, "invalid": 0}
+        suppression_reasons = {
+            "today_published": 0,
+            "weak_recent_absolute_growth": 0,
+            "weak_recent_relative_growth": 0,
+            "no_recent_continuous_growth": 0,
+            "no_recent_acceleration": 0,
+            "weak_pre_exact_growth": 0,
+            "already_exact_without_momentum": 0,
+            "identity_conflict": 0,
+            "negative_growth": 0,
+            "disabled": 0,
+            "metadata_incomplete": int(latest["metadataFailureCount"]),
+        }
+        candidate_facts: dict[int, dict[str, Any]] = {}
+        for repository_id, current in latest_index.items():
+            observations = [
+                (payload, index[repository_id])
+                for payload, index in zip(payloads, indexes, strict=True)
+                if repository_id in index
+            ]
+            first = observations[0][1]
+            capture_ids = [source["captureId"] for source, _ in observations]
+            if any(len(name_ids[str(item["repository"]).casefold()]) != 1 for _, item in observations):
+                suppression_reasons["identity_conflict"] += 1
+                eligibility["invalid"] += 1
+                expected_conflicts.append(
+                    {
+                        "reason": "source_identity_conflict",
+                        "githubRepositoryId": repository_id,
+                        "repository": current["repository"],
+                        "currentStars": current["totalStars"],
+                        "baselineStars": first["totalStars"],
+                        "sourceCaptureIds": capture_ids,
+                    }
+                )
+                continue
+            if current["disabled"] is True:
+                suppression_reasons["disabled"] += 1
+                eligibility["invalid"] += 1
+                expected_conflicts.append(
+                    {
+                        "reason": "current_disabled",
+                        "githubRepositoryId": repository_id,
+                        "repository": current["repository"],
+                        "currentStars": current["totalStars"],
+                        "baselineStars": first["totalStars"],
+                        "sourceCaptureIds": capture_ids,
+                    }
+                )
+                continue
+            delta = int(current["totalStars"]) - int(first["totalStars"])
+            if delta < 0:
+                suppression_reasons["negative_growth"] += 1
+                eligibility["invalid"] += 1
+                expected_conflicts.append(
+                    {
+                        "reason": "star_count_decreased",
+                        "githubRepositoryId": repository_id,
+                        "repository": current["repository"],
+                        "currentStars": current["totalStars"],
+                        "baselineStars": first["totalStars"],
+                        "sourceCaptureIds": capture_ids,
+                    }
+                )
+                continue
+            if repository_id in published_ids:
+                eligibility["todayPublished"] += 1
+                suppression_reasons["today_published"] += 1
+                continue
+            eligibility_class = "exact_outside_published" if repository_id in exact_by_id else "pre_exact"
+            eligibility["exactOutsidePublished" if repository_id in exact_by_id else "preExact"] += 1
+            candidate_facts[repository_id] = {
+                "current": current,
+                "observations": observations,
+                "delta": delta,
+                "eligibilityClass": eligibility_class,
+            }
+        expected_conflicts.sort(key=lambda item: (item["reason"], item["repository"], item["githubRepositoryId"]))
+        if artifact["conflicts"] != expected_conflicts:
+            raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v3 conflicts are inconsistent")
+
+        source_projects: dict[int, DiscoverSourceProject] = {}
+        published_ids_seen: set[int] = set()
+        published_outside = 0
+        for stage, key in _STAGE_KEYS.items():
+            raw_items = artifact["stages"][key]
+            if raw_items != sorted(
+                raw_items,
+                key=lambda item: (-item["observedStarDelta"], -item["totalStars"], item["repository"]),
+            ):
+                raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v3 order is inconsistent")
+            for raw_item in raw_items:
+                repository_id = int(raw_item["githubRepositoryId"])
+                if repository_id in published_ids_seen or repository_id not in candidate_facts:
+                    raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v3 identity partition failed")
+                facts = candidate_facts[repository_id]
+                current = facts["current"]
+                observations = facts["observations"]
+                first_source, first = observations[0]
+                delta = facts["delta"]
+                hours = round(
+                    (_timestamp(latest["capturedAt"]) - _timestamp(first_source["capturedAt"])).total_seconds() / 3600,
+                    6,
+                )
+                consecutive = self._consecutive_capture_count(repository_id, payloads, indexes)
+                consecutive_start = payloads[len(payloads) - consecutive]
+                consecutive_hours = (
+                    _timestamp(latest["capturedAt"]) - _timestamp(consecutive_start["capturedAt"])
+                ).total_seconds() / 3600
+                positive_count, longest_run, latest_delta = self._positive_interval_facts(observations)
+                relative = round(delta / int(first["totalStars"]) * 100, 6) if int(first["totalStars"]) > 0 else None
+                recent_delta, prior_delta, acceleration, recent_relative, recent_continuous = (
+                    self._comparable_window_facts(observations, latest_scheduled_at=_timestamp(latest["scheduledAt"]))
+                )
+                exact = exact_by_id.get(repository_id)
+                if facts["eligibilityClass"] == "exact_outside_published":
+                    recent_absolute = recent_delta is not None and recent_delta >= 10
+                    recent_relative_gate = recent_relative is not None and recent_relative >= 1.0
+                    valid = (
+                        stage == "outside_today_momentum"
+                        and exact is not None
+                        and int(exact["rank"]) > 20
+                        and (recent_absolute or recent_relative_gate)
+                        and recent_continuous >= 2
+                        and acceleration is not None
+                        and acceleration > 0
+                    )
+                    reasons = {
+                        "outside_today_top20",
+                        "exact_rank_available",
+                        "continuous_recent_growth",
+                        "recent_acceleration",
+                    }
+                    if recent_absolute:
+                        reasons.add("recent_absolute_growth")
+                    if recent_relative_gate:
+                        reasons.add("recent_relative_growth")
+                    published_outside += 1
+                else:
+                    recent = _timestamp(latest["scheduledAt"]) - _timestamp(first_source["scheduledAt"]) <= timedelta(
+                        hours=4
+                    )
+                    absolute_gate = delta >= 10
+                    relative_gate = relative is not None and relative >= 1.0
+                    continuous_gate = longest_run >= 2
+                    quality_gate = (absolute_gate or relative_gate) and continuous_gate
+                    rising = len(observations) >= 3 and hours > 0 and delta > 0
+                    expected_stage = (
+                        "just_discovered"
+                        if recent
+                        else "near_validation"
+                        if consecutive_hours >= 20 and quality_gate
+                        else "rising"
+                        if rising and quality_gate
+                        else None
+                    )
+                    valid = stage == expected_stage and exact is None
+                    reasons = {"first_seen_recently"} if recent else {"continuous_positive_growth"}
+                    if not recent:
+                        if absolute_gate:
+                            reasons.add("absolute_growth_gate")
+                        if relative_gate:
+                            reasons.add("relative_growth_gate")
+                        if expected_stage == "near_validation":
+                            reasons.add("awaiting_today_settlement")
+                ordered_reasons = self._ordered_signal_facts(reasons)
+                expected_item = {
+                    "githubRepositoryId": repository_id,
+                    "repository": current["repository"],
+                    "url": current["htmlUrl"],
+                    "stage": stage,
+                    "firstSeenAt": first_source["capturedAt"],
+                    "lastObservedAt": latest["capturedAt"],
+                    "observedWindowStart": first_source["capturedAt"],
+                    "observedWindowEnd": latest["capturedAt"],
+                    "observedWindowHours": hours,
+                    "observedStarDelta": delta,
+                    "totalStars": current["totalStars"],
+                    "captureCount": len(observations),
+                    "consecutiveCaptureCount": consecutive,
+                    "language": current["primaryLanguage"],
+                    "topics": copy.deepcopy(current["topics"]),
+                    "license": current["licenseSpdxId"],
+                    "isFork": current["fork"],
+                    "isArchived": current["archived"],
+                    "isDisabled": False,
+                    "latestPushAt": current["pushedAt"],
+                    "sourceCaptureIds": [source["captureId"] for source, _ in observations],
+                    "sourceEvidenceDigest": self._evidence_digest(observations),
+                    "relativeGrowthPercent": relative,
+                    "positiveIntervalCount": positive_count,
+                    "consecutivePositiveIntervalCount": longest_run,
+                    "latestIntervalDelta": latest_delta,
+                    "publishReasonCodes": ordered_reasons,
+                    "signalFacts": ordered_reasons,
+                    "eligibilityClass": facts["eligibilityClass"],
+                    "todayExactRank": int(exact["rank"]) if exact is not None else None,
+                    "todayExact24hDelta": int(exact["observedStarDelta"]) if exact is not None else None,
+                    "recentWindowHours": min(4, hours),
+                    "recentObservedStarDelta": recent_delta,
+                    "priorComparableWindowDelta": prior_delta,
+                    "accelerationDelta": acceleration,
+                    "recentRelativeGrowthPercent": recent_relative,
+                }
+                if not valid or raw_item != expected_item:
+                    raise RardarArtifactError(
+                        "rardar_discover_invalid", "Rardar Discover v3 published proof is inconsistent"
+                    )
+                item = DiscoverItem.model_validate_json(json.dumps(raw_item), strict=True)
+                source_projects[repository_id] = DiscoverSourceProject(
+                    item=item,
+                    description=current.get("description"),
+                    forks=int(current.get("forks", 0)),
+                    default_branch=str(current.get("defaultBranch") or "main"),
+                )
+                published_ids_seen.add(repository_id)
+
+        for repository_id, facts in candidate_facts.items():
+            if repository_id in published_ids_seen:
+                continue
+            observations = facts["observations"]
+            if facts["eligibilityClass"] == "exact_outside_published":
+                recent_delta, prior_delta, acceleration, recent_relative, recent_continuous = (
+                    self._comparable_window_facts(observations, latest_scheduled_at=_timestamp(latest["scheduledAt"]))
+                )
+                suppression_reasons["already_exact_without_momentum"] += 1
+                if recent_delta is None or recent_delta < 10:
+                    suppression_reasons["weak_recent_absolute_growth"] += 1
+                if recent_relative is None or recent_relative < 1.0:
+                    suppression_reasons["weak_recent_relative_growth"] += 1
+                if recent_continuous < 2:
+                    suppression_reasons["no_recent_continuous_growth"] += 1
+                if acceleration is None or acceleration <= 0:
+                    suppression_reasons["no_recent_acceleration"] += 1
+            else:
+                suppression_reasons["weak_pre_exact_growth"] += 1
+
+        coverage = artifact["coverage"]
+        expected_coverage = {
+            "state": "degraded" if any(payload["coverageState"] == "degraded" for payload in payloads) else "healthy",
+            "querySuccessCount": latest["successfulQueryCount"],
+            "queryFailureCount": latest["failedQueryCount"],
+            "metadataFailureCount": latest["metadataFailureCount"],
+            "sourceCaptureCount": len(payloads),
+            "candidateCount": len(latest_index),
+            "publishedCount": len(published_ids_seen),
+            "conflictCount": len(expected_conflicts),
+            "todayExactCount": len(exact_by_id),
+            "todayPublishedCount": len(published_ids),
+            "excludedPublishedCount": eligibility["todayPublished"],
+            "exactOutsidePublishedEvaluatedCount": eligibility["exactOutsidePublished"],
+            "preExactEvaluatedCount": eligibility["preExact"],
+            "invalidCount": eligibility["invalid"],
+        }
+        expected_summary = {
+            "candidateCount": len(latest_index),
+            "publishedCount": len(published_ids_seen),
+            "suppressedSignalCount": len(candidate_facts) - len(published_ids_seen),
+            "excludedPublishedCount": eligibility["todayPublished"],
+            "conflictCount": len(expected_conflicts),
+            "reasons": suppression_reasons,
+        }
+        if (
+            coverage != expected_coverage
+            or artifact["eligibilityCounts"] != eligibility
+            or artifact["excludedPublishedCount"] != eligibility["todayPublished"]
+            or artifact["exactOutsidePublishedEvaluatedCount"] != eligibility["exactOutsidePublished"]
+            or artifact["preExactEvaluatedCount"] != eligibility["preExact"]
+            or artifact["suppressionSummary"] != expected_summary
+            or published_outside != len(artifact["stages"]["outsideTodayMomentum"])
+        ):
+            raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v3 eligibility audit is inconsistent")
+        return source_projects
+
     def _rebuild_v1(
         self,
         artifact: dict[str, Any],
@@ -751,7 +1212,7 @@ class DiscoverArtifactAdapter:
         for index in indexes:
             for repository_id, item in index.items():
                 name_ids.setdefault(str(item["repository"]).casefold(), set()).add(repository_id)
-        stages: dict[str, list[dict[str, Any]]] = {value: [] for value in _STAGE_KEYS.values()}
+        stages: dict[str, list[dict[str, Any]]] = {value: [] for value in _LEGACY_STAGE_KEYS.values()}
         conflicts: list[dict[str, Any]] = []
         excluded_exact = 0
         source_projects: dict[int, DiscoverSourceProject] = {}
@@ -862,7 +1323,7 @@ class DiscoverArtifactAdapter:
                 "sourceCaptureIds": capture_ids,
                 "sourceEvidenceDigest": self._evidence_digest(observations),
             }
-            stages[_STAGE_KEYS[stage]].append(item)
+            stages[_LEGACY_STAGE_KEYS[stage]].append(item)
         for values in stages.values():
             values.sort(key=lambda item: (-item["observedStarDelta"], -item["totalStars"], item["repository"]))
         conflicts.sort(key=lambda item: (item["reason"], item["repository"], item["githubRepositoryId"]))
@@ -882,7 +1343,7 @@ class DiscoverArtifactAdapter:
             "todayExplosionDigest": _sha(today_raw),
             "updateCadenceMinutes": 120,
             "sortingPolicy": {
-                "sections": list(_STAGE_SECTIONS),
+                "sections": list(_LEGACY_STAGE_SECTIONS),
                 "withinStage": ["observedStarDelta DESC", "totalStars DESC", "repository ASC"],
             },
             "stages": stages,
@@ -904,7 +1365,7 @@ class DiscoverArtifactAdapter:
             "todayExplosionSource": copy.deepcopy(artifact["todayExplosionSource"]),
         }
         expected["payloadDigest"] = {"algorithm": "sha256", "value": _payload_digest(expected)}
-        for key in _STAGE_KEYS.values():
+        for key in _LEGACY_STAGE_KEYS.values():
             for raw_item in stages[key]:
                 item = DiscoverItem.model_validate_json(json.dumps(raw_item), strict=True)
                 current = latest_index[item.githubRepositoryId]
@@ -936,6 +1397,7 @@ class DiscoverArtifactAdapter:
             "todayExplosionDigest": artifact["todayExplosionDigest"],
             "updateCadenceMinutes": artifact["updateCadenceMinutes"],
             "justDiscovered": artifact["stages"]["justDiscovered"],
+            "outsideTodayMomentum": artifact["stages"].get("outsideTodayMomentum", []),
             "rising": artifact["stages"]["rising"],
             "nearValidation": artifact["stages"]["nearValidation"],
             "coverage": artifact["coverage"],
@@ -943,11 +1405,20 @@ class DiscoverArtifactAdapter:
             "conflictReasons": reasons,
             "stageCounts": {
                 "justDiscovered": len(artifact["stages"]["justDiscovered"]),
+                "outsideTodayMomentum": len(artifact["stages"].get("outsideTodayMomentum", [])),
                 "rising": len(artifact["stages"]["rising"]),
                 "nearValidation": len(artifact["stages"]["nearValidation"]),
             },
             "signalPolicy": artifact.get("signalPolicy"),
             "suppressionSummary": artifact.get("suppressionSummary"),
+            "todayExactCount": artifact.get("todayExactCount"),
+            "todayPublishedTopCount": artifact.get("todayPublishedTopCount"),
+            "todayPublishedCount": artifact.get("todayPublishedCount"),
+            "todayPublishedSetDigest": artifact.get("todayPublishedSetDigest"),
+            "excludedPublishedCount": artifact.get("excludedPublishedCount"),
+            "exactOutsidePublishedEvaluatedCount": artifact.get("exactOutsidePublishedEvaluatedCount"),
+            "preExactEvaluatedCount": artifact.get("preExactEvaluatedCount"),
+            "eligibilityCounts": artifact.get("eligibilityCounts"),
             "payloadDigest": artifact["payloadDigest"]["value"],
         }
         return DiscoverBoard.model_validate_json(json.dumps(payload), strict=True)
@@ -960,6 +1431,7 @@ __all__ = [
     "DiscoverCoverage",
     "DiscoverItem",
     "DiscoverSignalPolicy",
+    "DiscoverSuppressionSummaryV3",
     "DiscoverSourceProject",
     "LoadedDiscoverArtifact",
 ]

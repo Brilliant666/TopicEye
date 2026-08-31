@@ -4,12 +4,18 @@ import {
   type ProjectDetail,
 } from './rardar-intelligence';
 
-export type DiscoverStage = 'just_discovered' | 'rising' | 'near_validation';
+export type DiscoverStage = 'just_discovered' | 'outside_today_momentum' | 'rising' | 'near_validation';
 export type DiscoverStatus = 'ready' | 'empty' | 'stale' | 'not_configured' | 'invalid';
 export type DiscoverCategory = 'ai-agent' | 'dev-tools' | 'data-infra' | 'productivity' | 'video-content' | 'other';
 export type DiscoverCategorySource = 'canonical_profile' | 'github_metadata' | 'deterministic_fallback';
 export type DiscoverSignalFact =
   | 'first_seen_recently'
+  | 'outside_today_top20'
+  | 'exact_rank_available'
+  | 'recent_absolute_growth'
+  | 'recent_relative_growth'
+  | 'continuous_recent_growth'
+  | 'recent_acceleration'
   | 'continuous_positive_growth'
   | 'absolute_growth_gate'
   | 'relative_growth_gate'
@@ -44,6 +50,14 @@ export type DiscoverItem = {
   latestIntervalDelta?: number | null;
   publishReasonCodes?: DiscoverSignalFact[] | null;
   signalFacts?: DiscoverSignalFact[] | null;
+  eligibilityClass?: 'pre_exact' | 'exact_outside_published' | null;
+  todayExactRank?: number | null;
+  todayExact24hDelta?: number | null;
+  recentWindowHours?: number | null;
+  recentObservedStarDelta?: number | null;
+  priorComparableWindowDelta?: number | null;
+  accelerationDelta?: number | null;
+  recentRelativeGrowthPercent?: number | null;
 };
 
 export type DiscoverCard = DiscoverItem & {
@@ -76,6 +90,27 @@ export type DiscoverSuppressionSummary = {
   };
 };
 
+export type DiscoverSuppressionSummaryV3 = {
+  candidateCount: number;
+  publishedCount: number;
+  suppressedSignalCount: number;
+  excludedPublishedCount: number;
+  conflictCount: number;
+  reasons: {
+    today_published: number;
+    weak_recent_absolute_growth: number;
+    weak_recent_relative_growth: number;
+    no_recent_continuous_growth: number;
+    no_recent_acceleration: number;
+    weak_pre_exact_growth: number;
+    already_exact_without_momentum: number;
+    identity_conflict: number;
+    negative_growth: number;
+    disabled: number;
+    metadata_incomplete: number;
+  };
+};
+
 export type DiscoverCoverage = {
   state: 'healthy' | 'degraded';
   querySuccessCount: number;
@@ -85,7 +120,13 @@ export type DiscoverCoverage = {
   candidateCount: number;
   publishedCount: number;
   conflictCount: number;
-  excludedExactCount: number;
+  excludedExactCount?: number | null;
+  todayExactCount?: number | null;
+  todayPublishedCount?: number | null;
+  excludedPublishedCount?: number | null;
+  exactOutsidePublishedEvaluatedCount?: number | null;
+  preExactEvaluatedCount?: number | null;
+  invalidCount?: number | null;
 };
 
 export type DiscoverResponse = {
@@ -97,9 +138,10 @@ export type DiscoverResponse = {
   nextExpectedAt: string | null;
   freshnessState: 'fresh' | 'stale' | 'unavailable';
   updateCadenceMinutes: 120;
-  stageCounts: { justDiscovered: number; rising: number; nearValidation: number };
+  stageCounts: { justDiscovered: number; outsideTodayMomentum: number; rising: number; nearValidation: number };
   stages: {
     justDiscovered: DiscoverCard[];
+    outsideTodayMomentum: DiscoverCard[];
     rising: DiscoverCard[];
     nearValidation: DiscoverCard[];
   };
@@ -123,14 +165,26 @@ export type DiscoverResponse = {
     translationCalls: number;
     translationCacheHits: number;
   } | null;
-  sourceSchemaVersion?: 1 | 2 | null;
-  sourcePolicyVersion?: 'trending-discover-v1' | 'trending-discover-v2' | null;
-  suppressionSummary?: DiscoverSuppressionSummary | null;
+  sourceSchemaVersion?: 1 | 2 | 3 | null;
+  sourcePolicyVersion?: 'trending-discover-v1' | 'trending-discover-v2' | 'trending-discover-v3' | null;
+  suppressionSummary?: DiscoverSuppressionSummary | DiscoverSuppressionSummaryV3 | null;
+  todayPublishedTopCount?: 20 | null;
+  eligibilitySummary?: {
+    observationCandidates: number;
+    todayExactFacts: number;
+    todayPublished: number;
+    excludedPublished: number;
+    exactOutsidePublishedEvaluated: number;
+    preExactEvaluated: number;
+    invalid: number;
+    published: number;
+    suppressed: number;
+  } | null;
   code: string | null;
 };
 
 export type DiscoverProjectDetail = {
-  schemaVersion: 1 | 2;
+  schemaVersion: 1 | 2 | 3;
   servingGenerationId: string;
   discoverGenerationId: string;
   facts: DiscoverItem;
@@ -143,8 +197,9 @@ export type DiscoverProjectDetail = {
   categoryEvidenceRefs?: string[];
   nextExpectedAt?: string | null;
   nextTodaySettlementAt?: string | null;
-  todayStatus?: 'not_in_source_today' | null;
-  todayReason?: 'new_candidate' | 'awaiting_growth_evidence' | 'awaiting_daily_settlement' | null;
+  todayStatus?: 'not_in_source_today' | 'outside_today_top20' | null;
+  todayReason?: 'new_candidate' | 'awaiting_growth_evidence' | 'awaiting_daily_settlement' | 'outside_today_top20_with_momentum' | null;
+  todayPublishedTopCount?: 20 | null;
 };
 
 export type DiscoverLoadResult =
@@ -174,6 +229,12 @@ function strings(value: unknown): value is string[] {
 
 const SIGNAL_FACTS = new Set<DiscoverSignalFact>([
   'first_seen_recently',
+  'outside_today_top20',
+  'exact_rank_available',
+  'recent_absolute_growth',
+  'recent_relative_growth',
+  'continuous_recent_growth',
+  'recent_acceleration',
   'continuous_positive_growth',
   'absolute_growth_gate',
   'relative_growth_gate',
@@ -218,7 +279,7 @@ function discoverItem(value: unknown): value is DiscoverItem {
     && value.githubRepositoryId > 0
     && typeof value.repository === 'string'
     && typeof value.url === 'string'
-    && ['just_discovered', 'rising', 'near_validation'].includes(String(value.stage))
+    && ['just_discovered', 'outside_today_momentum', 'rising', 'near_validation'].includes(String(value.stage))
     && typeof value.firstSeenAt === 'string'
     && typeof value.lastObservedAt === 'string'
     && typeof value.observedWindowStart === 'string'
@@ -246,6 +307,16 @@ function discoverItem(value: unknown): value is DiscoverItem {
     && optionalInteger(value.latestIntervalDelta)
     && optionalSignalFacts(value.publishReasonCodes)
     && optionalSignalFacts(value.signalFacts)
+    && (value.eligibilityClass === undefined
+      || value.eligibilityClass === null
+      || ['pre_exact', 'exact_outside_published'].includes(String(value.eligibilityClass)))
+    && optionalInteger(value.todayExactRank, 21)
+    && optionalInteger(value.todayExact24hDelta, 0)
+    && optionalFinite(value.recentWindowHours, 0)
+    && optionalInteger(value.recentObservedStarDelta)
+    && optionalInteger(value.priorComparableWindowDelta)
+    && optionalInteger(value.accelerationDelta)
+    && optionalFinite(value.recentRelativeGrowthPercent)
     && (
       value.publishReasonCodes === undefined
       || value.publishReasonCodes === null
@@ -279,22 +350,35 @@ function discoverCard(value: unknown): value is DiscoverCard {
     );
 }
 
-function parseSuppression(value: unknown): DiscoverSuppressionSummary {
+function parseSuppression(value: unknown): DiscoverSuppressionSummary | DiscoverSuppressionSummaryV3 {
   if (!record(value) || !record(value.reasons)) throw new Error('rardar_discover_response_invalid');
   const reasons = value.reasons;
-  const fields = [
+  const v2Fields = [
     'candidateCount', 'stageEligibleCount', 'publishedCount', 'suppressedWeakSignalCount',
     'suppressedExactCount', 'conflictCount',
   ];
-  const reasonFields = [
+  const v2ReasonFields = [
     'weak_absolute_growth', 'weak_relative_growth', 'no_continuous_growth', 'already_in_today',
     'identity_conflict', 'negative_growth', 'disabled', 'metadata_incomplete',
   ];
-  if (fields.some((key) => !integer(value[key]) || Number(value[key]) < 0)
-    || reasonFields.some((key) => !integer(reasons[key]) || Number(reasons[key]) < 0)) {
-    throw new Error('rardar_discover_response_invalid');
+  if (v2Fields.every((key) => integer(value[key]) && Number(value[key]) >= 0)
+    && v2ReasonFields.every((key) => integer(reasons[key]) && Number(reasons[key]) >= 0)) {
+    return value as DiscoverSuppressionSummary;
   }
-  return value as DiscoverSuppressionSummary;
+  const v3Fields = [
+    'candidateCount', 'publishedCount', 'suppressedSignalCount', 'excludedPublishedCount', 'conflictCount',
+  ];
+  const v3ReasonFields = [
+    'today_published', 'weak_recent_absolute_growth', 'weak_recent_relative_growth',
+    'no_recent_continuous_growth', 'no_recent_acceleration', 'weak_pre_exact_growth',
+    'already_exact_without_momentum', 'identity_conflict', 'negative_growth', 'disabled',
+    'metadata_incomplete',
+  ];
+  if (v3Fields.every((key) => integer(value[key]) && Number(value[key]) >= 0)
+    && v3ReasonFields.every((key) => integer(reasons[key]) && Number(reasons[key]) >= 0)) {
+    return value as DiscoverSuppressionSummaryV3;
+  }
+  throw new Error('rardar_discover_response_invalid');
 }
 
 function parseCoverage(value: unknown): DiscoverCoverage {
@@ -307,7 +391,13 @@ function parseCoverage(value: unknown): DiscoverCoverage {
     || !integer(value.candidateCount)
     || !integer(value.publishedCount)
     || !integer(value.conflictCount)
-    || !integer(value.excludedExactCount)) {
+    || !optionalInteger(value.excludedExactCount, 0)
+    || !optionalInteger(value.todayExactCount, 0)
+    || !optionalInteger(value.todayPublishedCount, 0)
+    || !optionalInteger(value.excludedPublishedCount, 0)
+    || !optionalInteger(value.exactOutsidePublishedEvaluatedCount, 0)
+    || !optionalInteger(value.preExactEvaluatedCount, 0)
+    || !optionalInteger(value.invalidCount, 0)) {
     throw new Error('rardar_discover_response_invalid');
   }
   return value as DiscoverCoverage;
@@ -320,22 +410,27 @@ export function parseDiscoverResponse(value: unknown): DiscoverResponse {
     || value.updateCadenceMinutes !== 120
     || !record(value.stageCounts)
     || !integer(value.stageCounts.justDiscovered)
+    || !integer(value.stageCounts.outsideTodayMomentum)
     || !integer(value.stageCounts.rising)
     || !integer(value.stageCounts.nearValidation)
     || !record(value.stages)
     || !Array.isArray(value.stages.justDiscovered)
+    || !Array.isArray(value.stages.outsideTodayMomentum)
     || !Array.isArray(value.stages.rising)
     || !Array.isArray(value.stages.nearValidation)
     || !value.stages.justDiscovered.every(discoverCard)
+    || !value.stages.outsideTodayMomentum.every(discoverCard)
     || !value.stages.rising.every(discoverCard)
     || !value.stages.nearValidation.every(discoverCard)
     || value.stages.justDiscovered.some((item) => item.stage !== 'just_discovered')
+    || value.stages.outsideTodayMomentum.some((item) => item.stage !== 'outside_today_momentum')
     || value.stages.rising.some((item) => item.stage !== 'rising')
     || value.stages.nearValidation.some((item) => item.stage !== 'near_validation')) {
     throw new Error('rardar_discover_response_invalid');
   }
   const values = [
     ...value.stages.justDiscovered,
+    ...value.stages.outsideTodayMomentum,
     ...value.stages.rising,
     ...value.stages.nearValidation,
   ] as DiscoverCard[];
@@ -355,6 +450,7 @@ export function parseDiscoverResponse(value: unknown): DiscoverResponse {
         && (!integer(value.profileSummary.categoryComplete)
           || value.profileSummary.categoryComplete !== values.length))
       || value.stageCounts.justDiscovered < value.stages.justDiscovered.length
+      || value.stageCounts.outsideTodayMomentum < value.stages.outsideTodayMomentum.length
       || value.stageCounts.rising < value.stages.rising.length
       || value.stageCounts.nearValidation < value.stages.nearValidation.length) {
       throw new Error('rardar_discover_response_invalid');
@@ -362,11 +458,11 @@ export function parseDiscoverResponse(value: unknown): DiscoverResponse {
     parseCoverage(value.coverage);
   }
   if (value.sourceSchemaVersion !== undefined && value.sourceSchemaVersion !== null
-    && ![1, 2].includes(Number(value.sourceSchemaVersion))) {
+    && ![1, 2, 3].includes(Number(value.sourceSchemaVersion))) {
     throw new Error('rardar_discover_response_invalid');
   }
   if (value.sourcePolicyVersion !== undefined && value.sourcePolicyVersion !== null
-    && !['trending-discover-v1', 'trending-discover-v2'].includes(String(value.sourcePolicyVersion))) {
+    && !['trending-discover-v1', 'trending-discover-v2', 'trending-discover-v3'].includes(String(value.sourcePolicyVersion))) {
     throw new Error('rardar_discover_response_invalid');
   }
   if (value.suppressionSummary !== undefined && value.suppressionSummary !== null) {
@@ -378,6 +474,56 @@ export function parseDiscoverResponse(value: unknown): DiscoverResponse {
       || value.suppressionSummary === undefined
       || value.suppressionSummary === null)) {
     throw new Error('rardar_discover_response_invalid');
+  }
+  if (value.sourceSchemaVersion === 3 || value.sourcePolicyVersion === 'trending-discover-v3') {
+    const summary = value.eligibilitySummary;
+    const v3Items = values;
+    const fields = [
+      'observationCandidates', 'todayExactFacts', 'todayPublished', 'excludedPublished',
+      'exactOutsidePublishedEvaluated', 'preExactEvaluated', 'invalid', 'published', 'suppressed',
+    ];
+    if (value.sourceSchemaVersion !== 3
+      || value.sourcePolicyVersion !== 'trending-discover-v3'
+      || value.suppressionSummary === undefined
+      || value.suppressionSummary === null
+      || !record(value.suppressionSummary)
+      || !('suppressedSignalCount' in value.suppressionSummary)
+      || value.todayPublishedTopCount !== 20
+      || !record(summary)
+      || !record(value.coverage)
+      || fields.some((key) => !integer(summary[key]) || Number(summary[key]) < 0)
+      || summary.observationCandidates !== value.coverage.candidateCount
+      || summary.todayExactFacts !== value.coverage.todayExactCount
+      || summary.todayPublished !== value.coverage.todayPublishedCount
+      || summary.excludedPublished !== value.coverage.excludedPublishedCount
+      || summary.exactOutsidePublishedEvaluated !== value.coverage.exactOutsidePublishedEvaluatedCount
+      || summary.preExactEvaluated !== value.coverage.preExactEvaluatedCount
+      || summary.invalid !== value.coverage.invalidCount
+      || summary.published !== value.coverage.publishedCount
+      || summary.suppressed !== value.suppressionSummary.suppressedSignalCount
+      || v3Items.some((item) => (
+        !['pre_exact', 'exact_outside_published'].includes(String(item.eligibilityClass))
+        || typeof item.recentWindowHours !== 'number'
+        || !Number.isFinite(item.recentWindowHours)
+        || !Array.isArray(item.publishReasonCodes)
+        || !Array.isArray(item.signalFacts)
+      ))
+      || v3Items.filter((item) => item.stage !== 'outside_today_momentum').some((item) => (
+        item.eligibilityClass !== 'pre_exact'
+        || item.todayExactRank !== null
+        || item.todayExact24hDelta !== null
+      ))
+      || value.stages.outsideTodayMomentum.some((item) => (
+        item.eligibilityClass !== 'exact_outside_published'
+        || !integer(item.todayExactRank)
+        || Number(item.todayExactRank) <= 20
+        || !integer(item.todayExact24hDelta)
+        || !integer(item.recentObservedStarDelta)
+        || !integer(item.priorComparableWindowDelta)
+        || !integer(item.accelerationDelta)
+      ))) {
+      throw new Error('rardar_discover_response_invalid');
+    }
   }
   return value as unknown as DiscoverResponse;
 }
@@ -407,7 +553,7 @@ export async function loadDiscover(
 
 export function parseDiscoverProjectDetail(value: unknown): DiscoverProjectDetail {
   if (!record(value)
-    || ![1, 2].includes(Number(value.schemaVersion))
+    || ![1, 2, 3].includes(Number(value.schemaVersion))
     || typeof value.servingGenerationId !== 'string'
     || typeof value.discoverGenerationId !== 'string'
     || !discoverItem(value.facts)
@@ -419,17 +565,40 @@ export function parseDiscoverProjectDetail(value: unknown): DiscoverProjectDetai
     || value.evidence.repository !== value.facts.repository
     || value.profile.generationId !== value.discoverGenerationId
     || value.evidence.generationId !== value.discoverGenerationId
-    || (value.schemaVersion === 2 && (
+    || ([2, 3].includes(Number(value.schemaVersion)) && (
       !CATEGORIES.has(value.category as DiscoverCategory)
       || !CATEGORY_SOURCES.has(value.categorySourceMode as DiscoverCategorySource)
       || !strings(value.categoryEvidenceRefs)
       || value.categoryEvidenceRefs.length === 0
       || typeof value.nextExpectedAt !== 'string'
       || typeof value.nextTodaySettlementAt !== 'string'
-      || value.todayStatus !== 'not_in_source_today'
-      || !['new_candidate', 'awaiting_growth_evidence', 'awaiting_daily_settlement'].includes(
+      || !['not_in_source_today', 'outside_today_top20'].includes(String(value.todayStatus))
+      || ![
+        'new_candidate', 'awaiting_growth_evidence', 'awaiting_daily_settlement',
+        'outside_today_top20_with_momentum',
+      ].includes(
         String(value.todayReason),
       )
+    ))
+    || (value.schemaVersion === 3 && (
+      value.todayPublishedTopCount !== 20
+      || (value.facts.stage === 'outside_today_momentum') !== (value.facts.eligibilityClass === 'exact_outside_published')
+      || (value.facts.stage === 'outside_today_momentum' && (
+        value.todayStatus !== 'outside_today_top20'
+        || value.todayReason !== 'outside_today_top20_with_momentum'
+        || !integer(value.facts.todayExactRank)
+        || Number(value.facts.todayExactRank) <= 20
+        || !integer(value.facts.todayExact24hDelta)
+        || !integer(value.facts.recentObservedStarDelta)
+        || !integer(value.facts.priorComparableWindowDelta)
+        || !integer(value.facts.accelerationDelta)
+      ))
+      || (value.facts.stage !== 'outside_today_momentum' && (
+        value.facts.eligibilityClass !== 'pre_exact'
+        || value.todayStatus !== 'not_in_source_today'
+        || value.facts.todayExactRank !== null
+        || value.facts.todayExact24hDelta !== null
+      ))
     ))) {
     throw new Error('rardar_discover_project_invalid');
   }

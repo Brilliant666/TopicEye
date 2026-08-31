@@ -69,8 +69,8 @@ const board: DiscoverResponse = {
   nextExpectedAt: '2026-08-30T06:00:00Z',
   freshnessState: 'fresh',
   updateCadenceMinutes: 120,
-  stageCounts: { justDiscovered: 1, rising: 0, nearValidation: 0 },
-  stages: { justDiscovered: [card], rising: [], nearValidation: [] },
+  stageCounts: { justDiscovered: 1, outsideTodayMomentum: 0, rising: 0, nearValidation: 0 },
+  stages: { justDiscovered: [card], outsideTodayMomentum: [], rising: [], nearValidation: [] },
   coverage: {
     state: 'degraded',
     querySuccessCount: 8,
@@ -213,13 +213,158 @@ const detail = {
   todayReason: 'new_candidate',
 } as unknown as DiscoverProjectDetail;
 
+const outsideCard: DiscoverCard = {
+  ...card,
+  githubRepositoryId: 86,
+  repository: 'fixture-lab/outside-momentum',
+  url: 'https://github.com/fixture-lab/outside-momentum',
+  stage: 'outside_today_momentum',
+  observedWindowHours: 24,
+  observedStarDelta: 38,
+  totalStars: 2038,
+  captureCount: 13,
+  consecutiveCaptureCount: 13,
+  positiveIntervalCount: 5,
+  consecutivePositiveIntervalCount: 2,
+  latestIntervalDelta: 7,
+  publishReasonCodes: [
+    'outside_today_top20',
+    'exact_rank_available',
+    'recent_absolute_growth',
+    'continuous_recent_growth',
+    'recent_acceleration',
+  ],
+  signalFacts: [
+    'outside_today_top20',
+    'exact_rank_available',
+    'recent_absolute_growth',
+    'continuous_recent_growth',
+    'recent_acceleration',
+  ],
+  eligibilityClass: 'exact_outside_published',
+  todayExactRank: 86,
+  todayExact24hDelta: 38,
+  recentWindowHours: 4,
+  recentObservedStarDelta: 12,
+  priorComparableWindowDelta: 3,
+  accelerationDelta: 9,
+  recentRelativeGrowthPercent: 0.59,
+  identitySummaryZh: '一个提供可验证短窗口变化的榜外开源项目。',
+  positioningZh: '通过连续 Observation 呈现进入 Today Top 20 之外的新异动。',
+};
+
+const v3PreExactCard: DiscoverCard = {
+  ...card,
+  eligibilityClass: 'pre_exact',
+  todayExactRank: null,
+  todayExact24hDelta: null,
+  recentWindowHours: 4,
+  recentObservedStarDelta: 87,
+  priorComparableWindowDelta: null,
+  accelerationDelta: null,
+  recentRelativeGrowthPercent: 7.25,
+};
+
+const v3Board: DiscoverResponse = {
+  ...board,
+  generation: 'discover-generation-v3',
+  stageCounts: { justDiscovered: 1, outsideTodayMomentum: 1, rising: 0, nearValidation: 0 },
+  stages: {
+    justDiscovered: [v3PreExactCard],
+    outsideTodayMomentum: [outsideCard],
+    rising: [],
+    nearValidation: [],
+  },
+  coverage: {
+    ...board.coverage!,
+    candidateCount: 31,
+    publishedCount: 2,
+    conflictCount: 1,
+    excludedExactCount: null,
+    todayExactCount: 27,
+    todayPublishedCount: 20,
+    excludedPublishedCount: 20,
+    exactOutsidePublishedEvaluatedCount: 7,
+    preExactEvaluatedCount: 3,
+    invalidCount: 1,
+  },
+  profileSummary: {
+    ...board.profileSummary!,
+    selectedCount: 2,
+    identityComplete: 2,
+    positioningComplete: 2,
+    capabilitiesComplete: 2,
+    categoryComplete: 2,
+    rardarDerived: 2,
+  },
+  sourceSchemaVersion: 3,
+  sourcePolicyVersion: 'trending-discover-v3',
+  todayPublishedTopCount: 20,
+  suppressionSummary: {
+    candidateCount: 31,
+    publishedCount: 2,
+    suppressedSignalCount: 8,
+    excludedPublishedCount: 20,
+    conflictCount: 1,
+    reasons: {
+      today_published: 20,
+      weak_recent_absolute_growth: 3,
+      weak_recent_relative_growth: 2,
+      no_recent_continuous_growth: 1,
+      no_recent_acceleration: 2,
+      weak_pre_exact_growth: 1,
+      already_exact_without_momentum: 6,
+      identity_conflict: 1,
+      negative_growth: 0,
+      disabled: 0,
+      metadata_incomplete: 0,
+    },
+  },
+  eligibilitySummary: {
+    observationCandidates: 31,
+    todayExactFacts: 27,
+    todayPublished: 20,
+    excludedPublished: 20,
+    exactOutsidePublishedEvaluated: 7,
+    preExactEvaluated: 3,
+    invalid: 1,
+    published: 2,
+    suppressed: 8,
+  },
+};
+
+const v3Detail: DiscoverProjectDetail = {
+  ...detail,
+  schemaVersion: 3,
+  discoverGenerationId: v3Board.generation!,
+  facts: outsideCard,
+  profile: {
+    ...detail.profile,
+    githubRepositoryId: outsideCard.githubRepositoryId,
+    repository: outsideCard.repository,
+    htmlUrl: outsideCard.url,
+    generationId: v3Board.generation!,
+  },
+  evidence: {
+    ...detail.evidence,
+    githubRepositoryId: outsideCard.githubRepositoryId,
+    repository: outsideCard.repository,
+    generationId: v3Board.generation!,
+  },
+  coverage: v3Board.coverage!,
+  todayStatus: 'outside_today_top20',
+  todayReason: 'outside_today_top20_with_momentum',
+  todayPublishedTopCount: 20,
+};
+
 describe('Rardar near-real-time Discover', () => {
-  it('renders three honest stages, actual windows, coverage, and internal detail navigation', () => {
+  it('renders four honest stages, actual windows, coverage, and internal detail navigation', () => {
     const html = renderToStaticMarkup(<RardarDiscoverPage result={{ kind: 'published', board }} />);
 
     expect(html).toContain('发现此刻正在形成的真实信号');
     expect(html).toContain('每 2 小时');
-    expect(html.indexOf('刚刚发现')).toBeLessThan(html.indexOf('持续升温'));
+    expect(html.indexOf('刚刚发现')).toBeLessThan(html.indexOf('榜外异动'));
+    expect(html.indexOf('榜外异动')).toBeLessThan(html.indexOf('持续升温'));
     expect(html.indexOf('持续升温')).toBeLessThan(html.indexOf('待日榜验证'));
     expect(html).toContain('+87');
     expect(html).toContain('/ 实际 4 小时');
@@ -242,6 +387,7 @@ describe('Rardar near-real-time Discover', () => {
     const third = { ...card, githubRepositoryId: 45, repository: 'fixture-lab/third' };
     const filtered = filterDiscoverStages({
       justDiscovered: [first, second, third],
+      outsideTodayMomentum: [],
       rising: [],
       nearValidation: [],
     }, 'dev-tools');
@@ -274,7 +420,7 @@ describe('Rardar near-real-time Discover', () => {
       generation: null,
       freshnessState: 'unavailable',
       coverage: null,
-      stages: { justDiscovered: [], rising: [], nearValidation: [] },
+      stages: { justDiscovered: [], outsideTodayMomentum: [], rising: [], nearValidation: [] },
       code: 'rardar_discover_not_configured',
     }), { status: 503 }), 'http://backend.test');
     const invalid = await loadDiscover(async () => {
@@ -283,6 +429,44 @@ describe('Rardar near-real-time Discover', () => {
     expect(loaded.kind).toBe('published');
     expect(notConfigured).toEqual({ kind: 'not_configured', code: 'rardar_discover_not_configured' });
     expect(invalid).toEqual({ kind: 'invalid', code: 'rardar_discover_unavailable' });
+  });
+
+  it('renders and validates audited v3 outside-Today momentum without prediction language', () => {
+    const parsed = parseDiscoverResponse(v3Board);
+    const html = renderToStaticMarkup(
+      <RardarDiscoverPage result={{ kind: 'published', board: parsed }} />,
+    );
+
+    expect(parsed.todayPublishedTopCount).toBe(20);
+    expect(parsed.eligibilitySummary?.exactOutsidePublishedEvaluated).toBe(7);
+    expect(html).toContain('榜外异动');
+    expect(html).toContain('最近实际 4 小时');
+    expect(html).toContain('+12');
+    expect(html).toContain('前一相同窗口');
+    expect(html).toContain('+3 Star');
+    expect(html).toContain('加速变化');
+    expect(html).toContain('+9 Star');
+    expect(html).toContain('Today exact');
+    expect(html).toContain('#86 · 24h +38');
+    expect(html).toContain('榜外已评估 7');
+    expect(html).not.toContain('预测进入 Today');
+    expect(html).not.toContain('预计 24h');
+
+    expect(() => parseDiscoverResponse({
+      ...v3Board,
+      todayPublishedTopCount: 19,
+    })).toThrow('rardar_discover_response_invalid');
+    expect(() => parseDiscoverResponse({
+      ...v3Board,
+      stages: {
+        ...v3Board.stages,
+        outsideTodayMomentum: [{ ...outsideCard, accelerationDelta: null }],
+      },
+    })).toThrow('rardar_discover_response_invalid');
+    expect(() => parseDiscoverResponse({
+      ...v3Board,
+      eligibilitySummary: { ...v3Board.eligibilitySummary!, published: 3 },
+    })).toThrow('rardar_discover_response_invalid');
   });
 
   it('binds Discover detail to its own generation and reuses AI and Find Project actions', async () => {
@@ -310,5 +494,32 @@ describe('Rardar near-real-time Discover', () => {
     expect(html).toContain('/find?repositoryUrl=https%3A%2F%2Fgithub.com%2Ffixture-lab%2Frealtime-project');
     expect(html).not.toContain('今日排名');
     expect(html).not.toContain('24 小时事实');
+  });
+
+  it('explains an outside-Today detail from deterministic audited facts', () => {
+    const parsed = parseDiscoverProjectDetail(v3Detail);
+    const html = renderToStaticMarkup(<RardarProjectDetailPage detail={parsed} />);
+
+    expect(html).toContain('榜外异动');
+    expect(html).toContain('完整 24h 事实 · Today Top 20 榜外');
+    expect(html).toContain('Today 发布边界');
+    expect(html).toContain('Top 20');
+    expect(html).toContain('Today exact 排名');
+    expect(html).toContain('#86');
+    expect(html).toContain('最近 4 小时新增 12 Star');
+    expect(html).toContain('最近实际 4 小时');
+    expect(html).toContain('此前相同窗口的 3 Star');
+    expect(html).toContain('短窗口加速');
+    expect(html).toContain('+9 Star');
+    expect(html).toContain('未进入 Top 20');
+    expect(html).not.toContain('预测');
+    expect(() => parseDiscoverProjectDetail({
+      ...v3Detail,
+      facts: { ...outsideCard, eligibilityClass: 'pre_exact' },
+    })).toThrow('rardar_discover_project_invalid');
+    expect(() => parseDiscoverProjectDetail({
+      ...v3Detail,
+      facts: { ...outsideCard, accelerationDelta: null },
+    })).toThrow('rardar_discover_project_invalid');
   });
 });

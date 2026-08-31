@@ -230,6 +230,7 @@ test('renders audited near-real-time Discover and reuses detail, AI, and Find Pr
   await page.goto('/discover');
   await expect(page.getByRole('heading', { name: '发现此刻正在形成的真实信号' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '刚刚发现' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '榜外异动' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '持续升温' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '待日榜验证' })).toBeVisible();
   await expect(page.getByTestId('discover-project-card')).toHaveCount(5);
@@ -269,6 +270,49 @@ test('renders audited near-real-time Discover and reuses detail, AI, and Find Pr
   await page.getByRole('link', { name: /用这个仓库评估我的需求/ }).first().click();
   await expect(page).toHaveURL(/\/find\?repositoryUrl=/);
   await expect(page.getByLabel('公开 GitHub 仓库 URL （可选）')).toHaveValue(/^https:\/\/github\.com\//);
+  expect(browserErrors, browserErrors.join('\n')).toEqual([]);
+});
+
+test('renders Today-exact projects outside the published Top 20 as a distinct audited stage', async ({ page }) => {
+  const browserErrors: string[] = [];
+  page.on('console', (message) => {
+    if (message.type() === 'error') browserErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => browserErrors.push(error.message));
+
+  await page.goto('/discover');
+  const outsideStage = page.getByTestId('discover-stage-outside_today_momentum');
+  await expect(outsideStage).toBeVisible();
+  await expect(outsideStage.getByTestId('discover-project-card')).toHaveCount(1);
+  const card = outsideStage.getByTestId('discover-project-card').first();
+  await expect(card).toContainText(/Today exact\s*#21/);
+  await expect(card).toContainText('24h +20');
+  await expect(card).toContainText('最近实际 4 小时');
+  await expect(card).toContainText('前一相同窗口');
+  await expect(card).toContainText('加速变化');
+  await expect(card).toContainText('正增长连续性');
+
+  await card.focus();
+  await expect(card).toBeFocused();
+  await card.press('Enter');
+  await expect(page).toHaveURL(/\/project\/github\/3\?discoverGeneration=/);
+  await expect(page.getByRole('heading', { name: '为什么现在出现在发现？' })).toBeVisible();
+  const facts = page.getByTestId('project-discover-facts');
+  await expect(facts).toContainText('完整 24h 事实 · Today Top 20 榜外');
+  await expect(facts).toContainText('Top 20');
+  await expect(facts).toContainText('#21');
+  await expect(facts).toContainText('+20 Star');
+  await expect(facts).toContainText('最近实际 4 小时');
+  await expect(facts).toContainText('前一可比窗口');
+  await expect(facts).toContainText('短窗口加速');
+  await expect(page.getByText(/完整 24 小时事实.*Top 20 之外/)).toBeVisible();
+
+  const dimensions = await page.evaluate(() => ({
+    width: document.documentElement.clientWidth,
+    scroll: document.documentElement.scrollWidth,
+  }));
+  expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width);
+  await expect(page.locator('nextjs-portal, [data-nextjs-dialog-overlay]')).toHaveCount(0);
   expect(browserErrors, browserErrors.join('\n')).toEqual([]);
 });
 

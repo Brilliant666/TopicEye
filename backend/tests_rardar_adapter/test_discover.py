@@ -24,7 +24,12 @@ from app.integrations.rardar.discover_serving import (
     clear_discover_serving_cache,
     install_discover_serving,
 )
-from app.integrations.rardar.discover_sync import DiscoverSyncError, sync_discover_intelligence
+from app.integrations.rardar.discover_serving_schemas import DiscoverServingSnapshot
+from app.integrations.rardar.discover_sync import (
+    DiscoverSyncError,
+    local_discover_runner,
+    sync_discover_intelligence,
+)
 from app.integrations.rardar.serving_profiles import CollectedProjectProfile, ProfileBuildResult
 from app.integrations.rardar.serving_schemas import (
     OfficialProjectProfile,
@@ -36,6 +41,7 @@ from scripts.rebuild_rardar_discover_serving import rebuild as rebuild_discover_
 
 FIXTURE = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_discover"
 V2_ARTIFACT = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_discover_v2_artifact.json"
+V3_ARTIFACT = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_discover_v3_artifact.json"
 
 
 def _copy_fixture(tmp_path: Path, name: str = "source") -> Path:
@@ -57,6 +63,12 @@ def _canonical(value: object) -> bytes:
 
 def _payload_digest(value: dict[str, object]) -> str:
     unsigned = {key: item for key, item in value.items() if key != "payloadDigest"}
+    raw = json.dumps(unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _capture_digest(value: dict[str, object]) -> str:
+    unsigned = {key: item for key, item in value.items() if key != "digest"}
     raw = json.dumps(unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(raw).hexdigest()
 
@@ -107,6 +119,160 @@ def _copy_v2_fixture(tmp_path: Path, name: str = "source-v2") -> Path:
 
 
 def _rewrite_v2_artifact(root: Path, mutate) -> None:
+    store = root.joinpath(*DISCOVER_ROOT.split("/"))
+    pointer_path = store / "current.json"
+    pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+    generation = store / "generations" / pointer["generationId"]
+    artifact_path = generation / "discover.json"
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    mutate(artifact)
+    artifact["payloadDigest"]["value"] = _payload_digest(artifact)
+    artifact_path.write_bytes(_canonical(artifact))
+    manifest_path = generation / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifacts"]["discover.json"] = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    manifest_raw = _canonical(manifest)
+    manifest_path.write_bytes(manifest_raw)
+    pointer["manifestSha256"] = hashlib.sha256(manifest_raw).hexdigest()
+    pointer_path.write_bytes(_canonical(pointer))
+
+
+def _copy_v3_fixture(tmp_path: Path, name: str = "source-v3") -> Path:
+    """Build a compact producer-authentic v3 fixture from the committed v1 sources."""
+
+    root = _copy_fixture(tmp_path, name)
+    store = root.joinpath(*DISCOVER_ROOT.split("/"))
+    old_generation = next((store / "generations").iterdir())
+    artifact = json.loads(V3_ARTIFACT.read_text(encoding="utf-8"))
+    generation_id = artifact["discoverGenerationId"]
+    generation = old_generation.with_name(generation_id)
+    old_generation.rename(generation)
+
+    captures: list[dict[str, object]] = []
+    for index, reference in enumerate(artifact["sourceInventory"], start=1):
+        source = generation / "sources" / f"capture-{index:02d}.json"
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        if index in {12, 13}:
+            project = next(item for item in payload["observations"] if item["githubRepositoryId"] == 3)
+            project["totalStars"] = {12: 308, 13: 314}[index]
+            payload["digest"]["value"] = _capture_digest(payload)
+        raw = _canonical(payload)
+        assert hashlib.sha256(raw).hexdigest() == reference["fileSha256"]
+        assert payload["digest"]["value"] == reference["payloadDigestSha256"]
+        target = root.joinpath(*reference["originalObservationPath"].split("/"))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+        source.unlink()
+        captures.append(payload)
+
+    today_path = generation / "sources" / "today-explosion.json"
+    today = json.loads(today_path.read_text(encoding="utf-8"))
+    today["pendingRanked"] = [item for item in today["pendingRanked"] if item["githubRepositoryId"] != 3]
+    today["coverage"].update(
+        {
+            "pendingEligibleCount": 8,
+            "pendingPublishedCount": 8,
+            "exactEligibleCount": 21,
+            "exactPublishedCount": 21,
+        }
+    )
+    exact_template = today["exactRanked"][0]
+    exact_ranked = []
+    for rank in range(1, 21):
+        item = json.loads(json.dumps(exact_template))
+        item["rank"] = rank
+        item["githubRepositoryId"] = 1 if rank == 1 else 1000 + rank
+        item["repository"] = "today/exact" if rank == 1 else f"today/dummy-{rank:02d}"
+        item["htmlUrl"] = f"https://github.com/{item['repository']}"
+        exact_ranked.append(item)
+    current = next(item for item in captures[-1]["observations"] if item["githubRepositoryId"] == 3)
+    baseline = next(item for item in captures[8]["observations"] if item["githubRepositoryId"] == 3)
+    exact_ranked.append(
+        {
+            "rank": 21,
+            "githubRepositoryId": 3,
+            "repository": current["repository"],
+            "previousRepository": None,
+            "htmlUrl": current["htmlUrl"],
+            "totalStars": current["totalStars"],
+            "baselineStars": baseline["totalStars"],
+            "observedStarDelta": current["totalStars"] - baseline["totalStars"],
+            "windowStartedAt": "2026-08-29T00:00:00.000000Z",
+            "windowEndedAt": "2026-08-30T00:00:00.000000Z",
+            "currentCapturedAt": "2026-08-30T00:05:00Z",
+            "baselineCapturedAt": "2026-08-29T14:05:00Z",
+            "createdAt": current["createdAt"],
+            "updatedAt": current["updatedAt"],
+            "pushedAt": current["pushedAt"],
+            "defaultBranch": current["defaultBranch"],
+            "primaryLanguage": current["primaryLanguage"],
+            "topics": current["topics"],
+            "licenseSpdxId": current["licenseSpdxId"],
+            "archived": current["archived"],
+            "disabled": current["disabled"],
+            "fork": current["fork"],
+            "mirrorUrl": current["mirrorUrl"],
+            "currentRecalledBy": current["recalledBy"],
+            "baselineRecalledBy": baseline["recalledBy"],
+            "state": "exact_window",
+        }
+    )
+    today["exactRanked"] = exact_ranked
+    today_raw = _canonical(today)
+    assert hashlib.sha256(today_raw).hexdigest() == artifact["todayExplosionDigest"]
+    today_path.write_bytes(today_raw)
+
+    today_manifest_path = generation / "sources" / "today-manifest.json"
+    today_manifest = json.loads(today_manifest_path.read_text(encoding="utf-8"))
+    today_manifest["hashes"]["trending/explosion.json"] = hashlib.sha256(today_raw).hexdigest()
+    today_manifest_raw = _canonical(today_manifest)
+    assert (
+        hashlib.sha256(today_manifest_raw).hexdigest() == artifact["todayExplosionSource"]["generationManifestSha256"]
+    )
+    today_manifest_path.write_bytes(today_manifest_raw)
+
+    artifact_raw = _canonical(artifact)
+    (generation / "discover.json").write_bytes(artifact_raw)
+    inventory = {
+        path.relative_to(generation).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(generation.rglob("*"))
+        if path.is_file() and path.name != "manifest.json"
+    }
+    manifest = {
+        "schemaVersion": 3,
+        "policyVersion": "trending-discover-v3",
+        "generationId": generation_id,
+        "createdAt": artifact["generatedAt"],
+        "state": "ready",
+        "latestCaptureId": artifact["latestCaptureId"],
+        "todayExplosionGenerationId": artifact["todayExplosionGenerationId"],
+        "artifacts": inventory,
+        "audit": {
+            "status": artifact["coverage"]["state"],
+            "validatedSourceCount": artifact["sourceCaptureCount"] + 1,
+            "publishedCount": artifact["coverage"]["publishedCount"],
+            "conflictCount": artifact["coverage"]["conflictCount"],
+            "suppressedSignalCount": artifact["suppressionSummary"]["suppressedSignalCount"],
+            "excludedPublishedCount": artifact["excludedPublishedCount"],
+            "exactOutsidePublishedEvaluatedCount": artifact["exactOutsidePublishedEvaluatedCount"],
+            "outsideTodayMomentumCount": len(artifact["stages"]["outsideTodayMomentum"]),
+        },
+    }
+    manifest_raw = _canonical(manifest)
+    (generation / "manifest.json").write_bytes(manifest_raw)
+    pointer = {
+        "schemaVersion": 3,
+        "policyVersion": "trending-discover-v3",
+        "generationId": generation_id,
+        "publishedAt": "2026-08-30T00:20:01Z",
+        "previousGenerationId": None,
+        "manifestSha256": hashlib.sha256(manifest_raw).hexdigest(),
+    }
+    (store / "current.json").write_bytes(_canonical(pointer))
+    return root
+
+
+def _rewrite_v3_artifact(root: Path, mutate) -> None:
     store = root.joinpath(*DISCOVER_ROOT.split("/"))
     pointer_path = store / "current.json"
     pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
@@ -232,7 +398,12 @@ def test_discover_adapter_recomputes_stages_sources_and_today_exclusion(tmp_path
     loaded = DiscoverArtifactAdapter.from_config(str(_copy_fixture(tmp_path).resolve())).load()
 
     assert loaded.board.policyVersion == "trending-discover-v1"
-    assert loaded.board.stageCounts.model_dump() == {"justDiscovered": 2, "rising": 2, "nearValidation": 1}
+    assert loaded.board.stageCounts.model_dump() == {
+        "justDiscovered": 2,
+        "outsideTodayMomentum": 0,
+        "rising": 2,
+        "nearValidation": 1,
+    }
     assert loaded.board.coverage.excludedExactCount == 1
     assert loaded.board.coverage.sourceCaptureCount == 14
     assert [item.githubRepositoryId for item in loaded.board.nearValidation] == [2]
@@ -256,6 +427,117 @@ def test_discover_adapter_accepts_v2_and_projects_audited_signal_policy(tmp_path
         item.publishReasonCodes == item.signalFacts
         for item in loaded.board.justDiscovered + loaded.board.rising + loaded.board.nearValidation
     )
+
+
+def test_discover_adapter_accepts_v3_and_preserves_published_boundary_proof(tmp_path: Path) -> None:
+    root = _copy_v3_fixture(tmp_path)
+    loaded = DiscoverArtifactAdapter.from_config(str(root.resolve())).load()
+
+    assert loaded.board.schemaVersion == 3
+    assert loaded.board.policyVersion == "trending-discover-v3"
+    assert loaded.board.todayExactCount == 21
+    assert loaded.board.todayPublishedTopCount == 20
+    assert loaded.board.todayPublishedCount == 20
+    assert loaded.board.excludedPublishedCount == 1
+    assert loaded.board.exactOutsidePublishedEvaluatedCount == 1
+    assert loaded.board.preExactEvaluatedCount == 5
+    assert loaded.board.eligibilityCounts is not None
+    assert loaded.board.eligibilityCounts.model_dump() == {
+        "todayPublished": 1,
+        "exactOutsidePublished": 1,
+        "preExact": 5,
+        "invalid": 4,
+    }
+    assert loaded.board.stageCounts.outsideTodayMomentum == 1
+    outside = loaded.board.outsideTodayMomentum[0]
+    assert outside.githubRepositoryId == 3
+    assert outside.eligibilityClass == "exact_outside_published"
+    assert outside.todayExactRank == 21
+    assert outside.todayExact24hDelta == 20
+    assert outside.recentWindowHours == 4
+    assert outside.recentObservedStarDelta == 12
+    assert outside.priorComparableWindowDelta == 4
+    assert outside.accelerationDelta == 8
+    assert outside.publishReasonCodes == [
+        "outside_today_top20",
+        "exact_rank_available",
+        "recent_absolute_growth",
+        "recent_relative_growth",
+        "continuous_recent_growth",
+        "recent_acceleration",
+    ]
+    generation = root.joinpath(*DISCOVER_ROOT.split("/")) / "generations" / loaded.board.discoverGenerationId
+    assert not list((generation / "sources").glob("capture-*.json"))
+    assert len(list((root / "observations" / "trending" / "v1" / "captures").rglob("*.json"))) == 14
+
+
+def test_discover_v3_requires_the_complete_published_rank_one_through_twenty(tmp_path: Path) -> None:
+    root = _copy_v3_fixture(tmp_path, "source-v3-rank-boundary")
+    adapter = DiscoverArtifactAdapter.from_config(str(root.resolve()))
+    pointer = json.loads((root.joinpath(*DISCOVER_ROOT.split("/")) / "current.json").read_text(encoding="utf-8"))
+    base = f"{DISCOVER_ROOT}/generations/{pointer['generationId']}"
+    manifest, _ = adapter._json(f"{base}/manifest.json", 4 * 1024 * 1024, "manifest")
+    artifact, _ = adapter._json(f"{base}/discover.json", 16 * 1024 * 1024, "artifact")
+    captures = adapter._load_captures(base, artifact, manifest)
+    today, today_raw, today_reference = adapter._load_today(base, artifact, manifest)
+    changed_today = json.loads(json.dumps(today))
+    next(item for item in changed_today["exactRanked"] if item["rank"] == 20)["rank"] = 22
+    changed_artifact = json.loads(json.dumps(artifact))
+    published_ids = sorted(
+        int(item["githubRepositoryId"]) for item in changed_today["exactRanked"] if int(item["rank"]) <= 20
+    )
+    changed_artifact["todayPublishedCount"] = len(published_ids)
+    changed_artifact["todayPublishedSetDigest"] = hashlib.sha256(
+        json.dumps(published_ids, separators=(",", ":")).encode()
+    ).hexdigest()
+
+    with pytest.raises(RardarArtifactError) as error:
+        adapter._audit_v3(changed_artifact, captures, (changed_today, today_raw, today_reference))
+
+    assert error.value.code == "rardar_discover_invalid"
+    assert "published rank boundary" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "published_top_count",
+        "published_set_digest",
+        "eligibility",
+        "recent_delta",
+        "prior_delta",
+        "acceleration",
+        "publish_reason",
+        "stage",
+    ],
+)
+def test_discover_adapter_rejects_v3_boundary_or_momentum_tampering(tmp_path: Path, case: str) -> None:
+    root = _copy_v3_fixture(tmp_path)
+
+    def mutate(artifact):
+        outside = artifact["stages"]["outsideTodayMomentum"][0]
+        if case == "published_top_count":
+            artifact["todayPublishedTopCount"] = 19
+        elif case == "published_set_digest":
+            artifact["todayPublishedSetDigest"] = "0" * 64
+        elif case == "eligibility":
+            outside["eligibilityClass"] = "pre_exact"
+        elif case == "recent_delta":
+            outside["recentObservedStarDelta"] = 13
+        elif case == "prior_delta":
+            outside["priorComparableWindowDelta"] = 3
+        elif case == "acceleration":
+            outside["accelerationDelta"] = 9
+        elif case == "publish_reason":
+            outside["publishReasonCodes"].remove("recent_acceleration")
+            outside["signalFacts"].remove("recent_acceleration")
+        else:
+            outside["stage"] = "rising"
+
+    _rewrite_v3_artifact(root, mutate)
+    with pytest.raises(RardarArtifactError) as error:
+        DiscoverArtifactAdapter.from_config(str(root.resolve())).load()
+    assert error.value.code == "rardar_discover_invalid"
 
 
 @pytest.mark.parametrize("case", ["publish_reason", "suppression_reason"])
@@ -353,6 +635,22 @@ def test_discover_adapter_rejects_same_length_mutation_and_symlink(tmp_path: Pat
         pytest.skip(f"symlinks unavailable: {exc}")
     with pytest.raises(RardarArtifactError):
         DiscoverArtifactAdapter.from_config(str(linked.resolve())).load()
+
+
+def test_discover_v3_rejects_canonical_observation_symlink(tmp_path: Path) -> None:
+    root = _copy_v3_fixture(tmp_path)
+    artifact = json.loads(V3_ARTIFACT.read_text(encoding="utf-8"))
+    source = root.joinpath(*artifact["sourceInventory"][0]["originalObservationPath"].split("/"))
+    real = source.with_name("real-capture.json")
+    source.rename(real)
+    try:
+        source.symlink_to(real)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    with pytest.raises(RardarArtifactError) as error:
+        DiscoverArtifactAdapter.from_config(str(root.resolve())).load()
+    assert error.value.code == "rardar_discover_invalid"
 
 
 def test_discover_serving_is_complete_static_and_independent_from_raw(tmp_path: Path) -> None:
@@ -535,6 +833,151 @@ def test_discover_v2_serving_preserves_policy_without_reselecting_projects(tmp_p
         for values in (source.board.justDiscovered, source.board.rising, source.board.nearValidation)
         for item in values
     ]
+
+
+def test_discover_v3_serving_projects_outside_momentum_and_detail_context(tmp_path: Path) -> None:
+    root = _copy_v3_fixture(tmp_path)
+    source = DiscoverArtifactAdapter.from_config(str(root.resolve())).load()
+    built = build_discover_serving(source, cache_root=root / "cache", profile_provider=_complete_profiles)
+    install_discover_serving(root, built)
+    snapshot, _ = DiscoverServingLoader(root).load_with_etag()
+
+    assert snapshot.schemaVersion == 3
+    assert snapshot.sourceSchemaVersion == 3
+    assert snapshot.sourcePolicyVersion == "trending-discover-v3"
+    assert snapshot.stageCounts.outsideTodayMomentum == 1
+    assert snapshot.eligibilitySummary is not None
+    assert snapshot.todayPublishedTopCount == 20
+    assert snapshot.eligibilitySummary.todayPublished == 20
+    assert snapshot.eligibilitySummary.exactOutsidePublishedEvaluated == 1
+    config = type("Config", (), {"RARDAR_INTELLIGENCE_DATA_DIR": root})()
+    api, _ = rardar_intelligence.load_discover_snapshot(
+        config,
+        now=datetime(2026, 8, 30, 1, tzinfo=UTC),
+    )
+    assert api.todayPublishedTopCount == 20
+    assert api.eligibilitySummary is not None
+    assert api.eligibilitySummary.exactOutsidePublishedEvaluated == 1
+    assert api.stages.outsideTodayMomentum[0].githubRepositoryId == 3
+    outside = snapshot.outsideTodayMomentum[0]
+    assert outside.todayExactRank == 21
+    assert outside.recentObservedStarDelta == 12
+    assert outside.priorComparableWindowDelta == 4
+    assert outside.accelerationDelta == 8
+    detail, _ = DiscoverServingLoader(root).load_project_with_etag(
+        outside.githubRepositoryId,
+        snapshot.discoverGenerationId,
+    )
+    assert detail.schemaVersion == 3
+    assert detail.todayStatus == "outside_today_top20"
+    assert detail.todayReason == "outside_today_top20_with_momentum"
+    assert detail.todayPublishedTopCount == 20
+    assert detail.facts.githubRepositoryId == outside.githubRepositoryId
+    assert detail.facts.sourceEvidenceDigest == outside.sourceEvidenceDigest
+    assert detail.facts.recentObservedStarDelta == outside.recentObservedStarDelta
+
+    mismatched = snapshot.model_dump(mode="json")
+    mismatched["eligibilitySummary"]["published"] += 1
+    with pytest.raises(ValueError):
+        DiscoverServingSnapshot.model_validate(mismatched, strict=True)
+
+
+def test_discover_v3_sync_installs_canonical_sources_without_touching_today(tmp_path: Path) -> None:
+    source = _copy_v3_fixture(tmp_path, "source-v3")
+    target = (tmp_path / "mirror-v3").resolve()
+    target.mkdir()
+    today_pointer = target / "serving" / "current.json"
+    today_pointer.parent.mkdir()
+    today_pointer.write_bytes(b'{"today":"unchanged"}\n')
+
+    first = sync_discover_intelligence(
+        target=target,
+        source_dir=source,
+        profile_provider=_complete_profiles,
+    )
+    second = sync_discover_intelligence(
+        target=target,
+        source_dir=source,
+        profile_provider=_complete_profiles,
+    )
+    loaded = DiscoverArtifactAdapter.from_config(str(target)).load()
+
+    assert first.changed is True
+    assert second.changed is False
+    assert loaded.board.policyVersion == "trending-discover-v3"
+    assert loaded.board.outsideTodayMomentum[0].githubRepositoryId == 3
+    assert len(list((target / "observations" / "trending" / "v1" / "captures").rglob("*.json"))) == 14
+    assert today_pointer.read_bytes() == b'{"today":"unchanged"}\n'
+
+
+def test_discover_v3_sync_rejects_conflicting_canonical_source_before_activation(tmp_path: Path) -> None:
+    source = _copy_v3_fixture(tmp_path, "source-v3-conflict")
+    target = (tmp_path / "mirror-v3-conflict").resolve()
+    target.mkdir()
+    artifact = json.loads(V3_ARTIFACT.read_text(encoding="utf-8"))
+    canonical = target.joinpath(*artifact["sourceInventory"][0]["originalObservationPath"].split("/"))
+    canonical.parent.mkdir(parents=True)
+    canonical.write_bytes(b"different immutable bytes")
+
+    with pytest.raises(DiscoverSyncError) as error:
+        sync_discover_intelligence(
+            target=target,
+            source_dir=source,
+            profile_provider=_complete_profiles,
+        )
+
+    assert error.value.code == "rardar_discover_sync_generation_conflict"
+    assert canonical.read_bytes() == b"different immutable bytes"
+    assert not (target.joinpath(*DISCOVER_ROOT.split("/")) / "current.json").exists()
+    assert not (target / "discover-serving" / "current.json").exists()
+
+
+def test_discover_v3_sync_rejects_canonical_parent_symlink(tmp_path: Path) -> None:
+    source = _copy_v3_fixture(tmp_path, "source-v3-symlink")
+    target = (tmp_path / "mirror-v3-symlink").resolve()
+    target.mkdir()
+    external = (tmp_path / "external-observations").resolve()
+    external.mkdir()
+    try:
+        (target / "observations").symlink_to(external, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    with pytest.raises(DiscoverSyncError) as error:
+        sync_discover_intelligence(
+            target=target,
+            source_dir=source,
+            profile_provider=_complete_profiles,
+        )
+
+    assert error.value.code == "rardar_discover_sync_unsafe_path"
+    assert not list(external.rglob("*"))
+    assert not (target.joinpath(*DISCOVER_ROOT.split("/")) / "current.json").exists()
+    assert not (target / "discover-serving" / "current.json").exists()
+
+
+def test_discover_v3_sync_rejects_unreferenced_canonical_source(tmp_path: Path) -> None:
+    source = _copy_v3_fixture(tmp_path, "source-v3-extra")
+    target = (tmp_path / "mirror-v3-extra").resolve()
+    target.mkdir()
+
+    def runner(_host: str, _remote_root: str) -> bytes:
+        bundle = json.loads(local_discover_runner(source))
+        bundle["canonicalSources"]["observations/trending/v1/captures/unreferenced.json"] = bundle["canonicalSources"][
+            next(iter(bundle["canonicalSources"]))
+        ]
+        return _canonical(bundle)
+
+    with pytest.raises(DiscoverSyncError) as error:
+        sync_discover_intelligence(
+            target=target,
+            runner=runner,
+            profile_provider=_complete_profiles,
+        )
+
+    assert error.value.code == "rardar_discover_sync_bundle_invalid"
+    assert not (target / "observations").exists()
+    assert not (target.joinpath(*DISCOVER_ROOT.split("/")) / "current.json").exists()
 
 
 def test_discover_sync_rebuilds_after_projection_contract_changes(tmp_path: Path) -> None:

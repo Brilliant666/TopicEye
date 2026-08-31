@@ -183,6 +183,7 @@
 }
 
 .discoverStageMarker[data-stage='just_discovered'] { background: linear-gradient(#6a8fff, #3976eb); }
+.discoverStageMarker[data-stage='outside_today_momentum'] { background: linear-gradient(#ffb35c, #e47a21); }
 .discoverStageMarker[data-stage='rising'] { background: linear-gradient(#21b58a, #0b8d6c); }
 .discoverStageMarker[data-stage='near_validation'] { background: linear-gradient(#a275e8, #7146c4); }
 

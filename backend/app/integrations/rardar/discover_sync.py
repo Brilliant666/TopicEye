@@ -171,13 +171,31 @@ for relative, expected in artifacts.items():
     if hashlib.sha256(raw).hexdigest() != expected:
         raise RuntimeError("artifact_hash_invalid")
     files[relative] = raw
+artifact = object_value(files["discover.json"])
+canonical_sources = {}
+if artifact.get("policyVersion") == "trending-discover-v3":
+    inventory = artifact.get("sourceInventory")
+    if not isinstance(inventory, list):
+        raise RuntimeError("source_inventory_invalid")
+    for reference in inventory:
+        if not isinstance(reference, dict):
+            raise RuntimeError("source_inventory_invalid")
+        relative = reference.get("originalObservationPath")
+        expected = reference.get("fileSha256")
+        if not isinstance(relative, str) or not isinstance(expected, str):
+            raise RuntimeError("source_inventory_invalid")
+        raw = read_stable(relative)
+        if hashlib.sha256(raw).hexdigest() != expected:
+            raise RuntimeError("canonical_source_hash_invalid")
+        canonical_sources[relative] = raw
 if read_stable(pointer_relative, 65536) != pointer_raw or read_stable(base + "/manifest.json", 4 * 1024 * 1024) != manifest_raw:
     raise RuntimeError("publication_changed")
 payload = {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "generationId": generation_id,
     "current": base64.b64encode(pointer_raw).decode("ascii"),
     "files": {key: base64.b64encode(value).decode("ascii") for key, value in files.items()},
+    "canonicalSources": {key: base64.b64encode(value).decode("ascii") for key, value in canonical_sources.items()},
     "manifestSha256": manifest_sha,
     "artifactSha256": artifacts["discover.json"],
 }
@@ -228,12 +246,19 @@ def local_discover_runner(source: Path) -> bytes:
         files[relative] = safe.read_stable(
             f"{DISCOVER_ROOT}/generations/{generation_id}/{relative}", maximum_bytes=16 * 1024 * 1024
         )
+    canonical_sources: dict[str, bytes] = {}
+    if loaded.board.policyVersion == "trending-discover-v3":
+        artifact = _strict_json(files["discover.json"])
+        for reference in artifact["sourceInventory"]:
+            relative = reference["originalObservationPath"]
+            canonical_sources[relative] = safe.read_stable(relative, maximum_bytes=16 * 1024 * 1024)
     return json.dumps(
         {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "generationId": generation_id,
             "current": base64.b64encode(pointer).decode(),
             "files": {key: base64.b64encode(raw).decode() for key, raw in files.items()},
+            "canonicalSources": {key: base64.b64encode(raw).decode() for key, raw in canonical_sources.items()},
             "manifestSha256": loaded.manifest_sha256,
             "artifactSha256": loaded.artifact_sha256,
         },
@@ -242,12 +267,15 @@ def local_discover_runner(source: Path) -> bytes:
     ).encode()
 
 
-def _decode(raw: bytes) -> tuple[dict[str, Any], bytes, dict[str, bytes]]:
+def _decode(raw: bytes) -> tuple[dict[str, Any], bytes, dict[str, bytes], dict[str, bytes]]:
     try:
         value = _strict_json(raw)
-        if set(value) != {"schemaVersion", "generationId", "current", "files", "manifestSha256", "artifactSha256"}:
+        expected_fields = {"schemaVersion", "generationId", "current", "files", "manifestSha256", "artifactSha256"}
+        if value.get("schemaVersion") == 2:
+            expected_fields.add("canonicalSources")
+        if set(value) != expected_fields:
             raise ValueError("unexpected fields")
-        if value["schemaVersion"] != 1 or not _GENERATION.fullmatch(value["generationId"]):
+        if value["schemaVersion"] not in {1, 2} or not _GENERATION.fullmatch(value["generationId"]):
             raise ValueError("invalid bundle identity")
         if not _SHA.fullmatch(value["manifestSha256"]) or not _SHA.fullmatch(value["artifactSha256"]):
             raise ValueError("invalid bundle digest")
@@ -260,11 +288,41 @@ def _decode(raw: bytes) -> tuple[dict[str, Any], bytes, dict[str, bytes]]:
             if path.is_absolute() or not path.parts or any(part in {"", ".", ".."} for part in path.parts):
                 raise ValueError("unsafe file")
             files[relative] = base64.b64decode(encoded, validate=True)
+        canonical_sources: dict[str, bytes] = {}
+        raw_sources = value.get("canonicalSources", {})
+        if not isinstance(raw_sources, dict):
+            raise ValueError("invalid canonical sources")
+        for relative, encoded in raw_sources.items():
+            path = PurePosixPath(relative)
+            if (
+                path.is_absolute()
+                or not path.parts
+                or any(part in {"", ".", ".."} for part in path.parts)
+                or path.parts[:4] != ("observations", "trending", "v1", "captures")
+            ):
+                raise ValueError("unsafe canonical source")
+            canonical_sources[relative] = base64.b64decode(encoded, validate=True)
         if "manifest.json" not in files or "discover.json" not in files or sum(map(len, files.values())) > _MAX_BUNDLE:
             raise ValueError("incomplete bundle")
+        if sum(map(len, canonical_sources.values())) + sum(map(len, files.values())) > _MAX_BUNDLE:
+            raise ValueError("bundle too large")
+        artifact = _strict_json(files["discover.json"])
+        if artifact.get("policyVersion") == "trending-discover-v3":
+            inventory = artifact.get("sourceInventory")
+            if not isinstance(inventory, list):
+                raise ValueError("invalid source inventory")
+            expected_sources = {
+                reference.get("originalObservationPath")
+                for reference in inventory
+                if isinstance(reference, dict) and isinstance(reference.get("originalObservationPath"), str)
+            }
+            if len(expected_sources) != len(inventory) or set(canonical_sources) != expected_sources:
+                raise ValueError("canonical source inventory differs")
+        elif canonical_sources:
+            raise ValueError("legacy bundle has canonical sources")
     except Exception as exc:
         raise DiscoverSyncError("rardar_discover_sync_bundle_invalid", "Discover bundle is invalid") from exc
-    return value, pointer, files
+    return value, pointer, files, canonical_sources
 
 
 def _is_reparse(info: os.stat_result) -> bool:
@@ -354,11 +412,13 @@ def sync_discover_intelligence(
         raise DiscoverSyncError("rardar_discover_sync_already_running", "Another Discover sync is running") from exc
     stage: Path | None = None
     created_generation: Path | None = None
+    created_canonical_sources: list[Path] = []
+    activation_complete = False
     try:
         with os.fdopen(descriptor, "w", encoding="ascii") as handle:
             handle.write(str(os.getpid()))
         raw_bundle = local_discover_runner(source_dir) if source_dir is not None else runner(host, remote_root)
-        bundle, pointer_raw, files = _decode(raw_bundle)
+        bundle, pointer_raw, files, canonical_sources = _decode(raw_bundle)
         generation_id = bundle["generationId"]
         if hashlib.sha256(files["manifest.json"]).hexdigest() != bundle["manifestSha256"]:
             raise DiscoverSyncError("rardar_discover_sync_bundle_invalid", "Discover manifest changed in transit")
@@ -369,6 +429,10 @@ def sync_discover_intelligence(
         generation_stage = stage_store / "generations" / generation_id
         for relative, content in files.items():
             path = generation_stage.joinpath(*relative.split("/"))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+        for relative, content in canonical_sources.items():
+            path = stage.joinpath(*relative.split("/"))
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(content)
         stage_store.mkdir(parents=True, exist_ok=True)
@@ -388,6 +452,18 @@ def sync_discover_intelligence(
         old_serving_pointer = _optional(serving_pointer_path)
         old_serving_source = _optional(serving_source_path)
         old_metadata = _optional(metadata_path)
+        canonical_to_create: list[tuple[Path, bytes]] = []
+        for relative, content in canonical_sources.items():
+            path = target.joinpath(*relative.split("/"))
+            _ensure_chain(path.parent)
+            existing = _optional(path)
+            if existing is None:
+                canonical_to_create.append((path, content))
+            elif existing != content:
+                raise DiscoverSyncError(
+                    "rardar_discover_sync_generation_conflict",
+                    "Immutable canonical Observation source differs",
+                )
         synced_at = datetime.now(UTC)
         source_host = "local-isolated-copy" if source_dir is not None else host
         metadata_matches = False
@@ -402,6 +478,7 @@ def sync_discover_intelligence(
                     and existing.get("latestCaptureId") == loaded.board.latestCaptureId
                     and existing.get("publishedCount") == loaded.board.coverage.publishedCount
                     and existing.get("fileCount") == len(files)
+                    and existing.get("canonicalSourceCount", 0) == len(canonical_sources)
                 ):
                     synced_at = datetime.fromisoformat(str(existing["syncedAt"]).replace("Z", "+00:00"))
                     if synced_at.tzinfo is None:
@@ -413,6 +490,7 @@ def sync_discover_intelligence(
             and old_serving_pointer is not None
             and old_serving_source == old_serving_pointer
             and _identical(final_generation, files)
+            and not canonical_to_create
         ):
             activated = DiscoverArtifactAdapter.from_config(str(target)).load()
             serving, _ = DiscoverServingLoader(target).load_with_etag()
@@ -422,6 +500,7 @@ def sync_discover_intelligence(
                 and activated.artifact_sha256 == bundle["artifactSha256"]
                 and serving.discoverGenerationId == generation_id
             ):
+                activation_complete = True
                 return DiscoverSyncResult(
                     discover_generation_id=generation_id,
                     serving_generation_id=serving.servingGenerationId,
@@ -442,6 +521,10 @@ def sync_discover_intelligence(
             synced_at=synced_at,
             source_host=source_host,
         )
+        for path, content in canonical_to_create:
+            _ensure_chain(path.parent)
+            _atomic(path, content)
+            created_canonical_sources.append(path)
         raw_files = files
         if final_generation.exists():
             if not _identical(final_generation, raw_files):
@@ -468,6 +551,7 @@ def sync_discover_intelligence(
             "latestCaptureId": loaded.board.latestCaptureId,
             "publishedCount": loaded.board.coverage.publishedCount,
             "fileCount": len(files),
+            "canonicalSourceCount": len(canonical_sources),
         }
         metadata_raw = (json.dumps(metadata, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode()
         installed = None
@@ -504,6 +588,7 @@ def sync_discover_intelligence(
             raise
         profile = built.profile_result
         changed = old_raw_pointer != pointer_raw or old_metadata != metadata_raw or installed.changed
+        activation_complete = True
         return DiscoverSyncResult(
             discover_generation_id=generation_id,
             serving_generation_id=built.serving_generation_id,
@@ -528,6 +613,9 @@ def sync_discover_intelligence(
             shutil.rmtree(stage, ignore_errors=True)
         if created_generation is not None and not (target.joinpath(*DISCOVER_ROOT.split("/"), "current.json").exists()):
             shutil.rmtree(created_generation, ignore_errors=True)
+        if not activation_complete:
+            for path in reversed(created_canonical_sources):
+                path.unlink(missing_ok=True)
         lock.unlink(missing_ok=True)
 
 

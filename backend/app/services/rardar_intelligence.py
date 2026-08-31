@@ -195,6 +195,9 @@ def load_discover_snapshot(
             sourceWindowEnd=snapshot.sourceWindowEnd,
             sourceCaptureCount=snapshot.sourceCaptureCount,
             profileSummary=snapshot.profileSummary,
+            sourceSchemaVersion=snapshot.sourceSchemaVersion,
+            sourcePolicyVersion=snapshot.sourcePolicyVersion,
+            suppressionSummary=snapshot.suppressionSummary,
         ),
         etag,
     )

@@ -214,12 +214,18 @@ python -m scripts.audit_rardar_serving_content --target "$env:LOCALAPPDATA\Topic
 Pop-Location
 ```
 
-`/discover` is a separate near-real-time product surface backed by
-`TrendingDiscoverArtifact v1`. It is grouped into 刚刚发现、持续升温 and
-接近验证 rather than presented as a second ranking. Cards show only actual
-observed Star change and its actual window. Normal Discover and detail requests
-read `discover-serving/` only: zero GitHub calls, zero LLM calls, zero raw
-Artifact reads and zero PostgreSQL fact writes. See
+`/discover` is a separate near-real-time product surface backed by validated
+`TrendingDiscoverArtifact v1` or v2. V2 applies Rardar's auditable absolute or
+relative growth gate plus continuous-observation evidence; TopicEye never
+recomputes or relaxes that producer decision. The page is grouped into 刚刚发现、
+持续升温 and 待日榜验证 rather than presented as a second ranking. Cards show
+only actual observed Star change and its actual window, are fully keyboard and
+pointer navigable, and can be filtered by a deterministic static project
+category retained in the URL. The Discover detail reuses the canonical project
+profile while presenting a distinct Discover fact context with continuity and
+the next Observation/Today settlement. Normal Discover and detail requests read
+`discover-serving/` only: zero GitHub calls, zero LLM calls, zero raw Artifact
+reads and zero PostgreSQL fact writes. See
 [Rardar Discover Adapter](docs/platform/RARDAR_DISCOVER_ADAPTER.md).
 
 Today links each repository to

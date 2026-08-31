@@ -24,7 +24,7 @@ from app.integrations.rardar.discover_serving import (
     clear_discover_serving_cache,
     install_discover_serving,
 )
-from app.integrations.rardar.discover_sync import sync_discover_intelligence
+from app.integrations.rardar.discover_sync import DiscoverSyncError, sync_discover_intelligence
 from app.integrations.rardar.serving_profiles import CollectedProjectProfile, ProfileBuildResult
 from app.integrations.rardar.serving_schemas import (
     OfficialProjectProfile,
@@ -32,18 +32,97 @@ from app.integrations.rardar.serving_schemas import (
     ServingCapability,
 )
 from app.services import rardar_intelligence
+from scripts.rebuild_rardar_discover_serving import rebuild as rebuild_discover_serving
 
 FIXTURE = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_discover"
+V2_ARTIFACT = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_discover_v2_artifact.json"
 
 
 def _copy_fixture(tmp_path: Path, name: str = "source") -> Path:
     root = tmp_path / name
     shutil.copytree(FIXTURE / "artifacts", root / "artifacts")
+    # Immutable fixture hashes describe the LF bytes committed to Git.  A
+    # Windows checkout with core.autocrlf=true must not silently invalidate
+    # those source bytes before the no-follow adapter is exercised.
+    for path in root.rglob("*.json"):
+        raw = path.read_bytes()
+        if b"\r\n" in raw:
+            path.write_bytes(raw.replace(b"\r\n", b"\n"))
     return root
 
 
 def _canonical(value: object) -> bytes:
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def _payload_digest(value: dict[str, object]) -> str:
+    unsigned = {key: item for key, item in value.items() if key != "payloadDigest"}
+    raw = json.dumps(unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _copy_v2_fixture(tmp_path: Path, name: str = "source-v2") -> Path:
+    root = _copy_fixture(tmp_path, name)
+    store = root.joinpath(*DISCOVER_ROOT.split("/"))
+    old_generation = next((store / "generations").iterdir())
+    artifact = json.loads(V2_ARTIFACT.read_text(encoding="utf-8"))
+    generation_id = artifact["discoverGenerationId"]
+    generation = old_generation.with_name(generation_id)
+    old_generation.rename(generation)
+    (generation / "discover.json").write_bytes(_canonical(artifact))
+    inventory = {
+        path.relative_to(generation).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(generation.rglob("*"))
+        if path.is_file() and path.name != "manifest.json"
+    }
+    manifest = {
+        "schemaVersion": 2,
+        "policyVersion": "trending-discover-v2",
+        "generationId": generation_id,
+        "createdAt": artifact["generatedAt"],
+        "state": "ready",
+        "latestCaptureId": artifact["latestCaptureId"],
+        "todayExplosionGenerationId": artifact["todayExplosionGenerationId"],
+        "artifacts": inventory,
+        "audit": {
+            "status": artifact["coverage"]["state"],
+            "validatedSourceCount": artifact["sourceCaptureCount"] + 1,
+            "publishedCount": artifact["coverage"]["publishedCount"],
+            "conflictCount": artifact["coverage"]["conflictCount"],
+            "suppressedWeakSignalCount": artifact["suppressionSummary"]["suppressedWeakSignalCount"],
+        },
+    }
+    manifest_raw = _canonical(manifest)
+    (generation / "manifest.json").write_bytes(manifest_raw)
+    pointer = {
+        "schemaVersion": 2,
+        "policyVersion": "trending-discover-v2",
+        "generationId": generation_id,
+        "publishedAt": "2026-08-30T18:55:04.190320Z",
+        "previousGenerationId": None,
+        "manifestSha256": hashlib.sha256(manifest_raw).hexdigest(),
+    }
+    (store / "current.json").write_bytes(_canonical(pointer))
+    return root
+
+
+def _rewrite_v2_artifact(root: Path, mutate) -> None:
+    store = root.joinpath(*DISCOVER_ROOT.split("/"))
+    pointer_path = store / "current.json"
+    pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+    generation = store / "generations" / pointer["generationId"]
+    artifact_path = generation / "discover.json"
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    mutate(artifact)
+    artifact["payloadDigest"]["value"] = _payload_digest(artifact)
+    artifact_path.write_bytes(_canonical(artifact))
+    manifest_path = generation / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["artifacts"]["discover.json"] = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+    manifest_raw = _canonical(manifest)
+    manifest_path.write_bytes(manifest_raw)
+    pointer["manifestSha256"] = hashlib.sha256(manifest_raw).hexdigest()
+    pointer_path.write_bytes(_canonical(pointer))
 
 
 def _complete_profiles(projects, generation_id: str, _cache_root: Path) -> ProfileBuildResult:
@@ -161,6 +240,54 @@ def test_discover_adapter_recomputes_stages_sources_and_today_exclusion(tmp_path
     assert all(item.observedWindowHours <= 26 for item in loaded.board.justDiscovered + loaded.board.rising)
 
 
+def test_discover_adapter_accepts_v2_and_projects_audited_signal_policy(tmp_path: Path) -> None:
+    loaded = DiscoverArtifactAdapter.from_config(str(_copy_v2_fixture(tmp_path).resolve())).load()
+
+    assert loaded.board.schemaVersion == 2
+    assert loaded.board.policyVersion == "trending-discover-v2"
+    assert loaded.board.signalPolicy is not None
+    assert loaded.board.signalPolicy.absoluteGrowthGateStars == 10
+    assert loaded.board.signalPolicy.relativeGrowthGatePercent == 1.0
+    assert loaded.board.signalPolicy.consecutivePositiveIntervalGate == 2
+    assert loaded.board.suppressionSummary is not None
+    assert loaded.board.suppressionSummary.publishedCount == 5
+    assert loaded.board.suppressionSummary.suppressedExactCount == 1
+    assert all(
+        item.publishReasonCodes == item.signalFacts
+        for item in loaded.board.justDiscovered + loaded.board.rising + loaded.board.nearValidation
+    )
+
+
+@pytest.mark.parametrize("case", ["publish_reason", "suppression_reason"])
+def test_discover_adapter_rejects_v2_semantic_tampering(tmp_path: Path, case: str) -> None:
+    root = _copy_v2_fixture(tmp_path)
+
+    def mutate(artifact):
+        if case == "publish_reason":
+            artifact["stages"]["rising"][0]["publishReasonCodes"] = ["absolute_growth_gate"]
+        else:
+            artifact["suppressionSummary"]["reasons"]["weak_absolute_growth"] = 1
+
+    _rewrite_v2_artifact(root, mutate)
+    with pytest.raises(RardarArtifactError) as error:
+        DiscoverArtifactAdapter.from_config(str(root.resolve())).load()
+    assert error.value.code == "rardar_discover_invalid"
+
+
+def test_discover_adapter_rejects_published_v2_identity_conflict(tmp_path: Path) -> None:
+    root = _copy_v2_fixture(tmp_path)
+
+    def mutate(artifact):
+        artifact["stages"]["justDiscovered"][0]["githubRepositoryId"] = 7
+
+    _rewrite_v2_artifact(root, mutate)
+    with pytest.raises(RardarArtifactError) as error:
+        DiscoverArtifactAdapter.from_config(str(root.resolve())).load()
+
+    assert error.value.code == "rardar_discover_invalid"
+    assert "conflict exclusion" in str(error.value)
+
+
 @pytest.mark.parametrize("case", ["manifest", "source", "today", "order"])
 def test_discover_adapter_fails_closed_on_integrity_or_recomputation_damage(tmp_path: Path, case: str) -> None:
     root = _copy_fixture(tmp_path)
@@ -240,14 +367,25 @@ def test_discover_serving_is_complete_static_and_independent_from_raw(tmp_path: 
     assert snapshot.profileSummary.identityComplete == 5
     assert snapshot.profileSummary.positioningComplete == 5
     assert snapshot.profileSummary.capabilitiesComplete == 5
+    assert snapshot.profileSummary.categoryComplete == 5
+    assert snapshot.sourceSchemaVersion == 1
+    assert snapshot.sourcePolicyVersion == "trending-discover-v1"
     assert etag == f'"{built.manifest_sha256}"'
     item = snapshot.justDiscovered[0]
+    assert item.category == "productivity"
+    assert item.categorySourceMode == "canonical_profile"
+    assert "profile.positioningZh" in item.categoryEvidenceRefs
     detail, _ = DiscoverServingLoader(root).load_project_with_etag(
         item.githubRepositoryId,
         snapshot.discoverGenerationId,
     )
     assert detail.profile.positioningZh
     assert detail.profile.capabilities
+    assert detail.category == item.category
+    assert detail.nextExpectedAt is not None
+    assert detail.nextTodaySettlementAt is not None
+    assert detail.todayStatus == "not_in_source_today"
+    assert detail.todayReason == "new_candidate"
 
     shutil.rmtree(root / "artifacts")
     clear_discover_serving_cache()
@@ -331,6 +469,72 @@ def test_discover_sync_is_idempotent_and_does_not_touch_today_pointer(tmp_path: 
     assert first.discover_generation_id == second.discover_generation_id
     assert today.read_bytes() == before
     assert not list(tmp_path.glob(".*discover-stage-*"))
+
+
+def test_discover_serving_rebuild_reuses_source_bound_sync_metadata(tmp_path: Path) -> None:
+    source = _copy_fixture(tmp_path, "source")
+    target = (tmp_path / "mirror").resolve()
+    target.mkdir()
+    first = sync_discover_intelligence(
+        target=target,
+        source_dir=source,
+        profile_provider=_complete_profiles,
+    )
+    pointer = target / "discover-serving" / "current.json"
+    before = pointer.read_bytes()
+
+    rebuilt = rebuild_discover_serving(target, profile_provider=_complete_profiles)
+
+    assert rebuilt["status"] == "healthy"
+    assert rebuilt["discoverGenerationId"] == first.discover_generation_id
+    assert rebuilt["servingGenerationId"] == first.serving_generation_id
+    assert rebuilt["created"] is False
+    assert rebuilt["changed"] is False
+    assert pointer.read_bytes() == before
+
+
+def test_discover_serving_rebuild_rejects_unbound_sync_metadata(tmp_path: Path) -> None:
+    source = _copy_fixture(tmp_path, "source")
+    target = (tmp_path / "mirror").resolve()
+    target.mkdir()
+    first = sync_discover_intelligence(
+        target=target,
+        source_dir=source,
+        profile_provider=_complete_profiles,
+    )
+    pointer = target / "discover-serving" / "current.json"
+    before = pointer.read_bytes()
+    metadata_path = target / "discover-sync" / "generations" / f"{first.discover_generation_id}.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    metadata["artifactSha256"] = "0" * 64
+    metadata_path.write_text(json.dumps(metadata, sort_keys=True) + "\n", encoding="utf-8")
+
+    with pytest.raises(DiscoverSyncError) as error:
+        rebuild_discover_serving(target, profile_provider=_complete_profiles)
+
+    assert error.value.code == "rardar_discover_sync_metadata_invalid"
+    assert pointer.read_bytes() == before
+
+
+def test_discover_v2_serving_preserves_policy_without_reselecting_projects(tmp_path: Path) -> None:
+    root = _copy_v2_fixture(tmp_path)
+    source = DiscoverArtifactAdapter.from_config(str(root.resolve())).load()
+    built = build_discover_serving(source, cache_root=root / "cache", profile_provider=_complete_profiles)
+    install_discover_serving(root, built)
+    snapshot, _ = DiscoverServingLoader(root).load_with_etag()
+
+    assert snapshot.sourceSchemaVersion == 2
+    assert snapshot.sourcePolicyVersion == "trending-discover-v2"
+    assert snapshot.suppressionSummary == source.board.suppressionSummary
+    assert [
+        item.githubRepositoryId
+        for values in (snapshot.justDiscovered, snapshot.rising, snapshot.nearValidation)
+        for item in values
+    ] == [
+        item.githubRepositoryId
+        for values in (source.board.justDiscovered, source.board.rising, source.board.nearValidation)
+        for item in values
+    ]
 
 
 def test_discover_sync_rebuilds_after_projection_contract_changes(tmp_path: Path) -> None:
@@ -519,6 +723,7 @@ def test_discover_api_states_detail_and_no_database_dependency(tmp_path: Path, m
                     "identityComplete": 0,
                     "positioningComplete": 0,
                     "capabilitiesComplete": 0,
+                    "categoryComplete": 0,
                     "officialZh": 0,
                     "officialTranslated": 0,
                     "rardarDerived": 0,

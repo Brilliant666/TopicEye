@@ -105,6 +105,8 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
       </section>
 
       <div className={styles.detailFlow} data-testid="project-detail-flow">
+        {discoverDetail && <DiscoverFactContext detail={discoverDetail} />}
+
         <section className={styles.detailCoreValue} data-testid="project-official-positioning">
           <div className={styles.sectionKicker}><Sparkles size={16} /> 核心定位 · {positioningLabel}</div>
           <h2>{profile.positioningZh}</h2>
@@ -195,25 +197,7 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
           </DetailSection>
         )}
 
-        {discoverDetail ? (
-          <section className={styles.observationFacts} data-testid="project-discover-facts">
-            <header><Star size={17} /><div><h2>近实时发现事实</h2><p>全部为实际 Observation，不折算或外推 24 小时增长。</p></div></header>
-            <dl>
-              <Fact label="发现阶段" value={discoverStageLabel(discoverDetail.facts.stage)} />
-              <Fact label="当前 Star" value={formatNumber(discoverDetail.facts.totalStars)} />
-              <Fact label="实际增量" value={`+${formatNumber(discoverDetail.facts.observedStarDelta)}`} />
-              <Fact label="实际窗口" value={formatHours(discoverDetail.facts.observedWindowHours)} />
-              <Fact label="首次发现" value={formatTime(discoverDetail.facts.firstSeenAt)} />
-              <Fact label="最新观察" value={formatTime(discoverDetail.facts.lastObservedAt)} />
-              <Fact label="Capture 数" value={String(discoverDetail.facts.captureCount)} />
-              <Fact label="连续 Capture" value={String(discoverDetail.facts.consecutiveCaptureCount)} />
-              <Fact label="覆盖状态" value={discoverDetail.coverage.state === 'degraded' ? '部分来源降级' : '覆盖健康'} />
-            </dl>
-            {discoverDetail.coverage.state === 'degraded' && (
-              <p className={styles.coverageNote}>本轮仍保持 Artifact 阶段与事实顺序；{coverageReason(discoverDetail.coverage.metadataFailureCount, discoverDetail.conflictCount)}。</p>
-            )}
-          </section>
-        ) : (
+        {!discoverDetail && (
           <section className={styles.observationFacts} data-testid="project-observation-facts">
             <header><Star size={17} /><div><h2>24 小时事实</h2><p>Hero 已给出结果，这里补充基线、窗口与覆盖，不重复名次和增量。</p></div></header>
             <dl>
@@ -259,6 +243,45 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
         </details>
       </div>
     </div>
+  );
+}
+
+function DiscoverFactContext({ detail }: { detail: DiscoverProjectDetail }) {
+  const facts = detail.facts;
+  return (
+    <section className={styles.observationFacts} data-testid="project-discover-facts">
+      <header>
+        <Star size={17} />
+        <div>
+          <h2>为什么现在出现在发现？</h2>
+          <p>{discoverReason(detail)} 全部为实际 Observation，不折算或外推 24 小时增长。</p>
+        </div>
+      </header>
+      <dl>
+        <Fact label="发现阶段" value={discoverStageLabel(facts.stage)} />
+        <Fact label="产品分类" value={discoverCategoryLabel(detail.category)} />
+        <Fact label="首次发现" value={formatTime(facts.firstSeenAt)} />
+        <Fact label="最新观察" value={formatTime(facts.lastObservedAt)} />
+        <Fact label="实际窗口" value={formatHours(facts.observedWindowHours)} />
+        <Fact label="实际增量" value={`+${formatNumber(facts.observedStarDelta)}`} />
+        <Fact label="当前 Star" value={formatNumber(facts.totalStars)} />
+        <Fact label="Capture 数" value={String(facts.captureCount)} />
+        <Fact label="连续 Capture" value={`${facts.consecutiveCaptureCount} 次`} />
+        <Fact label="正增长区间" value={facts.positiveIntervalCount == null ? 'v1 Artifact 未提供' : `${facts.positiveIntervalCount} 个`} />
+        <Fact label="最长连续正增长" value={facts.consecutivePositiveIntervalCount == null ? 'v1 Artifact 未提供' : `${facts.consecutivePositiveIntervalCount} 个区间`} />
+        <Fact label="最新区间增量" value={facts.latestIntervalDelta == null ? '尚无有效连续区间' : `${facts.latestIntervalDelta >= 0 ? '+' : ''}${formatNumber(facts.latestIntervalDelta)} Star`} />
+        <Fact label="下一次 Observation" value={detail.nextExpectedAt ? formatTime(detail.nextExpectedAt) : '等待下一次 Serving'} />
+        <Fact label="下一次 Today 结算" value={detail.nextTodaySettlementAt ? formatTime(detail.nextTodaySettlementAt) : '等待下一次 Serving'} />
+        <Fact label="为什么尚未进入 Today" value={todayReasonLabel(detail.todayReason)} />
+        <Fact label="覆盖状态" value={detail.coverage.state === 'degraded' ? '部分来源降级' : '覆盖健康'} />
+      </dl>
+      <p className={styles.discoverContextBoundary}>
+        这里是 DiscoverFactContext；项目身份、定位、能力和证据继续复用同一份 canonical ProjectProfile。
+      </p>
+      {detail.coverage.state === 'degraded' && (
+        <p className={styles.coverageNote}>本轮仍保持 Artifact 阶段与事实顺序；{coverageReason(detail.coverage.metadataFailureCount, detail.conflictCount)}。</p>
+      )}
+    </section>
   );
 }
 
@@ -366,7 +389,41 @@ function formatTime(value: string) {
 }
 
 function discoverStageLabel(value: DiscoverProjectDetail['facts']['stage']) {
-  return { just_discovered: '刚刚发现', rising: '持续升温', near_validation: '接近验证' }[value];
+  return { just_discovered: '刚刚发现', rising: '持续升温', near_validation: '待日榜验证' }[value];
+}
+
+function discoverReason(detail: DiscoverProjectDetail) {
+  const facts = detail.facts;
+  if (facts.stage === 'just_discovered') {
+    return '最近 4 小时首次进入候选池，当前只确认新召回事实，尚未形成增长结论。';
+  }
+  if (facts.stage === 'rising') {
+    const intervals = facts.consecutivePositiveIntervalCount == null
+      ? '连续 Observation'
+      : `连续 ${facts.consecutivePositiveIntervalCount} 个观察区间`;
+    return `${intervals}获得正增长，实际 ${formatHours(facts.observedWindowHours)}新增 ${formatNumber(facts.observedStarDelta)} Star。`;
+  }
+  return `已持续观察 ${formatHours(facts.observedWindowHours)}并通过信号门禁，等待下一次 08:00 日榜结算。`;
+}
+
+function discoverCategoryLabel(value: DiscoverProjectDetail['category']) {
+  if (!value) return '旧版 Serving 未分类';
+  return {
+    'ai-agent': 'AI 与 Agent',
+    'dev-tools': '开发工具',
+    'data-infra': '数据与基础设施',
+    productivity: '生产力',
+    'video-content': '视频与内容',
+    other: '其他',
+  }[value];
+}
+
+function todayReasonLabel(value: DiscoverProjectDetail['todayReason']) {
+  return {
+    new_candidate: '刚进入候选池，等待形成完整增长证据与日榜窗口。',
+    awaiting_growth_evidence: '已出现连续增长，但尚未经过下一次每日 08:00 Today 结算。',
+    awaiting_daily_settlement: '已通过信号门禁，正在等待下一次每日 08:00 Today 结算。',
+  }[value || 'new_candidate'];
 }
 
 function formatHours(value: number) {

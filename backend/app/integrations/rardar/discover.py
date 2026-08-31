@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 from app.integrations.rardar.adapter import (
     RardarArtifactError,
@@ -31,6 +31,13 @@ _STAGE_KEYS = {
     "near_validation": "nearValidation",
 }
 _STAGE_SECTIONS = ("just_discovered", "rising", "near_validation")
+_SIGNAL_FACT_ORDER = (
+    "first_seen_recently",
+    "continuous_positive_growth",
+    "absolute_growth_gate",
+    "relative_growth_gate",
+    "awaiting_today_settlement",
+)
 
 
 class StrictDiscoverModel(BaseModel):
@@ -60,6 +67,34 @@ class DiscoverItem(StrictDiscoverModel):
     latestPushAt: AwareDatetime
     sourceCaptureIds: list[str] = Field(min_length=1, max_length=14)
     sourceEvidenceDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    relativeGrowthPercent: float | None = Field(default=None, ge=0)
+    positiveIntervalCount: int | None = Field(default=None, ge=0, le=13)
+    consecutivePositiveIntervalCount: int | None = Field(default=None, ge=0, le=13)
+    latestIntervalDelta: int | None = None
+    publishReasonCodes: (
+        list[
+            Literal[
+                "first_seen_recently",
+                "continuous_positive_growth",
+                "absolute_growth_gate",
+                "relative_growth_gate",
+                "awaiting_today_settlement",
+            ]
+        ]
+        | None
+    ) = Field(default=None, min_length=1, max_length=5)
+    signalFacts: (
+        list[
+            Literal[
+                "first_seen_recently",
+                "continuous_positive_growth",
+                "absolute_growth_gate",
+                "relative_growth_gate",
+                "awaiting_today_settlement",
+            ]
+        ]
+        | None
+    ) = Field(default=None, min_length=1, max_length=5)
 
 
 class DiscoverCoverage(StrictDiscoverModel):
@@ -80,9 +115,38 @@ class DiscoverStageCounts(StrictDiscoverModel):
     nearValidation: int = Field(ge=0, le=500)
 
 
+class DiscoverSignalPolicy(StrictDiscoverModel):
+    absoluteGrowthGateStars: int = Field(gt=0, le=100_000)
+    relativeGrowthGatePercent: float = Field(gt=0, le=100_000)
+    consecutivePositiveIntervalGate: int = Field(gt=0, le=13)
+    recentDiscoveryHours: int = Field(gt=0, le=27)
+    nearValidationHours: int = Field(gt=0, le=27)
+
+
+class DiscoverSuppressionReasons(StrictDiscoverModel):
+    weak_absolute_growth: int = Field(ge=0, le=500)
+    weak_relative_growth: int = Field(ge=0, le=500)
+    no_continuous_growth: int = Field(ge=0, le=500)
+    already_in_today: int = Field(ge=0, le=500)
+    identity_conflict: int = Field(ge=0, le=500)
+    negative_growth: int = Field(ge=0, le=500)
+    disabled: int = Field(ge=0, le=500)
+    metadata_incomplete: int = Field(ge=0, le=500)
+
+
+class DiscoverSuppressionSummary(StrictDiscoverModel):
+    candidateCount: int = Field(ge=0, le=500)
+    stageEligibleCount: int = Field(ge=0, le=500)
+    publishedCount: int = Field(ge=0, le=500)
+    suppressedWeakSignalCount: int = Field(ge=0, le=500)
+    suppressedExactCount: int = Field(ge=0, le=500)
+    conflictCount: int = Field(ge=0, le=500)
+    reasons: DiscoverSuppressionReasons
+
+
 class DiscoverBoard(StrictDiscoverModel):
-    schemaVersion: Literal[1]
-    policyVersion: Literal["trending-discover-v1"]
+    schemaVersion: Literal[1, 2]
+    policyVersion: Literal["trending-discover-v1", "trending-discover-v2"]
     discoverGenerationId: str
     generatedAt: AwareDatetime
     latestCaptureId: str
@@ -101,7 +165,20 @@ class DiscoverBoard(StrictDiscoverModel):
     conflictCount: int = Field(ge=0, le=500)
     conflictReasons: dict[str, int]
     stageCounts: DiscoverStageCounts
+    signalPolicy: DiscoverSignalPolicy | None = None
+    suppressionSummary: DiscoverSuppressionSummary | None = None
     payloadDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_policy_projection(self) -> DiscoverBoard:
+        if self.schemaVersion == 1:
+            if self.policyVersion != "trending-discover-v1" or self.signalPolicy or self.suppressionSummary:
+                raise ValueError("Discover v1 projection contains v2 policy fields")
+        elif (
+            self.policyVersion != "trending-discover-v2" or self.signalPolicy is None or self.suppressionSummary is None
+        ):
+            raise ValueError("Discover v2 projection is missing policy fields")
+        return self
 
 
 @dataclass(frozen=True)
@@ -235,20 +312,29 @@ class DiscoverArtifactAdapter:
         if (
             artifact["discoverGenerationId"] != generation_id
             or _payload_digest(artifact) != artifact["payloadDigest"]["value"]
+            or pointer["schemaVersion"] != manifest["schemaVersion"]
+            or pointer["schemaVersion"] != artifact["schemaVersion"]
+            or pointer["policyVersion"] != manifest["policyVersion"]
+            or pointer["policyVersion"] != artifact["policyVersion"]
         ):
             raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover payload binding is invalid")
 
         captures = self._load_captures(base, artifact, manifest)
         today = self._load_today(base, artifact, manifest)
-        rebuilt, source_projects = self._rebuild(artifact, captures, today)
-        if rebuilt != artifact:
-            raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover source recomputation failed")
+        if artifact["policyVersion"] == "trending-discover-v1":
+            rebuilt, source_projects = self._rebuild_v1(artifact, captures, today)
+            if rebuilt != artifact:
+                raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover source recomputation failed")
+        else:
+            source_projects = self._audit_v2(artifact, captures, today)
         expected_audit = {
             "status": artifact["coverage"]["state"],
             "validatedSourceCount": artifact["sourceCaptureCount"] + 1,
             "publishedCount": artifact["coverage"]["publishedCount"],
             "conflictCount": artifact["coverage"]["conflictCount"],
         }
+        if artifact["policyVersion"] == "trending-discover-v2":
+            expected_audit["suppressedWeakSignalCount"] = artifact["suppressionSummary"]["suppressedWeakSignalCount"]
         if manifest["audit"] != expected_audit:
             raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover manifest audit is inconsistent")
         board = self._project_board(artifact)
@@ -344,7 +430,312 @@ class DiscoverArtifactAdapter:
             )
         )
 
-    def _rebuild(
+    @staticmethod
+    def _positive_interval_facts(
+        observations: list[tuple[dict[str, Any], dict[str, Any]]],
+    ) -> tuple[int, int, int | None]:
+        positive_count = 0
+        longest_run = 0
+        current_run = 0
+        latest_delta: int | None = None
+        pairs = list(zip(observations, observations[1:], strict=False))
+        for index, ((previous_source, previous), (current_source, current)) in enumerate(pairs):
+            if _timestamp(current_source["scheduledAt"]) - _timestamp(previous_source["scheduledAt"]) != timedelta(
+                minutes=120
+            ):
+                current_run = 0
+                if index == len(pairs) - 1:
+                    latest_delta = None
+                continue
+            interval_delta = int(current["totalStars"]) - int(previous["totalStars"])
+            if index == len(pairs) - 1:
+                latest_delta = interval_delta
+            if interval_delta > 0:
+                positive_count += 1
+                current_run += 1
+                longest_run = max(longest_run, current_run)
+            else:
+                current_run = 0
+        return positive_count, longest_run, latest_delta
+
+    @staticmethod
+    def _consecutive_capture_count(
+        repository_id: int,
+        payloads: list[dict[str, Any]],
+        indexes: list[dict[int, dict[str, Any]]],
+    ) -> int:
+        consecutive = 0
+        previous: datetime | None = None
+        for payload, index in reversed(list(zip(payloads, indexes, strict=True))):
+            if repository_id not in index:
+                break
+            scheduled = _timestamp(payload["scheduledAt"])
+            if previous is not None and previous - scheduled != timedelta(minutes=120):
+                break
+            consecutive += 1
+            previous = scheduled
+        return consecutive
+
+    @staticmethod
+    def _ordered_signal_facts(values: set[str]) -> list[str]:
+        return [value for value in _SIGNAL_FACT_ORDER if value in values]
+
+    def _audit_v2(
+        self,
+        artifact: dict[str, Any],
+        captures: list[tuple[dict[str, Any], bytes, dict[str, Any]]],
+        today_source: tuple[dict[str, Any], bytes, dict[str, Any]],
+    ) -> dict[int, DiscoverSourceProject]:
+        """Re-audit published facts without duplicating Rardar's candidate selector."""
+
+        payloads = [entry[0] for entry in captures]
+        indexes = [self._observation_index(payload) for payload in payloads]
+        latest = payloads[-1]
+        latest_index = indexes[-1]
+        today, today_raw, today_reference = today_source
+        exact_ids = {int(item["githubRepositoryId"]) for item in today["exactRanked"]}
+        policy = artifact["signalPolicy"]
+        expected_policy = {
+            "absoluteGrowthGateStars": 10,
+            "relativeGrowthGatePercent": 1.0,
+            "consecutivePositiveIntervalGate": 2,
+            "recentDiscoveryHours": 4,
+            "nearValidationHours": 20,
+        }
+        if policy != expected_policy:
+            raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v2 policy is unsupported")
+        expected_header = {
+            "latestCaptureId": latest["captureId"],
+            "latestCaptureScheduledAt": latest["scheduledAt"],
+            "latestCaptureCapturedAt": latest["capturedAt"],
+            "sourceWindowStart": payloads[0]["capturedAt"],
+            "sourceWindowEnd": latest["capturedAt"],
+            "sourceCaptureCount": len(payloads),
+            "todayExplosionGenerationId": today_reference["generationId"],
+            "todayExplosionDigest": _sha(today_raw),
+            "updateCadenceMinutes": 120,
+        }
+        if any(artifact[key] != value for key, value in expected_header.items()):
+            raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v2 source header is inconsistent")
+
+        name_ids: dict[str, set[int]] = {}
+        for index in indexes:
+            for repository_id, item in index.items():
+                name_ids.setdefault(str(item["repository"]).casefold(), set()).add(repository_id)
+
+        expected_conflicts: list[dict[str, Any]] = []
+        excluded_exact = 0
+        for repository_id, current in latest_index.items():
+            observations = [
+                (payload, index[repository_id])
+                for payload, index in zip(payloads, indexes, strict=True)
+                if repository_id in index
+            ]
+            first = observations[0][1]
+            capture_ids = [source["captureId"] for source, _ in observations]
+            if any(len(name_ids[str(item["repository"]).casefold()]) != 1 for _, item in observations):
+                expected_conflicts.append(
+                    {
+                        "reason": "source_identity_conflict",
+                        "githubRepositoryId": repository_id,
+                        "repository": current["repository"],
+                        "currentStars": current["totalStars"],
+                        "baselineStars": first["totalStars"],
+                        "sourceCaptureIds": capture_ids,
+                    }
+                )
+                continue
+            if current["disabled"] is True:
+                expected_conflicts.append(
+                    {
+                        "reason": "current_disabled",
+                        "githubRepositoryId": repository_id,
+                        "repository": current["repository"],
+                        "currentStars": current["totalStars"],
+                        "baselineStars": first["totalStars"],
+                        "sourceCaptureIds": capture_ids,
+                    }
+                )
+                continue
+            if repository_id in exact_ids:
+                excluded_exact += 1
+                continue
+            if int(current["totalStars"]) - int(first["totalStars"]) < 0:
+                expected_conflicts.append(
+                    {
+                        "reason": "star_count_decreased",
+                        "githubRepositoryId": repository_id,
+                        "repository": current["repository"],
+                        "currentStars": current["totalStars"],
+                        "baselineStars": first["totalStars"],
+                        "sourceCaptureIds": capture_ids,
+                    }
+                )
+        expected_conflicts.sort(key=lambda item: (item["reason"], item["repository"], item["githubRepositoryId"]))
+        if artifact["conflicts"] != expected_conflicts:
+            raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v2 conflicts are inconsistent")
+        conflicting_ids = {int(item["githubRepositoryId"]) for item in expected_conflicts}
+
+        source_projects: dict[int, DiscoverSourceProject] = {}
+        published_ids: list[int] = []
+        for stage, key in _STAGE_KEYS.items():
+            raw_items = artifact["stages"][key]
+            expected_order = sorted(
+                raw_items,
+                key=lambda item: (-item["observedStarDelta"], -item["totalStars"], item["repository"]),
+            )
+            if raw_items != expected_order:
+                raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v2 order is inconsistent")
+            for raw_item in raw_items:
+                repository_id = int(raw_item["githubRepositoryId"])
+                if repository_id in exact_ids or repository_id not in latest_index:
+                    raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v2 Today exclusion failed")
+                if repository_id in conflicting_ids:
+                    raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v2 conflict exclusion failed")
+                current = latest_index[repository_id]
+                observations = [
+                    (payload, index[repository_id])
+                    for payload, index in zip(payloads, indexes, strict=True)
+                    if repository_id in index
+                ]
+                first_source, first = observations[0]
+                delta = int(current["totalStars"]) - int(first["totalStars"])
+                hours = round(
+                    (_timestamp(latest["capturedAt"]) - _timestamp(first_source["capturedAt"])).total_seconds() / 3600,
+                    6,
+                )
+                consecutive = self._consecutive_capture_count(repository_id, payloads, indexes)
+                consecutive_start = payloads[len(payloads) - consecutive]
+                consecutive_hours = (
+                    _timestamp(latest["capturedAt"]) - _timestamp(consecutive_start["capturedAt"])
+                ).total_seconds() / 3600
+                positive_count, longest_run, latest_delta = self._positive_interval_facts(observations)
+                relative = round(delta / int(first["totalStars"]) * 100, 6) if int(first["totalStars"]) > 0 else None
+                recent = _timestamp(latest["scheduledAt"]) - _timestamp(first_source["scheduledAt"]) <= timedelta(
+                    hours=policy["recentDiscoveryHours"]
+                )
+                absolute_gate = delta >= policy["absoluteGrowthGateStars"]
+                relative_gate = relative is not None and relative >= policy["relativeGrowthGatePercent"]
+                continuous_gate = longest_run >= policy["consecutivePositiveIntervalGate"]
+                quality_gate = (absolute_gate or relative_gate) and continuous_gate
+                near = consecutive_hours >= policy["nearValidationHours"]
+                rising = len(observations) >= 3 and hours > 0 and delta > 0
+                expected_stage = (
+                    "just_discovered"
+                    if recent
+                    else "near_validation"
+                    if near and quality_gate
+                    else "rising"
+                    if rising and quality_gate
+                    else None
+                )
+                facts: set[str] = {"first_seen_recently"} if recent else set()
+                if expected_stage in {"rising", "near_validation"}:
+                    facts.add("continuous_positive_growth")
+                    if absolute_gate:
+                        facts.add("absolute_growth_gate")
+                    if relative_gate:
+                        facts.add("relative_growth_gate")
+                    if expected_stage == "near_validation":
+                        facts.add("awaiting_today_settlement")
+                signal_facts = self._ordered_signal_facts(facts)
+                expected_item = {
+                    "githubRepositoryId": repository_id,
+                    "repository": current["repository"],
+                    "url": current["htmlUrl"],
+                    "stage": expected_stage,
+                    "firstSeenAt": first_source["capturedAt"],
+                    "lastObservedAt": latest["capturedAt"],
+                    "observedWindowStart": first_source["capturedAt"],
+                    "observedWindowEnd": latest["capturedAt"],
+                    "observedWindowHours": hours,
+                    "observedStarDelta": delta,
+                    "totalStars": current["totalStars"],
+                    "captureCount": len(observations),
+                    "consecutiveCaptureCount": consecutive,
+                    "language": current["primaryLanguage"],
+                    "topics": copy.deepcopy(current["topics"]),
+                    "license": current["licenseSpdxId"],
+                    "isFork": current["fork"],
+                    "isArchived": current["archived"],
+                    "isDisabled": False,
+                    "latestPushAt": current["pushedAt"],
+                    "sourceCaptureIds": [source["captureId"] for source, _ in observations],
+                    "sourceEvidenceDigest": self._evidence_digest(observations),
+                    "relativeGrowthPercent": relative,
+                    "positiveIntervalCount": positive_count,
+                    "consecutivePositiveIntervalCount": longest_run,
+                    "latestIntervalDelta": latest_delta,
+                    "publishReasonCodes": signal_facts,
+                    "signalFacts": signal_facts,
+                }
+                if expected_stage != stage or raw_item != expected_item:
+                    raise RardarArtifactError(
+                        "rardar_discover_invalid", "Rardar Discover v2 published facts are inconsistent"
+                    )
+                item = DiscoverItem.model_validate_json(json.dumps(raw_item), strict=True)
+                source_projects[repository_id] = DiscoverSourceProject(
+                    item=item,
+                    description=current.get("description"),
+                    forks=int(current.get("forks", 0)),
+                    default_branch=str(current.get("defaultBranch") or "main"),
+                )
+                published_ids.append(repository_id)
+
+        if len(published_ids) != len(set(published_ids)):
+            raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v2 identity is duplicated")
+        coverage = artifact["coverage"]
+        expected_coverage = {
+            "state": "degraded" if any(payload["coverageState"] == "degraded" for payload in payloads) else "healthy",
+            "querySuccessCount": latest["successfulQueryCount"],
+            "queryFailureCount": latest["failedQueryCount"],
+            "metadataFailureCount": latest["metadataFailureCount"],
+            "sourceCaptureCount": len(payloads),
+            "candidateCount": len(latest_index),
+            "publishedCount": len(published_ids),
+            "conflictCount": len(expected_conflicts),
+            "excludedExactCount": excluded_exact,
+        }
+        if coverage != expected_coverage:
+            raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v2 coverage is inconsistent")
+        summary = artifact["suppressionSummary"]
+        reasons = summary["reasons"]
+        conflict_reason_counts = {
+            "identity_conflict": sum(item["reason"] == "source_identity_conflict" for item in expected_conflicts),
+            "negative_growth": sum(item["reason"] == "star_count_decreased" for item in expected_conflicts),
+            "disabled": sum(item["reason"] == "current_disabled" for item in expected_conflicts),
+        }
+        weak_reason_total = sum(
+            int(reasons[key]) for key in ("weak_absolute_growth", "weak_relative_growth", "no_continuous_growth")
+        )
+        if (
+            summary["candidateCount"] != len(latest_index)
+            or summary["publishedCount"] != len(published_ids)
+            or summary["suppressedExactCount"] != excluded_exact
+            or summary["conflictCount"] != len(expected_conflicts)
+            or summary["stageEligibleCount"] != summary["publishedCount"] + summary["suppressedWeakSignalCount"]
+            or summary["stageEligibleCount"] > summary["candidateCount"]
+            or any(
+                reasons[key] > summary["suppressedWeakSignalCount"]
+                for key in ("weak_absolute_growth", "weak_relative_growth", "no_continuous_growth")
+            )
+            or (
+                summary["suppressedWeakSignalCount"] > 0
+                and not (
+                    summary["suppressedWeakSignalCount"]
+                    <= weak_reason_total
+                    <= summary["suppressedWeakSignalCount"] * 3
+                )
+            )
+            or (summary["suppressedWeakSignalCount"] == 0 and weak_reason_total != 0)
+            or reasons["already_in_today"] != excluded_exact
+            or reasons["metadata_incomplete"] != latest["metadataFailureCount"]
+            or any(reasons[key] != value for key, value in conflict_reason_counts.items())
+        ):
+            raise RardarArtifactError("rardar_discover_invalid", "Rardar Discover v2 suppression audit is inconsistent")
+        return source_projects
+
+    def _rebuild_v1(
         self,
         artifact: dict[str, Any],
         captures: list[tuple[dict[str, Any], bytes, dict[str, Any]]],
@@ -555,6 +946,8 @@ class DiscoverArtifactAdapter:
                 "rising": len(artifact["stages"]["rising"]),
                 "nearValidation": len(artifact["stages"]["nearValidation"]),
             },
+            "signalPolicy": artifact.get("signalPolicy"),
+            "suppressionSummary": artifact.get("suppressionSummary"),
             "payloadDigest": artifact["payloadDigest"]["value"],
         }
         return DiscoverBoard.model_validate_json(json.dumps(payload), strict=True)
@@ -566,6 +959,7 @@ __all__ = [
     "DiscoverBoard",
     "DiscoverCoverage",
     "DiscoverItem",
+    "DiscoverSignalPolicy",
     "DiscoverSourceProject",
     "LoadedDiscoverArtifact",
 ]

@@ -12,9 +12,10 @@ import tempfile
 import threading
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.integrations.rardar.adapter import RardarArtifactError, _SafeRoot, _strict_json
 from app.integrations.rardar.discover import DiscoverBoard, DiscoverItem, LoadedDiscoverArtifact
@@ -40,7 +41,70 @@ _STORE = "discover-serving"
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
 _SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
 _REPARSE_POINT = 0x400
-DISCOVER_SERVING_PROJECTION_VERSION = 3
+DISCOVER_SERVING_PROJECTION_VERSION = 4
+_CATEGORY_PRIORITY = ("video-content", "ai-agent", "data-infra", "dev-tools", "productivity")
+_CATEGORY_TERMS = {
+    "ai-agent": (
+        "agent",
+        "artificial intelligence",
+        "人工智能",
+        "llm",
+        "large language model",
+        "machine learning",
+        "机器学习",
+        "inference",
+        "模型",
+        "mcp",
+    ),
+    "dev-tools": (
+        "developer tool",
+        "开发工具",
+        "sdk",
+        "cli",
+        "command line",
+        "framework",
+        "library",
+        "ide",
+        "compiler",
+        "api client",
+    ),
+    "data-infra": (
+        "database",
+        "数据库",
+        "data infrastructure",
+        "数据基础设施",
+        "kubernetes",
+        "observability",
+        "vector database",
+        "data pipeline",
+        "distributed system",
+        "storage",
+    ),
+    "productivity": (
+        "productivity",
+        "生产力",
+        "workflow",
+        "工作流",
+        "automation",
+        "自动化",
+        "note",
+        "knowledge",
+        "read it later",
+        "terminal",
+    ),
+    "video-content": (
+        "video",
+        "视频",
+        "content creator",
+        "内容创作",
+        "media",
+        "multimedia",
+        "audio",
+        "image generation",
+        "streaming",
+        "ffmpeg",
+    ),
+}
 
 
 class DiscoverServingError(RardarArtifactError):
@@ -79,6 +143,13 @@ class _Bundle:
 _CACHE_LOCK = threading.RLock()
 _CURRENT_CACHE: dict[str, _Bundle] = {}
 _SOURCE_CACHE: dict[tuple[str, str], _Bundle] = {}
+
+
+@dataclass(frozen=True)
+class _CategoryProjection:
+    category: str
+    source_mode: str
+    evidence_refs: tuple[str, ...]
 
 
 def clear_discover_serving_cache() -> None:
@@ -149,7 +220,49 @@ def _complete_profile(profile: Any, evidence: Any) -> bool:
     )
 
 
-def _profile_summary(result: ProfileBuildResult, count: int) -> DiscoverProfileSummary:
+def _category_projection(item: DiscoverItem, profile: Any) -> _CategoryProjection:
+    signals: list[tuple[str, str, str]] = []
+    for index, value in enumerate(profile.productFormsZh):
+        signals.append((value, f"profile.productFormsZh[{index}]", "canonical_profile"))
+    for index, value in enumerate(profile.primaryUseCasesZh):
+        signals.append((value, f"profile.primaryUseCasesZh[{index}]", "canonical_profile"))
+    for index, value in enumerate(profile.deliveryFormsZh):
+        signals.append((value, f"profile.deliveryFormsZh[{index}]", "canonical_profile"))
+    signals.append((profile.positioningZh or "", "profile.positioningZh", "canonical_profile"))
+    for index, capability in enumerate(profile.capabilities):
+        signals.append(
+            (
+                f"{capability.title} {capability.detail}",
+                capability.evidenceRefs[0] if capability.evidenceRefs else f"profile.capabilities[{index}]",
+                "canonical_profile",
+            )
+        )
+    for index, topic in enumerate(item.topics):
+        signals.append((topic.replace("-", " "), f"github.topics[{index}]", "github_metadata"))
+    if item.language:
+        signals.append((item.language, "github.primaryLanguage", "github_metadata"))
+
+    matches: dict[str, list[tuple[str, str]]] = {category: [] for category in _CATEGORY_TERMS}
+    for text, reference, source_mode in signals:
+        normalized = " ".join(text.casefold().replace("_", " ").split())
+        if not normalized:
+            continue
+        for category, terms in _CATEGORY_TERMS.items():
+            if any(term in normalized for term in terms):
+                matches[category].append((reference, source_mode))
+    selected = max(
+        _CATEGORY_PRIORITY, key=lambda category: (len(matches[category]), -_CATEGORY_PRIORITY.index(category))
+    )
+    if not matches[selected]:
+        return _CategoryProjection("other", "deterministic_fallback", ("profile.no_category_signal",))
+    references = tuple(dict.fromkeys(reference for reference, _ in matches[selected]))[:8]
+    source_mode = (
+        "canonical_profile" if any(mode == "canonical_profile" for _, mode in matches[selected]) else "github_metadata"
+    )
+    return _CategoryProjection(selected, source_mode, references)
+
+
+def _profile_summary(result: ProfileBuildResult, count: int, category_count: int) -> DiscoverProfileSummary:
     profiles = [value.profile for value in result.profiles.values()]
     evidence = [value.evidence for value in result.profiles.values()]
     complete = sum(_complete_profile(profile, item) for profile, item in zip(profiles, evidence, strict=True))
@@ -158,6 +271,7 @@ def _profile_summary(result: ProfileBuildResult, count: int) -> DiscoverProfileS
         identityComplete=complete,
         positioningComplete=complete,
         capabilitiesComplete=complete,
+        categoryComplete=category_count,
         officialZh=sum(profile.officialNarrativeMode == "official_zh" for profile in profiles),
         officialTranslated=sum(profile.officialNarrativeMode == "official_translated" for profile in profiles),
         rardarDerived=sum(profile.officialNarrativeMode == "rardar_derived" for profile in profiles),
@@ -168,7 +282,20 @@ def _profile_summary(result: ProfileBuildResult, count: int) -> DiscoverProfileS
     )
 
 
-def _card(item: DiscoverItem, profile: Any) -> DiscoverServingCard:
+def _card(
+    item: DiscoverItem,
+    profile: Any,
+    category: _CategoryProjection | None,
+) -> DiscoverServingCard:
+    category_fields = (
+        {
+            "category": category.category,
+            "categorySourceMode": category.source_mode,
+            "categoryEvidenceRefs": list(category.evidence_refs),
+        }
+        if category is not None
+        else {}
+    )
     return DiscoverServingCard.model_validate_json(
         _canonical_bytes(
             item.model_dump(mode="json")
@@ -179,9 +306,27 @@ def _card(item: DiscoverItem, profile: Any) -> DiscoverServingCard:
                 "sourceMode": profile.officialNarrativeMode,
                 "qualityState": profile.qualityState,
             }
+            | category_fields
         ),
         strict=True,
     )
+
+
+def _next_today_settlement(reference: datetime) -> datetime:
+    zone = ZoneInfo("Asia/Shanghai")
+    local = reference.astimezone(zone)
+    candidate = local.replace(hour=8, minute=0, second=0, microsecond=0)
+    if candidate <= local:
+        candidate += timedelta(days=1)
+    return candidate.astimezone(UTC)
+
+
+def _today_reason(stage: str) -> str:
+    return {
+        "just_discovered": "new_candidate",
+        "rising": "awaiting_growth_evidence",
+        "near_validation": "awaiting_daily_settlement",
+    }[stage]
 
 
 def build_discover_serving(
@@ -206,7 +351,11 @@ def build_discover_serving(
                 "rardar_discover_profile_incomplete",
                 "Every published Discover item requires a complete static profile",
             )
-    summary = _profile_summary(result, len(selected))
+    categories = {
+        item.githubRepositoryId: _category_projection(item, result.profiles[item.githubRepositoryId].profile)
+        for item in selected
+    }
+    summary = _profile_summary(result, len(selected), len(categories))
     profile_fingerprint = _sha(
         _canonical_bytes(
             {
@@ -230,21 +379,25 @@ def build_discover_serving(
     files: dict[str, bytes] = {}
     for item in selected:
         collected = result.profiles[item.githubRepositoryId]
-        card = _card(item, collected.profile)
+        category = categories[item.githubRepositoryId]
+        card = _card(item, collected.profile, category)
         key = {"just_discovered": "justDiscovered", "rising": "rising", "near_validation": "nearValidation"}[item.stage]
         cards[key].append(card)
         record = DiscoverServingProjectRecord(
-            schemaVersion=1,
+            schemaVersion=2,
             servingGenerationId=serving_id,
             discoverGenerationId=board.discoverGenerationId,
             facts=item,
             profile=collected.profile,
+            category=category.category,
+            categorySourceMode=category.source_mode,
+            categoryEvidenceRefs=list(category.evidence_refs),
         )
         files[f"projects/{item.githubRepositoryId}.json"] = _canonical_bytes(record)
         files[f"evidence/{item.githubRepositoryId}.json"] = _canonical_bytes(collected.evidence)
 
     snapshot = DiscoverServingSnapshot(
-        schemaVersion=1,
+        schemaVersion=2,
         servingGenerationId=serving_id,
         discoverGenerationId=board.discoverGenerationId,
         generatedAt=board.generatedAt,
@@ -268,13 +421,16 @@ def build_discover_serving(
         syncedAt=synced_at,
         sourceHost=source_host,
         profileSummary=summary,
+        sourceSchemaVersion=board.schemaVersion,
+        sourcePolicyVersion=board.policyVersion,
+        suppressionSummary=board.suppressionSummary,
     )
     files["discover.json"] = _canonical_bytes(snapshot)
     inventory = [
         DiscoverServingFile(path=path, sha256=_sha(raw), bytes=len(raw)) for path, raw in sorted(files.items())
     ]
     manifest = DiscoverServingManifest(
-        schemaVersion=1,
+        schemaVersion=2,
         generationId=serving_id,
         discoverGenerationId=board.discoverGenerationId,
         createdAt=publication_time,
@@ -288,7 +444,7 @@ def build_discover_serving(
     manifest_raw = _canonical_bytes(manifest)
     files["manifest.json"] = manifest_raw
     pointer = DiscoverServingPointer(
-        schemaVersion=1,
+        schemaVersion=2,
         generationId=serving_id,
         discoverGenerationId=board.discoverGenerationId,
         publishedAt=publication_time,
@@ -366,7 +522,12 @@ def _validate_built(built: BuiltDiscoverServing) -> None:
             raise DiscoverServingError(
                 "rardar_discover_profile_incomplete", "Discover profile/evidence binding is invalid"
             )
-        expected_card = _card(record.facts, record.profile)
+        category = (
+            _CategoryProjection(record.category, record.categorySourceMode, tuple(record.categoryEvidenceRefs))
+            if record.category is not None and record.categorySourceMode is not None
+            else None
+        )
+        expected_card = _card(record.facts, record.profile, category)
         if expected_card != card:
             raise DiscoverServingError("rardar_discover_serving_invalid", "Discover card profile differs from detail")
 
@@ -622,12 +783,17 @@ class DiscoverServingLoader:
             )
             if record.servingGenerationId != generation or record.discoverGenerationId != pointer.discoverGenerationId:
                 raise DiscoverServingError("rardar_discover_serving_invalid", "Discover project generation is mixed")
-            if _card(record.facts, record.profile) != cards.get(identifier) or not _complete_profile(
+            category = (
+                _CategoryProjection(record.category, record.categorySourceMode, tuple(record.categoryEvidenceRefs))
+                if record.category is not None and record.categorySourceMode is not None
+                else None
+            )
+            if _card(record.facts, record.profile, category) != cards.get(identifier) or not _complete_profile(
                 record.profile, evidence
             ):
                 raise DiscoverServingError("rardar_discover_profile_incomplete", "Discover project profile is invalid")
             details[identifier] = DiscoverProjectDetail(
-                schemaVersion=1,
+                schemaVersion=record.schemaVersion,
                 servingGenerationId=generation,
                 discoverGenerationId=pointer.discoverGenerationId,
                 facts=record.facts,
@@ -635,6 +801,15 @@ class DiscoverServingLoader:
                 evidence=evidence,
                 coverage=snapshot.coverage,
                 conflictCount=snapshot.conflictCount,
+                category=record.category,
+                categorySourceMode=record.categorySourceMode,
+                categoryEvidenceRefs=record.categoryEvidenceRefs,
+                nextExpectedAt=snapshot.nextExpectedAt if record.schemaVersion == 2 else None,
+                nextTodaySettlementAt=(
+                    _next_today_settlement(snapshot.latestCaptureAt) if record.schemaVersion == 2 else None
+                ),
+                todayStatus="not_in_source_today" if record.schemaVersion == 2 else None,
+                todayReason=_today_reason(record.facts.stage) if record.schemaVersion == 2 else None,
             )
         bundle = _Bundle(pointer_sha, pointer, manifest, snapshot, details)
         if source_id is None:

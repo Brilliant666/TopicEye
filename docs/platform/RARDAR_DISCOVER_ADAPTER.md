@@ -2,14 +2,14 @@
 
 ## Purpose
 
-TopicEye consumes Rardar's audited `TrendingDiscoverArtifact v1` as a
+TopicEye consumes Rardar's audited `TrendingDiscoverArtifact v1` and v2 as a
 near-real-time project-discovery surface. Rardar remains the sole fact
 producer. TopicEye validates and projects the artifact, builds evidence-backed
 static project profiles during sync, and serves the result without recomputing
 stage membership or order.
 
 The vendored contract is pinned to `Brilliant666/rardar` merge
-`b99a8b88a9b46b830f5170824a7c90ead41cc51a`. Exact source and vendored hashes
+`deb65469c963d80cacab352dcea4cbf9b1187996`. Exact source and vendored hashes
 are recorded in `backend/app/integrations/rardar/contracts/provenance.json`.
 Runtime consumption never depends on a Rardar checkout.
 
@@ -21,12 +21,15 @@ ranking. The page preserves three producer-owned sections:
 
 1. `just_discovered` — 刚刚发现;
 2. `rising` — 持续升温;
-3. `near_validation` — 接近验证.
+3. `near_validation` — 待日榜验证.
 
 Within each section, Rardar's deterministic order is preserved. TopicEye does
-not score, filter, refill, re-rank, or use AI to choose candidates. Star change
-is always paired with the actual observation window; no 24-hour extrapolation
-is calculated or displayed.
+not score, filter, refill, re-rank, or use AI to choose candidates. V2 binds
+each published item to producer-issued signal facts and reason codes and binds
+the artifact to its aggregate suppression summary. The safe reader validates
+that proof but deliberately does not re-select unpublished candidates. Star
+change is always paired with the actual observation window; no 24-hour
+extrapolation is calculated or displayed.
 
 ## Safe raw adapter
 
@@ -42,7 +45,9 @@ generation and verifies:
 - source capture identity, cadence, order, coverage and payload digest;
 - Today exact exclusion by numeric GitHub repository ID;
 - numeric identity continuity, conflicts, actual windows, deltas, consecutive
-  captures, stage membership and deterministic order by full recomputation;
+  captures, stage membership and deterministic order by full recomputation for
+  v1, or producer-issued signal facts, publish reasons, policy constants and
+  suppression invariants for v2;
 - symlink, junction, reparse point, path escape, temporary file and unstable
   read rejection.
 
@@ -58,6 +63,14 @@ reuses the existing official-profile/evidence contract. Every selected project
 must have a publishable Chinese identity, distinct evidence-backed positioning,
 at least one sourced capability and valid evidence references. One failure
 blocks the entire candidate; the previous healthy Serving remains active.
+
+Serving v2 also adds exactly one static product category to every selected
+project. The deterministic classifier first uses the canonical profile
+(product forms, use cases, delivery form, positioning and sourced
+capabilities), then GitHub topics/language, then the explicit `other` fallback.
+It records `category`, `categorySourceMode` and `categoryEvidenceRefs`. Category
+never changes producer selection, stage or order and never requires a page-time
+GitHub or model call.
 
 The independent store is:
 
@@ -95,12 +108,19 @@ coverage and a bounded conflict summary. A normal page request reads only the
 static Discover Serving generation. It performs zero raw Discover reads, zero
 GitHub calls, zero model calls and zero PostgreSQL fact writes.
 
-`/discover` renders three honest sections and empty states. Internal project
-links use
+`/discover` renders three honest sections and category-aware empty states. The
+fixed filters are 全部, AI 与 Agent, 开发工具, 数据与基础设施, 生产力,
+视频与内容 and 其他. Filtering operates only on the already-published static
+cards, preserves producer order and stores its state in `?category=` for
+refresh and browser history. The full card is the internal pointer/keyboard
+target; the title remains a normal internal link and the GitHub link remains an
+independent external link. Internal project links use
 `/project/github/<numeric-id>?discoverGeneration=<discover-generation>`. The
 existing detail component is reused, but its fact block shows Discover stage,
-first/latest observation, actual window and delta rather than Today rank or a
-fictional baseline. AI deep insight remains an explicit user action through
+first/latest observation, actual window and delta, capture/positive-interval
+continuity, latest interval, next Observation, next Today settlement and the
+deterministic reason it has not entered Today. It never presents Today rank or
+a fictional baseline. AI deep insight remains an explicit user action through
 TopicEye's existing `routing_group=rardar` control plane. Find Project receives
 only the canonical public GitHub URL.
 

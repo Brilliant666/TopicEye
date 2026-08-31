@@ -49,6 +49,12 @@ const SECTIONS: Array<{
     description: '最近 4 小时首次进入候选池；这是新召回事实，尚未形成增长结论。',
   },
   {
+    key: 'outsideTodayMomentum',
+    stage: 'outside_today_momentum',
+    title: '榜外异动',
+    description: '已形成完整 24 小时事实但未进入 Today Top 20；最近短窗口出现连续增长和加速。',
+  },
+  {
     key: 'rising',
     stage: 'rising',
     title: '持续升温',
@@ -69,6 +75,7 @@ export function filterDiscoverStages(
   if (category === 'all') return stages;
   return {
     justDiscovered: stages.justDiscovered.filter((item) => item.category === category),
+    outsideTodayMomentum: stages.outsideTodayMomentum.filter((item) => item.category === category),
     rising: stages.rising.filter((item) => item.category === category),
     nearValidation: stages.nearValidation.filter((item) => item.category === category),
   };
@@ -115,8 +122,16 @@ export default function RardarDiscoverPage({ result }: { result: DiscoverLoadRes
   }
   const { board } = result;
   const filtered = filterDiscoverStages(board.stages, category);
-  const allCards = [...board.stages.justDiscovered, ...board.stages.rising, ...board.stages.nearValidation];
-  const publishedCount = filtered.justDiscovered.length + filtered.rising.length + filtered.nearValidation.length;
+  const allCards = [
+    ...board.stages.justDiscovered,
+    ...board.stages.outsideTodayMomentum,
+    ...board.stages.rising,
+    ...board.stages.nearValidation,
+  ];
+  const publishedCount = filtered.justDiscovered.length
+    + filtered.outsideTodayMomentum.length
+    + filtered.rising.length
+    + filtered.nearValidation.length;
   const categoryCounts = new Map<CategoryFilter, number>([['all', allCards.length]]);
   CATEGORIES.slice(1).forEach(({ key }) => {
     categoryCounts.set(key, allCards.filter((item) => item.category === key).length);
@@ -143,7 +158,9 @@ export default function RardarDiscoverPage({ result }: { result: DiscoverLoadRes
           <DiscoverSection
             key={section.key}
             title={section.title}
-            description={section.description}
+            description={section.stage === 'outside_today_momentum'
+              ? `已形成完整 24 小时事实但未进入 Today Top ${board.todayPublishedTopCount ?? 20}；最近短窗口出现连续增长和加速。`
+              : section.description}
             stage={section.stage}
             projects={filtered[section.key]}
             generation={board.generation || ''}
@@ -165,15 +182,18 @@ function DiscoverHero({
   category: CategoryFilter;
   publishedCount: number;
 }) {
-  const suppressed = board?.suppressionSummary?.suppressedWeakSignalCount;
+  const suppressed = board?.eligibilitySummary?.suppressed
+    ?? (board?.suppressionSummary && 'suppressedWeakSignalCount' in board.suppressionSummary
+      ? board.suppressionSummary.suppressedWeakSignalCount
+      : undefined);
   return (
     <section className={styles.discoverRealtimeHero} data-testid="discover-hero">
       <div>
         <p className={styles.eyebrow}>Discover · Near real-time</p>
         <h1>发现此刻正在形成的真实信号</h1>
         <p>
-          来自 Rardar 每 2 小时一次的已验证 Observation。这里只展示实际观察窗口，
-          尚未形成完整 24 小时精确排名，也不会外推日增量。
+          来自 Rardar 每 2 小时一次的已验证 Observation。新候选展示真实观察窗口；榜外项目同时说明
+          Today exact 事实和最近短窗口异动，全部不做 24 小时外推。
         </p>
         <div className={styles.discoverHeroMetrics} aria-label="当前发现状态">
           <span>当前筛选 <strong>{categoryLabel(category)}</strong></span>
@@ -272,14 +292,26 @@ function DiscoverCardView({ project, generation }: { project: DiscoverCard; gene
         {project.capabilities.slice(0, 3).map((item) => <span key={`${item.title}-${item.detail}`}>{item.title}</span>)}
       </div>
       <dl className={styles.discoverCardFacts}>
+        {project.stage === 'outside_today_momentum' ? (
+          <>
+            <div className={styles.discoverGrowthFact}>
+              <dt>最近实际 {formatHours(project.recentWindowHours ?? 0)}</dt>
+              <dd>+{formatNumber(project.recentObservedStarDelta ?? 0)} <small>/ 短窗口异动</small></dd>
+            </div>
+            <div><dt>前一相同窗口</dt><dd>{signedNumber(project.priorComparableWindowDelta)}</dd></div>
+            <div><dt>加速变化</dt><dd>{signedNumber(project.accelerationDelta)}</dd></div>
+            <div><dt>Today exact</dt><dd>#{project.todayExactRank ?? '—'} · 24h +{formatNumber(project.todayExact24hDelta ?? 0)}</dd></div>
+          </>
+        ) : (
         <div className={styles.discoverGrowthFact}>
           <dt>实际增长</dt>
           <dd>+{formatNumber(project.observedStarDelta)} <small>/ 实际 {formatHours(project.observedWindowHours)}</small></dd>
         </div>
+        )}
         <div><dt>当前 Star</dt><dd><Star size={13} /> {formatNumber(project.totalStars)}</dd></div>
         <div><dt>正增长连续性</dt><dd>{project.consecutivePositiveIntervalCount == null ? '尚未形成结论' : `${project.consecutivePositiveIntervalCount} 个连续区间`}</dd></div>
-        <div><dt>首次发现</dt><dd>{formatTime(project.firstSeenAt)}</dd></div>
-        <div><dt>最新区间</dt><dd>{project.latestIntervalDelta == null ? '尚无连续区间' : `${project.latestIntervalDelta >= 0 ? '+' : ''}${project.latestIntervalDelta} Star`}</dd></div>
+        {project.stage !== 'outside_today_momentum' && <div><dt>首次发现</dt><dd>{formatTime(project.firstSeenAt)}</dd></div>}
+        {project.stage !== 'outside_today_momentum' && <div><dt>最新区间</dt><dd>{project.latestIntervalDelta == null ? '尚无连续区间' : `${project.latestIntervalDelta >= 0 ? '+' : ''}${project.latestIntervalDelta} Star`}</dd></div>}
       </dl>
       <div className={styles.discoverMetadata}>
         {project.language && <span>{project.language}</span>}
@@ -307,11 +339,16 @@ function Coverage({ board }: { board: DiscoverResponse }) {
       <div>
         <span>候选 {coverage.candidateCount}</span>
         <span>发布 {coverage.publishedCount}</span>
-        {board.suppressionSummary && <span>弱信号抑制 {board.suppressionSummary.suppressedWeakSignalCount}</span>}
+        {board.eligibilitySummary && <span>Today exact {board.eligibilitySummary.todayExactFacts}</span>}
+        {board.eligibilitySummary && <span>Today 已发布 {board.eligibilitySummary.todayPublished}</span>}
+        {board.eligibilitySummary && <span>榜外已评估 {board.eligibilitySummary.exactOutsidePublishedEvaluated}</span>}
+        {board.eligibilitySummary && <span>Pre-exact 已评估 {board.eligibilitySummary.preExactEvaluated}</span>}
+        {board.eligibilitySummary && <span>信号抑制 {board.eligibilitySummary.suppressed}</span>}
         <span>成功查询 {coverage.querySuccessCount}</span>
         <span>失败查询 {coverage.queryFailureCount}</span>
         <span>Metadata failure {coverage.metadataFailureCount}</span>
-        <span>排除 Today exact {coverage.excludedExactCount}</span>
+        {coverage.excludedExactCount != null && <span>旧合同排除 Today exact {coverage.excludedExactCount}</span>}
+        {coverage.excludedPublishedCount != null && <span>排除 Today Top 20 {coverage.excludedPublishedCount}</span>}
         <span>冲突 {coverage.conflictCount}</span>
         <span>来源 capture {coverage.sourceCaptureCount}</span>
       </div>
@@ -321,7 +358,12 @@ function Coverage({ board }: { board: DiscoverResponse }) {
 }
 
 function stageLabel(value: DiscoverStage) {
-  return { just_discovered: '刚刚发现', rising: '持续升温', near_validation: '待日榜验证' }[value];
+  return {
+    just_discovered: '刚刚发现',
+    outside_today_momentum: '榜外异动',
+    rising: '持续升温',
+    near_validation: '待日榜验证',
+  }[value];
 }
 
 function categoryLabel(value: CategoryFilter) {
@@ -334,6 +376,11 @@ function sourceLabel(value: DiscoverCard['sourceMode']) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('zh-CN').format(value);
+}
+
+function signedNumber(value: number | null | undefined) {
+  if (value == null) return '窗口证据不足';
+  return `${value >= 0 ? '+' : ''}${formatNumber(value)} Star`;
 }
 
 function formatHours(value: number) {

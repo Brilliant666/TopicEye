@@ -41,7 +41,7 @@ _STORE = "discover-serving"
 _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
 _SOURCE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
 _REPARSE_POINT = 0x400
-DISCOVER_SERVING_PROJECTION_VERSION = 4
+DISCOVER_SERVING_PROJECTION_VERSION = 5
 _CATEGORY_PRIORITY = ("video-content", "ai-agent", "data-infra", "dev-tools", "productivity")
 _CATEGORY_TERMS = {
     "ai-agent": (
@@ -202,7 +202,12 @@ def _as_profile_project(item: DiscoverItem, source: LoadedDiscoverArtifact, rank
 
 
 def _selected(board: DiscoverBoard) -> list[DiscoverItem]:
-    return [*board.justDiscovered[:10], *board.rising[:10], *board.nearValidation[:10]]
+    return [
+        *board.justDiscovered[:10],
+        *board.outsideTodayMomentum[:10],
+        *board.rising[:10],
+        *board.nearValidation[:10],
+    ]
 
 
 def _complete_profile(profile: Any, evidence: Any) -> bool:
@@ -324,6 +329,7 @@ def _next_today_settlement(reference: datetime) -> datetime:
 def _today_reason(stage: str) -> str:
     return {
         "just_discovered": "new_candidate",
+        "outside_today_momentum": "outside_today_top20_with_momentum",
         "rising": "awaiting_growth_evidence",
         "near_validation": "awaiting_daily_settlement",
     }[stage]
@@ -375,16 +381,22 @@ def build_discover_serving(
     if not _ID.fullmatch(serving_id):
         raise DiscoverServingError("rardar_discover_serving_invalid", "Discover Serving identity is unsafe")
 
-    cards = {"justDiscovered": [], "rising": [], "nearValidation": []}
+    serving_schema_version = 3 if board.schemaVersion == 3 else 2
+    cards = {"justDiscovered": [], "outsideTodayMomentum": [], "rising": [], "nearValidation": []}
     files: dict[str, bytes] = {}
     for item in selected:
         collected = result.profiles[item.githubRepositoryId]
         category = categories[item.githubRepositoryId]
         card = _card(item, collected.profile, category)
-        key = {"just_discovered": "justDiscovered", "rising": "rising", "near_validation": "nearValidation"}[item.stage]
+        key = {
+            "just_discovered": "justDiscovered",
+            "outside_today_momentum": "outsideTodayMomentum",
+            "rising": "rising",
+            "near_validation": "nearValidation",
+        }[item.stage]
         cards[key].append(card)
         record = DiscoverServingProjectRecord(
-            schemaVersion=2,
+            schemaVersion=serving_schema_version,
             servingGenerationId=serving_id,
             discoverGenerationId=board.discoverGenerationId,
             facts=item,
@@ -397,7 +409,7 @@ def build_discover_serving(
         files[f"evidence/{item.githubRepositoryId}.json"] = _canonical_bytes(collected.evidence)
 
     snapshot = DiscoverServingSnapshot(
-        schemaVersion=2,
+        schemaVersion=serving_schema_version,
         servingGenerationId=serving_id,
         discoverGenerationId=board.discoverGenerationId,
         generatedAt=board.generatedAt,
@@ -407,6 +419,7 @@ def build_discover_serving(
         updateCadenceMinutes=120,
         stageCounts=board.stageCounts,
         justDiscovered=cards["justDiscovered"],
+        outsideTodayMomentum=cards["outsideTodayMomentum"],
         rising=cards["rising"],
         nearValidation=cards["nearValidation"],
         coverage=board.coverage,
@@ -424,13 +437,29 @@ def build_discover_serving(
         sourceSchemaVersion=board.schemaVersion,
         sourcePolicyVersion=board.policyVersion,
         suppressionSummary=board.suppressionSummary,
+        todayPublishedTopCount=board.todayPublishedTopCount,
+        eligibilitySummary=(
+            {
+                "observationCandidates": board.coverage.candidateCount,
+                "todayExactFacts": board.todayExactCount,
+                "todayPublished": board.todayPublishedCount,
+                "excludedPublished": board.excludedPublishedCount,
+                "exactOutsidePublishedEvaluated": board.exactOutsidePublishedEvaluatedCount,
+                "preExactEvaluated": board.preExactEvaluatedCount,
+                "invalid": board.eligibilityCounts.invalid if board.eligibilityCounts else None,
+                "published": board.coverage.publishedCount,
+                "suppressed": board.suppressionSummary.suppressedSignalCount,
+            }
+            if board.schemaVersion == 3 and board.eligibilityCounts is not None
+            else None
+        ),
     )
     files["discover.json"] = _canonical_bytes(snapshot)
     inventory = [
         DiscoverServingFile(path=path, sha256=_sha(raw), bytes=len(raw)) for path, raw in sorted(files.items())
     ]
     manifest = DiscoverServingManifest(
-        schemaVersion=2,
+        schemaVersion=serving_schema_version,
         generationId=serving_id,
         discoverGenerationId=board.discoverGenerationId,
         createdAt=publication_time,
@@ -444,7 +473,7 @@ def build_discover_serving(
     manifest_raw = _canonical_bytes(manifest)
     files["manifest.json"] = manifest_raw
     pointer = DiscoverServingPointer(
-        schemaVersion=2,
+        schemaVersion=serving_schema_version,
         generationId=serving_id,
         discoverGenerationId=board.discoverGenerationId,
         publishedAt=publication_time,
@@ -493,7 +522,12 @@ def _validate_built(built: BuiltDiscoverServing) -> None:
         raise DiscoverServingError("rardar_discover_serving_invalid", "Discover Serving generation is mixed")
     cards = {
         item.githubRepositoryId: item
-        for group in (snapshot.justDiscovered, snapshot.rising, snapshot.nearValidation)
+        for group in (
+            snapshot.justDiscovered,
+            snapshot.outsideTodayMomentum,
+            snapshot.rising,
+            snapshot.nearValidation,
+        )
         for item in group
     }
     if list(cards) != manifest.projectIds:
@@ -768,7 +802,12 @@ class DiscoverServingLoader:
             raise DiscoverServingError("rardar_discover_serving_invalid", "Discover Serving snapshot is mixed")
         cards = {
             item.githubRepositoryId: item
-            for group in (snapshot.justDiscovered, snapshot.rising, snapshot.nearValidation)
+            for group in (
+                snapshot.justDiscovered,
+                snapshot.outsideTodayMomentum,
+                snapshot.rising,
+                snapshot.nearValidation,
+            )
             for item in group
         }
         if list(cards) != manifest.projectIds:
@@ -804,12 +843,19 @@ class DiscoverServingLoader:
                 category=record.category,
                 categorySourceMode=record.categorySourceMode,
                 categoryEvidenceRefs=record.categoryEvidenceRefs,
-                nextExpectedAt=snapshot.nextExpectedAt if record.schemaVersion == 2 else None,
+                nextExpectedAt=snapshot.nextExpectedAt if record.schemaVersion in {2, 3} else None,
                 nextTodaySettlementAt=(
-                    _next_today_settlement(snapshot.latestCaptureAt) if record.schemaVersion == 2 else None
+                    _next_today_settlement(snapshot.latestCaptureAt) if record.schemaVersion in {2, 3} else None
                 ),
-                todayStatus="not_in_source_today" if record.schemaVersion == 2 else None,
-                todayReason=_today_reason(record.facts.stage) if record.schemaVersion == 2 else None,
+                todayStatus=(
+                    "outside_today_top20"
+                    if record.schemaVersion == 3 and record.facts.stage == "outside_today_momentum"
+                    else "not_in_source_today"
+                    if record.schemaVersion in {2, 3}
+                    else None
+                ),
+                todayReason=_today_reason(record.facts.stage) if record.schemaVersion in {2, 3} else None,
+                todayPublishedTopCount=snapshot.todayPublishedTopCount if record.schemaVersion == 3 else None,
             )
         bundle = _Bundle(pointer_sha, pointer, manifest, snapshot, details)
         if source_id is None:

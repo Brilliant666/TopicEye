@@ -2,14 +2,14 @@
 
 ## Purpose
 
-TopicEye consumes Rardar's audited `TrendingDiscoverArtifact v1` and v2 as a
+TopicEye consumes Rardar's audited `TrendingDiscoverArtifact` v1, v2 and v3 as a
 near-real-time project-discovery surface. Rardar remains the sole fact
 producer. TopicEye validates and projects the artifact, builds evidence-backed
 static project profiles during sync, and serves the result without recomputing
 stage membership or order.
 
 The vendored contract is pinned to `Brilliant666/rardar` merge
-`deb65469c963d80cacab352dcea4cbf9b1187996`. Exact source and vendored hashes
+`ce3437ecc76765d5961af7a78d08962dce964d63`. Exact source and vendored hashes
 are recorded in `backend/app/integrations/rardar/contracts/provenance.json`.
 Runtime consumption never depends on a Rardar checkout.
 
@@ -17,11 +17,12 @@ Runtime consumption never depends on a Rardar checkout.
 
 Discover means the most recent verified natural Observation, normally updated
 every two hours. It is not a stream, a full-GitHub scan, or a second Today
-ranking. The page preserves three producer-owned sections:
+ranking. The page preserves four producer-owned sections:
 
 1. `just_discovered` — 刚刚发现;
-2. `rising` — 持续升温;
-3. `near_validation` — 待日榜验证.
+2. `outside_today_momentum` — 榜外异动;
+3. `rising` — 持续升温;
+4. `near_validation` — 待日榜验证.
 
 Within each section, Rardar's deterministic order is preserved. TopicEye does
 not score, filter, refill, re-rank, or use AI to choose candidates. V2 binds
@@ -45,9 +46,12 @@ generation and verifies:
 - source capture identity, cadence, order, coverage and payload digest;
 - Today exact exclusion by numeric GitHub repository ID;
 - numeric identity continuity, conflicts, actual windows, deltas, consecutive
-  captures, stage membership and deterministic order by full recomputation for
-  v1, or producer-issued signal facts, publish reasons, policy constants and
-  suppression invariants for v2;
+captures, stage membership and deterministic order by full recomputation for
+v1, or producer-issued signal facts, publish reasons, policy constants and
+suppression invariants for v2/v3;
+- for v3, the Today exact set, published rank 1–20 numeric-ID set and digest,
+  eligibility classes, recent/prior comparable windows, acceleration, relative
+  growth, positive intervals, reasons, suppression and all four stage orders;
 - symlink, junction, reparse point, path escape, temporary file and unstable
   read rejection.
 
@@ -94,6 +98,12 @@ sync of the same source/profile revision is a no-op. Today and Discover have
 separate raw, metadata and Serving pointers; failure in one path cannot roll
 back or overwrite the other.
 
+For v3, a Discover generation contains bounded source descriptors rather than
+physical copies of every Observation capture. Sync fetches the referenced
+canonical files from `observations/trending/v1/captures/`, verifies every
+declared file and payload digest, and stores each immutable source once. A
+descriptor conflict fails the whole activation before pointer replacement.
+
 ## API and pages
 
 The following routes are registered only when `RARDAR_PRODUCT_MODE=true`:
@@ -104,11 +114,15 @@ The following routes are registered only when `RARDAR_PRODUCT_MODE=true`:
 
 The collection API reports `ready`, `empty`, `stale`, `not_configured`, or
 `invalid`, plus cadence, latest capture, next expected update, stage counts,
-coverage and a bounded conflict summary. A normal page request reads only the
-static Discover Serving generation. It performs zero raw Discover reads, zero
-GitHub calls, zero model calls and zero PostgreSQL fact writes.
+coverage and a bounded conflict summary. V3 additionally exposes the fixed
+`todayPublishedTopCount` and an eligibility summary separating Observation
+candidates, Today exact facts, Today published projects, excluded published
+projects, exact-outside-published evaluation, pre-exact evaluation, invalid,
+published and suppressed projects. A normal page request reads only the static
+Discover Serving generation. It performs zero raw Discover reads, zero GitHub
+calls, zero model calls and zero PostgreSQL fact writes.
 
-`/discover` renders three honest sections and category-aware empty states. The
+`/discover` renders four honest sections and category-aware empty states. The
 fixed filters are 全部, AI 与 Agent, 开发工具, 数据与基础设施, 生产力,
 视频与内容 and 其他. Filtering operates only on the already-published static
 cards, preserves producer order and stores its state in `?category=` for
@@ -117,10 +131,13 @@ target; the title remains a normal internal link and the GitHub link remains an
 independent external link. Internal project links use
 `/project/github/<numeric-id>?discoverGeneration=<discover-generation>`. The
 existing detail component is reused, but its fact block shows Discover stage,
-first/latest observation, actual window and delta, capture/positive-interval
-continuity, latest interval, next Observation, next Today settlement and the
-deterministic reason it has not entered Today. It never presents Today rank or
-a fictional baseline. AI deep insight remains an explicit user action through
+eligibility class, first/latest observation, actual window and delta,
+capture/positive-interval continuity, latest interval, next Observation, next
+Today settlement and the deterministic reason it has not entered Today. An
+`outside_today_momentum` detail also shows the factual Today exact rank and 24h
+delta, published Top 20 boundary, recent/prior equal windows and acceleration.
+It does not imply a predicted rank or extrapolated 24h value. AI deep insight
+remains an explicit user action through
 TopicEye's existing `routing_group=rardar` control plane. Find Project receives
 only the canonical public GitHub URL.
 

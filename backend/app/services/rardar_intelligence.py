@@ -185,6 +185,7 @@ def load_discover_snapshot(
             stageCounts=snapshot.stageCounts,
             stages={
                 "justDiscovered": snapshot.justDiscovered,
+                "outsideTodayMomentum": snapshot.outsideTodayMomentum,
                 "rising": snapshot.rising,
                 "nearValidation": snapshot.nearValidation,
             },
@@ -198,6 +199,8 @@ def load_discover_snapshot(
             sourceSchemaVersion=snapshot.sourceSchemaVersion,
             sourcePolicyVersion=snapshot.sourcePolicyVersion,
             suppressionSummary=snapshot.suppressionSummary,
+            todayPublishedTopCount=snapshot.todayPublishedTopCount,
+            eligibilitySummary=snapshot.eligibilitySummary,
         ),
         etag,
     )

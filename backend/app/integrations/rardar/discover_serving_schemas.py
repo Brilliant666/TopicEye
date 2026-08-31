@@ -11,6 +11,7 @@ from app.integrations.rardar.discover import (
     DiscoverItem,
     DiscoverStageCounts,
     DiscoverSuppressionSummary,
+    DiscoverSuppressionSummaryV3,
 )
 from app.integrations.rardar.serving_schemas import (
     OfficialProjectProfile,
@@ -35,14 +36,14 @@ class DiscoverServingCard(DiscoverItem):
 
 
 class DiscoverProfileSummary(StrictDiscoverServingModel):
-    selectedCount: int = Field(ge=0, le=30)
-    identityComplete: int = Field(ge=0, le=30)
-    positioningComplete: int = Field(ge=0, le=30)
-    capabilitiesComplete: int = Field(ge=0, le=30)
-    categoryComplete: int = Field(default=0, ge=0, le=30)
-    officialZh: int = Field(ge=0, le=30)
-    officialTranslated: int = Field(ge=0, le=30)
-    rardarDerived: int = Field(ge=0, le=30)
+    selectedCount: int = Field(ge=0, le=40)
+    identityComplete: int = Field(ge=0, le=40)
+    positioningComplete: int = Field(ge=0, le=40)
+    capabilitiesComplete: int = Field(ge=0, le=40)
+    categoryComplete: int = Field(default=0, ge=0, le=40)
+    officialZh: int = Field(ge=0, le=40)
+    officialTranslated: int = Field(ge=0, le=40)
+    rardarDerived: int = Field(ge=0, le=40)
     githubRequests: int = Field(ge=0)
     readmeCacheHits: int = Field(ge=0)
     translationCalls: int = Field(ge=0)
@@ -59,8 +60,20 @@ class DiscoverProfileSummary(StrictDiscoverServingModel):
         return self
 
 
+class DiscoverEligibilitySummary(StrictDiscoverServingModel):
+    observationCandidates: int = Field(ge=0, le=500)
+    todayExactFacts: int = Field(ge=0, le=500)
+    todayPublished: int = Field(ge=0, le=20)
+    excludedPublished: int = Field(ge=0, le=20)
+    exactOutsidePublishedEvaluated: int = Field(ge=0, le=500)
+    preExactEvaluated: int = Field(ge=0, le=500)
+    invalid: int = Field(ge=0, le=500)
+    published: int = Field(ge=0, le=500)
+    suppressed: int = Field(ge=0, le=500)
+
+
 class DiscoverServingSnapshot(StrictDiscoverServingModel):
-    schemaVersion: Literal[1, 2]
+    schemaVersion: Literal[1, 2, 3]
     servingGenerationId: str = Field(min_length=1, max_length=128)
     discoverGenerationId: str = Field(min_length=1, max_length=128)
     generatedAt: AwareDatetime
@@ -70,6 +83,7 @@ class DiscoverServingSnapshot(StrictDiscoverServingModel):
     updateCadenceMinutes: Literal[120]
     stageCounts: DiscoverStageCounts
     justDiscovered: list[DiscoverServingCard] = Field(max_length=10)
+    outsideTodayMomentum: list[DiscoverServingCard] = Field(default_factory=list, max_length=10)
     rising: list[DiscoverServingCard] = Field(max_length=10)
     nearValidation: list[DiscoverServingCard] = Field(max_length=10)
     coverage: DiscoverCoverage
@@ -84,14 +98,17 @@ class DiscoverServingSnapshot(StrictDiscoverServingModel):
     syncedAt: AwareDatetime | None
     sourceHost: str | None = Field(default=None, max_length=100)
     profileSummary: DiscoverProfileSummary
-    sourceSchemaVersion: Literal[1, 2] | None = None
-    sourcePolicyVersion: Literal["trending-discover-v1", "trending-discover-v2"] | None = None
-    suppressionSummary: DiscoverSuppressionSummary | None = None
+    sourceSchemaVersion: Literal[1, 2, 3] | None = None
+    sourcePolicyVersion: Literal["trending-discover-v1", "trending-discover-v2", "trending-discover-v3"] | None = None
+    suppressionSummary: DiscoverSuppressionSummary | DiscoverSuppressionSummaryV3 | None = None
+    todayPublishedTopCount: Literal[20] | None = None
+    eligibilitySummary: DiscoverEligibilitySummary | None = None
 
     @model_validator(mode="after")
     def validate_projection(self) -> DiscoverServingSnapshot:
         groups = (
             ("just_discovered", self.justDiscovered),
+            ("outside_today_momentum", self.outsideTodayMomentum),
             ("rising", self.rising),
             ("near_validation", self.nearValidation),
         )
@@ -104,31 +121,58 @@ class DiscoverServingSnapshot(StrictDiscoverServingModel):
             raise ValueError("Discover Serving project identity is duplicated")
         if self.profileSummary.selectedCount != len(identifiers):
             raise ValueError("Discover Serving profile inventory is incomplete")
-        if self.schemaVersion == 2:
+        if self.schemaVersion in {2, 3}:
             if (
                 self.profileSummary.categoryComplete != len(identifiers)
                 or self.sourceSchemaVersion is None
                 or self.sourcePolicyVersion is None
-                or (self.sourceSchemaVersion == 2) != (self.suppressionSummary is not None)
             ):
-                raise ValueError("Discover Serving v2 policy projection is incomplete")
+                raise ValueError("Discover Serving policy projection is incomplete")
             if any(
                 item.category is None or item.categorySourceMode is None or not item.categoryEvidenceRefs
                 for _, values in groups
                 for item in values
             ):
-                raise ValueError("Discover Serving v2 category projection is incomplete")
+                raise ValueError("Discover Serving category projection is incomplete")
+        if self.schemaVersion == 2 and (
+            (self.sourceSchemaVersion == 2) != isinstance(self.suppressionSummary, DiscoverSuppressionSummary)
+        ):
+            raise ValueError("Discover Serving v2 source policy projection is incomplete")
         if self.stageCounts.justDiscovered < len(self.justDiscovered):
             raise ValueError("Discover Serving just-discovered count exceeds source")
+        if self.stageCounts.outsideTodayMomentum < len(self.outsideTodayMomentum):
+            raise ValueError("Discover Serving outside-Today count exceeds source")
         if self.stageCounts.rising < len(self.rising):
             raise ValueError("Discover Serving rising count exceeds source")
         if self.stageCounts.nearValidation < len(self.nearValidation):
             raise ValueError("Discover Serving near-validation count exceeds source")
+        if self.schemaVersion == 3 and (
+            self.sourceSchemaVersion != 3
+            or self.sourcePolicyVersion != "trending-discover-v3"
+            or not isinstance(self.suppressionSummary, DiscoverSuppressionSummaryV3)
+            or self.todayPublishedTopCount != 20
+            or self.eligibilitySummary is None
+        ):
+            raise ValueError("Discover Serving v3 eligibility projection is incomplete")
+        if self.schemaVersion == 3 and self.eligibilitySummary is not None:
+            expected = {
+                "observationCandidates": self.coverage.candidateCount,
+                "todayExactFacts": self.coverage.todayExactCount,
+                "todayPublished": self.coverage.todayPublishedCount,
+                "excludedPublished": self.coverage.excludedPublishedCount,
+                "exactOutsidePublishedEvaluated": self.coverage.exactOutsidePublishedEvaluatedCount,
+                "preExactEvaluated": self.coverage.preExactEvaluatedCount,
+                "invalid": self.coverage.invalidCount,
+                "published": self.coverage.publishedCount,
+                "suppressed": self.suppressionSummary.suppressedSignalCount,
+            }
+            if self.eligibilitySummary.model_dump() != expected:
+                raise ValueError("Discover Serving v3 eligibility summary differs from audited coverage")
         return self
 
 
 class DiscoverServingProjectRecord(StrictDiscoverServingModel):
-    schemaVersion: Literal[1, 2]
+    schemaVersion: Literal[1, 2, 3]
     servingGenerationId: str
     discoverGenerationId: str
     facts: DiscoverItem
@@ -145,7 +189,7 @@ class DiscoverServingProjectRecord(StrictDiscoverServingModel):
             or self.discoverGenerationId != self.profile.generationId
         ):
             raise ValueError("Discover project/profile identity is inconsistent")
-        if self.schemaVersion == 2 and (
+        if self.schemaVersion in {2, 3} and (
             self.category is None or self.categorySourceMode is None or not self.categoryEvidenceRefs
         ):
             raise ValueError("Discover project category is incomplete")
@@ -153,7 +197,7 @@ class DiscoverServingProjectRecord(StrictDiscoverServingModel):
 
 
 class DiscoverProjectDetail(StrictDiscoverServingModel):
-    schemaVersion: Literal[1, 2]
+    schemaVersion: Literal[1, 2, 3]
     servingGenerationId: str
     discoverGenerationId: str
     facts: DiscoverItem
@@ -166,8 +210,17 @@ class DiscoverProjectDetail(StrictDiscoverServingModel):
     categoryEvidenceRefs: list[str] = Field(default_factory=list, max_length=8)
     nextExpectedAt: AwareDatetime | None = None
     nextTodaySettlementAt: AwareDatetime | None = None
-    todayStatus: Literal["not_in_source_today"] | None = None
-    todayReason: Literal["new_candidate", "awaiting_growth_evidence", "awaiting_daily_settlement"] | None = None
+    todayStatus: Literal["not_in_source_today", "outside_today_top20"] | None = None
+    todayReason: (
+        Literal[
+            "new_candidate",
+            "awaiting_growth_evidence",
+            "awaiting_daily_settlement",
+            "outside_today_top20_with_momentum",
+        ]
+        | None
+    ) = None
+    todayPublishedTopCount: Literal[20] | None = None
 
     @model_validator(mode="after")
     def validate_identity(self) -> DiscoverProjectDetail:
@@ -181,7 +234,7 @@ class DiscoverProjectDetail(StrictDiscoverServingModel):
             or self.evidence.generationId != self.discoverGenerationId
         ):
             raise ValueError("Discover detail identity is inconsistent")
-        if self.schemaVersion == 2 and (
+        if self.schemaVersion in {2, 3} and (
             self.category is None
             or self.categorySourceMode is None
             or not self.categoryEvidenceRefs
@@ -191,11 +244,34 @@ class DiscoverProjectDetail(StrictDiscoverServingModel):
             or self.todayReason is None
         ):
             raise ValueError("Discover detail v2 context is incomplete")
+        if self.schemaVersion == 3 and self.todayPublishedTopCount != 20:
+            raise ValueError("Discover detail v3 Today boundary is incomplete")
+        if self.schemaVersion == 3:
+            outside = self.facts.stage == "outside_today_momentum"
+            if outside != (self.facts.eligibilityClass == "exact_outside_published"):
+                raise ValueError("Discover detail v3 eligibility class is inconsistent")
+            if outside and (
+                self.todayStatus != "outside_today_top20"
+                or self.todayReason != "outside_today_top20_with_momentum"
+                or self.facts.todayExactRank is None
+                or self.facts.todayExact24hDelta is None
+                or self.facts.recentObservedStarDelta is None
+                or self.facts.priorComparableWindowDelta is None
+                or self.facts.accelerationDelta is None
+            ):
+                raise ValueError("Discover detail v3 outside-Today facts are incomplete")
+            if not outside and (
+                self.facts.eligibilityClass != "pre_exact"
+                or self.todayStatus != "not_in_source_today"
+                or self.facts.todayExactRank is not None
+                or self.facts.todayExact24hDelta is not None
+            ):
+                raise ValueError("Discover detail v3 pre-exact facts are inconsistent")
         return self
 
 
 class DiscoverServingPointer(StrictDiscoverServingModel):
-    schemaVersion: Literal[1, 2]
+    schemaVersion: Literal[1, 2, 3]
     generationId: str = Field(min_length=1, max_length=128)
     discoverGenerationId: str = Field(min_length=1, max_length=128)
     publishedAt: AwareDatetime
@@ -210,15 +286,15 @@ class DiscoverServingFile(StrictDiscoverServingModel):
 
 
 class DiscoverServingManifest(StrictDiscoverServingModel):
-    schemaVersion: Literal[1, 2]
+    schemaVersion: Literal[1, 2, 3]
     generationId: str
     discoverGenerationId: str
     createdAt: AwareDatetime
     state: Literal["ready"]
     sourceManifestSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     sourceArtifactSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    files: list[DiscoverServingFile] = Field(min_length=1, max_length=61)
-    projectIds: list[int] = Field(max_length=30)
+    files: list[DiscoverServingFile] = Field(min_length=1, max_length=81)
+    projectIds: list[int] = Field(max_length=40)
     profileSummary: DiscoverProfileSummary
 
     @model_validator(mode="after")
@@ -238,6 +314,7 @@ class DiscoverServingManifest(StrictDiscoverServingModel):
 
 class DiscoverServingStages(StrictDiscoverServingModel):
     justDiscovered: list[DiscoverServingCard] = Field(max_length=10)
+    outsideTodayMomentum: list[DiscoverServingCard] = Field(default_factory=list, max_length=10)
     rising: list[DiscoverServingCard] = Field(max_length=10)
     nearValidation: list[DiscoverServingCard] = Field(max_length=10)
 
@@ -265,16 +342,31 @@ class DiscoverApiResponse(StrictDiscoverServingModel):
     sourceWindowEnd: AwareDatetime | None = None
     sourceCaptureCount: int = Field(default=0, ge=0, le=14)
     profileSummary: DiscoverProfileSummary | None = None
-    sourceSchemaVersion: Literal[1, 2] | None = None
-    sourcePolicyVersion: Literal["trending-discover-v1", "trending-discover-v2"] | None = None
-    suppressionSummary: DiscoverSuppressionSummary | None = None
+    sourceSchemaVersion: Literal[1, 2, 3] | None = None
+    sourcePolicyVersion: Literal["trending-discover-v1", "trending-discover-v2", "trending-discover-v3"] | None = None
+    suppressionSummary: DiscoverSuppressionSummary | DiscoverSuppressionSummaryV3 | None = None
+    todayPublishedTopCount: Literal[20] | None = None
+    eligibilitySummary: DiscoverEligibilitySummary | None = None
     code: str | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_v3_boundary(self) -> DiscoverApiResponse:
+        if (self.sourceSchemaVersion == 3 or self.sourcePolicyVersion == "trending-discover-v3") and (
+            self.sourceSchemaVersion != 3
+            or self.sourcePolicyVersion != "trending-discover-v3"
+            or not isinstance(self.suppressionSummary, DiscoverSuppressionSummaryV3)
+            or self.todayPublishedTopCount != 20
+            or self.eligibilitySummary is None
+        ):
+            raise ValueError("Discover API v3 eligibility projection is incomplete")
+        return self
 
 
 __all__ = [
     "DiscoverApiResponse",
     "DiscoverProfileSummary",
     "DiscoverConflictSummary",
+    "DiscoverEligibilitySummary",
     "DiscoverProjectDetail",
     "DiscoverServingCard",
     "DiscoverServingFile",

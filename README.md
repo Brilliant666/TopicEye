@@ -215,17 +215,20 @@ Pop-Location
 ```
 
 `/discover` is a separate near-real-time product surface backed by validated
-`TrendingDiscoverArtifact v1` or v2. V2 applies Rardar's auditable absolute or
-relative growth gate plus continuous-observation evidence; TopicEye never
-recomputes or relaxes that producer decision. The page is grouped into 刚刚发现、
-持续升温 and 待日榜验证 rather than presented as a second ranking. Cards show
-only actual observed Star change and its actual window, are fully keyboard and
-pointer navigable, and can be filtered by a deterministic static project
-category retained in the URL. The Discover detail reuses the canonical project
-profile while presenting a distinct Discover fact context with continuity and
-the next Observation/Today settlement. Normal Discover and detail requests read
-`discover-serving/` only: zero GitHub calls, zero LLM calls, zero raw Artifact
-reads and zero PostgreSQL fact writes. See
+`TrendingDiscoverArtifact v1`, v2 or v3. V3 distinguishes the complete Today
+exact-fact set from the product's published Top 20: only published numeric
+repository IDs are excluded, while exact rank 21+ projects are evaluated by an
+audited short-window momentum policy. TopicEye validates that producer proof
+but never recomputes or relaxes selection. The page is grouped into 刚刚发现、
+榜外异动、持续升温 and 待日榜验证 rather than presented as a second ranking.
+榜外异动 shows the recent actual window, the prior comparable window,
+acceleration and Today exact context without forecasting a new rank. Cards are
+fully keyboard and pointer navigable and can be filtered by a deterministic
+static project category retained in the URL. The Discover detail reuses the
+canonical project profile while presenting a distinct deterministic fact
+context. Normal Discover and detail requests read `discover-serving/` only:
+zero GitHub calls, zero LLM calls, zero raw Artifact reads and zero PostgreSQL
+fact writes. See
 [Rardar Discover Adapter](docs/platform/RARDAR_DISCOVER_ADAPTER.md).
 
 Today links each repository to

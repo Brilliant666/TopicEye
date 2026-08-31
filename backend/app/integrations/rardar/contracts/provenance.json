@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "sourceRepository": "Brilliant666/rardar",
-  "sourceCommit": "deb65469c963d80cacab352dcea4cbf9b1187996",
+  "sourceCommit": "ce3437ecc76765d5961af7a78d08962dce964d63",
   "contracts": [
     {
       "sourcePath": "contracts/current-generation.schema.json",
@@ -30,20 +30,20 @@
     {
       "sourcePath": "contracts/trending-discover-current.schema.json",
       "vendoredPath": "trending-discover-current.schema.json",
-      "sourceSha256": "29d0aefa1aa19477dd789530cda9c49c250933bc8e7470126eebf4072991f6cd",
-      "vendoredSha256": "29d0aefa1aa19477dd789530cda9c49c250933bc8e7470126eebf4072991f6cd"
+      "sourceSha256": "65e434a6a1c5bcc4a45c99d2b521763c87c35ddf9e48653f1344880190470319",
+      "vendoredSha256": "65e434a6a1c5bcc4a45c99d2b521763c87c35ddf9e48653f1344880190470319"
     },
     {
       "sourcePath": "contracts/trending-discover-manifest.schema.json",
       "vendoredPath": "trending-discover-manifest.schema.json",
-      "sourceSha256": "eec4b04cf2315112f5f35f521cc3dbb1aae723f16bdc9631f590acbd716c380f",
-      "vendoredSha256": "eec4b04cf2315112f5f35f521cc3dbb1aae723f16bdc9631f590acbd716c380f"
+      "sourceSha256": "9a59c754c606aaeeea520221868f7205d7b9b95026c74409e8a60b502fdcda06",
+      "vendoredSha256": "9a59c754c606aaeeea520221868f7205d7b9b95026c74409e8a60b502fdcda06"
     },
     {
       "sourcePath": "contracts/trending-discover-artifact.schema.json",
       "vendoredPath": "trending-discover-artifact.schema.json",
-      "sourceSha256": "5f229fe8f3f4a93e31cd353881af6c8c6acc32484f8dcf63e41cf51059a5520d",
-      "vendoredSha256": "5f229fe8f3f4a93e31cd353881af6c8c6acc32484f8dcf63e41cf51059a5520d"
+      "sourceSha256": "80e1dc69f9387e8bf3c50afea977fd3c7fce85ec412ec0975f09127596122e1b",
+      "vendoredSha256": "80e1dc69f9387e8bf3c50afea977fd3c7fce85ec412ec0975f09127596122e1b"
     }
   ],
   "fixture": {

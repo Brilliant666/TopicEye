@@ -259,7 +259,14 @@ function DiscoverFactContext({ detail }: { detail: DiscoverProjectDetail }) {
       </header>
       <dl>
         <Fact label="发现阶段" value={discoverStageLabel(facts.stage)} />
+        {facts.eligibilityClass && <Fact label="候选资格" value={facts.eligibilityClass === 'exact_outside_published' ? '完整 24h 事实 · Today Top 20 榜外' : '尚未形成完整 24h exact'} />}
         <Fact label="产品分类" value={discoverCategoryLabel(detail.category)} />
+        {facts.stage === 'outside_today_momentum' && <Fact label="Today 发布边界" value={`Top ${detail.todayPublishedTopCount ?? 20}`} />}
+        {facts.stage === 'outside_today_momentum' && <Fact label="Today exact 排名" value={`#${facts.todayExactRank ?? '—'}`} />}
+        {facts.stage === 'outside_today_momentum' && <Fact label="Today 完整 24h 增量" value={`+${formatNumber(facts.todayExact24hDelta ?? 0)} Star`} />}
+        {facts.stage === 'outside_today_momentum' && <Fact label={`最近实际 ${formatHours(facts.recentWindowHours ?? 0)}`} value={`+${formatNumber(facts.recentObservedStarDelta ?? 0)} Star`} accent />}
+        {facts.stage === 'outside_today_momentum' && <Fact label="前一可比窗口" value={signedStar(facts.priorComparableWindowDelta)} />}
+        {facts.stage === 'outside_today_momentum' && <Fact label="短窗口加速" value={signedStar(facts.accelerationDelta)} />}
         <Fact label="首次发现" value={formatTime(facts.firstSeenAt)} />
         <Fact label="最新观察" value={formatTime(facts.lastObservedAt)} />
         <Fact label="实际窗口" value={formatHours(facts.observedWindowHours)} />
@@ -389,7 +396,12 @@ function formatTime(value: string) {
 }
 
 function discoverStageLabel(value: DiscoverProjectDetail['facts']['stage']) {
-  return { just_discovered: '刚刚发现', rising: '持续升温', near_validation: '待日榜验证' }[value];
+  return {
+    just_discovered: '刚刚发现',
+    outside_today_momentum: '榜外异动',
+    rising: '持续升温',
+    near_validation: '待日榜验证',
+  }[value];
 }
 
 function discoverReason(detail: DiscoverProjectDetail) {
@@ -402,6 +414,9 @@ function discoverReason(detail: DiscoverProjectDetail) {
       ? '连续 Observation'
       : `连续 ${facts.consecutivePositiveIntervalCount} 个观察区间`;
     return `${intervals}获得正增长，实际 ${formatHours(facts.observedWindowHours)}新增 ${formatNumber(facts.observedStarDelta)} Star。`;
+  }
+  if (facts.stage === 'outside_today_momentum') {
+    return `该项目已形成完整 24 小时事实，Today exact 为 #${facts.todayExactRank ?? '—'}，未进入 Top ${detail.todayPublishedTopCount ?? 20}；最近 ${formatHours(facts.recentWindowHours ?? 0)}新增 ${formatNumber(facts.recentObservedStarDelta ?? 0)} Star，高于此前相同窗口的 ${formatNumber(facts.priorComparableWindowDelta ?? 0)} Star，并有 ${facts.consecutivePositiveIntervalCount ?? 0} 个连续正增长区间。`;
   }
   return `已持续观察 ${formatHours(facts.observedWindowHours)}并通过信号门禁，等待下一次 08:00 日榜结算。`;
 }
@@ -423,7 +438,13 @@ function todayReasonLabel(value: DiscoverProjectDetail['todayReason']) {
     new_candidate: '刚进入候选池，等待形成完整增长证据与日榜窗口。',
     awaiting_growth_evidence: '已出现连续增长，但尚未经过下一次每日 08:00 Today 结算。',
     awaiting_daily_settlement: '已通过信号门禁，正在等待下一次每日 08:00 Today 结算。',
+    outside_today_top20_with_momentum: '已形成完整 24 小时事实，但 exact 排名位于 Today Top 20 之外；最近短窗口出现新的连续增长和加速。',
   }[value || 'new_candidate'];
+}
+
+function signedStar(value: number | null | undefined) {
+  if (value == null) return '窗口证据不足';
+  return `${value >= 0 ? '+' : ''}${formatNumber(value)} Star`;
 }
 
 function formatHours(value: number) {

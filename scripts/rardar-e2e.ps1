@@ -28,6 +28,18 @@ New-Item -ItemType Directory -Path $MirrorRoot | Out-Null
 Copy-Item -Path (Join-Path $BackendRoot "tests\fixtures\rardar_intelligence\revision-a\*") -Destination $MirrorRoot -Recurse
 Copy-Item -Path (Join-Path $BackendRoot "tests\fixtures\rardar_discover\artifacts") -Destination $MirrorRoot -Recurse
 
+# Git may materialize JSON fixture text with CRLF on Windows even though the
+# immutable producer hashes were calculated over canonical LF bytes. Normalize
+# only the temporary copy so process-level safe-read tests exercise the same
+# bytes as Linux CI without rewriting checked-in fixtures.
+Get-ChildItem -LiteralPath (Join-Path $MirrorRoot "artifacts") -Filter "*.json" -Recurse | ForEach-Object {
+    $raw = [IO.File]::ReadAllBytes($_.FullName)
+    $text = [Text.UTF8Encoding]::new($false, $true).GetString($raw)
+    if ($text.Contains("`r`n")) {
+        [IO.File]::WriteAllText($_.FullName, $text.Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
+    }
+}
+
 # Next's persistent fetch cache must not leak a prior E2E mode into this run.
 # The path is verified before deleting generated build output.
 $nextOutput = Join-Path $FrontendRoot ".next"

@@ -6,7 +6,12 @@ from typing import Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
-from app.integrations.rardar.discover import DiscoverCoverage, DiscoverItem, DiscoverStageCounts
+from app.integrations.rardar.discover import (
+    DiscoverCoverage,
+    DiscoverItem,
+    DiscoverStageCounts,
+    DiscoverSuppressionSummary,
+)
 from app.integrations.rardar.serving_schemas import (
     OfficialProjectProfile,
     ProjectEvidenceProjection,
@@ -24,6 +29,9 @@ class DiscoverServingCard(DiscoverItem):
     capabilities: list[ServingCapability] = Field(min_length=1, max_length=6)
     sourceMode: Literal["official_zh", "official_translated", "rardar_derived"]
     qualityState: Literal["ready", "partial"]
+    category: Literal["ai-agent", "dev-tools", "data-infra", "productivity", "video-content", "other"] | None = None
+    categorySourceMode: Literal["canonical_profile", "github_metadata", "deterministic_fallback"] | None = None
+    categoryEvidenceRefs: list[str] = Field(default_factory=list, max_length=8)
 
 
 class DiscoverProfileSummary(StrictDiscoverServingModel):
@@ -31,6 +39,7 @@ class DiscoverProfileSummary(StrictDiscoverServingModel):
     identityComplete: int = Field(ge=0, le=30)
     positioningComplete: int = Field(ge=0, le=30)
     capabilitiesComplete: int = Field(ge=0, le=30)
+    categoryComplete: int = Field(default=0, ge=0, le=30)
     officialZh: int = Field(ge=0, le=30)
     officialTranslated: int = Field(ge=0, le=30)
     rardarDerived: int = Field(ge=0, le=30)
@@ -43,13 +52,15 @@ class DiscoverProfileSummary(StrictDiscoverServingModel):
     def validate_counts(self) -> DiscoverProfileSummary:
         if not (self.identityComplete == self.positioningComplete == self.capabilitiesComplete == self.selectedCount):
             raise ValueError("every selected Discover profile must be complete")
+        if self.categoryComplete not in {0, self.selectedCount}:
+            raise ValueError("Discover categories must cover either none or every selected project")
         if self.officialZh + self.officialTranslated + self.rardarDerived != self.selectedCount:
             raise ValueError("Discover profile source modes do not cover the selected set")
         return self
 
 
 class DiscoverServingSnapshot(StrictDiscoverServingModel):
-    schemaVersion: Literal[1]
+    schemaVersion: Literal[1, 2]
     servingGenerationId: str = Field(min_length=1, max_length=128)
     discoverGenerationId: str = Field(min_length=1, max_length=128)
     generatedAt: AwareDatetime
@@ -73,6 +84,9 @@ class DiscoverServingSnapshot(StrictDiscoverServingModel):
     syncedAt: AwareDatetime | None
     sourceHost: str | None = Field(default=None, max_length=100)
     profileSummary: DiscoverProfileSummary
+    sourceSchemaVersion: Literal[1, 2] | None = None
+    sourcePolicyVersion: Literal["trending-discover-v1", "trending-discover-v2"] | None = None
+    suppressionSummary: DiscoverSuppressionSummary | None = None
 
     @model_validator(mode="after")
     def validate_projection(self) -> DiscoverServingSnapshot:
@@ -90,6 +104,20 @@ class DiscoverServingSnapshot(StrictDiscoverServingModel):
             raise ValueError("Discover Serving project identity is duplicated")
         if self.profileSummary.selectedCount != len(identifiers):
             raise ValueError("Discover Serving profile inventory is incomplete")
+        if self.schemaVersion == 2:
+            if (
+                self.profileSummary.categoryComplete != len(identifiers)
+                or self.sourceSchemaVersion is None
+                or self.sourcePolicyVersion is None
+                or (self.sourceSchemaVersion == 2) != (self.suppressionSummary is not None)
+            ):
+                raise ValueError("Discover Serving v2 policy projection is incomplete")
+            if any(
+                item.category is None or item.categorySourceMode is None or not item.categoryEvidenceRefs
+                for _, values in groups
+                for item in values
+            ):
+                raise ValueError("Discover Serving v2 category projection is incomplete")
         if self.stageCounts.justDiscovered < len(self.justDiscovered):
             raise ValueError("Discover Serving just-discovered count exceeds source")
         if self.stageCounts.rising < len(self.rising):
@@ -100,11 +128,14 @@ class DiscoverServingSnapshot(StrictDiscoverServingModel):
 
 
 class DiscoverServingProjectRecord(StrictDiscoverServingModel):
-    schemaVersion: Literal[1]
+    schemaVersion: Literal[1, 2]
     servingGenerationId: str
     discoverGenerationId: str
     facts: DiscoverItem
     profile: OfficialProjectProfile
+    category: Literal["ai-agent", "dev-tools", "data-infra", "productivity", "video-content", "other"] | None = None
+    categorySourceMode: Literal["canonical_profile", "github_metadata", "deterministic_fallback"] | None = None
+    categoryEvidenceRefs: list[str] = Field(default_factory=list, max_length=8)
 
     @model_validator(mode="after")
     def validate_identity(self) -> DiscoverServingProjectRecord:
@@ -114,11 +145,15 @@ class DiscoverServingProjectRecord(StrictDiscoverServingModel):
             or self.discoverGenerationId != self.profile.generationId
         ):
             raise ValueError("Discover project/profile identity is inconsistent")
+        if self.schemaVersion == 2 and (
+            self.category is None or self.categorySourceMode is None or not self.categoryEvidenceRefs
+        ):
+            raise ValueError("Discover project category is incomplete")
         return self
 
 
 class DiscoverProjectDetail(StrictDiscoverServingModel):
-    schemaVersion: Literal[1]
+    schemaVersion: Literal[1, 2]
     servingGenerationId: str
     discoverGenerationId: str
     facts: DiscoverItem
@@ -126,6 +161,13 @@ class DiscoverProjectDetail(StrictDiscoverServingModel):
     evidence: ProjectEvidenceProjection
     coverage: DiscoverCoverage
     conflictCount: int = Field(ge=0, le=500)
+    category: Literal["ai-agent", "dev-tools", "data-infra", "productivity", "video-content", "other"] | None = None
+    categorySourceMode: Literal["canonical_profile", "github_metadata", "deterministic_fallback"] | None = None
+    categoryEvidenceRefs: list[str] = Field(default_factory=list, max_length=8)
+    nextExpectedAt: AwareDatetime | None = None
+    nextTodaySettlementAt: AwareDatetime | None = None
+    todayStatus: Literal["not_in_source_today"] | None = None
+    todayReason: Literal["new_candidate", "awaiting_growth_evidence", "awaiting_daily_settlement"] | None = None
 
     @model_validator(mode="after")
     def validate_identity(self) -> DiscoverProjectDetail:
@@ -139,11 +181,21 @@ class DiscoverProjectDetail(StrictDiscoverServingModel):
             or self.evidence.generationId != self.discoverGenerationId
         ):
             raise ValueError("Discover detail identity is inconsistent")
+        if self.schemaVersion == 2 and (
+            self.category is None
+            or self.categorySourceMode is None
+            or not self.categoryEvidenceRefs
+            or self.nextExpectedAt is None
+            or self.nextTodaySettlementAt is None
+            or self.todayStatus is None
+            or self.todayReason is None
+        ):
+            raise ValueError("Discover detail v2 context is incomplete")
         return self
 
 
 class DiscoverServingPointer(StrictDiscoverServingModel):
-    schemaVersion: Literal[1]
+    schemaVersion: Literal[1, 2]
     generationId: str = Field(min_length=1, max_length=128)
     discoverGenerationId: str = Field(min_length=1, max_length=128)
     publishedAt: AwareDatetime
@@ -158,7 +210,7 @@ class DiscoverServingFile(StrictDiscoverServingModel):
 
 
 class DiscoverServingManifest(StrictDiscoverServingModel):
-    schemaVersion: Literal[1]
+    schemaVersion: Literal[1, 2]
     generationId: str
     discoverGenerationId: str
     createdAt: AwareDatetime
@@ -213,6 +265,9 @@ class DiscoverApiResponse(StrictDiscoverServingModel):
     sourceWindowEnd: AwareDatetime | None = None
     sourceCaptureCount: int = Field(default=0, ge=0, le=14)
     profileSummary: DiscoverProfileSummary | None = None
+    sourceSchemaVersion: Literal[1, 2] | None = None
+    sourcePolicyVersion: Literal["trending-discover-v1", "trending-discover-v2"] | None = None
+    suppressionSummary: DiscoverSuppressionSummary | None = None
     code: str | None = Field(default=None, max_length=100)
 
 

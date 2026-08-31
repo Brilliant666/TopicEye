@@ -19,7 +19,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from app.integrations.rardar.adapter import _SafeRoot, _strict_json
-from app.integrations.rardar.discover import DISCOVER_ROOT, DiscoverArtifactAdapter
+from app.integrations.rardar.discover import DISCOVER_ROOT, DiscoverArtifactAdapter, LoadedDiscoverArtifact
 from app.integrations.rardar.discover_serving import (
     DISCOVER_SERVING_PROJECTION_VERSION,
     DiscoverServingError,
@@ -58,7 +58,58 @@ class DiscoverSyncResult:
     translation_cache_hits: int
 
 
+@dataclass(frozen=True)
+class DiscoverSyncMetadata:
+    synced_at: datetime
+    source_host: str
+
+
 RemoteRunner = Callable[[str, str], bytes]
+
+
+def load_discover_sync_metadata(
+    target: Path,
+    source: LoadedDiscoverArtifact,
+) -> DiscoverSyncMetadata | None:
+    """Load synchronization metadata only when it is bound to the active raw source."""
+
+    generation_id = source.board.discoverGenerationId
+    if not _GENERATION.fullmatch(generation_id):
+        raise DiscoverSyncError("rardar_discover_sync_metadata_invalid", "Discover generation identity is unsafe")
+    relative = f"discover-sync/generations/{generation_id}.json"
+    safe = _SafeRoot(str(target.resolve()))
+    try:
+        raw = safe.read_stable(relative, maximum_bytes=64 * 1024)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        raise DiscoverSyncError(
+            "rardar_discover_sync_metadata_invalid",
+            "Discover synchronization metadata is unsafe",
+        ) from exc
+    try:
+        metadata = _strict_json(raw)
+        synced_at = datetime.fromisoformat(str(metadata["syncedAt"]).replace("Z", "+00:00"))
+        source_host = metadata["sourceHost"]
+        if (
+            metadata.get("schemaVersion") != 1
+            or metadata.get("generationId") != generation_id
+            or metadata.get("manifestSha256") != source.manifest_sha256
+            or metadata.get("artifactSha256") != source.artifact_sha256
+            or metadata.get("latestCaptureId") != source.board.latestCaptureId
+            or metadata.get("publishedCount") != source.board.coverage.publishedCount
+            or synced_at.tzinfo is None
+            or not isinstance(source_host, str)
+            or _HOST.fullmatch(source_host) is None
+        ):
+            raise ValueError("metadata is not bound to the active source")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DiscoverSyncError(
+            "rardar_discover_sync_metadata_invalid",
+            "Discover synchronization metadata does not match the active source",
+        ) from exc
+    return DiscoverSyncMetadata(synced_at=synced_at, source_host=source_host)
+
 
 _REMOTE_PROGRAM = r"""
 import base64, hashlib, json, os, re, stat, sys
@@ -482,7 +533,9 @@ def sync_discover_intelligence(
 
 __all__ = [
     "DiscoverSyncError",
+    "DiscoverSyncMetadata",
     "DiscoverSyncResult",
+    "load_discover_sync_metadata",
     "local_discover_runner",
     "ssh_discover_runner",
     "sync_discover_intelligence",

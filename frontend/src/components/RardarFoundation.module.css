@@ -63,6 +63,24 @@
   line-height: 1.85;
 }
 
+.discoverHeroMetrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.discoverHeroMetrics span {
+  padding: 7px 10px;
+  border: 1px solid rgba(48, 103, 206, 0.12);
+  border-radius: 999px;
+  color: #64758d;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 0.75rem;
+}
+
+.discoverHeroMetrics strong { color: #183b74; }
+
 .discoverFreshness {
   padding: 20px;
   border: 1px solid rgba(72, 123, 218, 0.16);
@@ -99,6 +117,36 @@
 
 .discoverFreshness dt { color: #7a8aa2; font-size: 0.78rem; }
 .discoverFreshness dd { margin: 0; color: #1b345d; font-size: 0.82rem; font-weight: 700; text-align: right; }
+
+.discoverCategoryFilters {
+  display: flex;
+  gap: 9px;
+  overflow-x: auto;
+  padding: 3px 2px 8px;
+  scrollbar-width: thin;
+}
+
+.discoverCategoryFilters button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 13px;
+  border: 1px solid rgba(49, 101, 194, 0.16);
+  border-radius: 999px;
+  color: #4e6280;
+  background: rgba(255, 255, 255, 0.88);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+.discoverCategoryFilters button:hover { transform: translateY(-1px); border-color: rgba(37, 99, 235, 0.36); }
+.discoverCategoryFilters button[data-selected='true'] { border-color: #2e6ee8; color: #fff; background: #2e6ee8; }
+.discoverCategoryFilters button span { min-width: 18px; padding: 1px 5px; border-radius: 999px; background: rgba(44, 91, 174, 0.08); font-size: 0.68rem; text-align: center; }
+.discoverCategoryFilters button[data-selected='true'] span { background: rgba(255, 255, 255, 0.2); }
 
 .discoverStageFlow { display: grid; gap: 28px; }
 
@@ -145,11 +193,13 @@
 }
 
 .discoverRealtimeCard {
+  position: relative;
   min-width: 0;
   padding: 20px;
   border: 1px solid rgba(57, 105, 190, 0.14);
   border-radius: 22px;
   background: linear-gradient(155deg, #fff, #fbfdff);
+  cursor: pointer;
   transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
 }
 
@@ -157,6 +207,13 @@
   transform: translateY(-2px);
   border-color: rgba(53, 111, 224, 0.32);
   box-shadow: 0 16px 38px rgba(34, 79, 164, 0.1);
+}
+
+.discoverRealtimeCard:focus-visible {
+  outline: 3px solid var(--rardar-brand-primary);
+  outline-offset: 3px;
+  transform: translateY(-2px);
+  box-shadow: 0 16px 38px rgba(34, 79, 164, 0.12);
 }
 
 .discoverCardTopline,
@@ -170,7 +227,9 @@
 }
 
 .discoverCardTopline { justify-content: space-between; }
-.discoverCardTopline span { color: #2b64ce; font-size: 0.78rem; font-weight: 800; }
+.discoverCardTopline > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.discoverCardTopline span { padding: 4px 7px; border-radius: 999px; color: #2b64ce; background: #edf4ff; font-size: 0.72rem; font-weight: 800; }
+.discoverCardTopline span[data-kind='stage'] { color: #08765c; background: #e8f8f2; }
 .discoverCardTopline small { color: #78889e; font-size: 0.72rem; }
 
 .discoverRealtimeCard h3 {
@@ -178,6 +237,14 @@
   margin: 14px 0 9px;
   color: #10254a;
   font-size: 1.08rem;
+}
+
+.discoverRealtimeCard h3 a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+  text-decoration: none;
 }
 
 .discoverIdentity {
@@ -232,8 +299,18 @@
 .discoverGrowthFact dd small { color: #6c7c91; font-size: 0.76rem; font-weight: 650; }
 
 .discoverMetadata { margin-bottom: 16px; }
-.discoverCardActions { justify-content: space-between; }
-.discoverCardActions a {
+.discoverCardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 13px;
+  border-top: 1px solid rgba(60, 105, 185, 0.1);
+}
+.discoverCardFooter > span { color: #8290a4; font-size: 0.72rem; }
+.discoverCardFooter a {
+  position: relative;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -3076,6 +3153,17 @@
   font-family: var(--font-dm-mono), ui-monospace, monospace;
   font-size: 0.72rem;
   font-weight: 780;
+}
+
+.discoverContextBoundary {
+  margin: 16px 0 0;
+  padding: 11px 13px;
+  border-left: 3px solid #4d7fe1;
+  border-radius: 0 10px 10px 0;
+  color: #61738d;
+  background: #f4f7fd;
+  font-size: 0.78rem;
+  line-height: 1.65;
 }
 
 .provenanceDetails {

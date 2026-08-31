@@ -1,5 +1,10 @@
+'use client';
+
 import Link from 'next/link';
+import type { KeyboardEvent, MouseEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
+  ArrowRight,
   ArrowUpRight,
   Clock3,
   Eye,
@@ -11,11 +16,25 @@ import {
 
 import {
   type DiscoverCard,
+  type DiscoverCategory,
   type DiscoverLoadResult,
   type DiscoverResponse,
   type DiscoverStage,
 } from '@/lib/rardar-discover';
 import styles from './RardarFoundation.module.css';
+
+type CategoryFilter = 'all' | DiscoverCategory;
+
+const CATEGORIES: Array<{ key: CategoryFilter; label: string }> = [
+  { key: 'all', label: '全部' },
+  { key: 'ai-agent', label: 'AI 与 Agent' },
+  { key: 'dev-tools', label: '开发工具' },
+  { key: 'data-infra', label: '数据与基础设施' },
+  { key: 'productivity', label: '生产力' },
+  { key: 'video-content', label: '视频与内容' },
+  { key: 'other', label: '其他' },
+];
+const CATEGORY_KEYS = new Set(CATEGORIES.map((item) => item.key));
 
 const SECTIONS: Array<{
   key: keyof DiscoverResponse['stages'];
@@ -27,27 +46,62 @@ const SECTIONS: Array<{
     key: 'justDiscovered',
     stage: 'just_discovered',
     title: '刚刚发现',
-    description: '最近一至两个 Observation 中首次出现。',
+    description: '最近 4 小时首次进入候选池；这是新召回事实，尚未形成增长结论。',
   },
   {
     key: 'rising',
     stage: 'rising',
     title: '持续升温',
-    description: '已连续出现，并在实际观察窗口内获得正 Star 增量。',
+    description: '已通过实际增长门禁，并有连续正增长 Observation 作为证据。',
   },
   {
     key: 'nearValidation',
     stage: 'near_validation',
-    title: '接近验证',
-    description: '已经积累接近 24 小时的观察证据，但尚未进入 Today 精确榜。',
+    title: '待日榜验证',
+    description: '已通过同一信号门禁并连续观察至少 20 小时，等待下一次 08:00 日榜结算。',
   },
 ];
 
+export function filterDiscoverStages(
+  stages: DiscoverResponse['stages'],
+  category: CategoryFilter,
+): DiscoverResponse['stages'] {
+  if (category === 'all') return stages;
+  return {
+    justDiscovered: stages.justDiscovered.filter((item) => item.category === category),
+    rising: stages.rising.filter((item) => item.category === category),
+    nearValidation: stages.nearValidation.filter((item) => item.category === category),
+  };
+}
+
+function categoryFromLocation(): CategoryFilter {
+  if (typeof window === 'undefined') return 'all';
+  const candidate = new URL(window.location.href).searchParams.get('category') || 'all';
+  return CATEGORY_KEYS.has(candidate as CategoryFilter) ? candidate as CategoryFilter : 'all';
+}
+
 export default function RardarDiscoverPage({ result }: { result: DiscoverLoadResult }) {
+  const [category, setCategory] = useState<CategoryFilter>('all');
+
+  useEffect(() => {
+    const sync = () => setCategory(categoryFromLocation());
+    sync();
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
+  const selectCategory = useCallback((next: CategoryFilter) => {
+    setCategory(next);
+    const url = new URL(window.location.href);
+    if (next === 'all') url.searchParams.delete('category');
+    else url.searchParams.set('category', next);
+    window.history.pushState({ category: next }, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
   if (result.kind !== 'published') {
     return (
       <div className={`${styles.page} ${styles.discoverRealtimePage}`} data-rardar-route="/discover">
-        <DiscoverHero board={null} />
+        <DiscoverHero board={null} category="all" publishedCount={0} />
         <section className={styles.discoverUnavailable} role="status">
           <Radar size={24} />
           <div>
@@ -60,9 +114,30 @@ export default function RardarDiscoverPage({ result }: { result: DiscoverLoadRes
     );
   }
   const { board } = result;
+  const filtered = filterDiscoverStages(board.stages, category);
+  const allCards = [...board.stages.justDiscovered, ...board.stages.rising, ...board.stages.nearValidation];
+  const publishedCount = filtered.justDiscovered.length + filtered.rising.length + filtered.nearValidation.length;
+  const categoryCounts = new Map<CategoryFilter, number>([['all', allCards.length]]);
+  CATEGORIES.slice(1).forEach(({ key }) => {
+    categoryCounts.set(key, allCards.filter((item) => item.category === key).length);
+  });
+
   return (
     <div className={`${styles.page} ${styles.discoverRealtimePage}`} data-rardar-route="/discover">
-      <DiscoverHero board={board} />
+      <DiscoverHero board={board} category={category} publishedCount={publishedCount} />
+      <nav className={styles.discoverCategoryFilters} aria-label="发现项目分类">
+        {CATEGORIES.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            aria-pressed={category === item.key}
+            data-selected={category === item.key ? 'true' : 'false'}
+            onClick={() => selectCategory(item.key)}
+          >
+            {item.label}<span>{categoryCounts.get(item.key) || 0}</span>
+          </button>
+        ))}
+      </nav>
       <div className={styles.discoverStageFlow}>
         {SECTIONS.map((section) => (
           <DiscoverSection
@@ -70,8 +145,9 @@ export default function RardarDiscoverPage({ result }: { result: DiscoverLoadRes
             title={section.title}
             description={section.description}
             stage={section.stage}
-            projects={board.stages[section.key]}
+            projects={filtered[section.key]}
             generation={board.generation || ''}
+            category={category}
           />
         ))}
       </div>
@@ -80,16 +156,30 @@ export default function RardarDiscoverPage({ result }: { result: DiscoverLoadRes
   );
 }
 
-function DiscoverHero({ board }: { board: DiscoverResponse | null }) {
+function DiscoverHero({
+  board,
+  category,
+  publishedCount,
+}: {
+  board: DiscoverResponse | null;
+  category: CategoryFilter;
+  publishedCount: number;
+}) {
+  const suppressed = board?.suppressionSummary?.suppressedWeakSignalCount;
   return (
     <section className={styles.discoverRealtimeHero} data-testid="discover-hero">
       <div>
         <p className={styles.eyebrow}>Discover · Near real-time</p>
-        <h1>发现刚刚开始升温的项目</h1>
+        <h1>发现此刻正在形成的真实信号</h1>
         <p>
           来自 Rardar 每 2 小时一次的已验证 Observation。这里只展示实际观察窗口，
           尚未形成完整 24 小时精确排名，也不会外推日增量。
         </p>
+        <div className={styles.discoverHeroMetrics} aria-label="当前发现状态">
+          <span>当前筛选 <strong>{categoryLabel(category)}</strong></span>
+          <span>发布 <strong>{publishedCount}</strong></span>
+          <span>弱信号抑制 <strong>{suppressed ?? '—'}</strong></span>
+        </div>
       </div>
       <div className={styles.discoverFreshness}>
         <span className={board?.freshnessState === 'stale' ? styles.staleBadge : styles.freshBadge}>
@@ -113,12 +203,14 @@ function DiscoverSection({
   stage,
   projects,
   generation,
+  category,
 }: {
   title: string;
   description: string;
   stage: DiscoverStage;
   projects: DiscoverCard[];
   generation: string;
+  category: CategoryFilter;
 }) {
   return (
     <section className={styles.discoverStageSection} data-testid={`discover-stage-${stage}`}>
@@ -129,7 +221,9 @@ function DiscoverSection({
       {projects.length === 0 ? (
         <div className={styles.discoverStageEmpty}>
           <Eye size={20} />
-          <p>本次已验证 Observation 中没有符合该阶段条件的项目。</p>
+          <p>{category === 'all'
+            ? '本次已验证 Observation 中没有符合该阶段信号门禁的项目。'
+            : `${categoryLabel(category)}中暂时没有符合该阶段信号门禁的项目。`}</p>
         </div>
       ) : (
         <div className={styles.discoverRealtimeGrid}>
@@ -144,13 +238,34 @@ function DiscoverSection({
 
 function DiscoverCardView({ project, generation }: { project: DiscoverCard; generation: string }) {
   const detailHref = `/project/github/${project.githubRepositoryId}?discoverGeneration=${encodeURIComponent(generation)}`;
+  const navigate = () => window.location.assign(detailHref);
+  const onClick = (event: MouseEvent<HTMLElement>) => {
+    if ((event.target as HTMLElement).closest('a, button, input, select, textarea')) return;
+    navigate();
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.target !== event.currentTarget || !['Enter', ' '].includes(event.key)) return;
+    event.preventDefault();
+    navigate();
+  };
   return (
-    <article className={styles.discoverRealtimeCard} data-testid="discover-project-card">
+    <article
+      className={styles.discoverRealtimeCard}
+      data-testid="discover-project-card"
+      role="link"
+      tabIndex={0}
+      aria-label={`查看 ${project.repository} 的发现详情`}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+    >
       <div className={styles.discoverCardTopline}>
-        <span>{stageLabel(project.stage)}</span>
+        <div>
+          <span data-kind="category">{categoryLabel(project.category || 'other')}</span>
+          <span data-kind="stage">{stageLabel(project.stage)}</span>
+        </div>
         <small>{sourceLabel(project.sourceMode)}</small>
       </div>
-      <h3>{project.repository}</h3>
+      <h3><Link href={detailHref}>{project.repository} <ArrowRight size={15} /></Link></h3>
       <p className={styles.discoverIdentity}>{project.identitySummaryZh}</p>
       <p className={styles.discoverPositioning}>{project.positioningZh}</p>
       <div className={styles.discoverCapabilityTags}>
@@ -162,8 +277,9 @@ function DiscoverCardView({ project, generation }: { project: DiscoverCard; gene
           <dd>+{formatNumber(project.observedStarDelta)} <small>/ 实际 {formatHours(project.observedWindowHours)}</small></dd>
         </div>
         <div><dt>当前 Star</dt><dd><Star size={13} /> {formatNumber(project.totalStars)}</dd></div>
+        <div><dt>正增长连续性</dt><dd>{project.consecutivePositiveIntervalCount == null ? '尚未形成结论' : `${project.consecutivePositiveIntervalCount} 个连续区间`}</dd></div>
         <div><dt>首次发现</dt><dd>{formatTime(project.firstSeenAt)}</dd></div>
-        <div><dt>连续观察</dt><dd>{project.consecutiveCaptureCount} 次 capture</dd></div>
+        <div><dt>最新区间</dt><dd>{project.latestIntervalDelta == null ? '尚无连续区间' : `${project.latestIntervalDelta >= 0 ? '+' : ''}${project.latestIntervalDelta} Star`}</dd></div>
       </dl>
       <div className={styles.discoverMetadata}>
         {project.language && <span>{project.language}</span>}
@@ -172,9 +288,11 @@ function DiscoverCardView({ project, generation }: { project: DiscoverCard; gene
         {project.isFork && <span><GitBranch size={11} /> Fork</span>}
         {project.isArchived && <span>Archived</span>}
       </div>
-      <div className={styles.discoverCardActions}>
-        <Link href={detailHref}>查看项目详情</Link>
-        <a href={project.url} target="_blank" rel="noreferrer">GitHub <ArrowUpRight size={14} /></a>
+      <div className={styles.discoverCardFooter}>
+        <span>点击卡片查看发现证据</span>
+        <a href={project.url} target="_blank" rel="noreferrer" aria-label={`在 GitHub 打开 ${project.repository}`}>
+          GitHub <ArrowUpRight size={14} />
+        </a>
       </div>
     </article>
   );
@@ -189,6 +307,7 @@ function Coverage({ board }: { board: DiscoverResponse }) {
       <div>
         <span>候选 {coverage.candidateCount}</span>
         <span>发布 {coverage.publishedCount}</span>
+        {board.suppressionSummary && <span>弱信号抑制 {board.suppressionSummary.suppressedWeakSignalCount}</span>}
         <span>成功查询 {coverage.querySuccessCount}</span>
         <span>失败查询 {coverage.queryFailureCount}</span>
         <span>Metadata failure {coverage.metadataFailureCount}</span>
@@ -202,7 +321,11 @@ function Coverage({ board }: { board: DiscoverResponse }) {
 }
 
 function stageLabel(value: DiscoverStage) {
-  return { just_discovered: '刚刚发现', rising: '持续升温', near_validation: '接近验证' }[value];
+  return { just_discovered: '刚刚发现', rising: '持续升温', near_validation: '待日榜验证' }[value];
+}
+
+function categoryLabel(value: CategoryFilter) {
+  return CATEGORIES.find((item) => item.key === value)?.label || '其他';
 }
 
 function sourceLabel(value: DiscoverCard['sourceMode']) {

@@ -175,6 +175,7 @@ async def visual_state_fixture(request, call_next):
                         "identityComplete": selected,
                         "positioningComplete": selected,
                         "capabilitiesComplete": selected,
+                        "categoryComplete": selected,
                     }
                 )
             return JSONResponse(content=payload)

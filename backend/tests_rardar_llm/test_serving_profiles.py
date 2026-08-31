@@ -1636,6 +1636,26 @@ def test_capability_validation_rejects_foreign_evidence_and_non_capability_noise
     assert "capability_invalid_content" in issues
 
 
+def test_capability_validation_preserves_community_operations_as_product_work() -> None:
+    capability = ServingCapability(
+        title="Reddit 社区运营",
+        detail="提供面向 Reddit 社区运营的专业代理，用于规划互动流程并维护社区参与。",
+        evidenceRefs=["description"],
+        sourceMode="official_translated",
+    )
+    navigation = ServingCapability(
+        title="加入社区",
+        detail="访问社区支持页面并参与讨论。",
+        evidenceRefs=["readme:community"],
+        sourceMode="deterministic_fallback",
+    )
+
+    valid, issues = _valid_capabilities([capability, navigation], {"description", "readme:community"})
+
+    assert valid == [capability]
+    assert issues == ["capability_invalid_content"]
+
+
 @pytest.mark.asyncio
 async def test_missing_structured_evidence_is_hidden_instead_of_invented(tmp_path: Path) -> None:
     project = _project().model_copy(update={"description": "A small open source repository."})

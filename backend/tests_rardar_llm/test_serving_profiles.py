@@ -32,6 +32,7 @@ from app.integrations.rardar.serving_profiles import (
     _official_english_positioning_is_high_signal,
     _official_positioning_is_high_signal,
     _parse_readme,
+    _positioning_roles,
     _preferred_chinese_readme,
     _primary_semantic_duplicate,
     _readme_redirect_target,
@@ -411,6 +412,15 @@ def test_official_chinese_positioning_never_receives_context_subject_dedupe() ->
     source = "Archify 是一套基于 Node.js 的渲染与校验系统。"
 
     assert _official_chinese_positioning(source) == source
+
+
+def test_official_chinese_positioning_recognizes_file_backed_mechanism_and_outcome() -> None:
+    positioning = (
+        "以真实文件夹支撑或映射已有文件夹的轻量格子覆盖原生 Windows 桌面，"
+        "在不替换资源管理器、不改变文件原有使用方式的前提下集中管理文件与日常信息。"
+    )
+
+    assert _positioning_roles(positioning) == ["core_mechanism", "primary_outcome"]
 
 
 def test_official_english_positioning_rejects_benchmark_and_operation_prose() -> None:
@@ -1624,6 +1634,26 @@ def test_capability_validation_rejects_foreign_evidence_and_non_capability_noise
     assert [item.title for item in valid] == ["证据绑定"]
     assert "capability_evidence_invalid" in issues
     assert "capability_invalid_content" in issues
+
+
+def test_capability_validation_preserves_community_operations_as_product_work() -> None:
+    capability = ServingCapability(
+        title="Reddit 社区运营",
+        detail="提供面向 Reddit 社区运营的专业代理，用于规划互动流程并维护社区参与。",
+        evidenceRefs=["description"],
+        sourceMode="official_translated",
+    )
+    navigation = ServingCapability(
+        title="加入社区",
+        detail="访问社区支持页面并参与讨论。",
+        evidenceRefs=["readme:community"],
+        sourceMode="deterministic_fallback",
+    )
+
+    valid, issues = _valid_capabilities([capability, navigation], {"description", "readme:community"})
+
+    assert valid == [capability]
+    assert issues == ["capability_invalid_content"]
 
 
 @pytest.mark.asyncio

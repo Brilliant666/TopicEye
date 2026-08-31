@@ -410,12 +410,17 @@ def _positioning_roles(value: str) -> list[Literal["identity", "core_mechanism",
         roles.append("identity")
     if re.search(
         r"(?:架构|驱动|机制|方法|流程|引擎|编译|渲染|校验|工作方式|"
+        r"通过|采用|利用|基于|借助|依靠|支撑|映射|覆盖|挂载|连接|组合|调度|"
         r"(?:皆|都是|本身也是).{0,8}插件|支持任意模型|模型切换|无锁定)",
         value,
         re.IGNORECASE,
     ):
         roles.append("core_mechanism")
-    if re.search(r"(?:用于|帮助|生成|转换|指导|减少|避免|交付|解决|使得)", value, re.IGNORECASE):
+    if re.search(
+        r"(?:用于|帮助|生成|转换|指导|减少|避免|交付|解决|使得|管理|组织|集中|收纳|整理)",
+        value,
+        re.IGNORECASE,
+    ):
         roles.append("primary_outcome")
     return roles or ["identity"]
 
@@ -1995,6 +2000,14 @@ _CAPABILITY_OPERATION_NOISE = re.compile(
     r"(?:^|\s)(?:npm|pnpm|yarn|pip|uv|cargo|brew|docker)\s+(?:install|add|run|build)\b)",
     re.IGNORECASE,
 )
+_PRODUCT_COMMUNITY_CAPABILITY = re.compile(
+    r"(?:\b(?:reddit|discord)\b.{0,24}(?:community|社区)|(?:community|社区).{0,20}(?:运营|管理|互动|参与|工作))",
+    re.IGNORECASE,
+)
+_COMMUNITY_NAVIGATION_NOISE = re.compile(
+    r"(?:加入|访问|前往|点击|\b(?:join|visit|click)\b).{0,16}(?:community|社区)",
+    re.IGNORECASE,
+)
 
 _DETERMINISTIC_CAPABILITY_RULES: tuple[tuple[str, str, str], ...] = (
     (
@@ -2200,6 +2213,10 @@ def _valid_capabilities(
         if "placeholder_capability" in text_issues:
             issues.append("capability_placeholder")
             continue
+        operation_noise = _CAPABILITY_OPERATION_NOISE.search(f"{capability.title} {capability.detail}")
+        product_community = _PRODUCT_COMMUNITY_CAPABILITY.search(
+            f"{capability.title} {capability.detail}"
+        ) and not _COMMUNITY_NAVIGATION_NOISE.search(f"{capability.title} {capability.detail}")
         if text_issues.intersection(
             {
                 "empty_text",
@@ -2212,7 +2229,7 @@ def _valid_capabilities(
                 "navigation_noise",
                 "markdown_format_noise",
             }
-        ) or _CAPABILITY_OPERATION_NOISE.search(f"{capability.title} {capability.detail}"):
+        ) or (operation_noise and not product_community):
             issues.append("capability_invalid_content")
             continue
         if "long_english" in text_issues or not _CHINESE.search(capability.detail):

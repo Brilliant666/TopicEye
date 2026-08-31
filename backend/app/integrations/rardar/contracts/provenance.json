@@ -30,20 +30,20 @@
     {
       "sourcePath": "contracts/trending-discover-current.schema.json",
       "vendoredPath": "trending-discover-current.schema.json",
-      "sourceSha256": "9df1ef29e970c8683601e4c0800bcdfd342fc10c347744f4321cffed37f90f3b",
-      "vendoredSha256": "9df1ef29e970c8683601e4c0800bcdfd342fc10c347744f4321cffed37f90f3b"
+      "sourceSha256": "29d0aefa1aa19477dd789530cda9c49c250933bc8e7470126eebf4072991f6cd",
+      "vendoredSha256": "29d0aefa1aa19477dd789530cda9c49c250933bc8e7470126eebf4072991f6cd"
     },
     {
       "sourcePath": "contracts/trending-discover-manifest.schema.json",
       "vendoredPath": "trending-discover-manifest.schema.json",
-      "sourceSha256": "067747068da920bc8601f311b0689a63062d3553967faffc3dae9fc9c38c6da6",
-      "vendoredSha256": "067747068da920bc8601f311b0689a63062d3553967faffc3dae9fc9c38c6da6"
+      "sourceSha256": "eec4b04cf2315112f5f35f521cc3dbb1aae723f16bdc9631f590acbd716c380f",
+      "vendoredSha256": "eec4b04cf2315112f5f35f521cc3dbb1aae723f16bdc9631f590acbd716c380f"
     },
     {
       "sourcePath": "contracts/trending-discover-artifact.schema.json",
       "vendoredPath": "trending-discover-artifact.schema.json",
-      "sourceSha256": "8c67a2e02182777b1b7699a8a892855c20141629d70aa9effb649c5d7d7230ac",
-      "vendoredSha256": "8c67a2e02182777b1b7699a8a892855c20141629d70aa9effb649c5d7d7230ac"
+      "sourceSha256": "5f229fe8f3f4a93e31cd353881af6c8c6acc32484f8dcf63e41cf51059a5520d",
+      "vendoredSha256": "5f229fe8f3f4a93e31cd353881af6c8c6acc32484f8dcf63e41cf51059a5520d"
     }
   ],
   "fixture": {

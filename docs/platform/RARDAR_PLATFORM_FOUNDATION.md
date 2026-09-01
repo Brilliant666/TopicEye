@@ -86,6 +86,17 @@ The foundation created three named insertion points. The first and the provider-
 
 The remaining empty routes state that their capability is not connected. Today renders only verified Rardar facts; it does not call the new LLM boundary. There are still no POC fixture projects, simulated candidates, fake progress, real model configuration, network AI requests or database writes.
 
+### Discover product direction
+
+The docs-only `RARDAR-DISCOVER-WORTH-SEEING-MODEL-01` decision defines the
+future Discover user job as “which projects outside Today Top 20 are worth
+looking at now?” Rardar's stages, deltas and acceleration remain authoritative
+facts, but momentum is an auxiliary recall/timeliness signal rather than the
+product ranking or a semantic value reason. TopicEye may make an evidence-bound
+selection only after deterministic eligibility, timeliness, confidence and
+duplicate gates. The current momentum-stage runtime remains unchanged until a
+separate implementation and activation pass those gates.
+
 ## Code ownership and upstream sync hotspots
 
 Migrated from the POC as validated semantics:

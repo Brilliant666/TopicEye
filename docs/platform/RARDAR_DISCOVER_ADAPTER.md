@@ -15,6 +15,18 @@ Runtime consumption never depends on a Rardar checkout.
 
 ## Product semantics
 
+### Current runtime and approved evolution
+
+The four-section contract below describes the currently implemented adapter and
+Serving generation. The approved v1 product direction is now documented in
+[`RARDAR_DISCOVER_WORTH_SEEING_MODEL_V1.md`](../product/RARDAR_DISCOVER_WORTH_SEEING_MODEL_V1.md):
+Discover will become an evidence-bound “worth seeing now” selection outside
+Today Top 20, with no public numeric rank. Producer momentum remains an
+immutable auxiliary fact; it is not a Primary Reason and cannot select a
+project by itself. That evolution requires a separate runtime implementation,
+evaluation and Production activation. This docs-only decision does not change
+the behavior described below.
+
 Discover means the most recent verified natural Observation, normally updated
 every two hours. It is not a stream, a full-GitHub scan, or a second Today
 ranking. The page preserves four producer-owned sections:

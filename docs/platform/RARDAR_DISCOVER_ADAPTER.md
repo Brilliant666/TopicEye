@@ -18,14 +18,17 @@ Runtime consumption never depends on a Rardar checkout.
 ### Current runtime and approved evolution
 
 The four-section contract below describes the currently implemented adapter and
-Serving generation. The approved v1 product direction is now documented in
+Serving generation. The calibrated v2 product direction is documented in
 [`RARDAR_DISCOVER_WORTH_SEEING_MODEL_V1.md`](../product/RARDAR_DISCOVER_WORTH_SEEING_MODEL_V1.md):
 Discover will become an evidence-bound “worth seeing now” selection outside
 Today Top 20, with no public numeric rank. Producer momentum remains an
-immutable auxiliary fact; it is not a Primary Reason and cannot select a
-project by itself. That evolution requires a separate runtime implementation,
-evaluation and Production activation. This docs-only decision does not change
-the behavior described below.
+immutable auxiliary Timeliness fact; it is excluded from the Value payload and
+cannot make weak value strong. TopicEye must assess Scope, momentum-blind Value,
+and Timeliness separately. A deterministic matrix owns the semantic decision,
+fixed precedence owns Primary Reason, and peer context may affect only duplicate
+packing. The 2026-09-02 Internal Holdout failed its implementation gates, so
+that evolution remains blocked pending user Gold review and a later calibration
+iteration. This docs-only decision does not change the behavior below.
 
 Discover means the most recent verified natural Observation, normally updated
 every two hours. It is not a stream, a full-GitHub scan, or a second Today

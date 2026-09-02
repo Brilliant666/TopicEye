@@ -1,195 +1,195 @@
-# Rardar Discover “值得看” Output Contract v1
+# Rardar Discover “值得看” Output Contract v2
 
 ## Status
 
-This is a proposed strict contract for a later implementation. It defines the
-evidence-bound semantic result and deterministic validation boundary; it does
-not add runtime code, a database schema or a Production artifact.
+This is a proposed strict contract for a later Selection Runtime. It records
+the calibrated v2 boundary but adds no runtime code, database schema, migration,
+or Production artifact. Gold labels remain provisional and user-unapproved.
 
 ## Input identity
 
-One selection input is identified by:
+One assessment is bound to:
 
 ```text
 githubRepositoryId
 candidateUniverseVersion
-observationCaptureId + digest
-todayGenerationId + explosion digest
+observation capture ID + digest
+Today generation ID + explosion digest
 profile/evidence revision
 README blob SHA
 tree revision
 release revision or explicit absence
-timeliness policy version
+scope/value/timeliness/reason/packing policy versions
+value prompt + schema + scene identity
+timeliness prompt + schema + scene identity
 near-duplicate context digest
 ```
 
-The canonical SHA-256 of those immutable inputs is
-`selectionEvidenceDigest`. Repository name is display data; numeric GitHub ID
-is identity.
+The canonical digest of those immutable inputs is
+`selectionEvidenceDigest`. Numeric GitHub repository ID is identity;
+repository name is display data.
 
-## Strict result
+## Scope result
 
-Every object has exactly these fields. Unknown or duplicate keys, non-finite
-numbers, coercion and unbound evidence references are rejected.
+The Scope result has exactly:
 
-| Field | Type | Validation |
-|---|---|---|
-| `decision` | enum | `SELECT_NOW`, `WORTHWHILE_NOT_NOW`, `REJECT`, `UNCERTAIN` |
-| `primaryReason` | enum or null | required for positive decisions; never momentum |
-| `supportingReasons` | enum array | at most 2, unique, excluding Primary Reason |
-| `whyWorthSeeingZh` | string | concise evidence-backed product value; no global-superlative claim |
-| `whyNowZh` | string | mandatory for `SELECT_NOW`; empty for no defensible why-now |
-| `reusableAssets` | string array | at most 6 concrete assets |
-| `bestFit` | string array | at most 4 evidence-bounded audiences/tasks |
-| `distinctiveAspects` | string array | at most 4 repository-specific differences |
-| `timelinessSignals` | enum array | supplied deterministic signals only |
-| `evidenceRefs` | reference array | non-empty and a subset of the package index |
-| `counterEvidenceRefs` | reference array | package-bound negative/uncertainty evidence |
-| `evidenceConfidence` | enum | `high`, `medium`, `low`; not a public score |
-| `rejectReasons` | enum array | required only for `REJECT`, at most 3 |
-| `nearDuplicateGroup` | string or null | bounded group ID, never a similarity score |
+| Field | Type |
+|---|---|
+| `scopeStatus` | `in_scope`, `out_of_scope`, `uncertain` |
+| `scopeEvidenceRefs` | non-empty same-repository reference array |
+| `counterEvidenceRefs` | same-repository reference array |
+| `confidence` | `high`, `medium`, `low` |
 
-The reason, timeliness and reject enums are defined in
-[the product model](RARDAR_DISCOVER_WORTH_SEEING_MODEL_V1.md).
+Scope is independent of quality, attention, and timeliness.
 
-This sanitized example is the semantic result projected from the provisional
-`d2lang/d2` Gold sample; its references resolve to that sample's Evidence
-Package:
+## Momentum-blind Value result
 
-```json
-{
-  "decision": "SELECT_NOW",
-  "primaryReason": "directly_reusable",
-  "supportingReasons": [
-    "specific_problem_solution"
-  ],
-  "whyWorthSeeingZh": "将文本编译为图表，具备 CLI、编译器、导出器和多种集成，是明确可复用的技术制图工具。",
-  "whyNowZh": "v0.8.2 于 8 月 28 日发布；低增长不妨碍近期版本变化带来的查看价值。",
-  "reusableAssets": [
-    "d2 CLI",
-    "diagram compiler",
-    "exporters"
-  ],
-  "bestFit": [
-    "架构图和技术文档维护者"
-  ],
-  "distinctiveAspects": [
-    "d2 CLI",
-    "diagram compiler",
-    "exporters"
-  ],
-  "timelinessSignals": [
-    "recent_release",
-    "recent_activity"
-  ],
-  "evidenceRefs": [
-    "rardar:observation:trending-v1-20260901T160000Z:repo:533087958",
-    "github:readme:533087958:328e2f69d6a2c6aced5b403c1fc91fedb7cb399f:excerpt:1",
-    "github:tree:533087958:0d69dca6f532ceaeacd615d35d1eaa41a238ffdb",
-    "github:release:533087958:375881419"
-  ],
-  "counterEvidenceRefs": [],
-  "evidenceConfidence": "high",
-  "rejectReasons": [],
-  "nearDuplicateGroup": null
-}
+The Value scene is `rardar_project_profile`. Every object has exactly:
+
+| Field | Type and invariant |
+|---|---|
+| `scopeStatus` | scope enum |
+| `valueVerdict` | `strong`, `moderate`, `weak`, `uncertain` |
+| `reasonCandidates` | unique subset of four v2 reason enums |
+| `whyWorthSeeingZh` | bounded, evidence-backed Chinese text |
+| `reusableAssets` | at most 6 concrete assets |
+| `bestFit` | at most 3 bounded audiences/tasks |
+| `distinctiveAspects` | at most 4 repository-specific facts |
+| `valueEvidenceRefs` | non-empty subset of the same-repository allow-list |
+| `counterEvidenceRefs` | same-repository reference subset |
+| `confidence` | `high`, `medium`, `low` |
+
+The payload and prompt must pass a deny-list test for all popularity,
+Observation, Today, ranking, window, delta, momentum, first-seen, release-date,
+and recent-activity fields and their natural-language equivalents. It cannot
+emit a final decision, why-now, rank, score, or growth prediction.
+
+The Provider probe observed multiple known JSON envelopes for
+`reasonCandidates`, `reusableAssets`, `distinctiveAspects`, `bestFit`, and
+`confidence`. A future adapter may strictly validate and normalize an explicit
+versioned envelope, but it must reject unknown fields or unsupported types.
+The final Holdout's 61.11% structured success means this envelope is not yet
+stable enough for implementation.
+
+## Timeliness result
+
+The Timeliness scene is `rardar_explosion_explanation`, with a distinct prompt,
+schema, and cache identity. It runs only after Value and has exactly:
+
+| Field | Type and invariant |
+|---|---|
+| `timelinessVerdict` | `strong`, `weak`, `none`, `uncertain` |
+| `strongSignals` | subset of `meaningful_release`, `meaningful_update`, `genuinely_new_asset`, `strong_recent_momentum` |
+| `weakSignals` | subset of `newly_observed`, `recent_activity`, `awaiting_today_validation` |
+| `whyNowZh` | required only for `strong`; otherwise empty |
+| `timelinessEvidenceRefs` | non-empty subset of the timeliness allow-list |
+| `confidence` | `high`, `medium`, `low` |
+
+`genuinely_new_asset`, `strong_recent_momentum`, and all weak signals are
+deterministic. A model may judge `meaningful_release` only when actual release
+notes are supplied and `meaningful_update` only when bounded revision evidence
+is supplied. If neither exists, no model call is required.
+
+## Deterministic result and packing
+
+The service, never the model, computes:
+
+| Field | Rule |
+|---|---|
+| `semanticDecision` | fixed Scope + Value + Timeliness matrix |
+| `primaryReason` | first supported candidate in fixed v2 precedence |
+| `supportingReasons` | at most 2 remaining supported candidates |
+| `publicationDisposition` | `publish`, `hold`, `suppress_duplicate`, `suppress_capacity`, `not_eligible` |
+| `nearDuplicateGroup` | deterministic/bounded peer comparison only |
+
+The v2 Primary Reason precedence is:
+
+```text
+directly_reusable
+specific_problem_solution
+distinctive_implementation
+reference_or_learning_value
 ```
 
-## Cross-field invariants
+The reject enum is:
 
-- `SELECT_NOW` requires high confidence, one Primary Reason, non-empty
-  `whyWorthSeeingZh`, non-empty `whyNowZh`, and a valid strong timeliness path.
-- `WORTHWHILE_NOT_NOW` requires an established value reason and empty why-now;
-  it is not a soft reject.
-- `REJECT` requires at least one reject reason. Public payloads need not expose
-  that internal reason; its Primary/Supporting Reasons are null/empty.
-- `UNCERTAIN` has null Primary Reason and cannot be silently promoted by
-  diversity, momentum or quota. Potential value stays explanatory, not a
-  selected reason.
-- Medium confidence can support `WORTHWHILE_NOT_NOW` or `UNCERTAIN`, not
-  `SELECT_NOW`. Low confidence is never published.
-- Stars, rank, recent activity, newness and momentum cannot be Primary Reasons.
-- All text claims must be supported by the referenced evidence; references do
-  not make an unsupported claim valid.
+```text
+out_of_product_scope
+no_clear_value
+weak_evidence
+popularity_only
+marketing_only
+not_reusable_or_actionable
+maintenance_or_license_concern
+identity_or_source_invalid
+```
+
+Duplicate and not-timely are not reject reasons. A duplicate may retain
+`semanticDecision=SELECT_NOW` with
+`publicationDisposition=suppress_duplicate`.
 
 ## Evidence reference contract
 
-Every reference index entry carries:
+Every allow-list entry records `evidenceRef`, `sourceType`, `sourcePath`, and
+`sourceRevision`. A reference is valid only when its digest/revision and numeric
+repository ID match the Evidence Package. Value refs must be same-repository.
+Peer refs are a separate field and may support only duplicate grouping and
+packing. A cross-repository ref never proves current-project value.
+
+Strict parsing rejects duplicate JSON keys, non-finite numbers, coercion,
+unknown fields, unsupported enums, missing required fields, and unbound refs.
+Schema normalization must be versioned, bounded to explicit known variants,
+and followed by normative model validation.
+
+## Gold v2 review fields
+
+The normative Gold object preserves history and review authority:
 
 ```text
-evidenceRef
-sourceType
-sourcePath
-sourceRevision
+originalDecisionV1
+originalPrimaryReasonV1
+proposedDecisionV2
+proposedPrimaryReasonV2
+reviewAction
+reviewNotes
+evidenceReviewed=true
+calibrationReviewed=true
+userReviewed=false
 ```
 
-Supported source types are Rardar Observation, Rardar Today explosion,
-TopicEye canonical profile, GitHub README blob, bounded GitHub tree and GitHub
-release. A reference is valid only when its source digest/revision matches the
-Evidence Package and numeric repository ID. Cross-repository links are
-counter-evidence unless that other repository is independently admitted as a
-candidate with its own package.
+`reviewAction` is `keep`, `change`, or `needs_user_decision`. Codex evidence
+review never sets `userReviewed=true`.
 
-## Deterministic fields around the AI result
+## Cache and failure behavior
 
-The selection service, not the model, supplies and validates:
+Value and Timeliness have different scene, prompt, schema, and cache identities.
+The cache key also includes the full evidence and policy digests. Any source,
+policy, schema, prompt, or peer-context change creates a new key.
 
-- candidate identity and eligibility;
-- Today Top 20 exclusion;
-- all star/window/momentum facts;
-- all timeliness signal booleans and age thresholds;
-- complete evidenceRef allow-list;
-- near-duplicate peer context and final group cap;
-- category/diversity packing;
-- cache identity, versioning and publication manifest.
-
-AI may recommend select/reject and write the bounded explanation. Final
-publication is the validated semantic result intersected with deterministic
-gates.
-
-## Cache and version identity
-
-The cache key includes the complete `selectionEvidenceDigest`, prompt version,
-output schema version, reason/timeliness/reject policy versions and model route
-identity. An identical healthy result may be reused. Any evidence, policy or
-schema change creates a new key. No stale cache may hide a changed README,
-release, profile, Today exclusion or duplicate group.
-
-## Failure behavior
-
-Invalid JSON, duplicate keys, schema mismatch, timeout, provider error, invalid
-reference, unsupported claim, low confidence or failed why-now gate produces
-`not_selected_this_generation`. It does not produce a deterministic star-based
-substitute. An empty generation is valid. Publication is immutable and atomic;
-the last healthy generation remains the only LKG boundary.
+Invalid JSON, schema drift, timeout, provider error, invalid refs, low
+confidence, or failed why-now validation yields `UNCERTAIN` and no new
+publication. It never invokes an attention-based fallback. A prior result may
+be reused only for an identical complete digest.
 
 ## Card and detail projection
 
-The public card uses only:
+Public cards may show canonical identity, bounded Chinese value, localized
+Primary Reason, strong why-now, category, product form, and a small
+producer-owned momentum fact. They do not show model score, public rank,
+confidence, or reject reasons.
 
-- canonical identity;
-- `whyWorthSeeingZh`;
-- one localized Primary Reason label;
-- `whyNowZh` and bounded timeliness tags when present;
-- category and product form;
-- a small producer-owned momentum fact.
+The detail route reads the canonical Profile plus a separate versioned
+Selection Context keyed by numeric repository ID and immutable Discover
+generation. Page-time requests perform no GitHub or model call.
 
-It does not display a model score, synthetic rank, evidence confidence or
-reject reason. The detail route reads the canonical profile and a separate
-versioned Selection Context keyed by numeric repository ID and Discover
-generation. Evidence can be inspected without a page-time GitHub or model call.
+## Readiness gate
 
-## Versioning
+Before implementation, the selected M3 contract must pass the frozen Internal
+Holdout with at least 95% structured success, 100% evidence validity, zero
+fabricated claims, 80% `SELECT_NOW` precision, 70% recall, 70%
+`WORTHWHILE_NOT_NOW` accuracy, at most 20% high-momentum/low-value false
+positives, 70% low-momentum/high-value recall, 80% reason consistency, 85%
+decision consistency, and 90% scope accuracy.
 
-The first implementation must version independently:
-
-```text
-worthSeeingOutputSchemaVersion
-worthSeeingReasonPolicyVersion
-worthSeeingTimelinessPolicyVersion
-worthSeeingSelectionPromptVersion
-worthSeeingPackingPolicyVersion
-```
-
-Changing an enum, age threshold, confidence rule, duplicate cap or publication
-gate is a policy change, not an invisible prompt edit.
+The 2026-09-02 run failed this gate; Selection Runtime implementation and
+Production activation remain blocked.

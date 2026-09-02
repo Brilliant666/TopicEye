@@ -88,14 +88,15 @@ The remaining empty routes state that their capability is not connected. Today r
 
 ### Discover product direction
 
-The docs-only `RARDAR-DISCOVER-WORTH-SEEING-MODEL-01` decision defines the
-future Discover user job as “which projects outside Today Top 20 are worth
-looking at now?” Rardar's stages, deltas and acceleration remain authoritative
-facts, but momentum is an auxiliary recall/timeliness signal rather than the
-product ranking or a semantic value reason. TopicEye may make an evidence-bound
-selection only after deterministic eligibility, timeliness, confidence and
-duplicate gates. The current momentum-stage runtime remains unchanged until a
-separate implementation and activation pass those gates.
+The docs-only Gold review and calibration defines the future Discover user job
+as “which projects outside Today Top 20 are worth looking at now?” Rardar's
+stages, deltas and acceleration remain authoritative facts, while TopicEye
+separates Scope, momentum-blind Value, and Timeliness. The model does not own the
+final decision or Primary Reason. A deterministic matrix and fixed reason
+precedence run before separate duplicate/capacity packing. The normative Gold
+v2 contains 36 evidence-reviewed, still user-unapproved projects. Its single
+Internal Holdout failed the model gates, so the current momentum-stage runtime
+remains unchanged and Production Discover remains unactivated.
 
 ## Code ownership and upstream sync hotspots
 

@@ -1,88 +1,120 @@
-# 2026-09-02 — Rardar Discover “值得看” Product Model
+# 2026-09-02 — Rardar Discover “值得看” Gold Review and Calibration
 
 ## Goal
 
-Define, with current real evidence, what “worth seeing now” means outside Today
-Top 20 before writing a new selection runtime.
+Take over the existing docs-only PR #26 research assets, review the provisional
+Gold labels against raw bounded evidence, separate Value from Timeliness, and
+measure the simplest compliant model architecture before any Selection Runtime
+work begins.
 
-## Evidence and scope
+## Baseline and inherited evidence
 
-The research used Rardar main
-`34556a3ce4765acdc6a91f6fc895846aa33ee5f2`, TopicEye main
-`dfd9045cc6a647d2832b28ae8bb596ddaa630d39`, the canonical 2026-09-01
-16:00 UTC Observation and Today generation
-`20260901T001939007155Z-fe663ec7b844`. Production access was read-only; D1,
-secrets and business writes were not accessed.
+- TopicEye main: `dfd9045cc6a647d2832b28ae8bb596ddaa630d39`;
+- Rardar main: `34556a3ce4765acdc6a91f6fc895846aa33ee5f2`;
+- Observation: `trending-v1-20260901T160000Z`;
+- Today generation: `20260901T001939007155Z-fe663ec7b844`;
+- eligible universe: 461;
+- existing bounded sample: 60;
+- original provisional Gold: 24;
+- old M0 probes: 80 top-level calls.
 
-The complete eligible universe contained 461 projects. Sixty projects were
-split evenly across high momentum, low-momentum/high-value hypotheses, new or
-low-base projects, mature low-timeliness projects and negative/noise
-hypotheses. Every sample has a bounded README, tree and Rardar fact package;
-39 also have release evidence. The 24-project Gold Set is explicitly
-provisional and awaits user review.
+The inherited worktree and Draft PR head were exact and clean. The task did not
+repeat the 60-sample research, recrawl the universe, or rerun the old M0 probe.
+Only three bounded public GitHub Evidence Packages were added for new difficult
+Holdout samples.
 
-## Product decisions
+## Gold v2 freeze
 
-- Discover is a worth-seeing-now selection, not a momentum ranking.
-- Rardar facts remain immutable authority; TopicEye owns evidence-bound
-  semantic selection.
-- Momentum is auxiliary and cannot be a Primary Reason.
-- Five value reasons, six deterministic timeliness signals and nine reject
-  reasons are fixed for v1.
-- `SELECT_NOW` requires value, high confidence and a strong deterministic
-  why-now path.
-- Broad deterministic recall (30–60) is separated from semantic selection
-  (target 10–20, possibly fewer or empty).
-- Near-duplicates are capped before diversity packing; diversity never fills a
-  weak slot.
-- IA A, a single unranked curated stream with category/reason filters, is the
-  recommended page structure.
+All 24 original Gold items were reviewed before model work. Twelve hard samples
+were added, producing 36 total projects. Eighteen original projects formed the
+Calibration Set; six original boundary projects plus all twelve new samples
+formed the 18-item Internal Holdout.
 
-## Real model probes
+The first freeze exposed a legacy `counterEvidenceRefs` leak into the blind
+Value payload. The partial run stopped before item four, its metrics were
+discarded, evidence fields were corrected, and the complete metrics were
+restarted under final Gold digest:
 
-The existing TopicEye `routing_group=rardar` route and configured
-`gpt-5.6-sol` model were used without provider, model, key, temperature or
-reasoning-effort changes. Eighty top-level calls were the hard cap. Twelve
-identical repeats hit the existing cache and were not misreported as independent
-consistency; twelve additional calls used a separate research prompt-version to
-obtain real provider repeats.
+`68445ccf9306db71aeeb360f544deadd7c6bf67fadaca31ecd3b86dcada85d76`
 
-Model C (value plus timeliness) is the correct contract shape but did not meet
-implementation gates. It achieved 100% eventual primary structured results and
-100% evidenceRef validity, but only 35% `SELECT_NOW` precision, 66.67%
-high-growth/low-value false positives, 0% `WORTHWHILE_NOT_NOW` accuracy and 50%
-Primary Reason repeat consistency. Per-attempt structured success was 90%.
+No label changed after that freeze. Every sample records
+`evidenceReviewed=true`, `calibrationReviewed=true`, and
+`userReviewed=false`.
 
-The failure is product-significant: the prompt asked the model to interpret raw
-timestamps, so it treated first appearance in a six-day-old Capture store and
-ordinary repository activity as “now”. The v1 contract therefore moves all
-timeliness computation to deterministic code and supplies only validated signal
-IDs to the model.
+## Contract decisions
 
-## Delivery
+- Scope, momentum-blind Value, and Timeliness are independent assessments.
+- Value payloads contain no stars, rank, growth, momentum, first-seen, Today,
+  Observation-window, release-date, or recent-activity facts.
+- Primary Reasons are limited to four value reasons and selected by fixed
+  precedence; `meaningful_recent_change` becomes a Timeliness concern.
+- Strong Timeliness is limited to meaningful release/update, genuinely new
+  usable asset, or producer-owned strong recent momentum.
+- Ordinary patch releases, pushes, newly observed old repositories, and
+  awaiting-Today status are not strong by themselves.
+- Semantic decision is a deterministic Scope + Value + Timeliness matrix.
+- Duplicate is a publication disposition, not a reject reason.
+- Categories use stable English machine enums and record canonical or
+  research-derived provenance.
 
-- product model;
-- strict output contract;
-- 60-project sample audit;
-- sanitized 24-project provisional Gold JSON;
-- platform/adapter clarification that momentum is auxiliary;
-- docs-only Draft PR.
+## Real Provider calibration
 
-No runtime, frontend, database, migration, Rardar, model configuration or
-Production data was changed. Implementation and Production activation remain
-separate tasks.
+The existing TopicEye `routing_group=rardar` control plane was used without
+changing provider, route, model, base URL, API key, reasoning effort, or
+concurrency. New top-level calls were capped at 100; 90 were used with
+concurrency 1 and zero cache hits.
 
-## User review required
+M0 remained the inherited baseline. M1 tested blind Value with a model
+Timeliness ablation. M2 moved Timeliness facts and final decision to code. M3
+added deterministic Primary Reason and peer-context-only duplicate packing.
+M3 is the selected architecture.
 
-The remaining questions are decisions for product review, not hidden
-implementation defaults: confirm or revise the 24 provisional Gold labels, the
-five Primary Reasons, the four strong why-now paths and IA A's single-stream
-presentation. Any revision must update the versioned policy and Gold evidence
-before the implementation evaluation begins.
+The Provider returned parseable JSON but did not keep a stable output envelope:
+reason/assets/aspects, best-fit, and confidence changed shape. Known variants
+were strictly Pydantic-validated and normalized; unknown forms remained
+fail-closed. This produced 11/18 structured Holdout successes and one upstream
+timeout.
 
-## Readiness
+## Holdout result
 
-The research task is complete, but
-`READY_FOR_RARDAR-DISCOVER-WORTH-SEEING-SELECTION-01 = NO`. The next selection
-iteration must implement deterministic timeliness, batch duplicate context and
-confidence gates, then rerun the same Gold evaluation until all thresholds pass.
+The final Prompt was frozen before the Holdout, and the Holdout ran exactly
+once. Its M3 results were:
+
+- structured success: 11/18 (61.11%);
+- evidence validity: 11/11 (100%);
+- fabricated claims among validated outputs: 0/11;
+- `SELECT_NOW` precision: 1/2 (50%);
+- `SELECT_NOW` recall: 1/3 (33.33%);
+- `WORTHWHILE_NOT_NOW` accuracy: 6/9 (66.67%);
+- high-momentum/low-value false positives: 0/3;
+- low-momentum/high-value recall: 2/3 (66.67%);
+- scope accuracy: 8/18 (44.44%).
+
+The gates failed. Research completion is still valid; implementation readiness
+is not.
+
+## Delivery and scope
+
+Delivered in the same Draft PR #26:
+
+- product model v2;
+- output contract v2;
+- 36-project normative provisional Gold JSON;
+- sample audit and new calibration report;
+- platform/adapter semantic clarification;
+- repository-external review, freeze, calibration, Holdout, comparison, and
+  user-review packets.
+
+Runtime code changed: 0. Frontend changed: 0. Database changed: 0. Migration:
+0. Rardar repository changed: 0. Production access/writes: 0/0. No Provider
+raw response or secret was committed.
+
+## Stop condition
+
+`READY_FOR_USER_GOLD_APPROVAL = YES`
+
+`READY_FOR_RARDAR-DISCOVER-WORTH-SEEING-SELECTION-01 = NO`
+
+The next action is user review of the nine boundary items and proposed v2 label
+changes. PR #26 remains Draft; no Selection Runtime or Production Discover work
+starts from this iteration.

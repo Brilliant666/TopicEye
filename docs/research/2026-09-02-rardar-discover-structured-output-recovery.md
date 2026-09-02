@@ -1,5 +1,9 @@
 # 2026-09-02 Rardar Discover Structured Output Recovery
 
+> Historical evidence: this report records the pre-final-review recovery run.
+> The normative Product and Output Contracts define the current contract and
+> take precedence over this report's readiness wording.
+
 ## Result
 
 The docs-only recovery task passed. The frozen Fresh Holdout passed every

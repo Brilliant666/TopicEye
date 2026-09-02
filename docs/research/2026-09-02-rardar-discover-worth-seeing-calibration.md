@@ -1,5 +1,9 @@
 # 2026-09-02 Rardar Discover “值得看” Gold Review and Calibration
 
+> Historical evidence: this report preserves the M3 calibration and v3
+> recovery trail. It cannot override the normative Product or Output Contract,
+> and neither revealed Holdout is eligible for future blind evaluation.
+
 ## Current v3 recovery outcome
 
 The original M3 outcome below is retained as historical evidence. Its Holdout

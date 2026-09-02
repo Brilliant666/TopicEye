@@ -98,9 +98,10 @@ precedence run before separate duplicate/capacity packing. The normative Gold
 v3 contains 36 provisional projects: exactly 9 approved product-boundary
 decisions and 27 unreviewed labels. The original Holdout is revealed historical
 evidence. A separately frozen, zero-overlap 24-project Fresh Holdout passed all
-gates, making the contract ready for Draft PR #26 final review—but not for
-Selection Runtime implementation. The current momentum-stage runtime remains
-unchanged and Production Discover remains unactivated.
+gates. PR #26 accepts only the contract; after its exact reviewed revision is
+merged, the next step is a separate Local/Shadow Selection Runtime
+implementation. The current momentum-stage runtime remains unchanged and
+Production Discover remains unactivated.
 
 ## Code ownership and upstream sync hotspots
 

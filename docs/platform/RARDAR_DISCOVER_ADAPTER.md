@@ -28,10 +28,11 @@ and Timeliness separately. A deterministic matrix owns the semantic decision,
 fixed precedence owns Primary Reason, and peer context may affect only duplicate
 packing. The original Internal Holdout is now revealed historical evidence. A
 new, disjoint 24-project Fresh Holdout passed every frozen gate after the output
-contract was reduced to a minimal alias-bound Schema. This makes Draft PR #26
-ready for a separate final contract review only; no Selection Runtime or
-Production activation is authorized. This docs-only decision does not change
-the behavior below.
+contract was reduced to a minimal alias-bound Schema. PR #26 is the docs-only
+acceptance vehicle; after its exact reviewed revision merges, only a separate
+Local/Shadow Selection Runtime implementation is permitted. Production
+activation is not authorized. This docs-only decision does not change the
+behavior below.
 
 Discover means the most recent verified natural Observation, normally updated
 every two hours. It is not a stream, a full-GitHub scan, or a second Today

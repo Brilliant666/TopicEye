@@ -4,7 +4,8 @@
 
 This is a docs-only, pre-implementation product contract. It supersedes the
 v1/v2 assessment envelope while retaining the existing filename for PR
-continuity. It was
+continuity. The v3 contract in this file is the only current product contract;
+v1, v2, and M3 references elsewhere are historical evidence only. It was
 calibrated against the 2026-09-01 16:00 UTC canonical Observation, Today
 generation `20260901T001939007155Z-fe663ec7b844`, a 461-project eligible
 universe, 60 bounded Evidence Packages, and a 36-project provisional Gold Set.
@@ -26,11 +27,30 @@ That makes this contract ready only for a separate final review and merge of
 Draft PR #26. The current four-stage runtime remains unchanged; Selection
 Runtime implementation and Production activation are not authorized here.
 
+## Normative hierarchy
+
+This file is the **Normative Product Contract**. It owns the Discover product
+definition, authority split, Scope, Value, Timeliness, decision, reason,
+packing, information architecture, failure semantics, and implementation
+boundary. The companion
+[Output Contract](RARDAR_DISCOVER_WORTH_SEEING_OUTPUT_V1.md) is the
+**Normative Output Contract** for schemas, aliases, validation, retry, failure
+codes, and cache identity. The provisional Gold JSON is **Normative Research
+Data** for label history and review authority. The one-use Fresh Holdout is
+**One-time Evaluation Evidence** only.
+
+Sample audits, calibration reports, recovery reports, and iteration records
+are **Historical Evidence**. They explain how the contract was reached but
+cannot override either normative contract or make an old model, label version,
+or revealed Holdout current again. When documents differ, this product
+contract governs product semantics, the Output Contract governs machine
+validation, and the Gold JSON governs recorded review history.
+
 ## Product and authority boundary
 
 | Surface | User question | Authority | Ordering |
 |---|---|---|---|
-| Today | What has proven 24-hour growth? | Rardar | exact producer rank |
+| Today | Which projects have the greatest verified Star gain over a complete 24-hour window? | Rardar | exact producer rank |
 | Discover | What outside Top 20 deserves attention now? | TopicEye over validated Rardar facts | deterministic packing, no public rank |
 | Find Project | Which project fits my stated need? | explicit user request | task-specific comparison |
 | Deep Insight | What does one project mean in depth? | explicit user request | no collection ordering |
@@ -41,6 +61,12 @@ membership, and source coverage. TopicEye may evaluate bounded same-repository
 README, tree, release, canonical Profile, and Rardar facts. It cannot rewrite
 producer facts, invent candidates, execute repository code, infer a global
 rank, or use model memory as evidence.
+
+Rardar does not own the worth-seeing judgment or page packing. TopicEye owns
+Scope/Value and Timeliness assessments, deterministic semantic projection, and
+publication packing over validated inputs. Neither TopicEye nor the model may
+write back to a Rardar Artifact, Today rank, Star, Observation, or eligibility
+fact.
 
 ## Three independent assessments
 
@@ -96,6 +122,19 @@ Weak signals:
 `genuinely_new_asset` requires a recently created or newly delivered repository
 and complete usable value evidence. Rardar first observing an old repository is
 not genuine newness. A push timestamp alone is not a meaningful update.
+Ordinary patches, dependency bumps, spelling fixes, and version-number-only
+changes are not meaningful releases or updates. `newly_observed` means only
+that Rardar first saw the repository recently; it does not mean the repository
+itself is new. `awaiting_today_validation` is a state, not value evidence.
+
+## Structured protocol boundary
+
+The selected mode is `prompt_json` plus strict local JSON parsing, duplicate-key
+rejection, closed Schema validation, and Evidence Alias validation. A tiny
+`json_schema` capability probe succeeded, but the complete Gate Schema was
+rejected by the Provider on 8/8 comparison calls with HTTP 400. `json_object`
+returned an unexpected field and remains unknown/unadopted. Therefore neither
+the complete Gate nor `prompt_json` is described as native structured output.
 
 ## Primary Reason v3
 
@@ -121,9 +160,11 @@ value weak                                 -> REJECT
 value uncertain or moderate                -> UNCERTAIN
 value strong + high confidence
   + timeliness strong + high confidence    -> SELECT_NOW
+value strong + timeliness strong
+  + either confidence below high           -> UNCERTAIN
 value strong + timeliness weak or none     -> WORTHWHILE_NOT_NOW
 value strong + timeliness uncertain        -> UNCERTAIN
-any evidence-integrity failure             -> UNCERTAIN
+any structure/schema/evidence failure       -> UNCERTAIN
 ```
 
 AI is not the final decision authority. It supplies bounded assessments; the
@@ -160,6 +201,11 @@ packing disposition only. It must never support the current project's value.
 Each group publishes one item by default; two require evidence of materially
 different users, mechanisms, forms, or use cases.
 
+User-facing copy is a later projection. It runs only after
+`semanticDecision`, `primaryReason`, Timeliness, and packing are complete.
+Copy failure cannot change those fields, trigger a weaker Gate, or refill the
+stream.
+
 ## Category normalization
 
 Category comes from the canonical Project Profile and uses stable English
@@ -170,11 +216,16 @@ is allowed.
 
 ## Information architecture
 
-The selected page remains one unranked curated stream with category and Primary
-Reason filters. A card shows canonical identity, concise Chinese value,
+The selected information architecture is `IA_A_SINGLE_CURATED_STREAM`: one
+unranked curated stream with category and Primary Reason filters and optional
+why-now tags. A card shows canonical identity, concise Chinese value,
 Primary Reason, an explicit why-now only for strong timeliness, product form,
 category, and a small producer-owned momentum fact. Momentum is never the
 headline or ordering explanation.
+
+The stream may contain fewer than ten projects or be empty. It never fills a
+quota with low-quality candidates, the next Star-ranked project, or a momentum
+fallback.
 
 The detail page reuses the canonical Project Profile and adds one versioned
 Selection Context. Find Project, Deep Insight, Action, Watch, and Feedback
@@ -225,6 +276,64 @@ evidence-valid results, 11/12 SELECT precision, 11/14 SELECT recall, 5/5
 WORTHWHILE accuracy, 24/24 scope accuracy, 21/24 value accuracy, and 23/24
 Timeliness accuracy. All frozen gates passed. The resulting state is
 `MODEL_CONTRACT_READY_FOR_FINAL_REVIEW`, not Selection Runtime approval.
+
+## Final evidence metrics
+
+All metrics retain their numerator and denominator. The v3 Development Set
+recorded 36/36 structured success, 32/36 Scope accuracy, 24/36 Value accuracy,
+31/36 Timeliness accuracy, 16/36 semantic-decision accuracy, 2/9 SELECT
+precision, 2/7 SELECT recall, 10/17 WORTHWHILE accuracy, 1/6 REJECT accuracy,
+3/6 UNCERTAIN accuracy, 1/6 high-momentum/low-value false positives, 1/2
+low-momentum/high-value recall, and 0/36 fabricated claims.
+
+The one-use Fresh Holdout recorded 24/24 structured success, 24/24 Scope
+accuracy, 21/24 Value accuracy, 23/24 Timeliness accuracy, 20/24
+semantic-decision accuracy, 11/12 SELECT precision, 11/14 SELECT recall, 5/5
+WORTHWHILE accuracy, 0/0 REJECT accuracy (`n/a`), 4/5 UNCERTAIN accuracy, 0/1
+high-momentum/low-value false positives, 6/8 low-momentum/high-value recall,
+and 0/24 fabricated claims. Provider repeat over eight frozen Development
+samples was 8/8 for Scope, 7/8 for Value, 8/8 for reason support, and 4/4 for
+meaningful change. Deterministic reason or decision consistency is not
+Provider-output consistency.
+
+## Known limitations
+
+1. Fresh Holdout has no REJECT-labelled sample, so REJECT accuracy is `0/0
+   (n/a)` rather than evidence of correct rejection.
+2. Its high-momentum/low-value boundary has only one sample; 0/1 is weak
+   coverage.
+3. Development semantic-decision accuracy remains 16/36.
+4. Three Fresh Value judgments were too optimistic.
+5. One meaningful-release judgment was uncertain.
+6. Two medium-confidence Fresh results safely projected to `UNCERTAIN`.
+7. Fixed reason precedence intentionally biases results toward
+   `directly_reusable`; reason categories are not expected to be balanced.
+8. Twenty-seven Gold records still lack item-by-item user confirmation and all
+   36 labels remain provisional.
+9. Fresh Holdout is now public, `usedOnce=true`, and
+   `futureBlindUse=false`; it cannot support a future blind-test claim.
+10. `prompt_json` depends on strict local validation and is not upstream-native
+    complete JSON Schema enforcement.
+
+These limits are accepted research risks, not solved Production evidence.
+
+## Implementation boundary after PR #26
+
+Merging the exact reviewed PR #26 revision accepts this contract only. The next
+independent task is
+`RARDAR-DISCOVER-WORTH-SEEING-SELECTION-01`, and its mode must be
+`LOCAL / SHADOW MODE FIRST`. Its readiness state is exactly
+`READY_FOR_LOCAL_SHADOW_IMPLEMENTATION`, never `READY_FOR_PRODUCTION`.
+
+The implementation must keep Today unchanged, permit an empty publication,
+run semantic decision before packing and user copy, and provide no Star,
+momentum, model-failure, or capacity refill fallback. It must include a fixed
+negative-control set covering `out_of_product_scope`,
+`identity_or_source_invalid`, `marketing_only`, `popularity_only`,
+`weak_evidence`, and `not_reusable_or_actionable`, none of which may publish as
+`SELECT_NOW`. Any future blind-evaluation claim requires a new unseen set.
+Production writes, Production Discover activation, and page deployment require
+later independent authorization.
 
 See [the output contract](RARDAR_DISCOVER_WORTH_SEEING_OUTPUT_V1.md),
 [the calibration report](../research/2026-09-02-rardar-discover-worth-seeing-calibration.md),

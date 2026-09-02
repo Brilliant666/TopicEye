@@ -1,5 +1,9 @@
 # 2026-09-02 Rardar Discover “值得看” Sample Audit
 
+> Historical evidence: this audit preserves the review trail and provisional
+> labels. Current product and machine semantics come only from the normative
+> Product Contract, Output Contract, and Gold JSON.
+
 ## Research status
 
 This is a real-data, docs-only product audit. It does not change the current

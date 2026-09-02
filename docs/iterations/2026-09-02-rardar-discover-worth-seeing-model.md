@@ -1,5 +1,8 @@
 # 2026-09-02 — Rardar Discover “值得看” Gold Review, Calibration, and Recovery
 
+> Historical iteration record: the normative Product and Output Contracts own
+> the final semantics. This record cannot make a prior model or Holdout current.
+
 ## Goal
 
 Take over the existing docs-only PR #26 research assets, review the provisional
@@ -142,3 +145,12 @@ Runtime/frontend/database/migration/Rardar/Production/model-config changes: 0.
 The only next action is
 `TOPICEYE-PR26-FINAL-CONTRACT-REVIEW-AND-MERGE-01`. PR #26 remains Draft; no
 Selection Runtime or Production Discover work starts from this iteration.
+
+## Final contract review closeout
+
+The final review makes the hierarchy, complete confidence branches, protocol
+evidence, bounded failure codes, cache identity, ten Known Limitations, and
+local/shadow implementation boundary explicit without changing any label or
+metric. Once the exact reviewed PR #26 revision is merged, the next independent
+task is `RARDAR-DISCOVER-WORTH-SEEING-SELECTION-01` with state
+`READY_FOR_LOCAL_SHADOW_IMPLEMENTATION`. Production Discover remains disabled.

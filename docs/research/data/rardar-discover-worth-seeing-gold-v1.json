@@ -1,0 +1,3135 @@
+{
+  "schemaVersion": 3,
+  "goldStatus": "provisional",
+  "normative": true,
+  "evidenceReviewed": true,
+  "calibrationReviewed": true,
+  "userReviewRequired": true,
+  "source": {
+    "captureId": "trending-v1-20260901T160000Z",
+    "scheduledAt": "2026-09-01T16:00:00.000000Z",
+    "captureSha256": "e0230473dcaaade94b47661adf690cac2678bb01c2f8966f87d0cf0661507945",
+    "todayGenerationId": "20260901T001939007155Z-fe663ec7b844",
+    "todayExplosionSha256": "3d3fb44deca98e28ee6d7f7b00e81ea79f060387115c490b63e7b1c95a899c80"
+  },
+  "policyVersions": {
+    "scope": "discover-scope-v2",
+    "value": "blind-value-v2",
+    "timeliness": "split-timeliness-v2",
+    "decision": "deterministic-decision-v2",
+    "reason": "deterministic-reason-v2",
+    "packing": "duplicate-packing-v2"
+  },
+  "reasonEnums": [
+    "directly_reusable",
+    "specific_problem_solution",
+    "distinctive_implementation",
+    "reference_or_learning_value"
+  ],
+  "strongTimelinessEnums": [
+    "meaningful_release",
+    "meaningful_update",
+    "genuinely_new_asset",
+    "strong_recent_momentum"
+  ],
+  "weakTimelinessEnums": [
+    "newly_observed",
+    "recent_activity",
+    "awaiting_today_validation"
+  ],
+  "rejectEnums": [
+    "out_of_product_scope",
+    "no_clear_value",
+    "weak_evidence",
+    "popularity_only",
+    "marketing_only",
+    "not_reusable_or_actionable",
+    "maintenance_or_license_concern",
+    "identity_or_source_invalid"
+  ],
+  "deterministicPrimaryReasonPrecedence": [
+    "directly_reusable",
+    "specific_problem_solution",
+    "distinctive_implementation",
+    "reference_or_learning_value"
+  ],
+  "evaluationSplit": {
+    "developmentCount": 36,
+    "calibrationCount": 18,
+    "historicalRevealedHoldoutCount": 18,
+    "holdoutStatus": "historical_revealed_holdout",
+    "futureBlindUse": false
+  },
+  "labelCounts": {
+    "SELECT_NOW": 9,
+    "WORTHWHILE_NOT_NOW": 15,
+    "REJECT": 5,
+    "UNCERTAIN": 7
+  },
+  "scopeCounts": {
+    "in_scope": 27,
+    "uncertain": 5,
+    "out_of_scope": 4
+  },
+  "reviewActionCounts": {
+    "change": 5,
+    "keep": 22,
+    "needs_user_decision": 9
+  },
+  "samples": [
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 1348577064,
+      "repository": "sapientinc/PRAXIST",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "SELECT_NOW",
+      "originalPrimaryReasonV1": "distinctive_implementation",
+      "proposedDecisionV2": "SELECT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution",
+        "distinctive_implementation"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution",
+        "distinctive_implementation"
+      ],
+      "strongTimelinessSignals": [
+        "genuinely_new_asset",
+        "strong_recent_momentum"
+      ],
+      "weakTimelinessSignals": [
+        "awaiting_today_validation",
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "把研究拆成并行 peer、任务级评价、持久证据和代际综合，形成可执行研究系统，而非单次提示词包装。",
+      "whyNow": "当前仍是 pre-exact、等待 Today 验证，同时 24 小时增长 504 stars 且仓库活跃，值得现在验证其可测量研究闭环。",
+      "valueEvidenceRefs": [
+        "github:tree:1348577064:0d9598f85845cfba6ee6977423180b3c331b0371",
+        "github:readme:1348577064:02cc74376362a396d6e4dab8784de9063adcef7a:excerpt:1",
+        "github:readme:1348577064:02cc74376362a396d6e4dab8784de9063adcef7a:excerpt:2",
+        "github:readme:1348577064:02cc74376362a396d6e4dab8784de9063adcef7a:excerpt:3",
+        "github:readme:1348577064:02cc74376362a396d6e4dab8784de9063adcef7a:excerpt:4",
+        "github:readme:1348577064:02cc74376362a396d6e4dab8784de9063adcef7a:excerpt:5",
+        "github:readme:1348577064:02cc74376362a396d6e4dab8784de9063adcef7a:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1348577064"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "SELECT_NOW",
+      "publicationDisposition": "publish",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "framework",
+      "category": "ai_agent",
+      "categorySource": "research_derived",
+      "reviewAction": "change",
+      "reviewNotes": "屏蔽增长后仍有包、示例、测试和评测工作流；V2 确定性优先级将 Primary Reason 改为 directly_reusable。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "ce0ba360589310bee6ed8d0231a740f2dfdc1038fe807e79e2a788397ed35040",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "distinctive_implementation",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 975734319,
+      "repository": "anomalyco/opencode",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "SELECT_NOW",
+      "originalPrimaryReasonV1": "directly_reusable",
+      "proposedDecisionV2": "SELECT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution"
+      ],
+      "strongTimelinessSignals": [
+        "strong_recent_momentum"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "提供开源编码 Agent 的 CLI/桌面交付与多种工作模式，可直接用于开发和只读规划。",
+      "whyNow": "v1.18.25 于观察窗口附近发布且 24 小时增长 251 stars，变化与关注同时成立。",
+      "valueEvidenceRefs": [
+        "topiceye:profile:975734319:a75f2a1d5ab5fa2a29018f499d66e956a9d80a5adb543955621de93e683ca495",
+        "github:tree:975734319:d3db25b6b65ac3e229bf2b49e82e1fac0b26f480a85d523399a865c22ab8b225",
+        "github:readme:975734319:352e13ccaa1d64044ad84c21fb131a698d602b1c:excerpt:1",
+        "github:readme:975734319:352e13ccaa1d64044ad84c21fb131a698d602b1c:excerpt:2",
+        "github:readme:975734319:352e13ccaa1d64044ad84c21fb131a698d602b1c:excerpt:3",
+        "github:readme:975734319:352e13ccaa1d64044ad84c21fb131a698d602b1c:excerpt:4",
+        "github:readme:975734319:352e13ccaa1d64044ad84c21fb131a698d602b1c:excerpt:5",
+        "github:readme:975734319:352e13ccaa1d64044ad84c21fb131a698d602b1c:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:975734319",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:975734319",
+        "github:release:975734319:378279694"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "SELECT_NOW",
+      "publicationDisposition": "publish",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "完整应用",
+      "category": "developer_tools",
+      "categorySource": "canonical_profile",
+      "reviewAction": "keep",
+      "reviewNotes": "CLI、桌面应用和 Agent 模式构成独立价值；强 momentum 只负责 why-now。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "c030fa44ed690f42ecbb591e3bc4ba12c855b815da537a5aa8d61ee73b22b7b5",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 1042367133,
+      "repository": "github/spec-kit",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "SELECT_NOW",
+      "originalPrimaryReasonV1": "directly_reusable",
+      "proposedDecisionV2": "SELECT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution",
+        "reference_or_learning_value"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution",
+        "reference_or_learning_value"
+      ],
+      "strongTimelinessSignals": [
+        "meaningful_release",
+        "strong_recent_momentum"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "提供与具体 AI 编码代理无关的规格驱动开发流程、模板和扩展入口。",
+      "whyNow": "v1.0.3 在最新 Capture 前数小时发布，且 24 小时增长 238 stars。",
+      "valueEvidenceRefs": [
+        "github:tree:1042367133:3f14ff4158892a0dd498ae3ecd4f217dab5afd05",
+        "github:readme:1042367133:a4e7fdafb9e7068e07fe02e294ac88b8308a454b:excerpt:1",
+        "github:readme:1042367133:a4e7fdafb9e7068e07fe02e294ac88b8308a454b:excerpt:2",
+        "github:readme:1042367133:a4e7fdafb9e7068e07fe02e294ac88b8308a454b:excerpt:3",
+        "github:readme:1042367133:a4e7fdafb9e7068e07fe02e294ac88b8308a454b:excerpt:4",
+        "github:readme:1042367133:a4e7fdafb9e7068e07fe02e294ac88b8308a454b:excerpt:5",
+        "github:readme:1042367133:a4e7fdafb9e7068e07fe02e294ac88b8308a454b:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1042367133",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1042367133",
+        "github:release:1042367133:380598858"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "SELECT_NOW",
+      "publicationDisposition": "publish",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "开发工作流",
+      "category": "developer_tools",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "v1.0 里程碑与模板/扩展交付可验证；删除 meaningful_recent_change 价值理由。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "ea69268ff89af2a7951e430f75786f7bc5147c6401de9c55b0f9adda5577f54a",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 828119367,
+      "repository": "yamadashy/repomix",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "none",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "WORTHWHILE_NOT_NOW",
+      "originalPrimaryReasonV1": "directly_reusable",
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [],
+      "whyWorthSeeing": "把代码库打包为适合模型消费的有界文件，直接解决大型仓库上下文准备问题。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:828119367:b79ca3b5abcaea81d681d9436fd34d6b9a51eb6c",
+        "github:readme:828119367:01c1c80d933353c6df5a0638ad4664a79ee27114:excerpt:1",
+        "github:readme:828119367:01c1c80d933353c6df5a0638ad4664a79ee27114:excerpt:2",
+        "github:readme:828119367:01c1c80d933353c6df5a0638ad4664a79ee27114:excerpt:3",
+        "github:readme:828119367:01c1c80d933353c6df5a0638ad4664a79ee27114:excerpt:4",
+        "github:readme:828119367:01c1c80d933353c6df5a0638ad4664a79ee27114:excerpt:5",
+        "github:readme:828119367:01c1c80d933353c6df5a0638ad4664a79ee27114:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:828119367",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:828119367",
+        "github:release:828119367:367109544"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "CLI",
+      "category": "developer_tools",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "代码库打包资产和问题边界清晰，但没有强时效证据。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "8b5c9abd62c02db88cde829613358bbc60d225f22e3b137e9c338f0718ead164",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 1344273611,
+      "repository": "tobi/walgit",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "WORTHWHILE_NOT_NOW",
+      "originalPrimaryReasonV1": "distinctive_implementation",
+      "proposedDecisionV2": "SELECT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution",
+        "distinctive_implementation"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution",
+        "distinctive_implementation"
+      ],
+      "strongTimelinessSignals": [
+        "genuinely_new_asset"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "以单二进制加对象存储提供无数据库、无主节点的 Git 服务，并包含 LFS、UI、API 和 SDK。",
+      "whyNow": "仓库近期创建，并已交付单二进制 Git 服务、对象存储后端、LFS、UI、API 与 SDK，满足 genuinely_new_asset。",
+      "valueEvidenceRefs": [
+        "github:tree:1344273611:6d8fa54ba0f83072a1a50317bb6c8c1afa5a3cd1",
+        "github:readme:1344273611:049bc601446dbf4cea183dbffd11cc15eb60ad7a:excerpt:1",
+        "github:readme:1344273611:049bc601446dbf4cea183dbffd11cc15eb60ad7a:excerpt:2",
+        "github:readme:1344273611:049bc601446dbf4cea183dbffd11cc15eb60ad7a:excerpt:3",
+        "github:readme:1344273611:049bc601446dbf4cea183dbffd11cc15eb60ad7a:excerpt:4",
+        "github:readme:1344273611:049bc601446dbf4cea183dbffd11cc15eb60ad7a:excerpt:5",
+        "github:readme:1344273611:049bc601446dbf4cea183dbffd11cc15eb60ad7a:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1344273611",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1344273611"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "SELECT_NOW",
+      "publicationDisposition": "publish",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "完整应用",
+      "category": "data_infrastructure",
+      "categorySource": "research_derived",
+      "reviewAction": "change",
+      "reviewNotes": "仓库近期创建且单二进制、对象存储、LFS、UI/API/SDK 已构成完整可用新资产。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "2e2a8977ae469a2b6519c7d3ca33c6dfd19e07dd41457ea6ade3f43e5b621e95",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "distinctive_implementation",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 1201173969,
+      "repository": "JuliusBrussee/caveman",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "SELECT_NOW",
+      "originalPrimaryReasonV1": "specific_problem_solution",
+      "proposedDecisionV2": "SELECT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution",
+        "reference_or_learning_value"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution",
+        "reference_or_learning_value"
+      ],
+      "strongTimelinessSignals": [
+        "strong_recent_momentum"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "以可安装 Skill 和固定基准减少编码 Agent 输入/输出 token，解决上下文膨胀这一具体问题。",
+      "whyNow": "v2.4.0 于 8 月 29 日发布，README 给出固定基准，且 24 小时增长 172 stars。",
+      "valueEvidenceRefs": [
+        "github:tree:1201173969:df2ccd85c94ec3c8289cb62ac020d241ccfb0c60",
+        "github:readme:1201173969:e1aee37e12d6a15ac8e7e1a07b84ebf11eb22d36:excerpt:1",
+        "github:readme:1201173969:e1aee37e12d6a15ac8e7e1a07b84ebf11eb22d36:excerpt:2",
+        "github:readme:1201173969:e1aee37e12d6a15ac8e7e1a07b84ebf11eb22d36:excerpt:3",
+        "github:readme:1201173969:e1aee37e12d6a15ac8e7e1a07b84ebf11eb22d36:excerpt:4",
+        "github:readme:1201173969:e1aee37e12d6a15ac8e7e1a07b84ebf11eb22d36:excerpt:5",
+        "github:readme:1201173969:e1aee37e12d6a15ac8e7e1a07b84ebf11eb22d36:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1201173969",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1201173969",
+        "github:release:1201173969:379115464"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "SELECT_NOW",
+      "publicationDisposition": "publish",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "Agent Skill",
+      "category": "productivity",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "可安装 Skill 和固定 benchmark 建立价值；强 momentum 提供独立时效。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "d28263509918e5404e424df853dd42f31508f06859c2bb947f66520d0b9938ee",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "specific_problem_solution",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 6731432,
+      "repository": "koalaman/shellcheck",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "none",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "WORTHWHILE_NOT_NOW",
+      "originalPrimaryReasonV1": "directly_reusable",
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [],
+      "whyWorthSeeing": "成熟的 shell 静态分析工具，价值明确、可直接复用。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:6731432:9af7ee28ce587baadd950b85dd6826a16b9c068d",
+        "github:readme:6731432:a384fcae68c04776defb31f9fb3343cb4c9c179f:excerpt:1",
+        "github:readme:6731432:a384fcae68c04776defb31f9fb3343cb4c9c179f:excerpt:2",
+        "github:readme:6731432:a384fcae68c04776defb31f9fb3343cb4c9c179f:excerpt:3",
+        "github:readme:6731432:a384fcae68c04776defb31f9fb3343cb4c9c179f:excerpt:4",
+        "github:readme:6731432:a384fcae68c04776defb31f9fb3343cb4c9c179f:excerpt:5",
+        "github:readme:6731432:a384fcae68c04776defb31f9fb3343cb4c9c179f:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:6731432",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:6731432",
+        "github:release:6731432:237202770"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "CLI",
+      "category": "developer_tools",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "成熟静态分析工具价值明确，没有当前强时效事实。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "ed323698efb5cf6e629e64bfdeba8edb94ec0e7260655230030762c2765f5704",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 83878269,
+      "repository": "treeverse/dvc",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "weak",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "WORTHWHILE_NOT_NOW",
+      "originalPrimaryReasonV1": "directly_reusable",
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "为数据、模型和 ML 实验提供版本控制与轻量流水线。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "topiceye:profile:83878269:a1550f53345dfc71c4617be7aa5be8ad650d7c5ee74a327469e40014c0d06fff",
+        "github:tree:83878269:ed6a24e2e8a9096c5b7baddf9298a1a229505af0ea7731f262929ce43f680fb3",
+        "github:readme:83878269:76cb7a57382a25f1ca7c0c55efef617b2d6a09ea:excerpt:1",
+        "github:readme:83878269:76cb7a57382a25f1ca7c0c55efef617b2d6a09ea:excerpt:2",
+        "github:readme:83878269:76cb7a57382a25f1ca7c0c55efef617b2d6a09ea:excerpt:3",
+        "github:readme:83878269:76cb7a57382a25f1ca7c0c55efef617b2d6a09ea:excerpt:4",
+        "github:readme:83878269:76cb7a57382a25f1ca7c0c55efef617b2d6a09ea:excerpt:5",
+        "github:readme:83878269:76cb7a57382a25f1ca7c0c55efef617b2d6a09ea:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:83878269",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:83878269",
+        "github:release:83878269:303518079"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "CLI",
+      "category": "data_infrastructure",
+      "categorySource": "canonical_profile",
+      "reviewAction": "keep",
+      "reviewNotes": "数据/模型版本控制与流水线价值明确，普通活动不构成 why-now。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "4909e8f95a4b54190a3b49f73527aae1b4ff796d72daa651d7ed9d9138040712",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 741524414,
+      "repository": "hey-api/hey-api",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "none",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "WORTHWHILE_NOT_NOW",
+      "originalPrimaryReasonV1": "directly_reusable",
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [],
+      "whyWorthSeeing": "把 API 规范生成 SDK、校验器、mock 和框架集成，复用边界清楚。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:741524414:9d56b7e1aa05434a34d6e1dbb35b786d8f69dc4e",
+        "github:readme:741524414:ff3ebb57d6da94f78f9090124069d96ee6905ea4:excerpt:1",
+        "github:readme:741524414:ff3ebb57d6da94f78f9090124069d96ee6905ea4:excerpt:2",
+        "github:readme:741524414:ff3ebb57d6da94f78f9090124069d96ee6905ea4:excerpt:3",
+        "github:readme:741524414:ff3ebb57d6da94f78f9090124069d96ee6905ea4:excerpt:4",
+        "github:readme:741524414:ff3ebb57d6da94f78f9090124069d96ee6905ea4:excerpt:5",
+        "github:readme:741524414:ff3ebb57d6da94f78f9090124069d96ee6905ea4:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:741524414",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:741524414",
+        "github:release:741524414:342708538"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "SDK / Library",
+      "category": "developer_tools",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "生成器、插件、校验和 mock 可直接复用，但没有强时效证据。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "146c18748db53d30ed2e0ee627731e3c105dc64bd0290a8d87a3e7e9853b0984",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 10270250,
+      "repository": "react/react",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "weak",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "WORTHWHILE_NOT_NOW",
+      "originalPrimaryReasonV1": "directly_reusable",
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "成熟的 Web 与原生 UI 库，产品价值毋庸置疑。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:10270250:fba23062c47c205839c1cff054ae8a5c380eec43",
+        "github:readme:10270250:88f8e827b0255cf639043c83833c7a0c40ec0991:excerpt:1",
+        "github:readme:10270250:88f8e827b0255cf639043c83833c7a0c40ec0991:excerpt:2",
+        "github:readme:10270250:88f8e827b0255cf639043c83833c7a0c40ec0991:excerpt:3",
+        "github:readme:10270250:88f8e827b0255cf639043c83833c7a0c40ec0991:excerpt:4",
+        "github:readme:10270250:88f8e827b0255cf639043c83833c7a0c40ec0991:excerpt:5",
+        "github:readme:10270250:88f8e827b0255cf639043c83833c7a0c40ec0991:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:10270250",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:10270250",
+        "github:release:10270250:356654919"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "框架",
+      "category": "developer_tools",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "长期价值成立；最近 push 只是弱时效。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "234f3b948a64e254b98df967c9323aa675cdb56a26ab510b0c9621b4510b0932",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 943149,
+      "repository": "d3/d3",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "none",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "WORTHWHILE_NOT_NOW",
+      "originalPrimaryReasonV1": "distinctive_implementation",
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "distinctive_implementation"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "distinctive_implementation"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [],
+      "whyWorthSeeing": "以 Web 标准提供低层、高自由度的数据可视化构建能力。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "topiceye:profile:943149:580376dff65dc45ec82e2fc5df817e5b90f1e2f4bb9fef3c9a332f6385308910",
+        "github:tree:943149:db62ffd5841f220dfef0aa776b74cbc88c21d58d4ccafb6670b04253417b17fd",
+        "github:readme:943149:cf409a546f5af0b535d2413069ba4bb5ee238592:excerpt:1",
+        "github:readme:943149:cf409a546f5af0b535d2413069ba4bb5ee238592:excerpt:2",
+        "github:readme:943149:cf409a546f5af0b535d2413069ba4bb5ee238592:excerpt:3",
+        "github:readme:943149:cf409a546f5af0b535d2413069ba4bb5ee238592:excerpt:4",
+        "github:readme:943149:cf409a546f5af0b535d2413069ba4bb5ee238592:excerpt:5",
+        "github:readme:943149:cf409a546f5af0b535d2413069ba4bb5ee238592:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:943149",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:943149",
+        "github:release:943149:146149694"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "SDK / Library",
+      "category": "data_infrastructure",
+      "categorySource": "canonical_profile",
+      "reviewAction": "change",
+      "reviewNotes": "D3 的可复用库资产和底层实现都成立；V2 确定性优先级选择 directly_reusable。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "224bf3a91311d9882348614a979075250e88c07f1c216f44dc8639789b4a3f8f",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "distinctive_implementation",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 808144141,
+      "repository": "DigitalPlatDev/FreeDomain",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "weak",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "REJECT",
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "REJECT",
+      "reasonCandidates": [],
+      "proposedPrimaryReasonV2": null,
+      "supportingReasons": [],
+      "strongTimelinessSignals": [
+        "strong_recent_momentum"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "",
+      "whyNow": "Rardar 记录到显著近期关注变化。",
+      "valueEvidenceRefs": [
+        "github:tree:808144141:9c7c54110705760267b07b6e6a6d406d1172a1bf",
+        "github:readme:808144141:2c2a240dae197318630d8424cd9f410b52f9fa4b:excerpt:1",
+        "github:readme:808144141:2c2a240dae197318630d8424cd9f410b52f9fa4b:excerpt:2",
+        "github:readme:808144141:2c2a240dae197318630d8424cd9f410b52f9fa4b:excerpt:3",
+        "github:readme:808144141:2c2a240dae197318630d8424cd9f410b52f9fa4b:excerpt:4",
+        "github:readme:808144141:2c2a240dae197318630d8424cd9f410b52f9fa4b:excerpt:5",
+        "github:readme:808144141:2c2a240dae197318630d8424cd9f410b52f9fa4b:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:808144141",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:808144141"
+      ],
+      "counterEvidenceRefs": [
+        "github:tree:808144141:9c7c54110705760267b07b6e6a6d406d1172a1bf"
+      ],
+      "peerContextRefs": [],
+      "semanticDecision": "REJECT",
+      "publicationDisposition": "not_eligible",
+      "rejectReasons": [
+        "weak_evidence",
+        "not_reusable_or_actionable"
+      ],
+      "nearDuplicateGroup": null,
+      "projectForm": "知识资产",
+      "category": "data_infrastructure",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "当前仓库只提供说明，应用源码在别处；增长不得替代本仓库价值证据。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "0916da12d77df58dc8022b2664314b5c4304bae9bfc2a129f36581631f81f81d",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": true,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 1344208527,
+      "repository": "b-nnett/grok-bot-0.18-reconstructed",
+      "scopeStatus": "uncertain",
+      "valueVerdict": "weak",
+      "valueConfidence": "medium",
+      "timelinessVerdict": "none",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "REJECT",
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "UNCERTAIN",
+      "reasonCandidates": [],
+      "proposedPrimaryReasonV2": null,
+      "supportingReasons": [],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [],
+      "whyWorthSeeing": "",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "topiceye:profile:1344208527:1c8a667723a4e91116d59761ecbcb65dac2b0ade6e4fbfe9a1bc8fc334d8d2f0",
+        "github:tree:1344208527:305e273f9eb04fdeaa269b482a7b6e4222727c1e8b36e256f2990644888de815",
+        "github:readme:1344208527:e3eff1cab35077ad446da52b336d17878ce64e9f:excerpt:1",
+        "github:readme:1344208527:e3eff1cab35077ad446da52b336d17878ce64e9f:excerpt:2",
+        "github:readme:1344208527:e3eff1cab35077ad446da52b336d17878ce64e9f:excerpt:3",
+        "github:readme:1344208527:e3eff1cab35077ad446da52b336d17878ce64e9f:excerpt:4",
+        "github:readme:1344208527:e3eff1cab35077ad446da52b336d17878ce64e9f:excerpt:5",
+        "github:readme:1344208527:e3eff1cab35077ad446da52b336d17878ce64e9f:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1344208527",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1344208527"
+      ],
+      "counterEvidenceRefs": [
+        "topiceye:profile:1344208527:1c8a667723a4e91116d59761ecbcb65dac2b0ade6e4fbfe9a1bc8fc334d8d2f0"
+      ],
+      "peerContextRefs": [],
+      "semanticDecision": "UNCERTAIN",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "完整应用",
+      "category": "ai_agent",
+      "categorySource": "canonical_profile",
+      "reviewAction": "needs_user_decision",
+      "reviewNotes": "非官方重构的来源、许可和长期维护边界不足；Scope 也需要产品确认。",
+      "userDecisionQuestion": "非官方重构仓库应一律排除，还是保留为待验证参考？",
+      "evidencePackageDigest": "54fc21e5d57d6f8e169d0b410428c629c34f1f1ed7dd93c5b77a1d3314ede12b",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "UNCERTAIN",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 1338435811,
+      "repository": "vvxw/deploy-vercel",
+      "scopeStatus": "out_of_scope",
+      "valueVerdict": "weak",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "REJECT",
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "REJECT",
+      "reasonCandidates": [],
+      "proposedPrimaryReasonV2": null,
+      "supportingReasons": [],
+      "strongTimelinessSignals": [
+        "genuinely_new_asset"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "",
+      "whyNow": "近期形成完整可用的新资产。",
+      "valueEvidenceRefs": [
+        "github:tree:1338435811:9b7052b0003665772ed89d5b8a80558bfb1b33bd",
+        "github:readme:1338435811:7dbb98a6afe528af0a32c84ea6425c628e15e64a:excerpt:1",
+        "github:readme:1338435811:7dbb98a6afe528af0a32c84ea6425c628e15e64a:excerpt:2",
+        "github:readme:1338435811:7dbb98a6afe528af0a32c84ea6425c628e15e64a:excerpt:3",
+        "github:readme:1338435811:7dbb98a6afe528af0a32c84ea6425c628e15e64a:excerpt:4",
+        "github:readme:1338435811:7dbb98a6afe528af0a32c84ea6425c628e15e64a:excerpt:5",
+        "github:readme:1338435811:7dbb98a6afe528af0a32c84ea6425c628e15e64a:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1338435811",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1338435811"
+      ],
+      "counterEvidenceRefs": [
+        "github:tree:1338435811:9b7052b0003665772ed89d5b8a80558bfb1b33bd"
+      ],
+      "peerContextRefs": [],
+      "semanticDecision": "REJECT",
+      "publicationDisposition": "not_eligible",
+      "rejectReasons": [
+        "out_of_product_scope",
+        "weak_evidence",
+        "maintenance_or_license_concern"
+      ],
+      "nearDuplicateGroup": null,
+      "projectForm": "模板 / Starter",
+      "category": "data_infrastructure",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "混淆代理页面和维护边界不足；新仓库/关注变化不能覆盖安全问题。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "d904eaed73bcc7d8bc6d9c28a4955d846b0d55783fb8c804d5224984019c5bed",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 1335211378,
+      "repository": "Minglink/dsh-infinite-gen-3",
+      "scopeStatus": "out_of_scope",
+      "valueVerdict": "weak",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "REJECT",
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "REJECT",
+      "reasonCandidates": [],
+      "proposedPrimaryReasonV2": null,
+      "supportingReasons": [],
+      "strongTimelinessSignals": [
+        "strong_recent_momentum"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "",
+      "whyNow": "Rardar 记录到显著近期关注变化。",
+      "valueEvidenceRefs": [
+        "github:tree:1335211378:fb783ecaa1b8cd573684f86a76d3f102bd6c1dd0",
+        "github:readme:1335211378:e6a277a8e430177ecb665777a51ada425866e77c:excerpt:1",
+        "github:readme:1335211378:e6a277a8e430177ecb665777a51ada425866e77c:excerpt:2",
+        "github:readme:1335211378:e6a277a8e430177ecb665777a51ada425866e77c:excerpt:3",
+        "github:readme:1335211378:e6a277a8e430177ecb665777a51ada425866e77c:excerpt:4",
+        "github:readme:1335211378:e6a277a8e430177ecb665777a51ada425866e77c:excerpt:5",
+        "github:readme:1335211378:e6a277a8e430177ecb665777a51ada425866e77c:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1335211378",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1335211378"
+      ],
+      "counterEvidenceRefs": [
+        "github:tree:1335211378:fb783ecaa1b8cd573684f86a76d3f102bd6c1dd0"
+      ],
+      "peerContextRefs": [],
+      "semanticDecision": "REJECT",
+      "publicationDisposition": "not_eligible",
+      "rejectReasons": [
+        "out_of_product_scope",
+        "not_reusable_or_actionable",
+        "maintenance_or_license_concern"
+      ],
+      "nearDuplicateGroup": null,
+      "projectForm": "插件",
+      "category": "ai_agent",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "核心卖点是无条件服从和提示注入，不符合安全产品边界。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "89110b70505ada836c2442320b54a67f1641da6f7a3bd897737153edffe39ae8",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": true,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 1336783814,
+      "repository": "flaqai/backlink_skills",
+      "scopeStatus": "uncertain",
+      "valueVerdict": "moderate",
+      "valueConfidence": "medium",
+      "timelinessVerdict": "weak",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "REJECT",
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "UNCERTAIN",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": null,
+      "supportingReasons": [],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:1336783814:9290e550ac98ef80f2c766a2b97998a4d9227849",
+        "github:readme:1336783814:97d0e8955ede878d582912d6d79896f0680beb69:excerpt:1",
+        "github:readme:1336783814:97d0e8955ede878d582912d6d79896f0680beb69:excerpt:2",
+        "github:readme:1336783814:97d0e8955ede878d582912d6d79896f0680beb69:excerpt:3",
+        "github:readme:1336783814:97d0e8955ede878d582912d6d79896f0680beb69:excerpt:4",
+        "github:readme:1336783814:97d0e8955ede878d582912d6d79896f0680beb69:excerpt:5",
+        "github:readme:1336783814:97d0e8955ede878d582912d6d79896f0680beb69:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1336783814",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1336783814"
+      ],
+      "counterEvidenceRefs": [
+        "github:tree:1336783814:9290e550ac98ef80f2c766a2b97998a4d9227849"
+      ],
+      "peerContextRefs": [],
+      "semanticDecision": "UNCERTAIN",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "Agent Skill",
+      "category": "productivity",
+      "categorySource": "research_derived",
+      "reviewAction": "needs_user_decision",
+      "reviewNotes": "仓库包含可安装 SEO 工作流，但证据尚不足以区分可复用工具与营销渠道。",
+      "userDecisionQuestion": "SEO 外链自动化 Skill 是否属于 Rardar 面向开发者/产品构建者的范围？",
+      "evidencePackageDigest": "6738543ce5ce3e1ed62d0bace657cfcee318c9233942ef12bac661fef6732d17",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "UNCERTAIN",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": true,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 1343906216,
+      "repository": "fzakaria/selfdb",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "UNCERTAIN",
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "SELECT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "distinctive_implementation",
+        "reference_or_learning_value"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "distinctive_implementation",
+        "reference_or_learning_value"
+      ],
+      "strongTimelinessSignals": [
+        "genuinely_new_asset"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "把可执行格式表示为 SQLite 的实验性实现具有独特参考价值。",
+      "whyNow": "仓库近期创建，并已交付 SELF 格式、loader/converter、设计文档和测试，满足 genuinely_new_asset。",
+      "valueEvidenceRefs": [
+        "github:tree:1343906216:e63f7c470302f089a677ec87679a7df60b628547",
+        "github:readme:1343906216:39a61139607f1a3a64a639790f08368fb7025152:excerpt:1",
+        "github:readme:1343906216:39a61139607f1a3a64a639790f08368fb7025152:excerpt:2",
+        "github:readme:1343906216:39a61139607f1a3a64a639790f08368fb7025152:excerpt:3",
+        "github:readme:1343906216:39a61139607f1a3a64a639790f08368fb7025152:excerpt:4",
+        "github:readme:1343906216:39a61139607f1a3a64a639790f08368fb7025152:excerpt:5",
+        "github:readme:1343906216:39a61139607f1a3a64a639790f08368fb7025152:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1343906216",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1343906216"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "SELECT_NOW",
+      "publicationDisposition": "publish",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "开发工作流",
+      "category": "data_infrastructure",
+      "categorySource": "research_derived",
+      "reviewAction": "needs_user_decision",
+      "reviewNotes": "SELF 格式、loader/converter、设计文档与测试证明具体实现；近期创建且交付完整。",
+      "userDecisionQuestion": "实验性系统格式已有代码和测试时，是否足以进入 SELECT_NOW？",
+      "evidencePackageDigest": "13ade0230fe0d1c949fec52e18289299e6fd4d906955eaaa545053742cdeb66c",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "WORTHWHILE_NOT_NOW",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": true,
+      "evaluationGroup": "calibration",
+      "githubRepositoryId": 1342461518,
+      "repository": "ApodexAI/FrontierAgent",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "uncertain",
+      "valueConfidence": "medium",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "UNCERTAIN",
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "UNCERTAIN",
+      "reasonCandidates": [
+        "directly_reusable",
+        "distinctive_implementation"
+      ],
+      "proposedPrimaryReasonV2": null,
+      "supportingReasons": [],
+      "strongTimelinessSignals": [
+        "genuinely_new_asset"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "同时提供终端 Agent runtime、ReAct、Agent Team 与评测套件，交付面较完整。",
+      "whyNow": "仓库本身较新且活跃，但没有 release，长周期能力声明需要独立评测证据。",
+      "valueEvidenceRefs": [
+        "github:tree:1342461518:ce4dd2dc715d2c1d51f16c2d2d506f97686db27a",
+        "github:readme:1342461518:77273a991332e8e5b9c0ed3ec51eda769d4e893d:excerpt:1",
+        "github:readme:1342461518:77273a991332e8e5b9c0ed3ec51eda769d4e893d:excerpt:2",
+        "github:readme:1342461518:77273a991332e8e5b9c0ed3ec51eda769d4e893d:excerpt:3",
+        "github:readme:1342461518:77273a991332e8e5b9c0ed3ec51eda769d4e893d:excerpt:4",
+        "github:readme:1342461518:77273a991332e8e5b9c0ed3ec51eda769d4e893d:excerpt:5",
+        "github:readme:1342461518:77273a991332e8e5b9c0ed3ec51eda769d4e893d:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1342461518",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1342461518"
+      ],
+      "counterEvidenceRefs": [
+        "github:tree:1342461518:ce4dd2dc715d2c1d51f16c2d2d506f97686db27a"
+      ],
+      "peerContextRefs": [],
+      "semanticDecision": "UNCERTAIN",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "框架",
+      "category": "ai_agent",
+      "categorySource": "research_derived",
+      "reviewAction": "needs_user_decision",
+      "reviewNotes": "交付面完整但长周期能力和差异化声明缺少独立评测证据。",
+      "userDecisionQuestion": "功能面完整但关键能力只由 README 声明时，是否保持 UNCERTAIN？",
+      "evidencePackageDigest": "7e35d9001c7783ea712bb005a64a966b9cc7e5f61b7d6cb79998d69f8aa3ef29",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "UNCERTAIN",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 533087958,
+      "repository": "d2lang/d2",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "weak",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "SELECT_NOW",
+      "originalPrimaryReasonV1": "directly_reusable",
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution",
+        "distinctive_implementation"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution",
+        "distinctive_implementation"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "将文本编译为图表，具备 CLI、编译器、导出器和多种集成，是明确可复用的技术制图工具。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:533087958:0d69dca6f532ceaeacd615d35d1eaa41a238ffdb",
+        "github:readme:533087958:328e2f69d6a2c6aced5b403c1fc91fedb7cb399f:excerpt:1",
+        "github:readme:533087958:328e2f69d6a2c6aced5b403c1fc91fedb7cb399f:excerpt:2",
+        "github:readme:533087958:328e2f69d6a2c6aced5b403c1fc91fedb7cb399f:excerpt:3",
+        "github:readme:533087958:328e2f69d6a2c6aced5b403c1fc91fedb7cb399f:excerpt:4",
+        "github:readme:533087958:328e2f69d6a2c6aced5b403c1fc91fedb7cb399f:excerpt:5",
+        "github:readme:533087958:328e2f69d6a2c6aced5b403c1fc91fedb7cb399f:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:533087958",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:533087958",
+        "github:release:533087958:375881419"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "CLI",
+      "category": "developer_tools",
+      "categorySource": "research_derived",
+      "reviewAction": "change",
+      "reviewNotes": "v0.8.2 Evidence Package 没有 release notes，不能把版本号本身视为 meaningful release。",
+      "userDecisionQuestion": "普通 release 标签但无变更说明时，是否应允许进入 SELECT_NOW？",
+      "evidencePackageDigest": "d945a57770de277c512a5e2abfbbd68a63362f9e546920c279ddaedabbca854a",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": true,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 1344425591,
+      "repository": "bryllim/workout-guide",
+      "scopeStatus": "uncertain",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "SELECT_NOW",
+      "originalPrimaryReasonV1": "directly_reusable",
+      "proposedDecisionV2": "UNCERTAIN",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution",
+        "reference_or_learning_value"
+      ],
+      "proposedPrimaryReasonV2": null,
+      "supportingReasons": [],
+      "strongTimelinessSignals": [
+        "meaningful_release",
+        "genuinely_new_asset"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "提供 302 项开放运动插图、结构化元数据和框架无关 npm API，可直接嵌入健身产品。",
+      "whyNow": "仓库于 8 月 24 日创建并发布 v1.0.0，仍处于应及时验证的新资产窗口。",
+      "valueEvidenceRefs": [
+        "github:tree:1344425591:aac599224bb9780305239607ef98540b7e0ce389",
+        "github:readme:1344425591:9003b703fb36497bfec31f0d0823acf75d224b79:excerpt:1",
+        "github:readme:1344425591:9003b703fb36497bfec31f0d0823acf75d224b79:excerpt:2",
+        "github:readme:1344425591:9003b703fb36497bfec31f0d0823acf75d224b79:excerpt:3",
+        "github:readme:1344425591:9003b703fb36497bfec31f0d0823acf75d224b79:excerpt:4",
+        "github:readme:1344425591:9003b703fb36497bfec31f0d0823acf75d224b79:excerpt:5",
+        "github:readme:1344425591:9003b703fb36497bfec31f0d0823acf75d224b79:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1344425591",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1344425591",
+        "github:release:1344425591:375400703"
+      ],
+      "counterEvidenceRefs": [
+        "github:tree:1344425591:aac599224bb9780305239607ef98540b7e0ce389"
+      ],
+      "peerContextRefs": [],
+      "semanticDecision": "UNCERTAIN",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "SDK / Library",
+      "category": "other",
+      "categorySource": "research_derived",
+      "reviewAction": "needs_user_decision",
+      "reviewNotes": "302 项插图和 npm 包价值明确，但面向普通健身内容是否属于 Developer Intelligence 是产品范围决策。",
+      "userDecisionQuestion": "面向健身产品的结构化插图 SDK 是否属于 Rardar Discover？",
+      "evidencePackageDigest": "15f4349cf71b3f6823249e132de3c35e96f9f45ceddb673ea85fd30169d82962",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "UNCERTAIN",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 21467110,
+      "repository": "explosion/spaCy",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "weak",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "SELECT_NOW",
+      "originalPrimaryReasonV1": "directly_reusable",
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "面向生产的 Python/Cython NLP 库，覆盖预训练流水线和多语言处理。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:21467110:26b4d1dc04a812f426e4bef3e8a1b6f159d6f048",
+        "github:readme:21467110:cab0d800202627621e02d8bb11a5d5d3ef8cfac2:excerpt:1",
+        "github:readme:21467110:cab0d800202627621e02d8bb11a5d5d3ef8cfac2:excerpt:2",
+        "github:readme:21467110:cab0d800202627621e02d8bb11a5d5d3ef8cfac2:excerpt:3",
+        "github:readme:21467110:cab0d800202627621e02d8bb11a5d5d3ef8cfac2:excerpt:4",
+        "github:readme:21467110:cab0d800202627621e02d8bb11a5d5d3ef8cfac2:excerpt:5",
+        "github:readme:21467110:cab0d800202627621e02d8bb11a5d5d3ef8cfac2:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:21467110",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:21467110",
+        "github:release:21467110:375596794"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "SDK / Library",
+      "category": "ai_agent",
+      "categorySource": "research_derived",
+      "reviewAction": "change",
+      "reviewNotes": "v3.8.16 是普通 patch，Evidence Package 没有证明新能力或重大行为变化。",
+      "userDecisionQuestion": "普通 patch release 是否应算强 why-now？",
+      "evidencePackageDigest": "b2f83098c3999329a2a4d9370c61d8d9950212f69895a7f0cd8ece319e9e8f02",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": true,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 1333175049,
+      "repository": "awesome-dsh-plugin/awesome-dsh-plugin",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "REJECT",
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "SELECT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "reference_or_learning_value"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "reference_or_learning_value"
+      ],
+      "strongTimelinessSignals": [
+        "genuinely_new_asset",
+        "strong_recent_momentum"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "",
+      "whyNow": "近期形成完整可用的新资产；Rardar 记录到显著近期关注变化。",
+      "valueEvidenceRefs": [
+        "github:tree:1333175049:a105d90cd9f2398b184550534b205778c7bf853d",
+        "github:readme:1333175049:97206da279f33713b822ba98d7468d4b606ba481:excerpt:1",
+        "github:readme:1333175049:97206da279f33713b822ba98d7468d4b606ba481:excerpt:2",
+        "github:readme:1333175049:97206da279f33713b822ba98d7468d4b606ba481:excerpt:3",
+        "github:readme:1333175049:97206da279f33713b822ba98d7468d4b606ba481:excerpt:4",
+        "github:readme:1333175049:97206da279f33713b822ba98d7468d4b606ba481:excerpt:5",
+        "github:readme:1333175049:97206da279f33713b822ba98d7468d4b606ba481:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1333175049",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1333175049"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1335211378"
+      ],
+      "semanticDecision": "SELECT_NOW",
+      "publicationDisposition": "suppress_duplicate",
+      "rejectReasons": [],
+      "nearDuplicateGroup": "dsh-plugin-catalog",
+      "projectForm": "数据集 / Awesome List",
+      "category": "ai_agent",
+      "categorySource": "research_derived",
+      "reviewAction": "needs_user_decision",
+      "reviewNotes": "可安装插件目录本身具备参考与复用价值；重复只能影响 packing，不能把项目语义改成 REJECT。",
+      "userDecisionQuestion": "聚合目录本身价值成立时，是否允许 semantic SELECT_NOW 但 suppress_duplicate？",
+      "evidencePackageDigest": "d48f5e261fe3a618caefee723851070427006623e7ddf1847807f43459e1e69f",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "WORTHWHILE_NOT_NOW",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "suppress_duplicate",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": null,
+          "publicationDisposition": "suppress_duplicate",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": true,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 1339742577,
+      "repository": "amagine-ai/Amagine3D",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "moderate",
+      "valueConfidence": "medium",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "UNCERTAIN",
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "UNCERTAIN",
+      "reasonCandidates": [
+        "specific_problem_solution",
+        "distinctive_implementation"
+      ],
+      "proposedPrimaryReasonV2": null,
+      "supportingReasons": [],
+      "strongTimelinessSignals": [
+        "genuinely_new_asset",
+        "strong_recent_momentum"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "自然语言到可编辑参数化 CAD 的定位具体且有实现树。",
+      "whyNow": "增长和新项目属性成立，但没有 release，关键输出质量仍需独立样例验证。",
+      "valueEvidenceRefs": [
+        "topiceye:profile:1339742577:c177c8d22875926474f027b35a1e247279e893f7b35512ba53faf684320c9dfb",
+        "github:tree:1339742577:5ef72dfc4d77c48666b10bcf5e3ed1fcc5cd8273bcc3071560713bf6510d9e27",
+        "github:readme:1339742577:25141e3e1345a0d245fb455a931b686f007dd089:excerpt:1",
+        "github:readme:1339742577:25141e3e1345a0d245fb455a931b686f007dd089:excerpt:2",
+        "github:readme:1339742577:25141e3e1345a0d245fb455a931b686f007dd089:excerpt:3",
+        "github:readme:1339742577:25141e3e1345a0d245fb455a931b686f007dd089:excerpt:4",
+        "github:readme:1339742577:25141e3e1345a0d245fb455a931b686f007dd089:excerpt:5",
+        "github:readme:1339742577:25141e3e1345a0d245fb455a931b686f007dd089:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1339742577",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1339742577"
+      ],
+      "counterEvidenceRefs": [
+        "topiceye:profile:1339742577:c177c8d22875926474f027b35a1e247279e893f7b35512ba53faf684320c9dfb"
+      ],
+      "peerContextRefs": [],
+      "semanticDecision": "UNCERTAIN",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "完整应用",
+      "category": "other",
+      "categorySource": "canonical_profile",
+      "reviewAction": "needs_user_decision",
+      "reviewNotes": "自然语言到参数化 CAD 的实现树成立，但没有独立样例证明输出质量和可重复编辑性。",
+      "userDecisionQuestion": "缺少输出质量验证时，应保留 UNCERTAIN 还是视为强价值？",
+      "evidencePackageDigest": "0f2981701976bc217adc28aac3a0dd92ee66725d112a3f9d49f9051f26e9ebf3",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "UNCERTAIN",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": true,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 1339575436,
+      "repository": "lanicer/cve-2026-41940-PoC",
+      "scopeStatus": "uncertain",
+      "valueVerdict": "moderate",
+      "valueConfidence": "medium",
+      "timelinessVerdict": "weak",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": "REJECT",
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "UNCERTAIN",
+      "reasonCandidates": [
+        "reference_or_learning_value"
+      ],
+      "proposedPrimaryReasonV2": null,
+      "supportingReasons": [],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:1339575436:505ad8f8356a77a29b198e723479448cc6d9bb9c",
+        "github:readme:1339575436:2cfed622b55803f1cc7b06d22dfda81876631099:excerpt:1",
+        "github:readme:1339575436:2cfed622b55803f1cc7b06d22dfda81876631099:excerpt:2",
+        "github:readme:1339575436:2cfed622b55803f1cc7b06d22dfda81876631099:excerpt:3",
+        "github:readme:1339575436:2cfed622b55803f1cc7b06d22dfda81876631099:excerpt:4",
+        "github:readme:1339575436:2cfed622b55803f1cc7b06d22dfda81876631099:excerpt:5",
+        "github:readme:1339575436:2cfed622b55803f1cc7b06d22dfda81876631099:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1339575436",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1339575436"
+      ],
+      "counterEvidenceRefs": [
+        "github:tree:1339575436:505ad8f8356a77a29b198e723479448cc6d9bb9c"
+      ],
+      "peerContextRefs": [],
+      "semanticDecision": "UNCERTAIN",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "CLI",
+      "category": "developer_tools",
+      "categorySource": "research_derived",
+      "reviewAction": "needs_user_decision",
+      "reviewNotes": "单一认证绕过 PoC 有安全研究价值，但是否属于面向一般构建者的 Discover 需要用户定边界。",
+      "userDecisionQuestion": "单漏洞利用 PoC 是否属于 Rardar Discover 产品范围？",
+      "evidencePackageDigest": "70a603a3d32a2658b1013657ce49501529235251567ae40ac8c1991072c83e1e",
+      "approvedScopeStatusV3": "out_of_scope",
+      "approvedDecisionV3": "REJECT",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "not_eligible",
+      "approvedRejectReasonV3": "out_of_product_scope",
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "out_of_scope",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "publicationDisposition": "not_eligible",
+          "rejectReason": "out_of_product_scope",
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 233472199,
+      "repository": "massgravel/Microsoft-Activation-Scripts",
+      "scopeStatus": "out_of_scope",
+      "valueVerdict": "weak",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": null,
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "REJECT",
+      "reasonCandidates": [],
+      "proposedPrimaryReasonV2": null,
+      "supportingReasons": [],
+      "strongTimelinessSignals": [
+        "strong_recent_momentum"
+      ],
+      "weakTimelinessSignals": [],
+      "whyWorthSeeing": "Windows 与 Office 激活工具，但不属于当前 Rardar Discover 产品边界。",
+      "whyNow": "Rardar 记录到显著近期关注变化。",
+      "valueEvidenceRefs": [
+        "github:readme:233472199:c4731fbece9b7470d1fdb1aaeadd7311fdfe4226:excerpt:1",
+        "github:tree:233472199:6401d2f36975dc07bcb6d22ea823a8498a75ec01"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:233472199",
+        "github:release:233472199:348892206"
+      ],
+      "counterEvidenceRefs": [
+        "github:readme:233472199:c4731fbece9b7470d1fdb1aaeadd7311fdfe4226:excerpt:1"
+      ],
+      "peerContextRefs": [],
+      "semanticDecision": "REJECT",
+      "publicationDisposition": "not_eligible",
+      "rejectReasons": [
+        "out_of_product_scope",
+        "maintenance_or_license_concern"
+      ],
+      "nearDuplicateGroup": null,
+      "projectForm": "CLI",
+      "category": "other",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "Windows/Office 激活脚本不属于当前开发者能力复用边界，且 README 指导执行远端脚本。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "67cb1d9e19c5d1a720a5b59ce128666d4e27fc50c278bfd64d30da5e2bb80bf1",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": true,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 157616880,
+      "repository": "iptv-org/iptv",
+      "scopeStatus": "uncertain",
+      "valueVerdict": "moderate",
+      "valueConfidence": "medium",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": null,
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "UNCERTAIN",
+      "reasonCandidates": [
+        "directly_reusable",
+        "reference_or_learning_value"
+      ],
+      "proposedPrimaryReasonV2": null,
+      "supportingReasons": [],
+      "strongTimelinessSignals": [
+        "strong_recent_momentum"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "提供可消费的 M3U 播放列表、脚本和测试，但数据库/API 位于其他仓库且存在版权边界。",
+      "whyNow": "Rardar 记录到显著近期关注变化。",
+      "valueEvidenceRefs": [
+        "github:readme:157616880:79407f2048531750e7f549e370b9e2987a136d32:excerpt:1",
+        "github:tree:157616880:1080fddcf6bd5d94a049e69d2035d874d8f17383"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:157616880"
+      ],
+      "counterEvidenceRefs": [
+        "github:readme:157616880:79407f2048531750e7f549e370b9e2987a136d32:excerpt:1"
+      ],
+      "peerContextRefs": [],
+      "semanticDecision": "UNCERTAIN",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "dataset",
+      "category": "data_infrastructure",
+      "categorySource": "research_derived",
+      "reviewAction": "needs_user_decision",
+      "reviewNotes": "可消费播放列表与测试/脚本真实存在，但版权边界和面向开发者的产品范围需要确认。",
+      "userDecisionQuestion": "公开 IPTV 链接数据集是否属于 Rardar Discover？",
+      "evidencePackageDigest": "395ece040bb9751c919a6b86607aeb6a6ba18e12aca545fef6e17cf7c6de6f5c",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "UNCERTAIN",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 1338563299,
+      "repository": "amirh00sain/SpiderPanel",
+      "scopeStatus": "out_of_scope",
+      "valueVerdict": "weak",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": null,
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "REJECT",
+      "reasonCandidates": [],
+      "proposedPrimaryReasonV2": null,
+      "supportingReasons": [],
+      "strongTimelinessSignals": [
+        "genuinely_new_asset",
+        "strong_recent_momentum"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "包含 VPN/代理面板实现，但 README、许可和安全维护证据不足。",
+      "whyNow": "近期形成完整可用的新资产；Rardar 记录到显著近期关注变化。",
+      "valueEvidenceRefs": [
+        "github:readme:1338563299:3ef6cc9e26beb42a91a795c8d7dae5642dd5863f:excerpt:1",
+        "github:tree:1338563299:2eb6ac5c1dc8cbb5ad6701534f63aa33107c026a"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1338563299"
+      ],
+      "counterEvidenceRefs": [
+        "github:readme:1338563299:3ef6cc9e26beb42a91a795c8d7dae5642dd5863f:excerpt:1"
+      ],
+      "peerContextRefs": [],
+      "semanticDecision": "REJECT",
+      "publicationDisposition": "not_eligible",
+      "rejectReasons": [
+        "out_of_product_scope",
+        "weak_evidence",
+        "maintenance_or_license_concern"
+      ],
+      "nearDuplicateGroup": null,
+      "projectForm": "application",
+      "category": "other",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "README 只给临时账号、fork 和 Railway 部署步骤，缺少许可与安全边界；VPN/代理面板不属于当前范围。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "e66fa71d3646adca97927ada12ba9c75f0501ee30de7677d5606569fa67b2f73",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 205326947,
+      "repository": "espanso/espanso",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "weak",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": null,
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "跨平台、隐私优先的文本扩展器，包含完整 Rust 工程和可安装应用。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:205326947:a87d1723f47a59e38d370e2f0c636d66d568b8f6",
+        "github:readme:205326947:6d2ad04a88fe1f472df9265035515fc582e9059c:excerpt:1",
+        "github:readme:205326947:6d2ad04a88fe1f472df9265035515fc582e9059c:excerpt:2",
+        "github:readme:205326947:6d2ad04a88fe1f472df9265035515fc582e9059c:excerpt:3",
+        "github:readme:205326947:6d2ad04a88fe1f472df9265035515fc582e9059c:excerpt:4",
+        "github:readme:205326947:6d2ad04a88fe1f472df9265035515fc582e9059c:excerpt:5",
+        "github:readme:205326947:6d2ad04a88fe1f472df9265035515fc582e9059c:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:205326947",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:205326947",
+        "github:release:205326947:357437104"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "application",
+      "category": "productivity",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "跨平台文本扩展器及完整 Rust 工程可直接复用；没有强 why-now。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "0989e53bc261916f56e37298abe2ca3a37a2376f105baea385b746522618cc4d",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 231972503,
+      "repository": "public-api-lists/public-api-lists",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "none",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": null,
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "reference_or_learning_value"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "reference_or_learning_value"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [],
+      "whyWorthSeeing": "提供 730+ 免费 API 的分类目录和免费 JSON API。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:231972503:1026cf8fb5a6824c308285d7f449ea795f357831",
+        "github:readme:231972503:0a6a13ea7619aa5c8d6a423933f8a3935e5cebd2:excerpt:1",
+        "github:readme:231972503:0a6a13ea7619aa5c8d6a423933f8a3935e5cebd2:excerpt:2",
+        "github:readme:231972503:0a6a13ea7619aa5c8d6a423933f8a3935e5cebd2:excerpt:3",
+        "github:readme:231972503:0a6a13ea7619aa5c8d6a423933f8a3935e5cebd2:excerpt:4",
+        "github:readme:231972503:0a6a13ea7619aa5c8d6a423933f8a3935e5cebd2:excerpt:5",
+        "github:readme:231972503:0a6a13ea7619aa5c8d6a423933f8a3935e5cebd2:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:231972503",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:231972503"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "dataset",
+      "category": "developer_tools",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "730+ API 目录与 JSON API 是可用知识资产，但没有当前强时效。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "896383ca58d4942a725a648658b861ba8fe95d2c02e9a8f9ae087e941ecaccdf",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 257913595,
+      "repository": "voxel51/fiftyone",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "weak",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": null,
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "用于整理、可视化、标注和评估视觉数据集及模型的开源平台。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "topiceye:profile:257913595:862dddfddd14b1029b269aef6bb4aad3ad9d38abc3b7709e1f510d48db0bb8b9",
+        "github:tree:257913595:1795fc74bf5c7ffaa7af1b9c08933f87cbb1a8f8b786530be48cab5ad15eaf3d",
+        "github:readme:257913595:1be0377b1b23fdc103ce4656c4412c2ffd4e0ce5:excerpt:1",
+        "github:readme:257913595:1be0377b1b23fdc103ce4656c4412c2ffd4e0ce5:excerpt:2",
+        "github:readme:257913595:1be0377b1b23fdc103ce4656c4412c2ffd4e0ce5:excerpt:3",
+        "github:readme:257913595:1be0377b1b23fdc103ce4656c4412c2ffd4e0ce5:excerpt:4",
+        "github:readme:257913595:1be0377b1b23fdc103ce4656c4412c2ffd4e0ce5:excerpt:5",
+        "github:readme:257913595:1be0377b1b23fdc103ce4656c4412c2ffd4e0ce5:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:257913595",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:257913595",
+        "github:release:257913595:373370397"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "application",
+      "category": "ai_agent",
+      "categorySource": "canonical_profile",
+      "reviewAction": "keep",
+      "reviewNotes": "数据集质量与视觉模型工作台价值明确；Evidence Package 中 release 元数据没有证明 meaningful 变化。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "4e82efb86ce045179bee2ef21cb9788ae54ec0016fb1e8250367e7ed9bb476dd",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 485548415,
+      "repository": "Eventual-Inc/Daft",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "weak",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": null,
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution",
+        "distinctive_implementation"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution",
+        "distinctive_implementation"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "面向图像、音频、视频和结构化数据的高性能多模态数据引擎。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:485548415:4c85eda10f9582cc9435fd764284a87baba74772",
+        "github:readme:485548415:b313c7ca2e5d8143f472de322e0926f6c25f9ad1:excerpt:1",
+        "github:readme:485548415:b313c7ca2e5d8143f472de322e0926f6c25f9ad1:excerpt:2",
+        "github:readme:485548415:b313c7ca2e5d8143f472de322e0926f6c25f9ad1:excerpt:3",
+        "github:readme:485548415:b313c7ca2e5d8143f472de322e0926f6c25f9ad1:excerpt:4",
+        "github:readme:485548415:b313c7ca2e5d8143f472de322e0926f6c25f9ad1:excerpt:5",
+        "github:readme:485548415:b313c7ca2e5d8143f472de322e0926f6c25f9ad1:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:485548415",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:485548415",
+        "github:release:485548415:365789567"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "framework",
+      "category": "data_infrastructure",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "多模态数据引擎资产明确且零增长不影响长期价值；无强 why-now。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "ad61084d1db7171b8b6cf9d9438fa0d694c2b8d076971f5a10d470e99db1fcb8",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 7711472,
+      "repository": "zealdocs/zeal",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "none",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": null,
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [],
+      "whyWorthSeeing": "可离线检索开发文档的跨平台个人参考库。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:7711472:454ad0b009886e277cfe6574a8622013d6ddd48c",
+        "github:readme:7711472:a4a821f4edaa987040262ee3490c21d1026018b4:excerpt:1",
+        "github:readme:7711472:a4a821f4edaa987040262ee3490c21d1026018b4:excerpt:2",
+        "github:readme:7711472:a4a821f4edaa987040262ee3490c21d1026018b4:excerpt:3",
+        "github:readme:7711472:a4a821f4edaa987040262ee3490c21d1026018b4:excerpt:4",
+        "github:readme:7711472:a4a821f4edaa987040262ee3490c21d1026018b4:excerpt:5",
+        "github:readme:7711472:a4a821f4edaa987040262ee3490c21d1026018b4:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:7711472",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:7711472",
+        "github:release:7711472:361370558"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "application",
+      "category": "productivity",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "离线文档浏览器可直接使用；无强时效证据。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "cbf8feaee64dba2078254501cd6a9885955ed3e119483800ae4bcf38cc43f9a4",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 31792824,
+      "repository": "flutter/flutter",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "weak",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": null,
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [
+        "newly_observed",
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "跨移动、Web 与桌面平台构建应用的成熟 UI 框架。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:31792824:0cbd1a4be0a4b37c6ca7801681b235a1cdf3ee19",
+        "github:readme:31792824:9c228ee1873122526e38667afb09771cb4ac013e:excerpt:1",
+        "github:readme:31792824:9c228ee1873122526e38667afb09771cb4ac013e:excerpt:2",
+        "github:readme:31792824:9c228ee1873122526e38667afb09771cb4ac013e:excerpt:3",
+        "github:readme:31792824:9c228ee1873122526e38667afb09771cb4ac013e:excerpt:4",
+        "github:readme:31792824:9c228ee1873122526e38667afb09771cb4ac013e:excerpt:5",
+        "github:readme:31792824:9c228ee1873122526e38667afb09771cb4ac013e:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:31792824",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:31792824",
+        "github:release:31792824:136714249"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "framework",
+      "category": "developer_tools",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "Rardar 近期首次观察不等于项目新建；成熟框架只有弱时效。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "3ddb47b40341a2af965e6df3114b757b979ed5368c42e82458439d74236e1482",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 2126244,
+      "repository": "twbs/bootstrap",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "weak",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": null,
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "WORTHWHILE_NOT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution"
+      ],
+      "strongTimelinessSignals": [],
+      "weakTimelinessSignals": [
+        "newly_observed",
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "提供可直接复用的响应式前端组件、样式和 JavaScript 工具。",
+      "whyNow": "",
+      "valueEvidenceRefs": [
+        "github:tree:2126244:1c457a2060c41eacba4e6023bbde5f8b920260ad",
+        "github:readme:2126244:24ecdaf9b13ef8df459631248dbd144ba3e0106c:excerpt:1",
+        "github:readme:2126244:24ecdaf9b13ef8df459631248dbd144ba3e0106c:excerpt:2",
+        "github:readme:2126244:24ecdaf9b13ef8df459631248dbd144ba3e0106c:excerpt:3",
+        "github:readme:2126244:24ecdaf9b13ef8df459631248dbd144ba3e0106c:excerpt:4",
+        "github:readme:2126244:24ecdaf9b13ef8df459631248dbd144ba3e0106c:excerpt:5",
+        "github:readme:2126244:24ecdaf9b13ef8df459631248dbd144ba3e0106c:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:2126244",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:2126244",
+        "github:release:2126244:242429703"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [],
+      "semanticDecision": "WORTHWHILE_NOT_NOW",
+      "publicationDisposition": "hold",
+      "rejectReasons": [],
+      "nearDuplicateGroup": null,
+      "projectForm": "framework",
+      "category": "developer_tools",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "Rardar 近期首次观察不等于项目新建；成熟 UI 框架只有弱时效。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "916967a9ed94d54ba8d3290df55ef273ee4ffd5f9f4c9bec7f8f6d43d0dcf12f",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 1333165619,
+      "repository": "dataelement/dsh-desktop",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": null,
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "SELECT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution"
+      ],
+      "strongTimelinessSignals": [
+        "meaningful_release",
+        "genuinely_new_asset",
+        "strong_recent_momentum"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "将 DeepSeek Harness 打包为本地优先、跨平台桌面应用并管理 Profile、插件和会话。",
+      "whyNow": "有近期可验证的重要发布；近期形成完整可用的新资产；Rardar 记录到显著近期关注变化。",
+      "valueEvidenceRefs": [
+        "github:tree:1333165619:31aa27fdbe659c7380595678b064e7e7743c7bf4",
+        "github:readme:1333165619:87c8a7d166a48e616a0bebcc33d28f23c521ec31:excerpt:1",
+        "github:readme:1333165619:87c8a7d166a48e616a0bebcc33d28f23c521ec31:excerpt:2",
+        "github:readme:1333165619:87c8a7d166a48e616a0bebcc33d28f23c521ec31:excerpt:3",
+        "github:readme:1333165619:87c8a7d166a48e616a0bebcc33d28f23c521ec31:excerpt:4",
+        "github:readme:1333165619:87c8a7d166a48e616a0bebcc33d28f23c521ec31:excerpt:5",
+        "github:readme:1333165619:87c8a7d166a48e616a0bebcc33d28f23c521ec31:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1333165619",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1333165619",
+        "github:release:1333165619:379080914"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1333000741"
+      ],
+      "semanticDecision": "SELECT_NOW",
+      "publicationDisposition": "publish",
+      "rejectReasons": [],
+      "nearDuplicateGroup": "dsh-desktop",
+      "projectForm": "application",
+      "category": "ai_agent",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "本地桌面发行版、跨平台安装包和 Profile/插件/会话管理构成可用新资产。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "e54920f944473772250823232c890d4439ce6e440edb9074fbdc71d956de18e5",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    },
+    {
+      "goldStatus": "provisional",
+      "evidenceReviewed": true,
+      "calibrationReviewed": true,
+      "userReviewed": false,
+      "evaluationGroup": "holdout",
+      "githubRepositoryId": 1333000741,
+      "repository": "vibeinging/dsh-desktop",
+      "scopeStatus": "in_scope",
+      "valueVerdict": "strong",
+      "valueConfidence": "high",
+      "timelinessVerdict": "strong",
+      "timelinessConfidence": "high",
+      "originalDecisionV1": null,
+      "originalPrimaryReasonV1": null,
+      "proposedDecisionV2": "SELECT_NOW",
+      "reasonCandidates": [
+        "directly_reusable",
+        "specific_problem_solution"
+      ],
+      "proposedPrimaryReasonV2": "directly_reusable",
+      "supportingReasons": [
+        "specific_problem_solution"
+      ],
+      "strongTimelinessSignals": [
+        "meaningful_release",
+        "genuinely_new_asset"
+      ],
+      "weakTimelinessSignals": [
+        "recent_activity"
+      ],
+      "whyWorthSeeing": "将官方 DSH Web、社区 Bundle 和桌面能力集成为可安装应用。",
+      "whyNow": "有近期可验证的重要发布；近期形成完整可用的新资产。",
+      "valueEvidenceRefs": [
+        "github:tree:1333000741:4e01b471e295a76637003e06d94fe83de2734c28",
+        "github:readme:1333000741:2b03c97fd884067feba1700652c9b5faece3bb4c:excerpt:1",
+        "github:readme:1333000741:2b03c97fd884067feba1700652c9b5faece3bb4c:excerpt:2",
+        "github:readme:1333000741:2b03c97fd884067feba1700652c9b5faece3bb4c:excerpt:3",
+        "github:readme:1333000741:2b03c97fd884067feba1700652c9b5faece3bb4c:excerpt:4",
+        "github:readme:1333000741:2b03c97fd884067feba1700652c9b5faece3bb4c:excerpt:5",
+        "github:readme:1333000741:2b03c97fd884067feba1700652c9b5faece3bb4c:excerpt:6"
+      ],
+      "timelinessEvidenceRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1333000741",
+        "rardar:today:20260901T001939007155Z-fe663ec7b844:repo:1333000741",
+        "github:release:1333000741:378242466"
+      ],
+      "counterEvidenceRefs": [],
+      "peerContextRefs": [
+        "rardar:observation:trending-v1-20260901T160000Z:repo:1333165619"
+      ],
+      "semanticDecision": "SELECT_NOW",
+      "publicationDisposition": "suppress_duplicate",
+      "rejectReasons": [],
+      "nearDuplicateGroup": "dsh-desktop",
+      "projectForm": "application",
+      "category": "ai_agent",
+      "categorySource": "research_derived",
+      "reviewAction": "keep",
+      "reviewNotes": "Bundle 版自身有完整桌面资产，但与同组更强候选高度重叠，只在 packing 阶段抑制。",
+      "userDecisionQuestion": null,
+      "evidencePackageDigest": "fe2fb3c14a76ff6c66069aeb2858aff94bd9113fdfc2fa8d2779327d5db13f7b",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
+    }
+  ],
+  "goldDigest": "5a526b7b353b1c5a356545c9e36b7ef717c12f8533b8842699fe8cd48f2797b0",
+  "historicalHoldoutStatus": "historical_revealed_holdout",
+  "futureBlindUse": false,
+  "activeDecisionRule": "approvedDecisionV3 ?? proposedDecisionV2",
+  "activeScopeRule": "approvedScopeStatusV3 ?? scopeStatus",
+  "activePublicationDispositionRule": "approvedPublicationDispositionV3 ?? publicationDisposition",
+  "approvedUserDecisionCount": 9,
+  "remainingProvisionalCount": 27,
+  "priorGoldDigestV2": "68445ccf9306db71aeeb360f544deadd7c6bf67fadaca31ecd3b86dcada85d76"
+}

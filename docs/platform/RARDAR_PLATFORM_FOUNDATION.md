@@ -86,6 +86,23 @@ The foundation created three named insertion points. The first and the provider-
 
 The remaining empty routes state that their capability is not connected. Today renders only verified Rardar facts; it does not call the new LLM boundary. There are still no POC fixture projects, simulated candidates, fake progress, real model configuration, network AI requests or database writes.
 
+### Discover product direction
+
+The docs-only Gold review, calibration, and structured-output recovery define
+the future Discover user job
+as “which projects outside Today Top 20 are worth looking at now?” Rardar's
+stages, deltas and acceleration remain authoritative facts, while TopicEye
+separates Scope, momentum-blind Value, and Timeliness. The model does not own the
+final decision or Primary Reason. A deterministic matrix and fixed reason
+precedence run before separate duplicate/capacity packing. The normative Gold
+v3 contains 36 provisional projects: exactly 9 approved product-boundary
+decisions and 27 unreviewed labels. The original Holdout is revealed historical
+evidence. A separately frozen, zero-overlap 24-project Fresh Holdout passed all
+gates. PR #26 accepts only the contract; after its exact reviewed revision is
+merged, the next step is a separate Local/Shadow Selection Runtime
+implementation. The current momentum-stage runtime remains unchanged and
+Production Discover remains unactivated.
+
 ## Code ownership and upstream sync hotspots
 
 Migrated from the POC as validated semantics:

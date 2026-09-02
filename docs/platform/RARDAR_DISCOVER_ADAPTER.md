@@ -15,6 +15,25 @@ Runtime consumption never depends on a Rardar checkout.
 
 ## Product semantics
 
+### Current runtime and approved evolution
+
+The four-section contract below describes the currently implemented adapter and
+Serving generation. The calibrated v3 product direction is documented in
+[`RARDAR_DISCOVER_WORTH_SEEING_MODEL_V1.md`](../product/RARDAR_DISCOVER_WORTH_SEEING_MODEL_V1.md):
+Discover will become an evidence-bound “worth seeing now” selection outside
+Today Top 20, with no public numeric rank. Producer momentum remains an
+immutable auxiliary Timeliness fact; it is excluded from the Value payload and
+cannot make weak value strong. TopicEye must assess Scope, momentum-blind Value,
+and Timeliness separately. A deterministic matrix owns the semantic decision,
+fixed precedence owns Primary Reason, and peer context may affect only duplicate
+packing. The original Internal Holdout is now revealed historical evidence. A
+new, disjoint 24-project Fresh Holdout passed every frozen gate after the output
+contract was reduced to a minimal alias-bound Schema. PR #26 is the docs-only
+acceptance vehicle; after its exact reviewed revision merges, only a separate
+Local/Shadow Selection Runtime implementation is permitted. Production
+activation is not authorized. This docs-only decision does not change the
+behavior below.
+
 Discover means the most recent verified natural Observation, normally updated
 every two hours. It is not a stream, a full-GitHub scan, or a second Today
 ranking. The page preserves four producer-owned sections:

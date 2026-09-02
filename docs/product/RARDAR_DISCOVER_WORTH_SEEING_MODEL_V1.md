@@ -1,17 +1,19 @@
-# Rardar Discover “值得看” Product Model v2
+# Rardar Discover “值得看” Product Model v3
 
 ## Status and evidence basis
 
 This is a docs-only, pre-implementation product contract. It supersedes the
-v1 semantics while retaining the existing filename for PR continuity. It was
+v1/v2 assessment envelope while retaining the existing filename for PR
+continuity. It was
 calibrated against the 2026-09-01 16:00 UTC canonical Observation, Today
 generation `20260901T001939007155Z-fe663ec7b844`, a 461-project eligible
 universe, 60 bounded Evidence Packages, and a 36-project provisional Gold Set.
 
-Gold digest:
-`68445ccf9306db71aeeb360f544deadd7c6bf67fadaca31ecd3b86dcada85d76`.
-All samples are evidence- and calibration-reviewed but retain
-`userReviewed=false`; they are not user-approved production truth.
+Gold v3 digest:
+`5a526b7b353b1c5a356545c9e36b7ef717c12f8533b8842699fe8cd48f2797b0`.
+All 36 samples remain provisional. Exactly 9 product-boundary decisions are
+user-approved and record `userReviewed=true`; the other 27 remain
+`userReviewed=false` and are not user-approved production truth.
 
 The product definition is:
 
@@ -19,8 +21,10 @@ The product definition is:
 > now, and why?” It is one unranked, evidence-bound stream, not a momentum
 > ranking.
 
-The current four-stage runtime remains unchanged until a separate Selection
-Runtime iteration passes every Holdout gate and is explicitly activated.
+The frozen Fresh Holdout v1 passed every protocol, semantic, and repeat gate.
+That makes this contract ready only for a separate final review and merge of
+Draft PR #26. The current four-stage runtime remains unchanged; Selection
+Runtime implementation and Production activation are not authorized here.
 
 ## Product and authority boundary
 
@@ -51,7 +55,7 @@ the project is popular or timely.
 An out-of-scope project deterministically becomes `REJECT`; uncertain scope
 becomes `UNCERTAIN`. Security research, reconstructed assets, vertical content
 SDKs, growth-marketing workflows, and rights-sensitive datasets remain
-explicit user-review boundaries in Gold v2.
+explicit user-review boundaries in Gold v3.
 
 ### Momentum-blind Value Assessment
 
@@ -63,7 +67,7 @@ Observation windows, release dates, or recent activity. Its only inputs are:
 - description, language, topics, and license;
 - bounded README excerpts and top-level tree;
 - canonical Profile fields when available;
-- a same-repository evidenceRef allow-list and counter-evidence.
+- a same-repository short Evidence Alias allow-list and counter-evidence.
 
 `valueVerdict` is `strong`, `moderate`, `weak`, or `uncertain`. The model does
 not output `SELECT_NOW` or `WORTHWHILE_NOT_NOW`. High attention cannot upgrade
@@ -93,7 +97,7 @@ Weak signals:
 and complete usable value evidence. Rardar first observing an old repository is
 not genuine newness. A push timestamp alone is not a meaningful update.
 
-## Primary Reason v2
+## Primary Reason v3
 
 The only value reasons are:
 
@@ -126,7 +130,7 @@ AI is not the final decision authority. It supplies bounded assessments; the
 matrix above is the only authority. Empty or fewer-than-ten publications are
 valid and never filled by stars or a fallback ranking.
 
-## Reject reasons v2
+## Reject reasons v3
 
 `REJECT` may use at most three of:
 
@@ -178,7 +182,7 @@ remain explicit user actions; viewing a card does not write a user fact.
 
 ## AI failure and last-known-good behavior
 
-- Invalid JSON, unknown fields, schema failure, bad evidenceRefs, timeout, or
+- Invalid JSON, unknown fields, schema failure, bad Evidence Aliases, timeout, or
   provider failure cannot newly publish a candidate.
 - A failed assessment becomes `UNCERTAIN`; it is not replaced by attention.
 - Cached/LKG selection is reusable only when the complete evidence, prompt,
@@ -187,7 +191,7 @@ remain explicit user actions; viewing a card does not write a user fact.
 - Publication may be smaller or empty while a prior immutable healthy
   generation remains readable.
 
-## Calibration result and readiness
+## Historical M3 result and current readiness
 
 Model v0 had 35% `SELECT_NOW` precision, 100% recall, 0%
 `WORTHWHILE_NOT_NOW` accuracy, 66.67% high-momentum/low-value false positives,
@@ -208,12 +212,24 @@ final Holdout run for M3 produced:
 - low-momentum/high-value recall: 2/3 (66.67%);
 - scope accuracy: 8/18 (44.44%).
 
-M3 is the selected architecture because it is the simplest contract that
-separates Value, Timeliness, final decision, Primary Reason, and packing. It is
-not implementation-ready: strict envelope drift, scope disagreements, schema
-failures, and one upstream timeout caused the Holdout gates to fail.
+Those results are retained as historical failure evidence. The former Holdout
+has been inspected and is now `historical_revealed_holdout`; it cannot support
+a new blind-test claim. Gate v3 therefore removed user-facing copy and long
+evidence references, uses repository-bound Evidence Aliases, computes most
+Timeliness signals and every final decision deterministically, and selects
+`prompt_json` with strict local parsing, Schema, and evidence validation.
+
+After prompt, Schema, evidence, labels, and policies were frozen, a disjoint
+24-project Fresh Holdout ran exactly once. It achieved 24/24 structured and
+evidence-valid results, 11/12 SELECT precision, 11/14 SELECT recall, 5/5
+WORTHWHILE accuracy, 24/24 scope accuracy, 21/24 value accuracy, and 23/24
+Timeliness accuracy. All frozen gates passed. The resulting state is
+`MODEL_CONTRACT_READY_FOR_FINAL_REVIEW`, not Selection Runtime approval.
 
 See [the output contract](RARDAR_DISCOVER_WORTH_SEEING_OUTPUT_V1.md),
 [the calibration report](../research/2026-09-02-rardar-discover-worth-seeing-calibration.md),
 [the sample audit](../research/2026-09-02-rardar-discover-worth-seeing-sample-audit.md),
 and [the provisional Gold Set](../research/data/rardar-discover-worth-seeing-gold-v1.json).
+The current recovery evidence is in
+[the structured-output recovery report](../research/2026-09-02-rardar-discover-structured-output-recovery.md)
+and [the one-use Fresh Holdout](../research/data/rardar-discover-worth-seeing-fresh-holdout-v1.json).

@@ -1,6 +1,26 @@
 # 2026-09-02 Rardar Discover “值得看” Gold Review and Calibration
 
-## Outcome
+## Current v3 recovery outcome
+
+The original M3 outcome below is retained as historical evidence. Its Holdout
+has since been inspected and is now `historical_revealed_holdout`, not a blind
+generalization test. Gate v3 uses a minimal Scope/Value Schema, short Evidence
+Aliases, mostly deterministic Timeliness, a bounded meaningful-change
+micro-assessment, deterministic Primary Reason and decision, and locally
+validated `prompt_json`.
+
+Exactly 9 Gold boundary decisions are now user-reviewed; 27 remain unreviewed.
+After label and model freezes, a disjoint 24-project Fresh Holdout ran once and
+achieved 24/24 structured/evidence success, 24/24 scope accuracy, 21/24 value
+accuracy, 23/24 Timeliness accuracy, 11/12 SELECT precision, 11/14 SELECT recall,
+and 5/5 WORTHWHILE accuracy. All frozen gates passed.
+
+- current conclusion: `MODEL_CONTRACT_READY_FOR_FINAL_REVIEW`;
+- `READY_FOR_PR26_FINAL_REVIEW = YES`;
+- Selection Runtime remains unauthorized until PR #26 final review and merge;
+- details: [structured-output recovery](2026-09-02-rardar-discover-structured-output-recovery.md).
+
+## Historical M3 outcome
 
 The research and contract calibration completed, but the model Holdout gates
 failed. The correct result is a reviewed provisional Gold v2 and an accepted
@@ -202,10 +222,13 @@ Stored outside Git at `C:\Users\BRILLI~1\AppData\Local\Temp\rardar-worth-seeing-
 No Provider raw response, complete README, full prompt, secret, or Production
 artifact is committed.
 
-## Readiness
+## Historical readiness before v3 recovery
 
 - `GOLD-SET = PROVISIONAL_EVIDENCE_REVIEWED`;
 - `MODEL-HOLDOUT-GATES = FAIL`;
 - `READY_FOR_USER_GOLD_APPROVAL = YES`;
 - `READY_FOR_RARDAR-DISCOVER-WORTH-SEEING-SELECTION-01 = NO`;
 - `PRODUCTION-DISCOVER = UNCHANGED_DISABLED`.
+
+These values describe the superseded M3 run. Current readiness is recorded at
+the top of this document and does not authorize Runtime implementation.

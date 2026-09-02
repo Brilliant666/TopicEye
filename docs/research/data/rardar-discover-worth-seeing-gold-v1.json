@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "goldStatus": "provisional",
   "normative": true,
   "evidenceReviewed": true,
@@ -54,10 +54,11 @@
     "reference_or_learning_value"
   ],
   "evaluationSplit": {
+    "developmentCount": 36,
     "calibrationCount": 18,
-    "holdoutCount": 18,
-    "holdoutFrozenBeforeProbe": true,
-    "holdoutInspectableAfterFinalPromptOnly": true
+    "historicalRevealedHoldoutCount": 18,
+    "holdoutStatus": "historical_revealed_holdout",
+    "futureBlindUse": false
   },
   "labelCounts": {
     "SELECT_NOW": 9,
@@ -136,7 +137,30 @@
       "reviewAction": "change",
       "reviewNotes": "屏蔽增长后仍有包、示例、测试和评测工作流；V2 确定性优先级将 Primary Reason 改为 directly_reusable。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "ce0ba360589310bee6ed8d0231a740f2dfdc1038fe807e79e2a788397ed35040"
+      "evidencePackageDigest": "ce0ba360589310bee6ed8d0231a740f2dfdc1038fe807e79e2a788397ed35040",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "distinctive_implementation",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -197,7 +221,30 @@
       "reviewAction": "keep",
       "reviewNotes": "CLI、桌面应用和 Agent 模式构成独立价值；强 momentum 只负责 why-now。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "c030fa44ed690f42ecbb591e3bc4ba12c855b815da537a5aa8d61ee73b22b7b5"
+      "evidencePackageDigest": "c030fa44ed690f42ecbb591e3bc4ba12c855b815da537a5aa8d61ee73b22b7b5",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -260,7 +307,30 @@
       "reviewAction": "keep",
       "reviewNotes": "v1.0 里程碑与模板/扩展交付可验证；删除 meaningful_recent_change 价值理由。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "ea69268ff89af2a7951e430f75786f7bc5147c6401de9c55b0f9adda5577f54a"
+      "evidencePackageDigest": "ea69268ff89af2a7951e430f75786f7bc5147c6401de9c55b0f9adda5577f54a",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -316,7 +386,30 @@
       "reviewAction": "keep",
       "reviewNotes": "代码库打包资产和问题边界清晰，但没有强时效证据。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "8b5c9abd62c02db88cde829613358bbc60d225f22e3b137e9c338f0718ead164"
+      "evidencePackageDigest": "8b5c9abd62c02db88cde829613358bbc60d225f22e3b137e9c338f0718ead164",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -377,7 +470,30 @@
       "reviewAction": "change",
       "reviewNotes": "仓库近期创建且单二进制、对象存储、LFS、UI/API/SDK 已构成完整可用新资产。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "2e2a8977ae469a2b6519c7d3ca33c6dfd19e07dd41457ea6ade3f43e5b621e95"
+      "evidencePackageDigest": "2e2a8977ae469a2b6519c7d3ca33c6dfd19e07dd41457ea6ade3f43e5b621e95",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "distinctive_implementation",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -439,7 +555,30 @@
       "reviewAction": "keep",
       "reviewNotes": "可安装 Skill 和固定 benchmark 建立价值；强 momentum 提供独立时效。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "d28263509918e5404e424df853dd42f31508f06859c2bb947f66520d0b9938ee"
+      "evidencePackageDigest": "d28263509918e5404e424df853dd42f31508f06859c2bb947f66520d0b9938ee",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "specific_problem_solution",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -495,7 +634,30 @@
       "reviewAction": "keep",
       "reviewNotes": "成熟静态分析工具价值明确，没有当前强时效事实。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "ed323698efb5cf6e629e64bfdeba8edb94ec0e7260655230030762c2765f5704"
+      "evidencePackageDigest": "ed323698efb5cf6e629e64bfdeba8edb94ec0e7260655230030762c2765f5704",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -554,7 +716,30 @@
       "reviewAction": "keep",
       "reviewNotes": "数据/模型版本控制与流水线价值明确，普通活动不构成 why-now。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "4909e8f95a4b54190a3b49f73527aae1b4ff796d72daa651d7ed9d9138040712"
+      "evidencePackageDigest": "4909e8f95a4b54190a3b49f73527aae1b4ff796d72daa651d7ed9d9138040712",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -610,7 +795,30 @@
       "reviewAction": "keep",
       "reviewNotes": "生成器、插件、校验和 mock 可直接复用，但没有强时效证据。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "146c18748db53d30ed2e0ee627731e3c105dc64bd0290a8d87a3e7e9853b0984"
+      "evidencePackageDigest": "146c18748db53d30ed2e0ee627731e3c105dc64bd0290a8d87a3e7e9853b0984",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -665,7 +873,30 @@
       "reviewAction": "keep",
       "reviewNotes": "长期价值成立；最近 push 只是弱时效。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "234f3b948a64e254b98df967c9323aa675cdb56a26ab510b0c9621b4510b0932"
+      "evidencePackageDigest": "234f3b948a64e254b98df967c9323aa675cdb56a26ab510b0c9621b4510b0932",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -722,7 +953,30 @@
       "reviewAction": "change",
       "reviewNotes": "D3 的可复用库资产和底层实现都成立；V2 确定性优先级选择 directly_reusable。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "224bf3a91311d9882348614a979075250e88c07f1c216f44dc8639789b4a3f8f"
+      "evidencePackageDigest": "224bf3a91311d9882348614a979075250e88c07f1c216f44dc8639789b4a3f8f",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "distinctive_implementation",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -781,13 +1035,36 @@
       "reviewAction": "keep",
       "reviewNotes": "当前仓库只提供说明，应用源码在别处；增长不得替代本仓库价值证据。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "0916da12d77df58dc8022b2664314b5c4304bae9bfc2a129f36581631f81f81d"
+      "evidencePackageDigest": "0916da12d77df58dc8022b2664314b5c4304bae9bfc2a129f36581631f81f81d",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
       "evidenceReviewed": true,
       "calibrationReviewed": true,
-      "userReviewed": false,
+      "userReviewed": true,
       "evaluationGroup": "calibration",
       "githubRepositoryId": 1344208527,
       "repository": "b-nnett/grok-bot-0.18-reconstructed",
@@ -834,7 +1111,42 @@
       "reviewAction": "needs_user_decision",
       "reviewNotes": "非官方重构的来源、许可和长期维护边界不足；Scope 也需要产品确认。",
       "userDecisionQuestion": "非官方重构仓库应一律排除，还是保留为待验证参考？",
-      "evidencePackageDigest": "54fc21e5d57d6f8e169d0b410428c629c34f1f1ed7dd93c5b77a1d3314ede12b"
+      "evidencePackageDigest": "54fc21e5d57d6f8e169d0b410428c629c34f1f1ed7dd93c5b77a1d3314ede12b",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "UNCERTAIN",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -894,7 +1206,30 @@
       "reviewAction": "keep",
       "reviewNotes": "混淆代理页面和维护边界不足；新仓库/关注变化不能覆盖安全问题。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "d904eaed73bcc7d8bc6d9c28a4955d846b0d55783fb8c804d5224984019c5bed"
+      "evidencePackageDigest": "d904eaed73bcc7d8bc6d9c28a4955d846b0d55783fb8c804d5224984019c5bed",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -954,13 +1289,36 @@
       "reviewAction": "keep",
       "reviewNotes": "核心卖点是无条件服从和提示注入，不符合安全产品边界。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "89110b70505ada836c2442320b54a67f1641da6f7a3bd897737153edffe39ae8"
+      "evidencePackageDigest": "89110b70505ada836c2442320b54a67f1641da6f7a3bd897737153edffe39ae8",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
       "evidenceReviewed": true,
       "calibrationReviewed": true,
-      "userReviewed": false,
+      "userReviewed": true,
       "evaluationGroup": "calibration",
       "githubRepositoryId": 1336783814,
       "repository": "flaqai/backlink_skills",
@@ -1011,13 +1369,48 @@
       "reviewAction": "needs_user_decision",
       "reviewNotes": "仓库包含可安装 SEO 工作流，但证据尚不足以区分可复用工具与营销渠道。",
       "userDecisionQuestion": "SEO 外链自动化 Skill 是否属于 Rardar 面向开发者/产品构建者的范围？",
-      "evidencePackageDigest": "6738543ce5ce3e1ed62d0bace657cfcee318c9233942ef12bac661fef6732d17"
+      "evidencePackageDigest": "6738543ce5ce3e1ed62d0bace657cfcee318c9233942ef12bac661fef6732d17",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "UNCERTAIN",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
       "evidenceReviewed": true,
       "calibrationReviewed": true,
-      "userReviewed": false,
+      "userReviewed": true,
       "evaluationGroup": "calibration",
       "githubRepositoryId": 1343906216,
       "repository": "fzakaria/selfdb",
@@ -1072,13 +1465,48 @@
       "reviewAction": "needs_user_decision",
       "reviewNotes": "SELF 格式、loader/converter、设计文档与测试证明具体实现；近期创建且交付完整。",
       "userDecisionQuestion": "实验性系统格式已有代码和测试时，是否足以进入 SELECT_NOW？",
-      "evidencePackageDigest": "13ade0230fe0d1c949fec52e18289299e6fd4d906955eaaa545053742cdeb66c"
+      "evidencePackageDigest": "13ade0230fe0d1c949fec52e18289299e6fd4d906955eaaa545053742cdeb66c",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "WORTHWHILE_NOT_NOW",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
       "evidenceReviewed": true,
       "calibrationReviewed": true,
-      "userReviewed": false,
+      "userReviewed": true,
       "evaluationGroup": "calibration",
       "githubRepositoryId": 1342461518,
       "repository": "ApodexAI/FrontierAgent",
@@ -1131,7 +1559,42 @@
       "reviewAction": "needs_user_decision",
       "reviewNotes": "交付面完整但长周期能力和差异化声明缺少独立评测证据。",
       "userDecisionQuestion": "功能面完整但关键能力只由 README 声明时，是否保持 UNCERTAIN？",
-      "evidencePackageDigest": "7e35d9001c7783ea712bb005a64a966b9cc7e5f61b7d6cb79998d69f8aa3ef29"
+      "evidencePackageDigest": "7e35d9001c7783ea712bb005a64a966b9cc7e5f61b7d6cb79998d69f8aa3ef29",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "UNCERTAIN",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -1191,13 +1654,36 @@
       "reviewAction": "change",
       "reviewNotes": "v0.8.2 Evidence Package 没有 release notes，不能把版本号本身视为 meaningful release。",
       "userDecisionQuestion": "普通 release 标签但无变更说明时，是否应允许进入 SELECT_NOW？",
-      "evidencePackageDigest": "d945a57770de277c512a5e2abfbbd68a63362f9e546920c279ddaedabbca854a"
+      "evidencePackageDigest": "d945a57770de277c512a5e2abfbbd68a63362f9e546920c279ddaedabbca854a",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
       "evidenceReviewed": true,
       "calibrationReviewed": true,
-      "userReviewed": false,
+      "userReviewed": true,
       "evaluationGroup": "holdout",
       "githubRepositoryId": 1344425591,
       "repository": "bryllim/workout-guide",
@@ -1253,7 +1739,42 @@
       "reviewAction": "needs_user_decision",
       "reviewNotes": "302 项插图和 npm 包价值明确，但面向普通健身内容是否属于 Developer Intelligence 是产品范围决策。",
       "userDecisionQuestion": "面向健身产品的结构化插图 SDK 是否属于 Rardar Discover？",
-      "evidencePackageDigest": "15f4349cf71b3f6823249e132de3c35e96f9f45ceddb673ea85fd30169d82962"
+      "evidencePackageDigest": "15f4349cf71b3f6823249e132de3c35e96f9f45ceddb673ea85fd30169d82962",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "UNCERTAIN",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -1311,13 +1832,36 @@
       "reviewAction": "change",
       "reviewNotes": "v3.8.16 是普通 patch，Evidence Package 没有证明新能力或重大行为变化。",
       "userDecisionQuestion": "普通 patch release 是否应算强 why-now？",
-      "evidencePackageDigest": "b2f83098c3999329a2a4d9370c61d8d9950212f69895a7f0cd8ece319e9e8f02"
+      "evidencePackageDigest": "b2f83098c3999329a2a4d9370c61d8d9950212f69895a7f0cd8ece319e9e8f02",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
       "evidenceReviewed": true,
       "calibrationReviewed": true,
-      "userReviewed": false,
+      "userReviewed": true,
       "evaluationGroup": "holdout",
       "githubRepositoryId": 1333175049,
       "repository": "awesome-dsh-plugin/awesome-dsh-plugin",
@@ -1373,13 +1917,48 @@
       "reviewAction": "needs_user_decision",
       "reviewNotes": "可安装插件目录本身具备参考与复用价值；重复只能影响 packing，不能把项目语义改成 REJECT。",
       "userDecisionQuestion": "聚合目录本身价值成立时，是否允许 semantic SELECT_NOW 但 suppress_duplicate？",
-      "evidencePackageDigest": "d48f5e261fe3a618caefee723851070427006623e7ddf1847807f43459e1e69f"
+      "evidencePackageDigest": "d48f5e261fe3a618caefee723851070427006623e7ddf1847807f43459e1e69f",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "WORTHWHILE_NOT_NOW",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "suppress_duplicate",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": null,
+          "publicationDisposition": "suppress_duplicate",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
       "evidenceReviewed": true,
       "calibrationReviewed": true,
-      "userReviewed": false,
+      "userReviewed": true,
       "evaluationGroup": "holdout",
       "githubRepositoryId": 1339742577,
       "repository": "amagine-ai/Amagine3D",
@@ -1434,13 +2013,48 @@
       "reviewAction": "needs_user_decision",
       "reviewNotes": "自然语言到参数化 CAD 的实现树成立，但没有独立样例证明输出质量和可重复编辑性。",
       "userDecisionQuestion": "缺少输出质量验证时，应保留 UNCERTAIN 还是视为强价值？",
-      "evidencePackageDigest": "0f2981701976bc217adc28aac3a0dd92ee66725d112a3f9d49f9051f26e9ebf3"
+      "evidencePackageDigest": "0f2981701976bc217adc28aac3a0dd92ee66725d112a3f9d49f9051f26e9ebf3",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "UNCERTAIN",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
       "evidenceReviewed": true,
       "calibrationReviewed": true,
-      "userReviewed": false,
+      "userReviewed": true,
       "evaluationGroup": "holdout",
       "githubRepositoryId": 1339575436,
       "repository": "lanicer/cve-2026-41940-PoC",
@@ -1490,7 +2104,42 @@
       "reviewAction": "needs_user_decision",
       "reviewNotes": "单一认证绕过 PoC 有安全研究价值，但是否属于面向一般构建者的 Discover 需要用户定边界。",
       "userDecisionQuestion": "单漏洞利用 PoC 是否属于 Rardar Discover 产品范围？",
-      "evidencePackageDigest": "70a603a3d32a2658b1013657ce49501529235251567ae40ac8c1991072c83e1e"
+      "evidencePackageDigest": "70a603a3d32a2658b1013657ce49501529235251567ae40ac8c1991072c83e1e",
+      "approvedScopeStatusV3": "out_of_scope",
+      "approvedDecisionV3": "REJECT",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "not_eligible",
+      "approvedRejectReasonV3": "out_of_product_scope",
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "out_of_scope",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "publicationDisposition": "not_eligible",
+          "rejectReason": "out_of_product_scope",
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -1542,13 +2191,36 @@
       "reviewAction": "keep",
       "reviewNotes": "Windows/Office 激活脚本不属于当前开发者能力复用边界，且 README 指导执行远端脚本。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "67cb1d9e19c5d1a720a5b59ce128666d4e27fc50c278bfd64d30da5e2bb80bf1"
+      "evidencePackageDigest": "67cb1d9e19c5d1a720a5b59ce128666d4e27fc50c278bfd64d30da5e2bb80bf1",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
       "evidenceReviewed": true,
       "calibrationReviewed": true,
-      "userReviewed": false,
+      "userReviewed": true,
       "evaluationGroup": "holdout",
       "githubRepositoryId": 157616880,
       "repository": "iptv-org/iptv",
@@ -1595,7 +2267,42 @@
       "reviewAction": "needs_user_decision",
       "reviewNotes": "可消费播放列表与测试/脚本真实存在，但版权边界和面向开发者的产品范围需要确认。",
       "userDecisionQuestion": "公开 IPTV 链接数据集是否属于 Rardar Discover？",
-      "evidencePackageDigest": "395ece040bb9751c919a6b86607aeb6a6ba18e12aca545fef6e17cf7c6de6f5c"
+      "evidencePackageDigest": "395ece040bb9751c919a6b86607aeb6a6ba18e12aca545fef6e17cf7c6de6f5c",
+      "approvedScopeStatusV3": "in_scope",
+      "approvedDecisionV3": "UNCERTAIN",
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": "hold",
+      "approvedRejectReasonV3": null,
+      "userReviewSource": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+      "userReviewVersion": 1,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 3,
+          "kind": "approved_product_boundary",
+          "scopeStatus": "in_scope",
+          "decision": "UNCERTAIN",
+          "primaryReason": null,
+          "publicationDisposition": "hold",
+          "rejectReason": null,
+          "userReviewed": true,
+          "source": "task:RARDAR-DISCOVER-WORTH-SEEING-STRUCTURED-OUTPUT-RECOVERY-AND-FRESH-HOLDOUT-01",
+          "sourceVersion": 1
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -1650,7 +2357,30 @@
       "reviewAction": "keep",
       "reviewNotes": "README 只给临时账号、fork 和 Railway 部署步骤，缺少许可与安全边界；VPN/代理面板不属于当前范围。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "e66fa71d3646adca97927ada12ba9c75f0501ee30de7677d5606569fa67b2f73"
+      "evidencePackageDigest": "e66fa71d3646adca97927ada12ba9c75f0501ee30de7677d5606569fa67b2f73",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "REJECT",
+          "primaryReason": null,
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -1708,7 +2438,30 @@
       "reviewAction": "keep",
       "reviewNotes": "跨平台文本扩展器及完整 Rust 工程可直接复用；没有强 why-now。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "0989e53bc261916f56e37298abe2ca3a37a2376f105baea385b746522618cc4d"
+      "evidencePackageDigest": "0989e53bc261916f56e37298abe2ca3a37a2376f105baea385b746522618cc4d",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -1763,7 +2516,30 @@
       "reviewAction": "keep",
       "reviewNotes": "730+ API 目录与 JSON API 是可用知识资产，但没有当前强时效。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "896383ca58d4942a725a648658b861ba8fe95d2c02e9a8f9ae087e941ecaccdf"
+      "evidencePackageDigest": "896383ca58d4942a725a648658b861ba8fe95d2c02e9a8f9ae087e941ecaccdf",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -1822,7 +2598,30 @@
       "reviewAction": "keep",
       "reviewNotes": "数据集质量与视觉模型工作台价值明确；Evidence Package 中 release 元数据没有证明 meaningful 变化。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "4e82efb86ce045179bee2ef21cb9788ae54ec0016fb1e8250367e7ed9bb476dd"
+      "evidencePackageDigest": "4e82efb86ce045179bee2ef21cb9788ae54ec0016fb1e8250367e7ed9bb476dd",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -1882,7 +2681,30 @@
       "reviewAction": "keep",
       "reviewNotes": "多模态数据引擎资产明确且零增长不影响长期价值；无强 why-now。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "ad61084d1db7171b8b6cf9d9438fa0d694c2b8d076971f5a10d470e99db1fcb8"
+      "evidencePackageDigest": "ad61084d1db7171b8b6cf9d9438fa0d694c2b8d076971f5a10d470e99db1fcb8",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -1938,7 +2760,30 @@
       "reviewAction": "keep",
       "reviewNotes": "离线文档浏览器可直接使用；无强时效证据。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "cbf8feaee64dba2078254501cd6a9885955ed3e119483800ae4bcf38cc43f9a4"
+      "evidencePackageDigest": "cbf8feaee64dba2078254501cd6a9885955ed3e119483800ae4bcf38cc43f9a4",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -1997,7 +2842,30 @@
       "reviewAction": "keep",
       "reviewNotes": "Rardar 近期首次观察不等于项目新建；成熟框架只有弱时效。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "3ddb47b40341a2af965e6df3114b757b979ed5368c42e82458439d74236e1482"
+      "evidencePackageDigest": "3ddb47b40341a2af965e6df3114b757b979ed5368c42e82458439d74236e1482",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -2056,7 +2924,30 @@
       "reviewAction": "keep",
       "reviewNotes": "Rardar 近期首次观察不等于项目新建；成熟 UI 框架只有弱时效。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "916967a9ed94d54ba8d3290df55ef273ee4ffd5f9f4c9bec7f8f6d43d0dcf12f"
+      "evidencePackageDigest": "916967a9ed94d54ba8d3290df55ef273ee4ffd5f9f4c9bec7f8f6d43d0dcf12f",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "WORTHWHILE_NOT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -2120,7 +3011,30 @@
       "reviewAction": "keep",
       "reviewNotes": "本地桌面发行版、跨平台安装包和 Profile/插件/会话管理构成可用新资产。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "e54920f944473772250823232c890d4439ce6e440edb9074fbdc71d956de18e5"
+      "evidencePackageDigest": "e54920f944473772250823232c890d4439ce6e440edb9074fbdc71d956de18e5",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     },
     {
       "goldStatus": "provisional",
@@ -2183,8 +3097,39 @@
       "reviewAction": "keep",
       "reviewNotes": "Bundle 版自身有完整桌面资产，但与同组更强候选高度重叠，只在 packing 阶段抑制。",
       "userDecisionQuestion": null,
-      "evidencePackageDigest": "fe2fb3c14a76ff6c66069aeb2858aff94bd9113fdfc2fa8d2779327d5db13f7b"
+      "evidencePackageDigest": "fe2fb3c14a76ff6c66069aeb2858aff94bd9113fdfc2fa8d2779327d5db13f7b",
+      "approvedScopeStatusV3": null,
+      "approvedDecisionV3": null,
+      "approvedPrimaryReasonV3": null,
+      "approvedPublicationDispositionV3": null,
+      "approvedRejectReasonV3": null,
+      "userReviewSource": null,
+      "userReviewVersion": null,
+      "reviewHistory": [
+        {
+          "version": 1,
+          "kind": "original_research_label",
+          "decision": null,
+          "primaryReason": null,
+          "userReviewed": false
+        },
+        {
+          "version": 2,
+          "kind": "proposed_calibration_review",
+          "decision": "SELECT_NOW",
+          "primaryReason": "directly_reusable",
+          "userReviewed": false
+        }
+      ]
     }
   ],
-  "goldDigest": "68445ccf9306db71aeeb360f544deadd7c6bf67fadaca31ecd3b86dcada85d76"
+  "goldDigest": "5a526b7b353b1c5a356545c9e36b7ef717c12f8533b8842699fe8cd48f2797b0",
+  "historicalHoldoutStatus": "historical_revealed_holdout",
+  "futureBlindUse": false,
+  "activeDecisionRule": "approvedDecisionV3 ?? proposedDecisionV2",
+  "activeScopeRule": "approvedScopeStatusV3 ?? scopeStatus",
+  "activePublicationDispositionRule": "approvedPublicationDispositionV3 ?? publicationDisposition",
+  "approvedUserDecisionCount": 9,
+  "remainingProvisionalCount": 27,
+  "priorGoldDigestV2": "68445ccf9306db71aeeb360f544deadd7c6bf67fadaca31ecd3b86dcada85d76"
 }

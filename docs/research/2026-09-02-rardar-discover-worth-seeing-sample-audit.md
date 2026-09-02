@@ -3,8 +3,10 @@
 ## Research status
 
 This is a real-data, docs-only product audit. It does not change the current
-Discover runtime or activate Production. The v2 Gold labels are evidence- and
-calibration-reviewed, but every item remains `userReviewed=false`.
+Discover runtime or activate Production. Gold v3 preserves the complete v1/v2
+history. Exactly 9 product-boundary decisions are approved with
+`userReviewed=true`; the other 27 remain `userReviewed=false`. Every label is
+still provisional.
 
 Source bindings:
 
@@ -12,14 +14,14 @@ Source bindings:
 - Today generation: `20260901T001939007155Z-fe663ec7b844`;
 - final eligible universe: 461 numeric GitHub repository IDs;
 - bounded research sample: 60 real repositories;
-- normative provisional Gold v2: 36 repositories;
-- Gold digest: `68445ccf9306db71aeeb360f544deadd7c6bf67fadaca31ecd3b86dcada85d76`.
+- normative provisional Gold v3: 36 repositories;
+- Gold digest: `5a526b7b353b1c5a356545c9e36b7ef717c12f8533b8842699fe8cd48f2797b0`.
 
 No full-universe recrawl or repeated 60-item evidence collection was performed.
 The task reused the prior bounded Evidence Packages and added only three
 bounded public GitHub packages for difficult Holdout cases.
 
-## Gold v2 design
+## Historical Gold v2 design
 
 The 24 original projects were individually re-reviewed before any new model
 probe. Twelve difficult projects were added from the same eligible universe:
@@ -34,7 +36,7 @@ The split was frozen before model work:
 - Holdout executions: exactly one after the final prompt freeze;
 - user-approved labels: 0.
 
-## Complete provisional Gold v2
+## Historical proposed Gold v2
 
 | Group | Repository | Scope | Value | Timeliness | Proposed decision | Primary reason | Review |
 |---|---|---|---|---|---|---|---|
@@ -89,7 +91,7 @@ The split was frozen before model work:
 - Categories now use stable English machine values and record
   `canonical_profile` or `research_derived` source.
 
-## Model result
+## Historical M3 result
 
 M3 is the selected architecture, not an implementation-ready model. The final
 Holdout had 11/18 structured successes, 100% valid refs among successful
@@ -98,12 +100,19 @@ failed precision, recall, worthwhile, low-momentum recall, scope, and structured
 success gates. One call timed out; six other Holdout outputs failed the strict
 known-envelope schema.
 
-## Decision status
+## Gold v3 and Fresh Holdout status
 
-Nine items require explicit user review. Until that review and a later model
-calibration pass satisfy all gates:
+The controlling task approved the nine former boundary items without changing
+the other 27. The former Internal Holdout has been revealed and is retained only
+as Development Set evidence. A zero-overlap 24-project Fresh Holdout was frozen
+before model use, ran once, and passed every frozen structure, evidence,
+semantic, and Provider-repeat gate.
 
-`READY_FOR_RARDAR-DISCOVER-WORTH-SEEING-SELECTION-01 = NO`
+`READY_FOR_PR26_FINAL_REVIEW = YES`
+
+`READY_FOR_RARDAR-DISCOVER-WORTH-SEEING-SELECTION-01 = NO_UNTIL_PR26_FINAL_REVIEW_AND_MERGE`
 
 See [the calibration report](2026-09-02-rardar-discover-worth-seeing-calibration.md)
 and [the normative provisional Gold](data/rardar-discover-worth-seeing-gold-v1.json).
+See also [the structured-output recovery](2026-09-02-rardar-discover-structured-output-recovery.md)
+and [the one-use Fresh Holdout](data/rardar-discover-worth-seeing-fresh-holdout-v1.json).

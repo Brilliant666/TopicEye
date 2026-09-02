@@ -1,4 +1,4 @@
-# 2026-09-02 — Rardar Discover “值得看” Gold Review and Calibration
+# 2026-09-02 — Rardar Discover “值得看” Gold Review, Calibration, and Recovery
 
 ## Goal
 
@@ -109,12 +109,36 @@ Runtime code changed: 0. Frontend changed: 0. Database changed: 0. Migration:
 0. Rardar repository changed: 0. Production access/writes: 0/0. No Provider
 raw response or secret was committed.
 
+## Structured-output recovery
+
+The follow-up task applied the nine explicit user boundary decisions, producing
+Gold v3 with 9 `userReviewed=true` and 27 `userReviewed=false` records. The old
+Holdout was downgraded to `historical_revealed_holdout`. Historical persisted
+evidence supported a conservative classification of 170 calls: 86 final
+structured successes, 80 unknown structured failures, 1 timeout, and 3
+diagnostic calls without final-schema assessment.
+
+The selected v3 contract is a minimal Scope/Value Gate over repository-bound
+Evidence Aliases using `prompt_json` plus strict local validation. Timeliness is
+mostly deterministic; only meaningful release/update uses a separate micro
+Schema. Primary Reason and final decision remain deterministic. User-facing
+copy is no longer part of the gate.
+
+A 24-project Fresh Holdout with zero overlap against the prior 60, Gold 36, and
+per-item probes was frozen before model use and ran once. It achieved 24/24
+structured and evidence-valid outputs and passed every frozen semantic and
+Provider-repeat threshold. Total new calls were 106/120 at concurrency 1.
+
+Delivered in the same Draft PR #26: the recovery report, sanitized one-use
+Fresh Holdout, Gold v3 history, and synchronized product/platform documents.
+Runtime/frontend/database/migration/Rardar/Production/model-config changes: 0.
+
 ## Stop condition
 
-`READY_FOR_USER_GOLD_APPROVAL = YES`
+`READY_FOR_PR26_FINAL_REVIEW = YES`
 
-`READY_FOR_RARDAR-DISCOVER-WORTH-SEEING-SELECTION-01 = NO`
+`READY_FOR_RARDAR-DISCOVER-WORTH-SEEING-SELECTION-01 = NO_UNTIL_PR26_FINAL_REVIEW_AND_MERGE`
 
-The next action is user review of the nine boundary items and proposed v2 label
-changes. PR #26 remains Draft; no Selection Runtime or Production Discover work
-starts from this iteration.
+The only next action is
+`TOPICEYE-PR26-FINAL-CONTRACT-REVIEW-AND-MERGE-01`. PR #26 remains Draft; no
+Selection Runtime or Production Discover work starts from this iteration.

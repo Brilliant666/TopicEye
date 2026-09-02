@@ -1,10 +1,11 @@
-# Rardar Discover “值得看” Output Contract v2
+# Rardar Discover “值得看” Output Contract v3
 
 ## Status
 
 This is a proposed strict contract for a later Selection Runtime. It records
-the calibrated v2 boundary but adds no runtime code, database schema, migration,
-or Production artifact. Gold labels remain provisional and user-unapproved.
+the recovered v3 boundary but adds no runtime code, database schema, migration,
+or Production artifact. All Gold labels remain provisional; exactly 9 of 36
+product-boundary decisions are user-reviewed and the remaining 27 are not.
 
 ## Input identity
 
@@ -29,60 +30,42 @@ The canonical digest of those immutable inputs is
 `selectionEvidenceDigest`. Numeric GitHub repository ID is identity;
 repository name is display data.
 
-## Scope result
+## Minimal Scope + Value Gate v3
 
-The Scope result has exactly:
-
-| Field | Type |
-|---|---|
-| `scopeStatus` | `in_scope`, `out_of_scope`, `uncertain` |
-| `scopeEvidenceRefs` | non-empty same-repository reference array |
-| `counterEvidenceRefs` | same-repository reference array |
-| `confidence` | `high`, `medium`, `low` |
-
-Scope is independent of quality, attention, and timeliness.
-
-## Momentum-blind Value result
-
-The Value scene is `rardar_project_profile`. Every object has exactly:
+Scope and momentum-blind Value share one small selection-gate call. Every
+object has exactly:
 
 | Field | Type and invariant |
 |---|---|
 | `scopeStatus` | scope enum |
 | `valueVerdict` | `strong`, `moderate`, `weak`, `uncertain` |
-| `reasonCandidates` | unique subset of four v2 reason enums |
-| `whyWorthSeeingZh` | bounded, evidence-backed Chinese text |
-| `reusableAssets` | at most 6 concrete assets |
-| `bestFit` | at most 3 bounded audiences/tasks |
-| `distinctiveAspects` | at most 4 repository-specific facts |
-| `valueEvidenceRefs` | non-empty subset of the same-repository allow-list |
-| `counterEvidenceRefs` | same-repository reference subset |
+| `reasonCandidates` | unique evidence-bearing subset of four reason enums |
+| `counterEvidenceIds` | same-repository Evidence Alias subset |
 | `confidence` | `high`, `medium`, `low` |
 
 The payload and prompt must pass a deny-list test for all popularity,
 Observation, Today, ranking, window, delta, momentum, first-seen, release-date,
 and recent-activity fields and their natural-language equivalents. It cannot
-emit a final decision, why-now, rank, score, or growth prediction.
+emit a final decision, why-now, rank, score, growth prediction, duplicate
+packing, or user-facing copy. `whyWorthSeeingZh`, `whyNowZh`, reusable assets,
+and best-fit copy are separate post-decision outputs and cannot affect the
+semantic decision.
 
-The Provider probe observed multiple known JSON envelopes for
-`reasonCandidates`, `reusableAssets`, `distinctiveAspects`, `bestFit`, and
-`confidence`. A future adapter may strictly validate and normalize an explicit
-versioned envelope, but it must reject unknown fields or unsupported types.
-The final Holdout's 61.11% structured success means this envelope is not yet
-stable enough for implementation.
+The selected research mode is `prompt_json`, not native structured output.
+Every response still passes strict JSON parsing, duplicate-key rejection,
+closed local Schema validation, alias resolution, and evidence validation.
 
 ## Timeliness result
 
-The Timeliness scene is `rardar_explosion_explanation`, with a distinct prompt,
-schema, and cache identity. It runs only after Value and has exactly:
+Most Timeliness signals are computed from verified facts. A separate model
+micro-call is made only when bounded release notes or revision-delta evidence
+exists. Its complete output is:
 
 | Field | Type and invariant |
 |---|---|
-| `timelinessVerdict` | `strong`, `weak`, `none`, `uncertain` |
-| `strongSignals` | subset of `meaningful_release`, `meaningful_update`, `genuinely_new_asset`, `strong_recent_momentum` |
-| `weakSignals` | subset of `newly_observed`, `recent_activity`, `awaiting_today_validation` |
-| `whyNowZh` | required only for `strong`; otherwise empty |
-| `timelinessEvidenceRefs` | non-empty subset of the timeliness allow-list |
+| `meaningfulRelease` | `yes`, `no`, `uncertain` |
+| `meaningfulUpdate` | `yes`, `no`, `uncertain` |
+| `evidenceIds` | subset of the current repository's `T01`… aliases |
 | `confidence` | `high`, `medium`, `low` |
 
 `genuinely_new_asset`, `strong_recent_momentum`, and all weak signals are
@@ -97,12 +80,12 @@ The service, never the model, computes:
 | Field | Rule |
 |---|---|
 | `semanticDecision` | fixed Scope + Value + Timeliness matrix |
-| `primaryReason` | first supported candidate in fixed v2 precedence |
+| `primaryReason` | first supported candidate in fixed v3 precedence |
 | `supportingReasons` | at most 2 remaining supported candidates |
 | `publicationDisposition` | `publish`, `hold`, `suppress_duplicate`, `suppress_capacity`, `not_eligible` |
 | `nearDuplicateGroup` | deterministic/bounded peer comparison only |
 
-The v2 Primary Reason precedence is:
+The v3 Primary Reason precedence is:
 
 ```text
 directly_reusable
@@ -128,20 +111,21 @@ Duplicate and not-timely are not reject reasons. A duplicate may retain
 `semanticDecision=SELECT_NOW` with
 `publicationDisposition=suppress_duplicate`.
 
-## Evidence reference contract
+## Evidence Alias contract
 
-Every allow-list entry records `evidenceRef`, `sourceType`, `sourcePath`, and
-`sourceRevision`. A reference is valid only when its digest/revision and numeric
-repository ID match the Evidence Package. Value refs must be same-repository.
-Peer refs are a separate field and may support only duplicate grouping and
-packing. A cross-repository ref never proves current-project value.
+Every allow-list entry receives a short `E01`… or `T01`… alias and records its
+full evidence reference, source type, source path, source revision, and bounded
+excerpt. The model emits aliases only. Local code maps them back after proving
+the alias belongs to the same repository and assessment. Timeliness aliases are
+forbidden from Value; peer refs may support packing only and can never prove
+current-project value.
 
 Strict parsing rejects duplicate JSON keys, non-finite numbers, coercion,
 unknown fields, unsupported enums, missing required fields, and unbound refs.
 Schema normalization must be versioned, bounded to explicit known variants,
 and followed by normative model validation.
 
-## Gold v2 review fields
+## Gold v3 review fields
 
 The normative Gold object preserves history and review authority:
 
@@ -150,15 +134,20 @@ originalDecisionV1
 originalPrimaryReasonV1
 proposedDecisionV2
 proposedPrimaryReasonV2
+approvedDecisionV3
+approvedPrimaryReasonV3
 reviewAction
 reviewNotes
 evidenceReviewed=true
 calibrationReviewed=true
-userReviewed=false
+userReviewed=true | false
+userReviewSource
+userReviewVersion
 ```
 
-`reviewAction` is `keep`, `change`, or `needs_user_decision`. Codex evidence
-review never sets `userReviewed=true`.
+`reviewAction` is `keep`, `change`, or `needs_user_decision`. Only the nine
+decisions explicitly approved by the controlling task set `userReviewed=true`;
+Provider output never changes review authority.
 
 ## Cache and failure behavior
 
@@ -166,10 +155,13 @@ Value and Timeliness have different scene, prompt, schema, and cache identities.
 The cache key also includes the full evidence and policy digests. Any source,
 policy, schema, prompt, or peer-context change creates a new key.
 
-Invalid JSON, schema drift, timeout, provider error, invalid refs, low
-confidence, or failed why-now validation yields `UNCERTAIN` and no new
-publication. It never invokes an attention-based fallback. A prior result may
-be reused only for an identical complete digest.
+Invalid JSON, schema drift, timeout, provider error, invalid aliases, low
+confidence, or evidence failure yields `UNCERTAIN` and no new publication. A
+single format-only retry is allowed only for the frozen seven format errors,
+with identical evidence and semantic question. Protocol, transport, timeout,
+evidence, and semantic failures are never repaired by another model or by
+coercion. It never invokes an attention-based fallback. A prior result may be
+reused only for an identical complete digest.
 
 ## Card and detail projection
 
@@ -184,12 +176,15 @@ generation. Page-time requests perform no GitHub or model call.
 
 ## Readiness gate
 
-Before implementation, the selected M3 contract must pass the frozen Internal
+Before implementation, the selected v3 contract must pass a truly fresh frozen
 Holdout with at least 95% structured success, 100% evidence validity, zero
 fabricated claims, 80% `SELECT_NOW` precision, 70% recall, 70%
 `WORTHWHILE_NOT_NOW` accuracy, at most 20% high-momentum/low-value false
-positives, 70% low-momentum/high-value recall, 80% reason consistency, 85%
-decision consistency, and 90% scope accuracy.
+positives, 70% low-momentum/high-value recall, 80% Provider reason-support
+repeat consistency, 85% Provider scope/value repeat consistency, 90% scope
+accuracy, 80% value accuracy, and 80% Timeliness accuracy.
 
-The 2026-09-02 run failed this gate; Selection Runtime implementation and
-Production activation remain blocked.
+Fresh Holdout v1 ran exactly once after the model and label freezes and passed
+every gate. The contract is ready for the separate final review of Draft PR
+#26. Selection Runtime implementation remains unauthorized until that review
+and merge; Production activation remains out of scope.

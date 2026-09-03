@@ -16,7 +16,7 @@ import stat
 import tempfile
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -43,6 +43,7 @@ from app.integrations.rardar.selection_schemas import (
 )
 from app.integrations.rardar.selection_source import LoadedSelectionSource
 from app.integrations.rardar.serving_profiles import ProfileBuildResult, build_official_profiles
+from app.services.llm.provider_budget import budget_stage, execution_budget
 from app.services.llm.strict_json import StrictJSONError, loads_strict_json
 from app.services.rardar_llm_control import (
     RardarLLMError,
@@ -733,6 +734,7 @@ async def _prompt_json(
     response_model: type[BaseModel],
     usage: _Usage,
     caller: LLMCaller,
+    format_retry: bool = True,
 ) -> tuple[BaseModel | None, int, str | None]:
     schema = response_model.model_json_schema()
     schema_digest = _sha(_canonical_bytes(schema))
@@ -750,7 +752,7 @@ async def _prompt_json(
     ]
     attempts = 0
     failure = "non_json_output"
-    for attempt in range(2):
+    for attempt in range(2 if format_retry else 1):
         attempts += 1
         usage.reserve(scene)
         messages = list(base_messages)
@@ -767,17 +769,20 @@ async def _prompt_json(
                 }
             )
         try:
-            result = await caller(
-                scene=scene,
-                messages=messages,
-                reasoning_effort=effort,
-                cache_identity=schema_digest,
-            )
+            with budget_stage("format_retry") if attempt else nullcontext():
+                result = await caller(
+                    scene=scene,
+                    messages=messages,
+                    reasoning_effort=effort,
+                    cache_identity=schema_digest,
+                )
             usage.record(result)
             raw = result.content
             parsed = loads_strict_json(raw)
             return response_model.model_validate(parsed, strict=True), attempts, None
         except RardarLLMError as exc:
+            if exc.classification == "budget":
+                raise SelectionBuildError(exc.code, "Shared Provider execution budget rejected the attempt") from None
             code = {
                 "timeout": "provider_timeout",
                 "rate_limited": "provider_transport_failure",
@@ -827,6 +832,8 @@ async def _run_gate(
     evidence: list[SelectionEvidenceAlias],
     usage: _Usage,
     caller: LLMCaller,
+    *,
+    format_retry: bool = True,
 ) -> tuple[SelectionGateResult | None, int, str | None]:
     if not evidence:
         return None, 0, "weak_evidence"
@@ -837,6 +844,7 @@ async def _run_gate(
         response_model=SelectionGateResult,
         usage=usage,
         caller=caller,
+        format_retry=format_retry,
     )
     if value is None:
         return None, attempts, failure
@@ -1217,8 +1225,9 @@ def _negative_control_candidate(index: int, text: str) -> SelectionCandidateFact
     )
 
 
-async def _negative_controls(usage: _Usage, caller: LLMCaller) -> list[str]:
-    controls = (
+def negative_control_cases() -> tuple[tuple[str, str], ...]:
+    """The six fixed controls already accepted with Selection v1; not a new study."""
+    return (
         (
             "out_of_product_scope",
             "A collection of celebrity wallpaper photographs with no developer or productivity use.",
@@ -1238,8 +1247,11 @@ async def _negative_controls(usage: _Usage, caller: LLMCaller) -> list[str]:
             "A personal status note with no code, workflow, reference, or actionable knowledge.",
         ),
     )
+
+
+async def _negative_controls(usage: _Usage, caller: LLMCaller) -> list[str]:
     failures: list[str] = []
-    for index, (name, text) in enumerate(controls, 1):
+    for index, (name, text) in enumerate(negative_control_cases(), 1):
         candidate = _negative_control_candidate(index, text)
         evidence = [
             SelectionEvidenceAlias(
@@ -1315,6 +1327,8 @@ async def build_selection(
     model_route_identity: str | None = None,
     force_retryable: bool = False,
 ) -> BuiltSelection:
+    if caller is call_rardar_prompt_json:
+        execution_budget(RardarLLMScene.WORTH_SEEING_GATE.value)
     if model_route_identity is None:
         model_route_identity = (
             await resolve_rardar_route_identity()

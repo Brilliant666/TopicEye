@@ -28,8 +28,9 @@ provider responses live outside Git under
 4. An evidence-content Profile Cache v2 separates reusable semantic content
    from the current Observation/Selection projection. Equivalent healthy
    profiles are rebound with zero GitHub/profile-model calls; a true miss uses
-   the existing profile builder and counts every model call inside the shared
-   120-call budget. Missing README/tree/release evidence may use at most four
+   the existing profile builder. The original in-memory 120-call counter was
+   not a cross-process execution bound; see the convergence correction below.
+   Missing README/tree/release evidence may use at most four
    GitHub requests per project. Repository content is untrusted and never
    executed.
 5. The `routing_group=rardar` Scope/Value Gate sees only repository-bound `E##`
@@ -123,3 +124,38 @@ The implementation PR may merge only after real local Shadow acceptance,
 exact-head CI and self-review. After merge, the dedicated local Runtime is
 updated and rebuilt for user review. Production activation, Watchlist,
 Candidates, Activity and external signal probes remain separate future tasks.
+
+## 2026-09-04: local Shadow convergence correction
+
+Task: `RARDAR-DISCOVER-SHADOW-CONVERGENCE-01`, continuing PR #28. The 41/48
+profile recovery is useful existing evidence, not full readiness. The remaining
+seven failures stay unchanged. No new profile generation is authorized.
+
+The previous recovery made 383 distinct Provider executions because per-build
+memory accounting did not cover the entire task, retries and restarted scripts.
+This is recorded as a historical execution error, not hidden in a new counter.
+The newly authorized 40 attempts have one durable, cross-process ledger,
+pre-dispatch reservation, no refunds, explicit initialization and no implicit
+child-ledger creation. Both successful and failed attempts consume the same
+budget; cached results and local validation do not.
+
+The new contract freezes `shadow-review-cohort-v1` from qualified existing
+profiles, uses accepted Selection judgments unchanged, and writes a distinct
+immutable Shadow Review Artifact plus independent local pointer. Full state
+remains degraded. A terminal 16/16 cohort can be reviewable with 0–6 preview
+cards; copy failures hide text without changing membership. Partial or corrupt
+results are not reviewable. The local API flag cannot enable this in Production.
+
+Implementation and tests cover multi-process budget exhaustion, interrupted
+reservations, route retry accounting, cache hits, deterministic cohort coverage,
+freeze conflicts, immutable serving, pointer rollback, no full-current writes,
+copy-failure membership, zero-select and UI status/filters. Fresh/repeat existing
+migrations run only against an isolated PostgreSQL database. The code adds no
+DB model, migration, scheduler, provider/model configuration or new product IA.
+
+The run's source/cohort manifests, complete 16-row decisions, unresolved attempt
+history, ledger, exact-head browser evidence and final acceptance packet remain
+outside Git. Their actual results are attached to PR #28 after execution; this
+document does not pre-claim real gate, merge, runtime activation or Production
+readiness. See [the adapter contract](../platform/RARDAR_DISCOVER_ADAPTER.md#bounded-local-cohort-review-2026-09-04)
+for explicit commands, state semantics and rollback boundaries.

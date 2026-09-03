@@ -240,3 +240,97 @@ rewrite is required. Today is not part of this rollback.
 Production Discover publication and deployment are deliberately outside this
 contract. They require the separate
 `RARDAR-DISCOVER-RUNTIME-ACTIVATION-01` operation.
+
+## Bounded local cohort review (2026-09-04)
+
+`RARDAR-DISCOVER-SHADOW-CONVERGENCE-01` introduces a separate, opt-in local
+review surface. It does not relax full Selection publication: the frozen source
+still has 48 recalled projects, 41 healthy profiles and 7 unresolved profiles.
+Full Selection stays `degraded`; `productionReady` is always false. A completed
+16-project cohort can independently be `shadowReviewState=ready` or `empty`
+and `reviewable=true`. Zero selected projects is a legitimate cohort result,
+not a claim about all eligible repositories. An incomplete or invalid cohort
+is not reviewable.
+
+The cohort is selected without AI or named-repository exceptions. Its strata
+are six non-momentum value candidates, four high-momentum candidates, three
+new/change candidates and three mature low-momentum candidates. Scarce strata
+are allocated first, category/product-form coverage breaks ties, and numeric
+repository ID is the final tie-break. The source/cohort manifests bind profile
+revisions, complete cache identities, release evidence, recall membership and
+the unresolved attempt history. They are immutable within a run. Missing
+strata are explicitly recorded; unhealthy profiles and a replacement 17th
+candidate are forbidden.
+
+### Execution budget, not a per-build counter
+
+The prior recovery's 383 distinct Provider request IDs were an execution-control
+failure: the in-memory 120-call build counter did not bound retries, failover
+and repeated processes as one task. Those historical calls are not reassigned
+to the new authorization. This task has one new **40-attempt total**, shared
+across negative controls, gate, change, copy, retries and exact-head reruns.
+
+`ProviderBudgetLedger v1` lives outside Git. An append-only hash-chained journal
+is authoritative; the JSON summary is replaced atomically. Each actual
+`acompletion` dispatch first reserves budget under an OS file lock. Failed
+calls and interrupted reservations are never refunded. A second process uses
+the same journal and cannot receive another 40 calls. A separate execution
+lock enforces concurrency one. LiteLLM's internal retries are disabled for
+guarded calls so every upstream execution is visible. Cache hits append a
+non-consuming receipt. Budget failures do not poison the provider circuit.
+
+Selection calls require all three matching settings:
+
+```text
+RARDAR_LLM_RUN_ID=<one operator-created run>
+RARDAR_LLM_BUDGET_PATH=<absolute external path>/provider-budget.json
+RARDAR_LLM_BUDGET_LIMIT=40
+```
+
+Initialization is a separate explicit operator command and cannot reset an
+existing registration or silently mint another run. Run progress receipts bind
+the source, cohort, accepted contracts and route fingerprint. A crashed stage
+does not repeat an unconfirmed initial call; completed validated results are
+reused without Provider execution. Raw responses, prompts, keys and exception
+text are not written into budget receipts or artifacts. Profile-model scenes
+are forbidden when this task's budget is attached.
+
+### Local commands and serving isolation
+
+After code tests and exact-head CI, use the following explicit steps from
+`backend/`, with absolute repository-external mirror and run paths:
+
+```text
+python -m scripts.build_rardar_shadow_review freeze --mirror <mirror> --run-dir <run> --run-id <id>
+python -m scripts.build_rardar_shadow_review initialize-budget --mirror <mirror> --run-dir <run> --run-id <id>
+python -m scripts.build_rardar_shadow_review run --mirror <mirror> --run-dir <run> --run-id <id>
+python -m scripts.build_rardar_shadow_review install --mirror <mirror> --run-dir <run> --run-id <id>
+```
+
+The runner never fetches GitHub, builds profiles or synchronizes Production.
+Six existing fixed controls precede 16 gate judgments; at most six cached
+change assessments and six selected copy jobs follow. Accepted prompts,
+schemas, decision matrix and primary-reason precedence are unchanged.
+Copy failure preserves membership and canonical identity/positioning/reason;
+missing generated copy is hidden, never replaced with a seventh project.
+
+`discover-shadow-review/current.json` is independent of full Selection,
+Today, source and profile pointers. Immutable generations contain the audited
+review artifact, compact serving response and bound detail contexts. Install
+validates before atomic pointer replacement; `rollback_shadow` validates a
+retained shadow generation before reactivation. No database migration is used.
+
+Only `RARDAR_LOCAL_SHADOW_REVIEW=true` **and a non-production application
+environment** enable this reader. Production ignores the flag. Request-time
+reads verify the bounded immutable inventory and static projections; they do
+not rebuild facts/profiles, traverse caches, access PostgreSQL, call providers
+or write budget events. Invalid shadow data fails closed, without falling back
+to a momentum list or presenting an old full Selection as the cohort. Switching
+the flag off restores the unchanged full Selection reader.
+
+The page keeps category/reason filters, URL history, card navigation, GitHub
+and Find Project actions, with no public rank. It displays the 16-item cohort,
+full unresolved count and shared Provider budget distinctly. Merge still
+requires exact-head real review, clean production-build browser acceptance,
+zero evidence violations and CI. Future production activation retains the
+full >=95% profile/assessment, new-sample and natural-runtime gates.

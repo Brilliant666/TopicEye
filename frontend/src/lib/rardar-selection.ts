@@ -12,7 +12,7 @@ export type SelectionCard = {
   htmlUrl: string;
   identitySummaryZh: string;
   corePositioningZh: string | null;
-  whyWorthSeeingZh: string;
+  whyWorthSeeingZh: string | null;
   whyNowZh: string | null;
   primaryReason: SelectionReason;
   supportingReasons: SelectionReason[];
@@ -60,6 +60,17 @@ export type SelectionResponse = {
   systemicFailure: boolean;
   safeFailureCodes: string[];
   nextRetryAt: string | null;
+  productionReady?: false;
+  reviewable?: boolean;
+  shadowReviewState?: 'ready' | 'empty' | 'incomplete' | 'invalid' | null;
+  shadowReviewGeneration?: string | null;
+  candidateUniverseCount?: number;
+  healthyProfileCount?: number;
+  unresolvedProfileCount?: number;
+  cohortSize?: number;
+  cohortAssessed?: number;
+  previewCount?: number;
+  providerBudget?: { limit: number; attempted: number; remaining: number; [key: string]: unknown } | null;
 };
 
 export type SelectionEvidence = {
@@ -142,7 +153,7 @@ export function parseSelectionCard(value: unknown): SelectionCard {
     || !validGitHubUrl(value.htmlUrl, value.repository)
     || typeof value.identitySummaryZh !== 'string' || value.identitySummaryZh.length < 4
     || !nullableString(value.corePositioningZh)
-    || typeof value.whyWorthSeeingZh !== 'string' || value.whyWorthSeeingZh.length < 8
+    || (value.whyWorthSeeingZh !== null && (typeof value.whyWorthSeeingZh !== 'string' || value.whyWorthSeeingZh.length < 8))
     || !nullableString(value.whyNowZh)
     || !REASONS.has(value.primaryReason as SelectionReason)
     || !strings(value.supportingReasons) || value.supportingReasons.some((item) => !REASONS.has(item as SelectionReason))
@@ -197,6 +208,24 @@ export function parseSelectionResponse(value: unknown): SelectionResponse {
     throw new Error('rardar_selection_response_invalid');
   }
   const items = value.items.map(parseSelectionCard);
+  if (value.shadowReviewState != null) {
+    const reviewable = ['ready', 'empty'].includes(String(value.shadowReviewState));
+    if (!['ready', 'empty', 'incomplete', 'invalid'].includes(String(value.shadowReviewState))
+      || value.productionReady !== false || value.state !== 'degraded'
+      || value.currentGeneration !== null || value.generation !== value.shadowReviewGeneration
+      || value.cohortSize !== 16 || value.reviewable !== reviewable
+      || !Number.isSafeInteger(value.cohortAssessed) || Number(value.cohortAssessed) < 0 || Number(value.cohortAssessed) > 16
+      || (reviewable && value.cohortAssessed !== 16)
+      || !Number.isSafeInteger(value.healthyProfileCount) || !Number.isSafeInteger(value.unresolvedProfileCount)
+      || Number(value.healthyProfileCount) + Number(value.unresolvedProfileCount) !== value.recallCount
+      || items.length > 6 || value.previewCount !== items.length
+      || (value.shadowReviewState === 'ready') !== (items.length > 0)
+      || !record(value.providerBudget) || value.providerBudget.limit !== 40
+      || !Number.isSafeInteger(value.providerBudget.attempted) || Number(value.providerBudget.attempted) > 40
+      || Number(value.providerBudget.attempted) < 0) {
+      throw new Error('rardar_shadow_response_invalid');
+    }
+  }
   if (items.length > 20
     || new Set(items.map((item) => item.githubRepositoryId)).size !== items.length
     || (value.status === 'ready' && (!value.generation || items.length === 0))

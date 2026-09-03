@@ -572,7 +572,7 @@ class SelectionServingCard(StrictSelectionModel):
     htmlUrl: HttpUrl
     identitySummaryZh: str = Field(min_length=4, max_length=180)
     corePositioningZh: str | None = Field(default=None, min_length=4, max_length=500)
-    whyWorthSeeingZh: str = Field(min_length=8, max_length=360)
+    whyWorthSeeingZh: str | None = Field(default=None, min_length=8, max_length=360)
     whyNowZh: str | None = Field(default=None, min_length=4, max_length=240)
     primaryReason: PrimaryReason
     supportingReasons: list[PrimaryReason] = Field(max_length=2)
@@ -753,9 +753,36 @@ class SelectionApiResponse(StrictSelectionModel):
     systemicFailure: bool = False
     safeFailureCodes: list[str] = Field(default_factory=list, max_length=20)
     nextRetryAt: AwareDatetime | None = None
+    productionReady: Literal[False] = False
+    reviewable: bool = False
+    shadowReviewState: Literal["ready", "empty", "incomplete", "invalid"] | None = None
+    shadowReviewGeneration: str | None = None
+    candidateUniverseCount: int = Field(default=0, ge=0, le=500)
+    healthyProfileCount: int = Field(default=0, ge=0, le=60)
+    unresolvedProfileCount: int = Field(default=0, ge=0, le=60)
+    cohortSize: int = Field(default=0, ge=0, le=16)
+    cohortAssessed: int = Field(default=0, ge=0, le=16)
+    previewCount: int = Field(default=0, ge=0, le=6)
+    providerBudget: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_state(self) -> SelectionApiResponse:
+        if self.shadowReviewState is not None:
+            if (
+                self.state != "degraded"
+                or self.currentGeneration is not None
+                or self.generation != self.shadowReviewGeneration
+                or self.cohortSize != 16
+                or self.reviewable != (self.shadowReviewState in {"ready", "empty"})
+                or self.healthyProfileCount + self.unresolvedProfileCount != self.recallCount
+                or self.publishedCount > 6
+                or self.previewCount != self.publishedCount
+            ):
+                raise ValueError("local shadow API contract is inconsistent")
+            if self.reviewable and self.cohortAssessed != 16:
+                raise ValueError("incomplete cohort cannot be reviewable")
+            if (self.shadowReviewState == "ready") != bool(self.items):
+                raise ValueError("shadow preview state is inconsistent")
         if self.status != self.state or self.publishedCount != len(self.items):
             raise ValueError("selection API state is inconsistent")
         if self.status == "ready" and (self.generation is None or not self.items):

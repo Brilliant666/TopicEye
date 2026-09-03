@@ -14,6 +14,7 @@ from app.integrations.rardar.selection_schemas import SelectionApiResponse, Sele
 from app.integrations.rardar.selection_serving import SelectionServingLoader
 from app.integrations.rardar.serving import ServingProjectionLoader, build_serving_projection
 from app.integrations.rardar.serving_schemas import ServingProjectDetail, ServingTodaySnapshot
+from app.integrations.rardar.shadow_serving import load_shadow
 
 _DEMO_BOARD = Path(__file__).parents[1] / "integrations" / "rardar" / "fixtures" / "explosion-board-demo-v1.json"
 
@@ -226,6 +227,10 @@ def load_selection_snapshot(
 ) -> tuple[SelectionApiResponse, str]:
     """Load one immutable Selection Serving generation; never read its raw assessment artifact."""
 
+    if getattr(config, "RARDAR_LOCAL_SHADOW_REVIEW", False) and not config.is_production:
+        snapshot, _contexts, etag = load_shadow(Path(config.RARDAR_INTELLIGENCE_DATA_DIR))
+        return snapshot, etag
+
     loaded = SelectionServingLoader(config.RARDAR_INTELLIGENCE_DATA_DIR).load_state_with_etag()
     latest = loaded.latest_attempt
     visible = loaded.current if loaded.current is not None else latest
@@ -287,6 +292,20 @@ def load_selection_project_detail(
     selection_generation_id: str,
     config: Settings = settings,
 ) -> tuple[SelectionProjectDetail, str]:
+    if (
+        getattr(config, "RARDAR_LOCAL_SHADOW_REVIEW", False)
+        and not config.is_production
+        and selection_generation_id.startswith("shadow-")
+    ):
+        _snapshot, contexts, etag = load_shadow(Path(config.RARDAR_INTELLIGENCE_DATA_DIR), selection_generation_id)
+        context = contexts.get(github_repository_id)
+        if context is None:
+            raise RardarArtifactError("rardar_selection_project_not_found", "Project is not in this Shadow preview")
+        return SelectionProjectDetail(
+            selectionGenerationId=context.selectionGenerationId,
+            sourceObservationSetId=context.sourceObservationSetId,
+            context=context,
+        ), etag
     context, etag = SelectionServingLoader(config.RARDAR_INTELLIGENCE_DATA_DIR).load_project_with_etag(
         github_repository_id,
         selection_generation_id,

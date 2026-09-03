@@ -99,6 +99,16 @@ export default function RardarSelectionPage({ result }: { result: SelectionLoadR
           <p>仍展示最近一次完整验证的 Selection；不会用旧 momentum 列表或实时请求补齐。</p>
         </section>
       )}
+      {selection.status === 'degraded' && (
+        <section className={styles.selectionState} data-testid="selection-degraded">
+          <Radar size={22} />
+          <h2>正在恢复最新画像</h2>
+          <p>{selection.items.length > 0
+            ? '最新一轮画像覆盖不足，本页暂时展示上一份健康精选。'
+            : '项目画像覆盖不足，本轮精选结果尚未发布；这不代表当前没有值得看的项目。'}</p>
+          <span>{selection.profileReadyCount}/{selection.recallCount} 项画像已就绪</span>
+        </section>
+      )}
       <section className={styles.selectionFilters} aria-label="值得看项目筛选">
         <div><Filter size={15} /><strong>方向</strong></div>
         <nav aria-label="项目方向">
@@ -122,7 +132,11 @@ export default function RardarSelectionPage({ result }: { result: SelectionLoadR
         <div><p>Curated stream</p><h2>本轮值得看的项目</h2></div>
         <span>{filtered.length} 个结果 · 不公开排名</span>
       </div>
-      {filtered.length === 0 ? (
+      {selection.status === 'degraded' && selection.items.length === 0 ? (
+        <section className={styles.selectionState} data-testid="selection-degraded-empty">
+          <Eye size={24} /><h2>最新精选尚未发布</h2><p>系统会在画像覆盖恢复并通过完整门禁后再发布。</p>
+        </section>
+      ) : filtered.length === 0 ? (
         <section className={styles.selectionState}><Eye size={24} /><h2>当前筛选没有项目</h2><p>这是有效的空结果，不会用热度候选补齐。</p></section>
       ) : (
         <section className={styles.selectionGrid} aria-label="Rardar 值得看精选">

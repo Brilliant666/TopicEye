@@ -1,4 +1,4 @@
-export type SelectionStatus = 'ready' | 'empty' | 'stale' | 'not_configured' | 'invalid';
+export type SelectionStatus = 'ready' | 'empty' | 'degraded' | 'stale' | 'not_configured' | 'invalid';
 export type SelectionCategory = 'ai-agent' | 'dev-tools' | 'data-infra' | 'productivity' | 'video-content' | 'other';
 export type SelectionReason =
   | 'directly_reusable'
@@ -47,6 +47,19 @@ export type SelectionResponse = {
   suppressedCount: number;
   provenance: Record<string, unknown>;
   code: string | null;
+  currentGeneration: string | null;
+  latestAttemptGeneration: string | null;
+  recallCount: number;
+  profileReadyCount: number;
+  profileReboundCount: number;
+  profileRebuiltCount: number;
+  retryableFailureCount: number;
+  permanentFailureCount: number;
+  profileCoverage: number;
+  assessmentCoverage: number;
+  systemicFailure: boolean;
+  safeFailureCodes: string[];
+  nextRetryAt: string | null;
 };
 
 export type SelectionEvidence = {
@@ -151,7 +164,7 @@ export function parseSelectionCard(value: unknown): SelectionCard {
 export function parseSelectionResponse(value: unknown): SelectionResponse {
   if (!record(value)
     || value.mode !== 'shadow'
-    || !['ready', 'empty', 'stale', 'not_configured', 'invalid'].includes(String(value.status))
+    || !['ready', 'empty', 'degraded', 'stale', 'not_configured', 'invalid'].includes(String(value.status))
     || value.state !== value.status
     || !nullableString(value.generation)
     || !nullableString(value.sourceObservation)
@@ -167,7 +180,20 @@ export function parseSelectionResponse(value: unknown): SelectionResponse {
     || !Number.isSafeInteger(value.publishedCount) || Number(value.publishedCount) < 0
     || !Number.isSafeInteger(value.suppressedCount) || Number(value.suppressedCount) < 0
     || !record(value.provenance)
-    || !nullableString(value.code)) {
+    || !nullableString(value.code)
+    || !nullableString(value.currentGeneration)
+    || !nullableString(value.latestAttemptGeneration)
+    || !Number.isSafeInteger(value.recallCount) || Number(value.recallCount) < 0
+    || !Number.isSafeInteger(value.profileReadyCount) || Number(value.profileReadyCount) < 0
+    || !Number.isSafeInteger(value.profileReboundCount) || Number(value.profileReboundCount) < 0
+    || !Number.isSafeInteger(value.profileRebuiltCount) || Number(value.profileRebuiltCount) < 0
+    || !Number.isSafeInteger(value.retryableFailureCount) || Number(value.retryableFailureCount) < 0
+    || !Number.isSafeInteger(value.permanentFailureCount) || Number(value.permanentFailureCount) < 0
+    || typeof value.profileCoverage !== 'number' || value.profileCoverage < 0 || value.profileCoverage > 1
+    || typeof value.assessmentCoverage !== 'number' || value.assessmentCoverage < 0 || value.assessmentCoverage > 1
+    || typeof value.systemicFailure !== 'boolean'
+    || !strings(value.safeFailureCodes)
+    || !nullableString(value.nextRetryAt)) {
     throw new Error('rardar_selection_response_invalid');
   }
   const items = value.items.map(parseSelectionCard);
@@ -175,7 +201,8 @@ export function parseSelectionResponse(value: unknown): SelectionResponse {
     || new Set(items.map((item) => item.githubRepositoryId)).size !== items.length
     || (value.status === 'ready' && (!value.generation || items.length === 0))
     || (value.status === 'stale' && !value.generation)
-    || (value.status === 'empty' && (!value.generation || items.length !== 0))) {
+    || (value.status === 'empty' && (!value.generation || items.length !== 0))
+    || (value.status === 'degraded' && !value.latestAttemptGeneration)) {
     throw new Error('rardar_selection_response_invalid');
   }
   return { ...value, items } as SelectionResponse;
@@ -191,7 +218,7 @@ export async function loadSelection(
       headers: { Accept: 'application/json' },
     });
     const parsed = parseSelectionResponse(await response.json());
-    if (response.ok && ['ready', 'empty', 'stale'].includes(parsed.status)) {
+    if (response.ok && ['ready', 'empty', 'degraded', 'stale'].includes(parsed.status)) {
       return { kind: 'published', selection: parsed };
     }
     if (parsed.status === 'not_configured') {

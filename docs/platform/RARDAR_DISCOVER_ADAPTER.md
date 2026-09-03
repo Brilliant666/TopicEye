@@ -129,12 +129,14 @@ disabled, forked or incomplete identities; exact rank 21+ remains eligible. Six
 deterministic channels recall 30–60 candidates. Momentum-only recall is capped
 at 40%, and no aggregate score exists.
 
-Each recalled project receives a bounded evidence package from the cached
-canonical profile and, only when missing, GitHub README/tree/release endpoints.
-A profile cache miss uses deterministic evidence extraction and cannot invoke a
-separate profile model; every permitted Selection model call is therefore
-counted against the artifact's 120-call limit. Repository content is untrusted
-text, never executable input. Value evidence
+Each recalled project receives a bounded evidence package from Profile Cache
+v2 and, only when missing, GitHub README/tree/release endpoints. Cache identity
+is based on the static evidence content and relevant derivation/model versions,
+not Observation generation, Star, rank or momentum. Equivalent healthy content
+is rebound to the current evidence aliases and Selection provenance without a
+GitHub or profile-model call. A true miss uses the established profile builder;
+every model call remains inside the artifact's shared 120-call limit.
+Repository content is untrusted text, never executable input. Value evidence
 uses `E##`, timeliness uses `T##`, and peer packing context uses `P##`; aliases
 are verified against the same numeric repository ID. The Value payload is
 scanned after serialization and rejects momentum/rank/Observation language.
@@ -147,6 +149,7 @@ The immutable store is repository-external:
 RARDAR_INTELLIGENCE_DATA_DIR/
 └─ discover-worth-seeing/
    ├─ current.json
+   ├─ latest-attempt.json
    └─ generations/<selectionGenerationId>/
       ├─ manifest.json
       ├─ raw/selection.json
@@ -154,15 +157,17 @@ RARDAR_INTELLIGENCE_DATA_DIR/
       └─ serving/projects/<githubRepositoryId>.json
 ```
 
-The generation identity binds the complete source capture inventory, Today
-generation/published set, candidate universe, evidence-cache inventory, every
-prompt/Schema/policy version, protocol mode, recall limit and a secret-free
-model-route fingerprint. Publication validates the raw and public projection,
-hashes every file, checks the exact inventory, then atomically replaces only
-the Selection pointer. Equal inputs are a true no-op: no GitHub/model calls and
-no pointer rewrite. Rollback first validates a retained immutable generation
-and atomically reactivates its pointer. It never falls back to legacy momentum
-or modifies Today.
+The generation identity binds source facts, Profile revision and projection
+binding sets, assessment output, failure resolution, every policy version and a
+secret-free model-route fingerprint. Publication validates the raw and public
+projection, hashes every file and checks the exact inventory. A `ready` or
+fully assessed `empty` generation atomically updates both `latest-attempt` and
+`current`; a `degraded` generation updates only `latest-attempt`, preserving the
+last healthy current. Retryable failures live in a separate append-only attempt
+ledger with bounded backoff and cannot replace a healthy Profile Store entry.
+Only an unchanged healthy input is a durable no-op. Rollback validates a
+retained healthy generation before reactivating `current`; it never falls back
+to legacy momentum or modifies Today.
 
 Generations are immutable, hash-bound and atomically activated. A repeated
 sync of the same source/profile revision is a no-op. Today and Discover have
@@ -185,9 +190,12 @@ The following routes are registered only when `RARDAR_PRODUCT_MODE=true`:
 - `GET /api/v1/rardar/discover/projects/<numeric-id>?generationId=<discover-id>`;
 - `POST /api/v1/rardar/discover/projects/<numeric-id>/insight`.
 
-The collection API reports `ready`, `empty`, `stale`, `not_configured`, or
-`invalid`, plus cadence, latest capture, next expected update, stage counts,
-coverage and a bounded conflict summary. V3 additionally exposes the fixed
+The collection API reports `ready`, fully assessed `empty`, `degraded`,
+`stale`, `not_configured`, or `invalid`, plus current/latest-attempt identities,
+profile and assessment coverage, safe failure codes and a bounded retry time.
+When a degraded attempt has no healthy predecessor, items are empty without
+claiming that no worthwhile projects exist; otherwise the prior healthy items
+remain visible. V3 additionally exposes the fixed
 `todayPublishedTopCount` and an eligibility summary separating Observation
 candidates, Today exact facts, Today published projects, excluded published
 projects, exact-outside-published evaluation, pre-exact evaluation, invalid,

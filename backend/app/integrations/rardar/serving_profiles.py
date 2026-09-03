@@ -16,12 +16,27 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar, cast
 from urllib.parse import quote
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.integrations.rardar.profile_cache_v2 import (
+    PROFILE_CACHE_IDENTITY_VERSION,
+    ProfileCacheIdentityV2,
+    ProfileCacheIntegrityError,
+    ProfileFailureCode,
+    latest_attempt,
+    legacy_migration_candidate,
+    load_profile_store,
+    profile_cache_identity,
+    rebind_profile,
+    record_failure,
+    retry_is_due,
+    retryable_error,
+    store_profile,
+)
 from app.integrations.rardar.schemas import ExactExplosionProject
 from app.integrations.rardar.serving_schemas import (
     CapabilitySourceMode,
@@ -248,6 +263,17 @@ class CollectedProjectProfile:
     last_known_good_reused: bool = False
     last_known_good_fingerprint: str | None = None
     current_evidence_fingerprint: str | None = None
+    profile_cache_identity_version: int = PROFILE_CACHE_IDENTITY_VERSION
+    profile_cache_identity: str | None = None
+    profile_revision: str | None = None
+    profile_binding_digest: str | None = None
+    profile_cache_state: Literal["hit", "rebound", "migrated", "rebuilt", "unavailable"] = "unavailable"
+    profile_failure_code: ProfileFailureCode | None = None
+    profile_failure_retryable: bool = False
+    profile_next_retry_at: datetime | None = None
+    evidence_refs_examined: int = 0
+    evidence_refs_remapped: int = 0
+    migrated_from_v1: bool = False
 
 
 @dataclass(frozen=True)
@@ -281,9 +307,26 @@ class GenerationOutcome(Generic[TGeneration]):
 
 @dataclass(frozen=True)
 class ProfileGenerationFailure:
-    stage: Literal["translation", "positioning", "fallback", "last_known_good"]
+    stage: Literal["source", "translation", "positioning", "fallback", "last_known_good", "cache"]
     code: str
     resolved: bool
+
+
+@dataclass(frozen=True)
+class _EvidenceContext:
+    tree: list[dict[str, str]]
+    readme: dict[str, Any] | None
+    readme_path: str | None
+    readme_sha: str | None
+    markdown: str
+    sections: list[ReadmeSection]
+    description: str | None
+    source_language: str | None
+    official_narrative: ExtractedOfficialNarrative
+    evidence_index: dict[str, str]
+    path_refs: dict[str, str]
+    excerpts: list[str]
+    evidence: ProjectEvidenceProjection
 
 
 def _generation_error_code(stage: Literal["translation", "positioning"], error: Exception) -> str:
@@ -315,6 +358,51 @@ def _generation_error_code(stage: Literal["translation", "positioning"], error: 
     return f"{stage}_{suffix}"
 
 
+def _stable_profile_failure(
+    failures: list[ProfileGenerationFailure],
+) -> tuple[ProfileFailureCode, str]:
+    unresolved = [failure for failure in failures if not failure.resolved and failure.stage != "last_known_good"]
+    if not unresolved:
+        return "profile_evidence_incomplete", "profile_validation"
+    failure = unresolved[0]
+    if failure.code.startswith("profile_"):
+        return cast(ProfileFailureCode, failure.code), failure.stage
+    code = failure.code.casefold()
+    if failure.stage == "translation":
+        if any(token in code for token in ("invalid_json", "schema_invalid", "empty")):
+            return "profile_model_invalid_output", failure.stage
+        if "evidence_mismatch" in code:
+            return "profile_evidence_mismatch", failure.stage
+        return "profile_translation_unavailable", failure.stage
+    if failure.stage == "positioning":
+        if any(token in code for token in ("invalid_json", "schema_invalid", "empty", "evidence_mismatch")):
+            return "profile_model_invalid_output", failure.stage
+        return "profile_model_unavailable", failure.stage
+    if failure.stage == "cache":
+        return "profile_unknown_failure", failure.stage
+    if failure.stage == "fallback":
+        return "profile_evidence_incomplete", failure.stage
+    return "profile_unknown_failure", failure.stage
+
+
+def _profile_integrity_failure(error: Exception) -> bool:
+    if isinstance(error, ProfileCacheIntegrityError):
+        return True
+    message = str(error).casefold()
+    return any(
+        marker in message
+        for marker in (
+            "profile cache path is unsafe",
+            "profile cache path escapes",
+            "profile cache file is unsafe",
+            "profile cache identity collision",
+            "cross-repository profile evidence",
+            "profile evidence reference cannot be mapped",
+            "multiple legacy profiles conflict",
+        )
+    )
+
+
 def _retryable_generation_error(code: str) -> bool:
     return code.endswith(("_invalid_json", "_schema_invalid", "_empty", "_evidence_mismatch"))
 
@@ -325,6 +413,15 @@ def _canonical_bytes(value: Any) -> bytes:
 
 def _digest(value: Any) -> str:
     return hashlib.sha256(_canonical_bytes(value)).hexdigest()
+
+
+def _model_route_cache_identity(payload: dict[str, Any], model_route_identity: str | None) -> str:
+    """Keep legacy cache keys stable unless a verified model route is part of the contract."""
+
+    identity_payload = dict(payload)
+    if model_route_identity is not None:
+        identity_payload["modelRouteIdentity"] = model_route_identity
+    return _digest(identity_payload)
 
 
 def _is_plain_file(path: Path) -> bool:
@@ -1320,14 +1417,44 @@ def _store_profile(
     )
 
 
-async def _github_get(client: httpx.AsyncClient, path: str, counter: list[int], **kwargs: Any) -> httpx.Response | None:
+async def _github_get(
+    client: httpx.AsyncClient,
+    path: str,
+    counter: list[int],
+    *,
+    failures: list[tuple[str, ProfileFailureCode]] | None = None,
+    stage: str = "github",
+    **kwargs: Any,
+) -> httpx.Response | None:
     counter[0] += 1
     try:
         response = await client.get(path, **kwargs)
+    except httpx.TimeoutException:
+        if failures is not None:
+            failures.append((stage, "profile_source_timeout"))
+        return None
+    except (httpx.RemoteProtocolError, httpx.ConnectError):
+        if failures is not None:
+            failures.append((stage, "profile_source_remote_disconnected"))
+        return None
     except httpx.HTTPError:
+        if failures is not None:
+            failures.append((stage, "profile_source_invalid"))
         return None
     if response.status_code in {200, 304} and len(response.content) <= _README_BYTES:
         return response
+    if failures is not None:
+        if response.status_code == 429 or (
+            response.status_code == 403 and response.headers.get("x-ratelimit-remaining") == "0"
+        ):
+            code: ProfileFailureCode = "profile_source_rate_limited"
+        elif response.status_code >= 500:
+            code = "profile_source_http_5xx"
+        elif response.status_code == 404:
+            code = "profile_source_http_404"
+        else:
+            code = "profile_source_invalid"
+        failures.append((stage, code))
     return None
 
 
@@ -1416,6 +1543,7 @@ async def _follow_readme_redirects(
     cache_root: Path,
     client: httpx.AsyncClient,
     counter: list[int],
+    failures: list[tuple[str, ProfileFailureCode]],
 ) -> dict[str, Any]:
     current = value
     seen = {str(current.get("path", "")).casefold()}
@@ -1431,6 +1559,8 @@ async def _follow_readme_redirects(
             client,
             f"/repos/{project.repository}/contents/{quote(target, safe='/')}",
             counter,
+            failures=failures,
+            stage="readme_redirect",
         )
         if response is None or response.status_code != 200:
             break
@@ -1447,8 +1577,11 @@ async def _collect_github_source(
     project: ExactExplosionProject,
     cache_root: Path,
     client: httpx.AsyncClient,
-) -> tuple[list[dict[str, str]], dict[str, Any] | None, int, bool]:
+    *,
+    refresh: bool = True,
+) -> tuple[list[dict[str, str]], dict[str, Any] | None, int, bool, list[tuple[str, ProfileFailureCode]]]:
     counter = [0]
+    failures: list[tuple[str, ProfileFailureCode]] = []
     tree_cache = _tree_cache_path(cache_root, project)
     cached_tree = _load_json(tree_cache)
     tree: list[dict[str, str]] = []
@@ -1458,8 +1591,14 @@ async def _collect_github_source(
         and isinstance(cached_tree.get("items"), list)
     ):
         tree = [item for item in cached_tree["items"] if isinstance(item, dict)][:_TREE_ITEMS]
-    else:
-        response = await _github_get(client, f"/repos/{project.repository}/contents", counter)
+    elif refresh:
+        response = await _github_get(
+            client,
+            f"/repos/{project.repository}/contents",
+            counter,
+            failures=failures,
+            stage="tree",
+        )
         if response:
             try:
                 payload = response.json()
@@ -1476,6 +1615,8 @@ async def _collect_github_source(
 
     preferred = _preferred_chinese_readme(tree)
     cached = _cached_readme(cache_root, project)
+    if not refresh:
+        return tree, cached, 0, cached is not None, failures
     headers: dict[str, str] = {}
     expected_path = preferred or "README.md"
     if (
@@ -1489,17 +1630,24 @@ async def _collect_github_source(
         if preferred
         else f"/repos/{project.repository}/readme"
     )
-    response = await _github_get(client, endpoint, counter, headers=headers)
+    response = await _github_get(
+        client,
+        endpoint,
+        counter,
+        headers=headers,
+        failures=failures,
+        stage="readme",
+    )
     if response and response.status_code == 304 and cached:
-        followed = await _follow_readme_redirects(cached, project, cache_root, client, counter)
-        return tree, followed, counter[0], True
+        followed = await _follow_readme_redirects(cached, project, cache_root, client, counter, failures)
+        return tree, followed, counter[0], True, failures
     if response:
         value = _decode_readme_response(response, project, expected_path)
         if value is not None:
             _store_readme_cache(cache_root, project, value)
-            followed = await _follow_readme_redirects(value, project, cache_root, client, counter)
-            return tree, followed, counter[0], bool(cached and cached.get("sha") == followed["sha"])
-    return tree, cached, counter[0], cached is not None
+            followed = await _follow_readme_redirects(value, project, cache_root, client, counter, failures)
+            return tree, followed, counter[0], bool(cached and cached.get("sha") == followed["sha"]), failures
+    return tree, cached, counter[0], cached is not None, failures
 
 
 def _source_language(markdown: str, description: str | None) -> str | None:
@@ -2694,9 +2842,10 @@ async def _official_translation(
     narrative: ExtractedOfficialNarrative,
     cache_root: Path,
     translator: OfficialNarrativeTranslator,
+    model_route_identity: str | None = None,
 ) -> GenerationOutcome[OfficialNarrativeTranslation]:
     revision = evidence.readmeBlobSha or evidence.digest
-    identity = _digest(
+    identity = _model_route_cache_identity(
         {
             "githubRepositoryId": project.githubRepositoryId,
             "revision": revision,
@@ -2704,7 +2853,8 @@ async def _official_translation(
             "prompt": _OFFICIAL_NARRATIVE_PROMPT_VERSION,
             "evidenceDigest": evidence.digest,
             "narrativeMode": "official_translated",
-        }
+        },
+        model_route_identity,
     )
     path = cache_root / "official-translations" / str(project.githubRepositoryId) / f"{identity}.json"
     cached = _load_json(path)
@@ -2755,15 +2905,17 @@ async def _official_positioning_translation(
     source_positioning: str,
     cache_root: Path,
     translator: OfficialPositioningTranslator,
+    model_route_identity: str | None = None,
 ) -> GenerationOutcome[OfficialPositioningTranslation]:
     revision = evidence.readmeBlobSha or evidence.digest
-    identity = _digest(
+    identity = _model_route_cache_identity(
         {
             "githubRepositoryId": project.githubRepositoryId,
             "revision": revision,
             "prompt": _OFFICIAL_POSITIONING_PROMPT_VERSION,
             "sourcePositioning": source_positioning,
-        }
+        },
+        model_route_identity,
     )
     path = cache_root / "official-positionings" / str(project.githubRepositoryId) / f"{identity}.json"
     cached = _load_json(path)
@@ -2855,9 +3007,10 @@ async def _translation(
     cache_root: Path,
     translator: Translator,
     stage: Literal["translation", "positioning"],
+    model_route_identity: str | None = None,
 ) -> GenerationOutcome[ProfileTranslation]:
     revision = evidence.readmeBlobSha or evidence.digest
-    identity = _digest(
+    identity = _model_route_cache_identity(
         {
             "githubRepositoryId": project.githubRepositoryId,
             "revision": revision,
@@ -2865,7 +3018,8 @@ async def _translation(
             "prompt": _RARDAR_ASSESSMENT_PROMPT_VERSION,
             "namespace": "rardar_assessment",
             "narrativeMode": "rardar_derived",
-        }
+        },
+        model_route_identity,
     )
     path = cache_root / "rardar-assessments" / str(project.githubRepositoryId) / f"{identity}.json"
     cached = _load_json(path)
@@ -3026,30 +3180,29 @@ def _deterministic_positioning(
     return text, list(dict.fromkeys(references)), roles
 
 
-async def collect_official_project_profile(
+def _profile_identity_versions() -> dict[str, str]:
+    return {
+        "profileSchemaVersion": _PROFILE_SCHEMA,
+        "profilePromptVersion": _PROMPT_VERSION,
+        "officialNarrativePromptVersion": _OFFICIAL_NARRATIVE_PROMPT_VERSION,
+        "officialPositioningPromptVersion": _OFFICIAL_POSITIONING_PROMPT_VERSION,
+        "rardarAssessmentPromptVersion": _RARDAR_ASSESSMENT_PROMPT_VERSION,
+    }
+
+
+def _build_evidence_context(
     project: ExactExplosionProject,
     generation_id: str,
-    cache_root: Path,
-    *,
-    client: httpx.AsyncClient,
-    translate: bool,
-    translator: Translator = _translate_with_control,
-    narrative_translator: OfficialNarrativeTranslator = _translate_official_with_control,
-    positioning_translator: OfficialPositioningTranslator = _translate_official_positioning_with_control,
-    allow_model_generation: bool = True,
-) -> CollectedProjectProfile:
-    tree, readme, github_requests, readme_cache_hit = await _collect_github_source(project, cache_root, client)
+    tree: list[dict[str, str]],
+    readme: dict[str, Any] | None,
+) -> _EvidenceContext:
     readme_path = readme.get("path") if readme and isinstance(readme.get("path"), str) else None
     readme_sha = readme.get("sha") if readme and isinstance(readme.get("sha"), str) else None
     markdown = readme.get("markdown") if readme and isinstance(readme.get("markdown"), str) else ""
     sections = _parse_readme(markdown, readme_path or "README.md") if markdown else []
     description = project.description
     source_language = _source_language(markdown, description)
-    official_narrative = _extract_official_narrative(
-        markdown,
-        readme_path or "README.md",
-        description,
-    )
+    official_narrative = _extract_official_narrative(markdown, readme_path or "README.md", description)
     evidence_index, path_refs, excerpts = _section_evidence(sections, description)
     _index_official_narrative(official_narrative, readme_path, evidence_index, path_refs)
     for item in tree:
@@ -3073,15 +3226,336 @@ async def collect_official_project_profile(
     }
     evidence_payload["digest"] = _digest(evidence_payload)
     evidence = ProjectEvidenceProjection.model_validate(evidence_payload, strict=True)
+    return _EvidenceContext(
+        tree=tree,
+        readme=readme,
+        readme_path=readme_path,
+        readme_sha=readme_sha,
+        markdown=markdown,
+        sections=sections,
+        description=description,
+        source_language=source_language,
+        official_narrative=official_narrative,
+        evidence_index=evidence_index,
+        path_refs=path_refs,
+        excerpts=excerpts,
+        evidence=evidence,
+    )
+
+
+def _profile_identity_candidates(
+    project: ExactExplosionProject,
+    evidence: ProjectEvidenceProjection,
+    narrative_mode: Literal["official_zh", "official_translated", "rardar_derived", "insufficient"],
+    model_route_identity: str | None,
+) -> list[ProfileCacheIdentityV2]:
+    versions = _profile_identity_versions()
+    modes = [
+        narrative_mode,
+        *(
+            mode
+            for mode in ("official_zh", "official_translated", "rardar_derived", "insufficient")
+            if mode != narrative_mode
+        ),
+    ]
+    routes: list[str | None] = [model_route_identity, None] if model_route_identity is not None else [None]
+    result = [
+        profile_cache_identity(
+            project,
+            evidence,
+            derivation_mode=mode,
+            model_route_identity=route,
+            profile_schema_version=versions["profileSchemaVersion"],
+            profile_prompt_version=versions["profilePromptVersion"],
+            official_narrative_prompt_version=versions["officialNarrativePromptVersion"],
+            official_positioning_prompt_version=versions["officialPositioningPromptVersion"],
+            rardar_assessment_prompt_version=versions["rardarAssessmentPromptVersion"],
+        )
+        for mode in modes
+        for route in routes
+    ]
+    return list({item.identityDigest: item for item in result}.values())
+
+
+def _profile_identity_for_result(
+    project: ExactExplosionProject,
+    evidence: ProjectEvidenceProjection,
+    profile: OfficialProjectProfile,
+    *,
+    model_route_identity: str | None,
+    model_derived_used: bool,
+    deterministic_fallback_used: bool,
+) -> ProfileCacheIdentityV2:
+    route_required = (
+        model_derived_used
+        or profile.translationState == "translated"
+        or (
+            profile.officialNarrativeMode in {"official_translated", "rardar_derived"}
+            and not deterministic_fallback_used
+        )
+    )
+    versions = _profile_identity_versions()
+    return profile_cache_identity(
+        project,
+        evidence,
+        derivation_mode=profile.officialNarrativeMode or "insufficient",
+        model_route_identity=model_route_identity if route_required else None,
+        profile_schema_version=versions["profileSchemaVersion"],
+        profile_prompt_version=versions["profilePromptVersion"],
+        official_narrative_prompt_version=versions["officialNarrativePromptVersion"],
+        official_positioning_prompt_version=versions["officialPositioningPromptVersion"],
+        rardar_assessment_prompt_version=versions["rardarAssessmentPromptVersion"],
+    )
+
+
+def _persist_and_bind_profile(
+    cache_root: Path,
+    project: ExactExplosionProject,
+    generation_id: str,
+    context: _EvidenceContext,
+    profile: OfficialProjectProfile,
+    *,
+    model_route_identity: str | None,
+    model_derived_used: bool,
+    deterministic_fallback_used: bool,
+    migrated_from: str | None = None,
+) -> tuple[OfficialProjectProfile, ProfileCacheIdentityV2, str, str, int]:
+    identity = _profile_identity_for_result(
+        project,
+        context.evidence,
+        profile,
+        model_route_identity=model_route_identity,
+        model_derived_used=model_derived_used,
+        deterministic_fallback_used=deterministic_fallback_used,
+    )
+    envelope = store_profile(
+        cache_root,
+        identity,
+        profile,
+        context.evidence,
+        deterministic_fallback_used=deterministic_fallback_used,
+        migrated_from=migrated_from,
+        rebound_from_generation=profile.generationId if migrated_from else None,
+    )
+    start_here = _start_here(project, context.readme_path, context.sections, context.tree, context.path_refs)
+    rebound, binding, remapped = rebind_profile(
+        envelope,
+        identity,
+        context.evidence,
+        project,
+        generation_id,
+        start_here=start_here,
+    )
+    return rebound, identity, envelope.profileRevision, binding.bindingDigest, remapped
+
+
+def _rebind_cached_profile(
+    cache_root: Path,
+    project: ExactExplosionProject,
+    generation_id: str,
+    context: _EvidenceContext,
+    identities: list[ProfileCacheIdentityV2],
+    *,
+    required_model_route_identity: str | None,
+) -> CollectedProjectProfile | None:
+    migrated_from: str | None = None
+    envelope = None
+    for identity in identities:
+        loaded = load_profile_store(cache_root, identity)
+        if loaded is None:
+            continue
+        route_required = loaded.profile.translationState == "translated" or (
+            loaded.profile.officialNarrativeMode in {"official_translated", "rardar_derived"}
+            and not loaded.deterministicFallbackUsed
+        )
+        if route_required and (
+            identity.modelRouteIdentity is None
+            or (
+                required_model_route_identity is not None
+                and identity.modelRouteIdentity != required_model_route_identity
+            )
+        ):
+            continue
+        envelope = loaded
+        break
+    if envelope is None:
+        migrated = legacy_migration_candidate(
+            cache_root,
+            project,
+            context.evidence,
+            identities,
+            versions=_profile_identity_versions(),
+            publishable=_profile_is_publishable,
+        )
+        if migrated is not None:
+            envelope, migrated_from = migrated
+    if envelope is None:
+        return None
+    current_identity = next(
+        (identity for identity in identities if identity.identityDigest == envelope.cacheIdentity.identityDigest),
+        None,
+    )
+    if current_identity is None:
+        return None
+    start_here = _start_here(project, context.readme_path, context.sections, context.tree, context.path_refs)
+    profile, binding, remapped = rebind_profile(
+        envelope,
+        current_identity,
+        context.evidence,
+        project,
+        generation_id,
+        start_here=start_here,
+    )
+    if not _profile_is_publishable(profile):
+        return None
+    state: Literal["hit", "rebound", "migrated", "rebuilt", "unavailable"]
+    if migrated_from is not None:
+        state = "migrated"
+    elif envelope.profile.generationId == generation_id and envelope.evidence.digest == context.evidence.digest:
+        state = "hit"
+    else:
+        state = "rebound"
+    return CollectedProjectProfile(
+        profile=profile,
+        evidence=context.evidence,
+        github_requests=0,
+        readme_cache_hit=True,
+        translation_calls=0,
+        translation_cache_hit=profile.translationState == "translated",
+        deterministic_fallback_used=envelope.deterministicFallbackUsed,
+        last_known_good_available=True,
+        last_known_good_reused=state in {"rebound", "migrated"},
+        current_evidence_fingerprint=current_identity.profileEvidenceManifestDigest,
+        profile_cache_identity=current_identity.identityDigest,
+        profile_revision=envelope.profileRevision,
+        profile_binding_digest=binding.bindingDigest,
+        profile_cache_state=state,
+        evidence_refs_examined=len(envelope.evidence.evidenceIndex),
+        evidence_refs_remapped=remapped,
+        migrated_from_v1=migrated_from is not None,
+    )
+
+
+async def collect_official_project_profile(
+    project: ExactExplosionProject,
+    generation_id: str,
+    cache_root: Path,
+    *,
+    client: httpx.AsyncClient,
+    translate: bool,
+    translator: Translator = _translate_with_control,
+    narrative_translator: OfficialNarrativeTranslator = _translate_official_with_control,
+    positioning_translator: OfficialPositioningTranslator = _translate_official_positioning_with_control,
+    allow_model_generation: bool = True,
+    model_route_identity: str | None = None,
+    force_retryable: bool = False,
+) -> CollectedProjectProfile:
+    use_profile_cache_v2 = model_route_identity is not None
+    tree, readme, github_requests, readme_cache_hit, source_failures = await _collect_github_source(
+        project,
+        cache_root,
+        client,
+        refresh=not use_profile_cache_v2,
+    )
+    context = _build_evidence_context(project, generation_id, tree, readme)
     narrative_mode_hint = (
         "official_zh"
-        if official_narrative.mature and source_language == "zh"
+        if context.official_narrative.mature and context.source_language == "zh"
         else "official_translated"
-        if official_narrative.mature and source_language == "en" and translate
+        if context.official_narrative.mature and context.source_language == "en" and translate
         else "rardar_derived"
-        if official_narrative.tagline or description or sections
+        if context.official_narrative.tagline or context.description or context.sections
         else "insufficient"
     )
+    identities = _profile_identity_candidates(
+        project,
+        context.evidence,
+        narrative_mode_hint,
+        model_route_identity,
+    )
+    if use_profile_cache_v2:
+        cached_v2 = _rebind_cached_profile(
+            cache_root,
+            project,
+            generation_id,
+            context,
+            identities,
+            required_model_route_identity=model_route_identity,
+        )
+        if cached_v2 is not None:
+            return cached_v2
+    failure_identity = identities[0]
+    previous_attempt = (
+        latest_attempt(cache_root, project.githubRepositoryId, failure_identity.identityDigest)
+        if use_profile_cache_v2
+        else None
+    )
+    retry_due = (
+        retry_is_due(
+            cache_root,
+            project.githubRepositoryId,
+            failure_identity.identityDigest,
+            force_retryable=force_retryable,
+        )
+        if use_profile_cache_v2
+        else True
+    )
+    retry_suppressed = use_profile_cache_v2 and previous_attempt is not None and not retry_due
+    source_cache_complete = bool(tree) and readme is not None
+    if use_profile_cache_v2 and not retry_suppressed and not source_cache_complete:
+        tree, readme, github_requests, readme_cache_hit, source_failures = await _collect_github_source(
+            project,
+            cache_root,
+            client,
+            refresh=True,
+        )
+        context = _build_evidence_context(project, generation_id, tree, readme)
+        narrative_mode_hint = (
+            "official_zh"
+            if context.official_narrative.mature and context.source_language == "zh"
+            else "official_translated"
+            if context.official_narrative.mature and context.source_language == "en" and translate
+            else "rardar_derived"
+            if context.official_narrative.tagline or context.description or context.sections
+            else "insufficient"
+        )
+        identities = _profile_identity_candidates(
+            project,
+            context.evidence,
+            narrative_mode_hint,
+            model_route_identity,
+        )
+        failure_identity = identities[0]
+        cached_v2 = _rebind_cached_profile(
+            cache_root,
+            project,
+            generation_id,
+            context,
+            identities,
+            required_model_route_identity=model_route_identity,
+        )
+        if cached_v2 is not None:
+            return cached_v2
+    elif retry_suppressed:
+        allow_model_generation = False
+        source_failures.append(("negative_cache", previous_attempt.errorCode))
+    if not use_profile_cache_v2:
+        # Preserve the established Today/legacy Discover profile collector;
+        # Selection passes an audited route identity and is the only caller
+        # participating in Content Identity v2 and its Attempt Ledger.
+        source_failures = []
+
+    tree = context.tree
+    readme = context.readme
+    readme_path = context.readme_path
+    readme_sha = context.readme_sha
+    sections = context.sections
+    description = context.description
+    source_language = context.source_language
+    official_narrative = context.official_narrative
+    path_refs = context.path_refs
+    excerpts = context.excerpts
+    evidence = context.evidence
     profile_cache = _profile_cache_path(
         cache_root,
         project,
@@ -3096,7 +3570,7 @@ async def collect_official_project_profile(
         evidence,
         translate=translate,
     )
-    if cached is not None:
+    if cached is not None and not use_profile_cache_v2:
         cached_profile, deterministic_fallback_used = cached
         fingerprint = _evidence_fingerprint(project, evidence)
         return CollectedProjectProfile(
@@ -3111,18 +3585,27 @@ async def collect_official_project_profile(
             last_known_good_fingerprint=fingerprint,
             current_evidence_fingerprint=fingerprint,
         )
-    last_known_good, last_known_good_available, evidence_fingerprint = _load_last_known_good(
-        cache_root,
-        project,
-        generation_id,
-        evidence,
-    )
-    compatible_primary = _load_compatible_primary_profile(
-        cache_root,
-        project,
-        generation_id,
-        evidence,
-    )
+    evidence_fingerprint = _evidence_fingerprint(project, evidence)
+    if model_route_identity is None:
+        last_known_good, last_known_good_available, evidence_fingerprint = _load_last_known_good(
+            cache_root,
+            project,
+            generation_id,
+            evidence,
+        )
+        compatible_primary = _load_compatible_primary_profile(
+            cache_root,
+            project,
+            generation_id,
+            evidence,
+        )
+    else:
+        # Legacy LKG/profile records do not preserve provider/model identity.
+        # Selection V2 therefore rebuilds non-deterministic content instead of
+        # silently blessing an unprovable route as the current route.
+        last_known_good = None
+        last_known_good_available = False
+        compatible_primary = None
     source_summary, summary_ref, capability_texts, use_cases, delivery, claim_refs = _source_claims(
         sections, description
     )
@@ -3153,7 +3636,10 @@ async def collect_official_project_profile(
     official_positioning_translation: OfficialPositioningTranslation | None = None
     translation_calls = 0
     translation_cache_hit = False
-    generation_failures: list[ProfileGenerationFailure] = []
+    generation_failures: list[ProfileGenerationFailure] = [
+        ProfileGenerationFailure("source" if stage != "negative_cache" else "cache", code, False)
+        for stage, code in source_failures
+    ]
     deterministic_fallback_used = False
     if official_narrative.mature and source_language == "en" and translate and allow_model_generation:
         outcome = await _official_translation(
@@ -3162,6 +3648,7 @@ async def collect_official_project_profile(
             narrative=official_narrative,
             cache_root=cache_root,
             translator=narrative_translator,
+            model_route_identity=model_route_identity,
         )
         official_translation = outcome.value
         translation_calls += outcome.calls
@@ -3181,6 +3668,7 @@ async def collect_official_project_profile(
             source_positioning=official_narrative.positioning,
             cache_root=cache_root,
             translator=positioning_translator,
+            model_route_identity=model_route_identity,
         )
         official_positioning_translation = outcome.value
         translation_calls += outcome.calls
@@ -3278,6 +3766,7 @@ async def collect_official_project_profile(
                 cache_root=cache_root,
                 translator=translator,
                 stage=stage,
+                model_route_identity=model_route_identity,
             )
             translated = outcome.value
             translation_calls += outcome.calls
@@ -3584,13 +4073,46 @@ async def collect_official_project_profile(
         generatedAt=datetime.now(UTC),
         translationState=translation_state,
     )
-    publishable = _profile_is_publishable(profile)
+    # A profile assembled while a required source refresh failed is not a
+    # healthy cache entry, even if fallback prose happens to satisfy the
+    # presentation schema. An already proven V2 profile was returned before
+    # network access, so this only guards incomplete misses. Existing
+    # evidence-bound deterministic model fallbacks retain their prior contract.
+    publishable = _profile_is_publishable(profile) and not source_failures
     if not publishable and last_known_good is not None:
         resolved_failures = tuple(
             ProfileGenerationFailure(failure.stage, failure.code, True) for failure in generation_failures
         )
+        if not use_profile_cache_v2:
+            return CollectedProjectProfile(
+                profile=last_known_good,
+                evidence=evidence,
+                github_requests=github_requests,
+                readme_cache_hit=readme_cache_hit,
+                translation_calls=translation_calls,
+                translation_cache_hit=translation_cache_hit,
+                generation_failures=resolved_failures,
+                deterministic_fallback_used=deterministic_fallback_used,
+                last_known_good_available=True,
+                last_known_good_reused=True,
+                last_known_good_fingerprint=evidence_fingerprint,
+                current_evidence_fingerprint=evidence_fingerprint,
+            )
+        rebound, identity, revision, binding_digest, remapped = _persist_and_bind_profile(
+            cache_root,
+            project,
+            generation_id,
+            context,
+            last_known_good,
+            model_route_identity=model_route_identity,
+            model_derived_used=False,
+            deterministic_fallback_used=False,
+            migrated_from=_last_known_good_path(cache_root, project, evidence_fingerprint)
+            .relative_to(cache_root)
+            .as_posix(),
+        )
         return CollectedProjectProfile(
-            profile=last_known_good,
+            profile=rebound,
             evidence=evidence,
             github_requests=github_requests,
             readme_cache_hit=readme_cache_hit,
@@ -3602,6 +4124,13 @@ async def collect_official_project_profile(
             last_known_good_reused=True,
             last_known_good_fingerprint=evidence_fingerprint,
             current_evidence_fingerprint=evidence_fingerprint,
+            profile_cache_identity=identity.identityDigest,
+            profile_revision=revision,
+            profile_binding_digest=binding_digest,
+            profile_cache_state="migrated",
+            evidence_refs_examined=len(evidence.evidenceIndex),
+            evidence_refs_remapped=remapped,
+            migrated_from_v1=True,
         )
     if not publishable:
         generation_failures.append(ProfileGenerationFailure("last_known_good", "last_known_good_unavailable", False))
@@ -3617,6 +4146,91 @@ async def collect_official_project_profile(
             deterministic_fallback_used=deterministic_fallback_used,
         )
         _store_last_known_good(cache_root, project, evidence, profile)
+    if publishable and not use_profile_cache_v2:
+        return CollectedProjectProfile(
+            profile=profile,
+            evidence=evidence,
+            github_requests=github_requests,
+            readme_cache_hit=readme_cache_hit,
+            translation_calls=translation_calls,
+            translation_cache_hit=translation_cache_hit,
+            generation_failures=tuple(generation_failures),
+            deterministic_fallback_used=deterministic_fallback_used,
+            last_known_good_available=True,
+            last_known_good_reused=False,
+            last_known_good_fingerprint=evidence_fingerprint,
+            current_evidence_fingerprint=evidence_fingerprint,
+        )
+    if publishable:
+        rebound, identity, revision, binding_digest, remapped = _persist_and_bind_profile(
+            cache_root,
+            project,
+            generation_id,
+            context,
+            profile,
+            model_route_identity=model_route_identity,
+            model_derived_used=any(
+                value is not None for value in (translated, official_translation, official_positioning_translation)
+            ),
+            deterministic_fallback_used=deterministic_fallback_used,
+        )
+        if source_failures and not retry_suppressed:
+            stage, source_code = source_failures[0]
+            record_failure(
+                cache_root,
+                project.githubRepositoryId,
+                identity.identityDigest,
+                error_code=source_code,
+                retryable=retryable_error(source_code),
+                source_failure_stage=stage,
+            )
+        return CollectedProjectProfile(
+            profile=rebound,
+            evidence=evidence,
+            github_requests=github_requests,
+            readme_cache_hit=readme_cache_hit,
+            translation_calls=translation_calls,
+            translation_cache_hit=translation_cache_hit,
+            generation_failures=tuple(generation_failures),
+            deterministic_fallback_used=deterministic_fallback_used,
+            last_known_good_available=True,
+            last_known_good_reused=False,
+            last_known_good_fingerprint=evidence_fingerprint,
+            current_evidence_fingerprint=identity.profileEvidenceManifestDigest,
+            profile_cache_identity=identity.identityDigest,
+            profile_revision=revision,
+            profile_binding_digest=binding_digest,
+            profile_cache_state="rebuilt",
+            evidence_refs_examined=len(evidence.evidenceIndex),
+            evidence_refs_remapped=remapped,
+        )
+    if not use_profile_cache_v2:
+        return CollectedProjectProfile(
+            profile=profile,
+            evidence=evidence,
+            github_requests=github_requests,
+            readme_cache_hit=readme_cache_hit,
+            translation_calls=translation_calls,
+            translation_cache_hit=translation_cache_hit,
+            generation_failures=tuple(generation_failures),
+            deterministic_fallback_used=deterministic_fallback_used,
+            last_known_good_available=last_known_good_available,
+            last_known_good_reused=False,
+            last_known_good_fingerprint=evidence_fingerprint if last_known_good_available else None,
+            current_evidence_fingerprint=evidence_fingerprint,
+        )
+    failure_code, failure_stage = _stable_profile_failure(generation_failures)
+    if retry_suppressed and previous_attempt is not None:
+        attempt = previous_attempt
+    else:
+        attempt = record_failure(
+            cache_root,
+            project.githubRepositoryId,
+            failure_identity.identityDigest,
+            error_code=failure_code,
+            retryable=retryable_error(failure_code),
+            source_failure_stage=failure_stage,
+        )
     return CollectedProjectProfile(
         profile=profile,
         evidence=evidence,
@@ -3630,6 +4244,14 @@ async def collect_official_project_profile(
         last_known_good_reused=False,
         last_known_good_fingerprint=evidence_fingerprint if (last_known_good_available or publishable) else None,
         current_evidence_fingerprint=evidence_fingerprint,
+        profile_cache_identity=failure_identity.identityDigest,
+        profile_revision=None,
+        profile_binding_digest=None,
+        profile_cache_state="unavailable",
+        profile_failure_code=failure_code,
+        profile_failure_retryable=attempt.retryable,
+        profile_next_retry_at=attempt.nextRetryAt,
+        evidence_refs_examined=len(evidence.evidenceIndex),
     )
 
 
@@ -3645,6 +4267,8 @@ async def build_official_profiles(
     narrative_translator: OfficialNarrativeTranslator = _translate_official_with_control,
     positioning_translator: OfficialPositioningTranslator = _translate_official_positioning_with_control,
     allow_model_generation: bool = True,
+    model_route_identity: str | None = None,
+    force_retryable: bool = False,
 ) -> ProfileBuildResult:
     """Collect bounded profiles; the publication gate decides whether the full candidate may activate."""
 
@@ -3660,7 +4284,10 @@ async def build_official_profiles(
             trust_env=False,
         )
 
-    def unavailable_profile(project: ExactExplosionProject) -> CollectedProjectProfile:
+    def unavailable_profile(
+        project: ExactExplosionProject,
+        error_code: ProfileFailureCode = "profile_unknown_failure",
+    ) -> CollectedProjectProfile:
         """Return a schema-valid, fact-only record after an isolated collector failure."""
 
         description = _safe_source_text(project.description, maximum=600)
@@ -3735,6 +4362,36 @@ async def build_official_profiles(
             generatedAt=datetime.now(UTC),
             translationState="unavailable",
         )
+        if model_route_identity is None:
+            return CollectedProjectProfile(
+                profile=profile,
+                evidence=evidence,
+                github_requests=0,
+                readme_cache_hit=False,
+                translation_calls=0,
+                translation_cache_hit=False,
+                generation_failures=(ProfileGenerationFailure("fallback", "profile_collection_failed", False),),
+            )
+        versions = _profile_identity_versions()
+        identity = profile_cache_identity(
+            project,
+            evidence,
+            derivation_mode="insufficient",
+            model_route_identity=None,
+            profile_schema_version=versions["profileSchemaVersion"],
+            profile_prompt_version=versions["profilePromptVersion"],
+            official_narrative_prompt_version=versions["officialNarrativePromptVersion"],
+            official_positioning_prompt_version=versions["officialPositioningPromptVersion"],
+            rardar_assessment_prompt_version=versions["rardarAssessmentPromptVersion"],
+        )
+        attempt = record_failure(
+            cache_root,
+            project.githubRepositoryId,
+            identity.identityDigest,
+            error_code=error_code,
+            retryable=retryable_error(error_code),
+            source_failure_stage="collector",
+        )
         return CollectedProjectProfile(
             profile=profile,
             evidence=evidence,
@@ -3742,7 +4399,14 @@ async def build_official_profiles(
             readme_cache_hit=False,
             translation_calls=0,
             translation_cache_hit=False,
-            generation_failures=(ProfileGenerationFailure("fallback", "profile_collection_failed", False),),
+            generation_failures=(ProfileGenerationFailure("fallback", error_code, False),),
+            current_evidence_fingerprint=identity.profileEvidenceManifestDigest,
+            profile_cache_identity=identity.identityDigest,
+            profile_cache_state="unavailable",
+            profile_failure_code=error_code,
+            profile_failure_retryable=attempt.retryable,
+            profile_next_retry_at=attempt.nextRetryAt,
+            evidence_refs_examined=len(evidence.evidenceIndex),
         )
 
     async def collect(project: ExactExplosionProject) -> tuple[int, CollectedProjectProfile]:
@@ -3758,8 +4422,12 @@ async def build_official_profiles(
                     narrative_translator=narrative_translator,
                     positioning_translator=positioning_translator,
                     allow_model_generation=allow_model_generation,
+                    model_route_identity=model_route_identity,
+                    force_retryable=force_retryable,
                 )
-            except Exception:
+            except Exception as exc:
+                if _profile_integrity_failure(exc):
+                    raise
                 # Keep repository failures isolated so the caller receives a complete
                 # candidate audit. Exact Top 20 activation remains fail closed.
                 empty_client = httpx.AsyncClient(
@@ -3780,9 +4448,20 @@ async def build_official_profiles(
                             narrative_translator=narrative_translator,
                             positioning_translator=positioning_translator,
                             allow_model_generation=allow_model_generation,
+                            model_route_identity=model_route_identity,
+                            force_retryable=force_retryable,
                         )
-                    except Exception:
-                        value = unavailable_profile(project)
+                    except Exception as fallback_error:
+                        if _profile_integrity_failure(fallback_error):
+                            raise
+                        error_code: ProfileFailureCode
+                        if isinstance(fallback_error, ValidationError | ValueError):
+                            error_code = "profile_schema_invalid"
+                        elif isinstance(fallback_error, OSError):
+                            error_code = "profile_build_interrupted"
+                        else:
+                            error_code = "profile_unknown_failure"
+                        value = unavailable_profile(project, error_code)
                 finally:
                     await empty_client.aclose()
             return project.githubRepositoryId, value

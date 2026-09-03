@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-from datetime import UTC, datetime
+import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -12,6 +14,7 @@ from pydantic import ValidationError
 
 from app.integrations.rardar import selection_serving as serving_module
 from app.integrations.rardar.selection import (
+    BuiltSelection,
     _gate_payload,
     _negative_controls,
     _pack,
@@ -29,6 +32,7 @@ from app.integrations.rardar.selection import (
 )
 from app.integrations.rardar.selection_schemas import (
     SelectionApiResponse,
+    SelectionArtifact,
     SelectionAssessment,
     SelectionCandidateFacts,
     SelectionEvidenceAlias,
@@ -42,6 +46,7 @@ from app.integrations.rardar.selection_serving import (
     install_selection_serving,
     rollback_selection,
 )
+from app.services.rardar_intelligence import load_selection_snapshot
 from app.services.rardar_llm_control import (
     RardarLLMMetadata,
     RardarLLMResult,
@@ -264,6 +269,139 @@ def _assessment(candidate: SelectionCandidateFacts) -> SelectionAssessment:
         productFormsZh=["SDK"],
         displayOrder=None,
     )
+
+
+def _activation_artifact(
+    built: BuiltSelection,
+    tmp_path: Path,
+    *,
+    recall_count: int,
+    ready_count: int,
+    retryable_count: int,
+    permanent_count: int = 0,
+    published_count: int = 0,
+) -> SelectionArtifact:
+    assert ready_count + retryable_count + permanent_count == recall_count
+    assessments: list[SelectionAssessment] = []
+    existing = built.artifact.assessments
+    for index in range(recall_count):
+        item = existing[index] if index < len(existing) else _assessment(_candidate(tmp_path, 10_000 + index))
+        if index < published_count:
+            item = item.model_copy(
+                update={
+                    "semanticDecision": "SELECT_NOW",
+                    "primaryReason": "directly_reusable",
+                    "supportingReasons": [],
+                    "publicationDisposition": "publish",
+                    "displayOrder": index + 1,
+                    "failureCode": None,
+                    "rejectReason": None,
+                }
+            )
+        elif index < ready_count:
+            item = item.model_copy(
+                update={
+                    "semanticDecision": "REJECT",
+                    "primaryReason": None,
+                    "supportingReasons": [],
+                    "publicationDisposition": "not_eligible",
+                    "displayOrder": None,
+                    "copyResult": None,
+                    "failureCode": None,
+                    "rejectReason": "no_clear_value",
+                }
+            )
+        else:
+            retryable = index < ready_count + retryable_count
+            item = item.model_copy(
+                update={
+                    "gate": None,
+                    "semanticDecision": "UNCERTAIN",
+                    "primaryReason": None,
+                    "supportingReasons": [],
+                    "publicationDisposition": "not_eligible",
+                    "displayOrder": None,
+                    "copyResult": None,
+                    "failureCode": ("profile_source_timeout" if retryable else "profile_evidence_incomplete"),
+                    "rejectReason": None,
+                }
+            )
+        assessments.append(item)
+
+    decision_counts = {
+        decision: sum(item.semanticDecision == decision for item in assessments)
+        for decision in ("SELECT_NOW", "WORTHWHILE_NOT_NOW", "REJECT", "UNCERTAIN")
+    }
+    publication_counts = {
+        disposition: sum(item.publicationDisposition == disposition for item in assessments)
+        for disposition in ("publish", "hold", "suppress_duplicate", "suppress_capacity", "not_eligible")
+    }
+    failure_summary = {
+        code: sum(item.failureCode == code for item in assessments)
+        for code in sorted({item.failureCode for item in assessments if item.failureCode})
+    }
+    systemic_threshold = max(5, (recall_count + 4) // 5)
+    systemic_codes = ["profile_source_timeout"] if retryable_count >= systemic_threshold else []
+    coverage = round(ready_count / recall_count if recall_count else 1.0, 6)
+    healthy_gate = coverage >= 0.95 and not systemic_codes
+    semantic_resolved = ready_count + permanent_count
+    if published_count and healthy_gate:
+        state = "ready"
+    elif not published_count and healthy_gate and not retryable_count and semantic_resolved == recall_count:
+        state = "empty"
+    else:
+        state = "degraded"
+    generation = (
+        f"selection-activation-{recall_count}-{ready_count}-{retryable_count}-" f"{permanent_count}-{published_count}"
+    )
+    payload = built.artifact.model_dump(mode="python")
+    payload.update(
+        {
+            "selectionGenerationId": generation,
+            "universeCount": recall_count,
+            "observationCandidateCount": recall_count,
+            "exactOutsideTop20Count": recall_count,
+            "preExactCount": 0,
+            "metadataIncompleteCount": 0,
+            "recalledCount": recall_count,
+            "assessedCount": recall_count,
+            "publishedCount": published_count,
+            "todayExcludedCount": 0,
+            "invalidExcludedCount": 0,
+            "nonMomentumRecallCount": recall_count,
+            "momentumOnlyRecallCount": 0,
+            "decisionCounts": decision_counts,
+            "publicationCounts": publication_counts,
+            "failureSummary": failure_summary,
+            "assessments": assessments,
+            "profileCacheIdentityVersion": 2,
+            "sourceFactDigest": "1" * 64,
+            "profileRevisionSetDigest": "2" * 64,
+            "profileBindingSetDigest": "3" * 64,
+            "assessmentResultDigest": "4" * 64,
+            "failureResolutionDigest": "5" * 64,
+            "profileReadyCount": ready_count,
+            "profileReboundCount": 0,
+            "profileRebuiltCount": ready_count,
+            "profileRetryableFailureCount": retryable_count,
+            "profilePermanentUnavailableCount": permanent_count,
+            "gateAssessedCount": ready_count,
+            "semanticResolvedCount": semantic_resolved,
+            "unresolvedCount": retryable_count,
+            "profileCoverage": coverage,
+            "assessmentCoverage": 1.0 if ready_count else 0.0,
+            "failureHistogram": failure_summary,
+            "systemicFailureCodes": systemic_codes,
+            "state": state,
+            "currentEligible": state in {"ready", "empty"},
+            "latestAttemptGeneration": generation,
+        }
+    )
+    payload["payloadDigest"] = "0" * 64
+    canonical = dict(payload)
+    canonical.pop("payloadDigest")
+    payload["payloadDigest"] = serving_module._sha(serving_module._canonical_bytes(canonical))
+    return SelectionArtifact.model_validate(payload, strict=True)
 
 
 def test_universe_excludes_today_top_and_invalid_and_recall_is_not_momentum_dominated(tmp_path: Path) -> None:
@@ -527,6 +665,248 @@ async def test_build_publish_validate_idempotence_and_rollback(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_activation_policy_distinguishes_ready_empty_and_degraded(tmp_path: Path) -> None:
+    target, source = _source(tmp_path)
+    async with _client() as client:
+        built = await build_selection(
+            source=source,
+            cache_root=target / "selection-profile-cache",
+            caller=ModelDouble(),
+            github_client=client,
+        )
+
+    historical_failure = _activation_artifact(
+        built,
+        tmp_path,
+        recall_count=48,
+        ready_count=2,
+        retryable_count=46,
+    )
+    assert historical_failure.state == "degraded"
+    assert historical_failure.systemicFailureCodes == ["profile_source_timeout"]
+    assert historical_failure.currentEligible is False
+
+    legitimate_empty = _activation_artifact(
+        built,
+        tmp_path,
+        recall_count=48,
+        ready_count=48,
+        retryable_count=0,
+    )
+    assert legitimate_empty.state == "empty"
+    assert legitimate_empty.currentEligible is True
+
+    incomplete_empty = _activation_artifact(
+        built,
+        tmp_path,
+        recall_count=48,
+        ready_count=47,
+        retryable_count=1,
+    )
+    assert incomplete_empty.state == "degraded"
+    assert incomplete_empty.currentEligible is False
+
+    bounded_ready = _activation_artifact(
+        built,
+        tmp_path,
+        recall_count=48,
+        ready_count=47,
+        retryable_count=1,
+        published_count=3,
+    )
+    assert bounded_ready.state == "ready"
+    assert bounded_ready.currentEligible is True
+
+
+@pytest.mark.asyncio
+async def test_retained_v1_artifact_digest_is_checked_without_v2_default_fields(tmp_path: Path) -> None:
+    target, source = _source(tmp_path)
+    async with _client() as client:
+        built = await build_selection(
+            source=source,
+            cache_root=target / "selection-profile-cache",
+            caller=ModelDouble(),
+            github_client=client,
+        )
+    degraded_artifact = _activation_artifact(
+        built,
+        tmp_path,
+        recall_count=48,
+        ready_count=2,
+        retryable_count=46,
+    )
+    serving = build_selection_serving(
+        BuiltSelection(
+            artifact=degraded_artifact,
+            profiles=built.profiles,
+            raw_bytes=serving_module._canonical_bytes(degraded_artifact),
+        )
+    )
+    install_selection_serving(target, serving)
+
+    generation_root = target / "discover-worth-seeing" / "generations" / degraded_artifact.selectionGenerationId
+    artifact_path = generation_root / "raw" / "selection.json"
+    payload = degraded_artifact.model_dump(mode="json")
+    for assessment in payload["assessments"]:
+        if assessment["failureCode"] == "profile_source_timeout":
+            assessment["failureCode"] = "profile_unavailable"
+    payload["failureSummary"] = {"profile_unavailable": 46}
+    for field in (
+        "profileCacheIdentityVersion",
+        "sourceFactDigest",
+        "profileRevisionSetDigest",
+        "profileBindingSetDigest",
+        "assessmentResultDigest",
+        "failureResolutionDigest",
+        "profileReadyCount",
+        "profileReboundCount",
+        "profileRebuiltCount",
+        "profileRetryableFailureCount",
+        "profilePermanentUnavailableCount",
+        "gateAssessedCount",
+        "semanticResolvedCount",
+        "unresolvedCount",
+        "profileCoverage",
+        "assessmentCoverage",
+        "failureHistogram",
+        "systemicFailureCodes",
+        "state",
+        "currentEligible",
+        "latestAttemptGeneration",
+    ):
+        payload.pop(field)
+    payload.pop("payloadDigest")
+    payload["payloadDigest"] = serving_module._sha(serving_module._canonical_bytes(payload))
+    legacy_raw = serving_module._canonical_bytes(payload)
+    artifact_path.write_bytes(legacy_raw)
+
+    manifest_path = generation_root / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["rawArtifactSha256"] = serving_module._sha(legacy_raw)
+    for descriptor in manifest["files"]:
+        if descriptor["path"] == "raw/selection.json":
+            descriptor.update({"sha256": serving_module._sha(legacy_raw), "bytes": len(legacy_raw)})
+    manifest_path.write_bytes(serving_module._canonical_bytes(manifest))
+
+    retained = SelectionServingLoader(target).validate_generation(degraded_artifact.selectionGenerationId)
+    assert retained.profileCacheIdentityVersion == 1
+    assert retained.state is None
+    assert serving_module.artifact_activation_state(retained) == "degraded"
+
+
+@pytest.mark.asyncio
+async def test_degraded_attempt_updates_latest_only_and_preserves_healthy_serving(tmp_path: Path) -> None:
+    target, source = _source(tmp_path)
+    async with _client() as client:
+        healthy = await build_selection(
+            source=source,
+            cache_root=target / "selection-profile-cache",
+            caller=ModelDouble(),
+            github_client=client,
+        )
+    healthy_serving = build_selection_serving(healthy)
+    install_selection_serving(target, healthy_serving)
+    current_path = target / "discover-worth-seeing" / "current.json"
+    current_before = current_path.read_bytes()
+
+    degraded_artifact = _activation_artifact(
+        healthy,
+        tmp_path,
+        recall_count=healthy.artifact.recalledCount,
+        ready_count=2,
+        retryable_count=healthy.artifact.recalledCount - 2,
+        published_count=2,
+    )
+    degraded = BuiltSelection(
+        artifact=degraded_artifact,
+        profiles=healthy.profiles,
+        raw_bytes=serving_module._canonical_bytes(degraded_artifact),
+    )
+    installed = install_selection_serving(target, build_selection_serving(degraded))
+    assert installed.changed is True
+    assert installed.current_changed is False
+    assert installed.latest_attempt_changed is True
+    assert current_path.read_bytes() == current_before
+
+    loaded = SelectionServingLoader(target).load_state_with_etag()
+    assert loaded.state == "degraded"
+    assert loaded.current is not None
+    assert loaded.current.selectionGenerationId == healthy.artifact.selectionGenerationId
+    assert loaded.latest_attempt.selectionGenerationId == degraded_artifact.selectionGenerationId
+    assert loaded.latest_attempt.items == []
+
+    response, _etag = load_selection_snapshot(SimpleNamespace(RARDAR_INTELLIGENCE_DATA_DIR=target))
+    assert response.status == "degraded"
+    assert response.generation == healthy.artifact.selectionGenerationId
+    assert response.currentGeneration == healthy.artifact.selectionGenerationId
+    assert response.latestAttemptGeneration == degraded_artifact.selectionGenerationId
+    assert response.items
+    assert response.code == "rardar_selection_degraded"
+
+
+@pytest.mark.asyncio
+async def test_degraded_attempt_without_healthy_current_exposes_no_items(tmp_path: Path) -> None:
+    target, source = _source(tmp_path)
+    async with _client() as client:
+        base = await build_selection(
+            source=source,
+            cache_root=target / "selection-profile-cache",
+            caller=ModelDouble(),
+            github_client=client,
+        )
+    degraded_artifact = _activation_artifact(
+        base,
+        tmp_path,
+        recall_count=base.artifact.recalledCount,
+        ready_count=2,
+        retryable_count=base.artifact.recalledCount - 2,
+        published_count=2,
+    )
+    degraded = BuiltSelection(
+        artifact=degraded_artifact,
+        profiles=base.profiles,
+        raw_bytes=serving_module._canonical_bytes(degraded_artifact),
+    )
+    install_selection_serving(target, build_selection_serving(degraded))
+
+    response, _etag = load_selection_snapshot(SimpleNamespace(RARDAR_INTELLIGENCE_DATA_DIR=target))
+    assert response.status == "degraded"
+    assert response.generation is None
+    assert response.currentGeneration is None
+    assert response.latestAttemptGeneration == degraded_artifact.selectionGenerationId
+    assert response.items == []
+    assert not (target / "discover-worth-seeing" / "current.json").exists()
+
+
+def test_activation_schema_rejects_a_forged_healthy_state(tmp_path: Path) -> None:
+    # The full 2/48 shape is first accepted as degraded, then fails closed if
+    # a producer tries to relabel it as a healthy empty generation.
+    template_target, template_source = _source(tmp_path / "template")
+
+    async def build_template() -> BuiltSelection:
+        async with _client() as client:
+            return await build_selection(
+                source=template_source,
+                cache_root=template_target / "selection-profile-cache",
+                caller=ModelDouble(),
+                github_client=client,
+            )
+
+    built = asyncio.run(build_template())
+    degraded = _activation_artifact(
+        built,
+        tmp_path,
+        recall_count=48,
+        ready_count=2,
+        retryable_count=46,
+    )
+    payload = degraded.model_dump(mode="python")
+    payload.update({"state": "empty", "currentEligible": True})
+    with pytest.raises(ValidationError, match="activation state"):
+        SelectionArtifact.model_validate(payload, strict=True)
+
+
+@pytest.mark.asyncio
 async def test_empty_selection_is_published_without_popularity_fallback(tmp_path: Path) -> None:
     target, source = _source(tmp_path)
     async with _client() as client:
@@ -651,7 +1031,70 @@ async def test_pointer_activation_interruption_leaves_no_partial_generation(
     with pytest.raises(OSError, match="injected pointer interruption"):
         install_selection_serving(target, serving)
     assert not pointer.exists()
+    assert not (target / "discover-worth-seeing" / "latest-attempt.json").exists()
     assert not (target / "discover-worth-seeing" / "generations" / built.artifact.selectionGenerationId).exists()
+
+
+@pytest.mark.asyncio
+async def test_pointer_interruption_restores_both_existing_activation_pointers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target, source = _source(tmp_path)
+    async with _client() as client:
+        built = await build_selection(
+            source=source,
+            cache_root=target / "selection-profile-cache",
+            caller=ModelDouble(),
+            github_client=client,
+        )
+    install_selection_serving(target, build_selection_serving(built))
+    store = target / "discover-worth-seeing"
+    current_before = (store / "current.json").read_bytes()
+    latest_before = (store / "latest-attempt.json").read_bytes()
+    replacement_artifact = _activation_artifact(
+        built,
+        tmp_path,
+        recall_count=48,
+        ready_count=48,
+        retryable_count=0,
+        published_count=1,
+    )
+    replacement = BuiltSelection(
+        artifact=replacement_artifact,
+        profiles=built.profiles,
+        raw_bytes=serving_module._canonical_bytes(replacement_artifact),
+    )
+    replacement_serving = build_selection_serving(replacement)
+    original = serving_module._atomic
+
+    def interrupted(path: Path, raw: bytes) -> None:
+        if path == store / "current.json" and raw == replacement_serving.pointer_raw:
+            raise OSError("injected current pointer interruption")
+        original(path, raw)
+
+    monkeypatch.setattr(serving_module, "_atomic", interrupted)
+    with pytest.raises(OSError, match="injected current pointer interruption"):
+        install_selection_serving(target, replacement_serving)
+    assert (store / "current.json").read_bytes() == current_before
+    assert (store / "latest-attempt.json").read_bytes() == latest_before
+    assert not (store / "generations" / replacement_artifact.selectionGenerationId).exists()
+
+
+@pytest.mark.asyncio
+async def test_hardlinked_cache_entry_is_rejected_before_model_or_source_calls(tmp_path: Path) -> None:
+    target, source = _source(tmp_path)
+    cache = target / "selection-profile-cache"
+    cache.mkdir(parents=True)
+    original = cache / "original.json"
+    original.write_text("{}", encoding="utf-8")
+    try:
+        os.link(original, cache / "alias.json")
+    except OSError:
+        pytest.skip("hard links are unavailable")
+    double = ModelDouble()
+    with pytest.raises(Exception, match="unsafe"):
+        await build_selection(source=source, cache_root=cache, caller=double)
+    assert double.calls == []
 
 
 def test_serving_rejects_symlink_store(tmp_path: Path) -> None:
@@ -676,6 +1119,104 @@ def test_serving_wraps_unsafe_pointer_path_on_every_platform(tmp_path: Path, mon
     monkeypatch.setattr(loader.safe, "read_stable", reject_unsafe_path)
     with pytest.raises(SelectionServingError, match="unsafe"):
         loader.load_with_etag()
+
+
+@pytest.mark.asyncio
+async def test_degraded_rebuild_without_retry_deadline_is_not_permanently_short_circuited(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SourceAdapterDouble:
+        def load(self):
+            return object()
+
+    class LoaderDouble:
+        def __init__(self, _target: Path) -> None:
+            pass
+
+        def validate_generation(self):
+            raise SelectionServingError("rardar_selection_not_configured", "not configured")
+
+        def load_latest_attempt_with_etag(self):
+            return SimpleNamespace(nextRetryAt=None, selectionGenerationId="degraded-generation"), '"etag"'
+
+        def load_artifact(self, _generation: str):
+            return SimpleNamespace(state="degraded", inputDigest="a" * 64)
+
+    async def route_identity():
+        return "b" * 64
+
+    async def attempted_build(**_kwargs):
+        raise RuntimeError("degraded rebuild attempted")
+
+    monkeypatch.setattr(rebuild_module.SelectionSourceAdapter, "from_config", lambda _target: SourceAdapterDouble())
+    monkeypatch.setattr(rebuild_module, "resolve_rardar_route_identity", route_identity)
+    monkeypatch.setattr(rebuild_module, "selection_input_digest", lambda *_args, **_kwargs: "a" * 64)
+    monkeypatch.setattr(rebuild_module, "SelectionServingLoader", LoaderDouble)
+    monkeypatch.setattr(rebuild_module, "build_selection", attempted_build)
+
+    with pytest.raises(RuntimeError, match="degraded rebuild attempted"):
+        await rebuild_module.rebuild(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_degraded_profile_retry_backoff_defers_rebuild_until_deadline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class SourceAdapterDouble:
+        def load(self):
+            return object()
+
+    class LoaderDouble:
+        def __init__(self, _target: Path) -> None:
+            pass
+
+        def validate_generation(self):
+            raise SelectionServingError("rardar_selection_not_configured", "not configured")
+
+        def load_latest_attempt_with_etag(self):
+            return (
+                SimpleNamespace(
+                    nextRetryAt=datetime.now(UTC).replace(microsecond=0) + timedelta(hours=1),
+                    selectionGenerationId="degraded-generation",
+                ),
+                '"etag"',
+            )
+
+        def load_artifact(self, _generation: str):
+            return SimpleNamespace(
+                state="degraded",
+                inputDigest="a" * 64,
+                selectionGenerationId="degraded-generation",
+                sourceObservationSetId="observation-a",
+                publishedCount=0,
+            )
+
+    async def route_identity():
+        return "b" * 64
+
+    async def unexpected_build(**_kwargs):
+        raise AssertionError("retry backoff must suppress the rebuild")
+
+    monkeypatch.setattr(rebuild_module.SelectionSourceAdapter, "from_config", lambda _target: SourceAdapterDouble())
+    monkeypatch.setattr(rebuild_module, "resolve_rardar_route_identity", route_identity)
+    monkeypatch.setattr(rebuild_module, "selection_input_digest", lambda *_args, **_kwargs: "a" * 64)
+    monkeypatch.setattr(rebuild_module, "SelectionServingLoader", LoaderDouble)
+    monkeypatch.setattr(rebuild_module, "build_selection", unexpected_build)
+
+    result = await rebuild_module.rebuild(tmp_path)
+    assert result == {
+        "status": "degraded",
+        "state": "degraded",
+        "selectionGenerationId": "degraded-generation",
+        "sourceObservationSetId": "observation-a",
+        "created": False,
+        "changed": False,
+        "modelCalls": 0,
+        "githubRequests": 0,
+        "publishedCount": 0,
+    }
 
 
 @pytest.mark.asyncio

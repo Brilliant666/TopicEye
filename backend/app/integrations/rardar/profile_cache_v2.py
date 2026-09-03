@@ -654,6 +654,7 @@ def retryable_error(code: ProfileFailureCode) -> bool:
         "profile_source_http_404",
         "profile_translation_unavailable",
         "profile_model_unavailable",
+        "profile_model_invalid_output",
         "profile_build_interrupted",
         "profile_unknown_failure",
     }

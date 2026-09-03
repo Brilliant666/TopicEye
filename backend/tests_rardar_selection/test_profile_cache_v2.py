@@ -19,6 +19,7 @@ from app.integrations.rardar.profile_cache_v2 import (
     profile_store_path,
     record_failure,
     retry_is_due,
+    retryable_error,
 )
 from app.integrations.rardar.serving_profiles import (
     _build_evidence_context,
@@ -110,6 +111,11 @@ def test_model_route_identity_preserves_legacy_translation_cache_keys() -> None:
         {**legacy_payload, "modelRouteIdentity": "route-v1"}
     )
     assert _model_route_cache_identity(legacy_payload, "route-v1") != _digest(legacy_payload)
+
+
+def test_invalid_model_output_uses_bounded_retry_while_local_schema_failure_does_not() -> None:
+    assert retryable_error("profile_model_invalid_output") is True
+    assert retryable_error("profile_schema_invalid") is False
 
 
 @pytest.mark.asyncio

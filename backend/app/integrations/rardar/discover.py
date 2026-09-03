@@ -273,6 +273,10 @@ class LoadedDiscoverArtifact:
     manifest_sha256: str
     artifact_sha256: str
     projects: dict[int, DiscoverSourceProject]
+    # Selection Runtime needs the complete, already schema/hash/audit-validated
+    # source universe rather than the legacy momentum publication subset.
+    captures: tuple[dict[str, Any], ...]
+    today: dict[str, Any]
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -432,6 +436,8 @@ class DiscoverArtifactAdapter:
             manifest_sha256=_sha(manifest_raw),
             artifact_sha256=_sha(artifact_raw),
             projects=source_projects,
+            captures=tuple(entry[0] for entry in captures),
+            today=today[0],
         )
 
     def _load_captures(

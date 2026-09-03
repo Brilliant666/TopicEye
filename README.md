@@ -214,21 +214,35 @@ python -m scripts.audit_rardar_serving_content --target "$env:LOCALAPPDATA\Topic
 Pop-Location
 ```
 
-`/discover` is a separate near-real-time product surface backed by validated
-`TrendingDiscoverArtifact v1`, v2 or v3. V3 distinguishes the complete Today
-exact-fact set from the product's published Top 20: only published numeric
-repository IDs are excluded, while exact rank 21+ projects are evaluated by an
-audited short-window momentum policy. TopicEye validates that producer proof
-but never recomputes or relaxes selection. The page is grouped into 刚刚发现、
-榜外异动、持续升温 and 待日榜验证 rather than presented as a second ranking.
-榜外异动 shows the recent actual window, the prior comparable window,
-acceleration and Today exact context without forecasting a new rank. Cards are
-fully keyboard and pointer navigable and can be filtered by a deterministic
-static project category retained in the URL. The Discover detail reuses the
-canonical project profile while presenting a distinct deterministic fact
-context. Normal Discover and detail requests read `discover-serving/` only:
-zero GitHub calls, zero LLM calls, zero raw Artifact reads and zero PostgreSQL
-fact writes. See
+`/discover` is a local Shadow “worth seeing now” selection outside Today Top
+20. It starts from a locally mirrored, hash-verified bundle of Rardar
+Observation captures and the authoritative Today artifact, keeps exact rank
+21+ eligible, and uses six deterministic recall channels before a
+momentum-blind, evidence-bound Value Gate. Timeliness is evaluated separately;
+a fixed matrix owns the semantic decision and a deterministic reason
+round-robin owns display order. Star and short-window growth remain auxiliary
+facts and cannot make weak value strong.
+
+The page is one unranked stream with category and primary-reason filters in the
+URL. Project cards and details reuse a cached canonical profile, or use bounded
+deterministic profile evidence on a cache miss; the Selection build never hides
+extra profile-model calls outside its 120-call budget. They add a versioned
+Selection context without duplicating identity, positioning or capability
+authority. Normal Discover and detail requests read only the immutable
+`discover-worth-seeing` Serving projection: zero GitHub calls, zero LLM calls,
+zero raw source reads and zero PostgreSQL fact writes. Build, inspect, repeat
+the idempotence check, or roll back a retained local generation with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 build-selection
+powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 selection-status
+powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 rebuild-selection
+powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 selection-rollback `
+  -SelectionGeneration <generation-id>
+```
+
+This runtime is deliberately local/shadow-only. It does not activate
+Production Discover or modify Today. See
 [Rardar Discover Adapter](docs/platform/RARDAR_DISCOVER_ADAPTER.md).
 
 Today links each repository to

@@ -71,6 +71,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Could not build the isolated Serving Projection." }
     & $Python -m tests_rardar_adapter.build_discover_e2e_fixture --target $MirrorRoot
     if ($LASTEXITCODE -ne 0) { throw "Could not build the isolated Discover Serving Projection." }
+    & $Python -m tests_rardar_selection.build_e2e_fixture --target $MirrorRoot
+    if ($LASTEXITCODE -ne 0) { throw "Could not build the isolated Selection Serving Projection." }
 } finally {
     Pop-Location
 }

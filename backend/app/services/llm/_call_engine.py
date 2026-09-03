@@ -159,13 +159,18 @@ async def _call_llm_single(
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": messages,
-        "temperature": temperature,
         "max_tokens": max_tokens,
         # litellm 默认 num_retries=2 会内部重试, 与我们的 tenacity + failover 叠加
         # 导致限流时单条内容烧 8N 次配额。重试策略由 _call_with_retry 统一管理,
         # 这里显式关闭 litellm 内部重试。除非 extra_params 明确覆盖。
         "num_retries": 0,
     }
+    # Reasoning-effort calls intentionally leave sampling temperature to the
+    # provider.  GPT-5 reasoning models reject non-default temperature values,
+    # while the selected effort remains an explicit, audited part of the
+    # request.  Non-reasoning callers retain the configured model temperature.
+    if reasoning_effort is None:
+        kwargs["temperature"] = temperature
     kwargs.update(_litellm_extra_kwargs(model_config))
     completion_timeout = _completion_timeout_seconds(kwargs.get("timeout"))
     # 同时传给 LiteLLM 和 asyncio。前者取消底层 HTTP 请求，后者为每个

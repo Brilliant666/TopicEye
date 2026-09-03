@@ -1,6 +1,10 @@
 param(
-    [ValidateSet("start", "stop", "status", "sync-data", "rebuild-serving")]
-    [string]$Command = "start"
+    [ValidateSet(
+        "start", "stop", "status", "sync-data", "rebuild-serving",
+        "build-selection", "rebuild-selection", "selection-status", "selection-rollback"
+    )]
+    [string]$Command = "start",
+    [string]$SelectionGeneration
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,6 +56,7 @@ function Show-Status {
         DataMode = if ($state -and $state.dataMode) { $state.dataMode } elseif ($env:RARDAR_DATA_MODE) { $env:RARDAR_DATA_MODE } else { "real" }
         DataMirror = $MirrorRoot
         DataSynced = if (Test-Path -LiteralPath (Join-Path $MirrorRoot "serving\current.json") -PathType Leaf) { "yes" } else { "no; run rebuild-serving" }
+        Selection = if (Test-Path -LiteralPath (Join-Path $MirrorRoot "discover-worth-seeing\current.json") -PathType Leaf) { "built" } else { "not built; run build-selection" }
         Product = "http://127.0.0.1:3000/"
         Login = "http://127.0.0.1:3000/login"
         Admin = "http://127.0.0.1:3000/admin"
@@ -264,18 +269,36 @@ function Sync-RardarData {
     try {
         & $Python -m scripts.sync_rardar_intelligence --target $MirrorRoot --host $sourceHost --remote-root $remoteRoot
         if ($LASTEXITCODE -ne 0) { throw "Rardar read-only data sync failed." }
-        $discoverArguments = @(
-            "-m", "scripts.sync_rardar_discover",
+        $selectionSourceArguments = @(
+            "-m", "scripts.sync_rardar_selection_source",
             "--target", $MirrorRoot,
             "--host", $sourceHost,
             "--remote-root", $remoteRoot
         )
-        if ($env:RARDAR_DISCOVER_SYNC_SOURCE_DIR) {
-            $discoverArguments += @("--source-dir", $env:RARDAR_DISCOVER_SYNC_SOURCE_DIR)
+        if ($env:RARDAR_SELECTION_SYNC_SOURCE_DIR) {
+            $selectionSourceArguments += @("--source-dir", $env:RARDAR_SELECTION_SYNC_SOURCE_DIR)
         }
-        & $Python @discoverArguments
+        & $Python @selectionSourceArguments
         if ($LASTEXITCODE -ne 0) {
-            throw "Rardar Discover sync failed after the independent Today sync; the active Today pointer was preserved."
+            throw "Rardar Selection fact sync failed; any previously active Selection source pointer was preserved."
+        }
+        # Production Discover is intentionally optional.  Keep the legacy
+        # momentum mirror only as an explicitly requested Shadow comparator;
+        # it is never a prerequisite for worth-seeing Selection.
+        if ($env:RARDAR_DISCOVER_SYNC_ENABLED -eq "1") {
+            $discoverArguments = @(
+                "-m", "scripts.sync_rardar_discover",
+                "--target", $MirrorRoot,
+                "--host", $sourceHost,
+                "--remote-root", $remoteRoot
+            )
+            if ($env:RARDAR_DISCOVER_SYNC_SOURCE_DIR) {
+                $discoverArguments += @("--source-dir", $env:RARDAR_DISCOVER_SYNC_SOURCE_DIR)
+            }
+            & $Python @discoverArguments
+            if ($LASTEXITCODE -ne 0) {
+                throw "Optional legacy Rardar Discover sync failed; existing mirrors were preserved."
+            }
         }
     } finally {
         Pop-Location
@@ -316,10 +339,74 @@ function Rebuild-RardarServing {
     }
 }
 
+function Invoke-SelectionCommand([string[]]$Arguments) {
+    if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw "Existing TopicEye Python runtime is unavailable: $Python"
+    }
+    Start-Postgres
+    $script:DatabaseUser = Resolve-DatabaseUser
+    $database = Resolve-Database
+    $encodedUser = [Uri]::EscapeDataString($script:DatabaseUser)
+    $encodedDatabase = [Uri]::EscapeDataString($database)
+    $databaseUrl = "postgresql+asyncpg://${encodedUser}@127.0.0.1:${PgPort}/${encodedDatabase}"
+    $savedPythonPath = $env:PYTHONPATH
+    $savedDatabaseUrl = $env:DATABASE_URL
+    $env:PYTHONPATH = $BackendRoot
+    $env:DATABASE_URL = $databaseUrl
+    Push-Location $BackendRoot
+    try {
+        & $Python -m scripts.rebuild_rardar_discover_selection @Arguments --target $MirrorRoot
+        if ($LASTEXITCODE -ne 0) { throw "Rardar worth-seeing Selection command failed." }
+    } finally {
+        Pop-Location
+        $env:PYTHONPATH = $savedPythonPath
+        $env:DATABASE_URL = $savedDatabaseUrl
+    }
+}
+
+function Build-RardarSelection {
+    Invoke-SelectionCommand @("build")
+}
+
+function Show-RardarSelectionStatus {
+    if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw "Existing TopicEye Python runtime is unavailable: $Python"
+    }
+    # Selection status validates immutable filesystem data only.  Give the
+    # application settings a syntactically valid, non-routable database URL so
+    # this read-only command never starts PostgreSQL merely to inspect data.
+    $savedPythonPath = $env:PYTHONPATH
+    $savedDatabaseUrl = $env:DATABASE_URL
+    $env:PYTHONPATH = $BackendRoot
+    if (-not $env:DATABASE_URL) {
+        $env:DATABASE_URL = "postgresql+asyncpg://status@127.0.0.1:1/status"
+    }
+    Push-Location $BackendRoot
+    try {
+        & $Python -m scripts.rebuild_rardar_discover_selection status --target $MirrorRoot
+        if ($LASTEXITCODE -ne 0) { throw "Rardar worth-seeing Selection status failed." }
+    } finally {
+        Pop-Location
+        $env:PYTHONPATH = $savedPythonPath
+        $env:DATABASE_URL = $savedDatabaseUrl
+    }
+}
+
+function Rollback-RardarSelection {
+    if (-not $SelectionGeneration) {
+        throw "selection-rollback requires -SelectionGeneration <generation-id>."
+    }
+    Invoke-SelectionCommand @("rollback", $SelectionGeneration)
+}
+
 switch ($Command) {
     "start" { Start-Rardar }
     "stop" { Stop-Rardar }
-    "status" { Show-Status }
+    "status" { Show-Status; Show-RardarSelectionStatus }
     "sync-data" { Sync-RardarData }
     "rebuild-serving" { Rebuild-RardarServing }
+    "build-selection" { Build-RardarSelection }
+    "rebuild-selection" { Build-RardarSelection }
+    "selection-status" { Show-RardarSelectionStatus }
+    "selection-rollback" { Rollback-RardarSelection }
 }

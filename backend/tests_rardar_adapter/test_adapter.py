@@ -11,11 +11,12 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from jsonschema import ValidationError
 
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://adapter:adapter@127.0.0.1:5432/adapter")
 
 from app.api.v1 import rardar as rardar_api
-from app.integrations.rardar.adapter import RardarArtifactError, RardarIntelligenceAdapter, _SafeRoot
+from app.integrations.rardar.adapter import RardarArtifactError, RardarIntelligenceAdapter, _SafeRoot, _validate
 
 FIXTURES = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_intelligence"
 BACKEND = Path(__file__).parents[1]
@@ -46,6 +47,17 @@ def _resign(root: Path, generation_id: str, *, artifact_changed: bool = False) -
 
 def _load(root: Path):
     return RardarIntelligenceAdapter.from_config(str(root)).load_explosion_board()
+
+
+def test_capture_contract_accepts_versioned_45_day_retention_only() -> None:
+    source = FIXTURES / "revision-a" / "generations" / "fixture-explosion-a" / "trending" / "sources" / "current.json"
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    payload["retention"]["retentionDays"] = 45
+    _validate("trending-capture-bundle.schema.json", payload)
+
+    payload["retention"]["retentionDays"] = 44
+    with pytest.raises(ValidationError):
+        _validate("trending-capture-bundle.schema.json", payload)
 
 
 def test_ready_fixture_projects_only_verified_facts(tmp_path: Path) -> None:

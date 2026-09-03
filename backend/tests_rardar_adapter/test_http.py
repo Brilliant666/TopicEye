@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import socket
@@ -14,8 +15,10 @@ import httpx
 
 from app.integrations.rardar.adapter import RardarIntelligenceAdapter
 from app.integrations.rardar.serving import build_serving_projection, install_serving_projection, source_hashes
+from tests_rardar_selection.build_e2e_fixture import _build as build_selection_fixture
 
 FIXTURES = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_intelligence"
+DISCOVER_FIXTURE = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_discover"
 BACKEND = Path(__file__).parents[1]
 
 
@@ -110,6 +113,13 @@ def _combined_root(tmp_path: Path) -> Path:
     return root
 
 
+def _selection_root(tmp_path: Path) -> Path:
+    root = tmp_path / "selection-data"
+    shutil.copytree(DISCOVER_FIXTURE, root)
+    asyncio.run(build_selection_fixture(root))
+    return root
+
+
 def test_real_http_pointer_switch_and_fail_closed_recovery(tmp_path: Path) -> None:
     root = _combined_root(tmp_path)
     endpoint = "/api/v1/rardar/explosion-board"
@@ -174,3 +184,46 @@ def test_real_http_rardar_mode_reports_unconfigured_data() -> None:
     assert response.json()["state"] == "not_synced"
     assert response.json()["reason"] == "real_data_not_synced"
     assert response.json()["dataMode"] == "real"
+
+
+def test_real_http_selection_is_static_etag_cached_and_fails_closed(tmp_path: Path) -> None:
+    root = _selection_root(tmp_path)
+    with _server(root) as url, httpx.Client(trust_env=False) as client:
+        response = client.get(f"{url}/api/v1/rardar/discover/selection", timeout=10)
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["mode"] == "shadow"
+        assert payload["status"] in {"ready", "stale"}
+        assert payload["generation"]
+        assert payload["sourceTodayGeneration"]
+        assert payload["items"]
+        etag = response.headers["etag"]
+        cached = client.get(
+            f"{url}/api/v1/rardar/discover/selection",
+            headers={"If-None-Match": etag},
+            timeout=10,
+        )
+        assert cached.status_code == 304
+
+        project = payload["items"][0]
+        detail = client.get(
+            f"{url}/api/v1/rardar/discover/selection/projects/{project['githubRepositoryId']}",
+            params={"selectionGeneration": payload["generation"]},
+            timeout=10,
+        )
+        assert detail.status_code == 200
+        assert detail.headers["etag"] == etag
+        assert detail.json()["context"]["card"] == project
+
+        generation = root / "discover-worth-seeing" / "generations" / payload["generation"]
+        serving_path = generation / "serving" / "selection.json"
+        healthy = serving_path.read_bytes()
+        serving_path.write_bytes(b"{}\n")
+        damaged = client.get(f"{url}/api/v1/rardar/discover/selection", timeout=10)
+        assert damaged.status_code == 503
+        assert damaged.json()["status"] == "invalid"
+        assert damaged.json()["items"] == []
+        serving_path.write_bytes(healthy)
+        recovered = client.get(f"{url}/api/v1/rardar/discover/selection", timeout=10)
+        assert recovered.status_code == 200
+        assert recovered.json()["generation"] == payload["generation"]

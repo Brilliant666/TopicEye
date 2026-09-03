@@ -221,25 +221,31 @@ test('fails closed when the requested generation is not retained', async ({ page
   await expect(page.getByRole('heading', { name: '这个项目快照已不匹配' })).toBeVisible();
 });
 
-test('renders audited near-real-time Discover and reuses detail, AI, and Find Project', async ({ page }) => {
+test('renders one audited unranked worth-seeing stream and immutable static detail', async ({ page }) => {
   const browserErrors: string[] = [];
   page.on('console', (message) => {
     if (message.type() === 'error') browserErrors.push(message.text());
   });
   page.on('pageerror', (error) => browserErrors.push(error.message));
+  const response = await page.request.get('/api/v1/rardar/discover/selection');
+  expect(response.status()).toBe(200);
+  const selection = await response.json() as {
+    status: string;
+    generation: string;
+    items: Array<{ githubRepositoryId: number; repository: string }>;
+  };
+  expect(selection.status).toBe('ready');
+  expect(selection.items.length).toBeGreaterThan(0);
+  expect(selection.items.length).toBeLessThanOrEqual(20);
+
   await page.goto('/discover');
-  await expect(page.getByRole('heading', { name: '发现此刻正在形成的真实信号' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '刚刚发现' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '榜外异动' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '持续升温' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '待日榜验证' })).toBeVisible();
-  await expect(page.getByTestId('discover-project-card')).toHaveCount(5);
-  await expect(page.getByTestId('discover-project-card').first()).toContainText(/\/ 实际 \d+(?:\.\d)? 小时/);
-  await expect(page.getByTestId('discover-project-card').first()).toContainText(/正增长连续性/);
-  await expect(page.getByRole('navigation', { name: '发现项目分类' })).toBeVisible();
-  await expect(page.getByText('每 2 小时', { exact: true })).toBeVisible();
-  await expect(page.getByText('预计 24h')).toHaveCount(0);
-  await expect(page.getByText('全网排名')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /此刻真正值得理解的项目/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '本轮值得看的项目' })).toBeVisible();
+  await expect(page.getByTestId('selection-project-card')).toHaveCount(selection.items.length);
+  await expect(page.getByRole('navigation', { name: '项目方向' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '主价值理由' })).toBeVisible();
+  await expect(page.getByText(/不公开排名/).first()).toBeVisible();
+  await expect(page.getByText(/全网排名|综合分|置信度/)).toHaveCount(0);
   const dimensions = await page.evaluate(() => ({
     width: document.documentElement.clientWidth,
     scroll: document.documentElement.scrollWidth,
@@ -248,80 +254,50 @@ test('renders audited near-real-time Discover and reuses detail, AI, and Find Pr
   await expect(page.locator('nextjs-portal, [data-nextjs-dialog-overlay]')).toHaveCount(0);
   await captureEvidence(page, 'discover');
 
-  await expect(page.getByText('查看项目详情', { exact: true })).toHaveCount(0);
-  const firstCard = page.getByTestId('discover-project-card').first();
+  const firstCard = page.getByTestId('selection-project-card').first();
   await expect(firstCard).toHaveAttribute('role', 'link');
   await expect(firstCard).toHaveAttribute('tabindex', '0');
   await firstCard.click();
-  await expect(page).toHaveURL(/\/project\/github\/\d+\?discoverGeneration=/);
-  await expect(page.getByRole('heading', { name: '为什么现在出现在发现？' })).toBeVisible();
-  await expect(page.getByText('实际窗口', { exact: true })).toBeVisible();
-  await expect(page.getByText('正增长区间', { exact: true })).toBeVisible();
-  await expect(page.getByText('最新区间增量', { exact: true })).toBeVisible();
-  await expect(page.getByText('下一次 Observation', { exact: true })).toBeVisible();
-  await expect(page.getByText('下一次 Today 结算', { exact: true })).toBeVisible();
-  await expect(page.getByText('为什么尚未进入 Today', { exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '24 小时事实' })).toHaveCount(0);
-  await expect(page.getByText('今日排名', { exact: true })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/project\/github\/\d+\?selectionGeneration=/);
+  await expect(page.getByText('为什么值得看', { exact: true })).toBeVisible();
+  await expect(page.getByText('为什么是现在', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '关键能力与可复用入口' })).toBeVisible();
+  await expect(page.getByText(/Selection 证据与版本边界/)).toBeVisible();
+  await expect(page.getByRole('button', { name: '生成 AI 深度解读' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: /打开 GitHub/ })).toHaveAttribute('href', /^https:\/\/github\.com\//);
-  await page.getByRole('button', { name: '生成 AI 深度解读' }).click();
-  await expect(page.getByText('AI 深度解读', { exact: true }).last()).toBeVisible();
   await captureEvidence(page, 'discover-detail');
-  await page.getByRole('link', { name: /用这个仓库评估我的需求/ }).first().click();
+  await page.getByRole('link', { name: /用它评估我的需求/ }).first().click();
   await expect(page).toHaveURL(/\/find\?repositoryUrl=/);
   await expect(page.getByLabel('公开 GitHub 仓库 URL （可选）')).toHaveValue(/^https:\/\/github\.com\//);
   expect(browserErrors, browserErrors.join('\n')).toEqual([]);
 });
 
-test('renders Today-exact projects outside the published Top 20 as a distinct audited stage', async ({ page }) => {
-  const browserErrors: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') browserErrors.push(message.text());
-  });
-  page.on('pageerror', (error) => browserErrors.push(error.message));
-
+test('keeps Selection filters in the URL and preserves independent GitHub and keyboard navigation', async ({ page, context }) => {
+  const selectionResponse = await page.request.get('/api/v1/rardar/discover/selection');
+  const selection = await selectionResponse.json() as {
+    items: Array<{ category: string; primaryReason: string }>;
+  };
+  const first = selection.items[0];
+  const categoryLabels: Record<string, string> = {
+    'ai-agent': 'AI 与 Agent',
+    'dev-tools': '开发工具',
+    'data-infra': '数据与基础设施',
+    productivity: '生产力',
+    'video-content': '视频与内容',
+    other: '其他',
+  };
+  const reasonLabels: Record<string, string> = {
+    directly_reusable: '可直接复用',
+    specific_problem_solution: '解决具体问题',
+    distinctive_implementation: '实现有辨识度',
+    reference_or_learning_value: '参考与学习',
+  };
   await page.goto('/discover');
-  const outsideStage = page.getByTestId('discover-stage-outside_today_momentum');
-  await expect(outsideStage).toBeVisible();
-  await expect(outsideStage.getByTestId('discover-project-card')).toHaveCount(1);
-  const card = outsideStage.getByTestId('discover-project-card').first();
-  await expect(card).toContainText(/Today exact\s*#21/);
-  await expect(card).toContainText('24h +20');
-  await expect(card).toContainText('最近实际 4 小时');
-  await expect(card).toContainText('前一相同窗口');
-  await expect(card).toContainText('加速变化');
-  await expect(card).toContainText('正增长连续性');
+  const cards = page.getByTestId('selection-project-card');
+  const count = await cards.count();
+  expect(count).toBeGreaterThan(0);
 
-  await card.focus();
-  await expect(card).toBeFocused();
-  await card.press('Enter');
-  await expect(page).toHaveURL(/\/project\/github\/3\?discoverGeneration=/);
-  await expect(page.getByRole('heading', { name: '为什么现在出现在发现？' })).toBeVisible();
-  const facts = page.getByTestId('project-discover-facts');
-  await expect(facts).toContainText('完整 24h 事实 · Today Top 20 榜外');
-  await expect(facts).toContainText('Top 20');
-  await expect(facts).toContainText('#21');
-  await expect(facts).toContainText('+20 Star');
-  await expect(facts).toContainText('最近实际 4 小时');
-  await expect(facts).toContainText('前一可比窗口');
-  await expect(facts).toContainText('短窗口加速');
-  await expect(page.getByText(/完整 24 小时事实.*Top 20 之外/)).toBeVisible();
-
-  const dimensions = await page.evaluate(() => ({
-    width: document.documentElement.clientWidth,
-    scroll: document.documentElement.scrollWidth,
-  }));
-  expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width);
-  await expect(page.locator('nextjs-portal, [data-nextjs-dialog-overlay]')).toHaveCount(0);
-  expect(browserErrors, browserErrors.join('\n')).toEqual([]);
-});
-
-test('keeps Discover category state in the URL and makes card, keyboard, and GitHub navigation independent', async ({ page, context }) => {
-  await page.goto('/discover');
-  const cards = page.getByTestId('discover-project-card');
-  await expect(cards).toHaveCount(5);
-
-  const github = cards.first().getByRole('link', { name: /在 GitHub 打开/ });
+  const github = cards.first().getByRole('link', { name: /GitHub/ });
   await expect(github).toHaveAttribute('target', '_blank');
   await expect(github).toHaveAttribute('href', /^https:\/\/github\.com\//);
   await context.route('https://github.com/**', (route) => route.fulfill({ status: 200, body: 'GitHub fixture' }));
@@ -332,54 +308,42 @@ test('keeps Discover category state in the URL and makes card, keyboard, and Git
   await popup.close();
   await expect(page).toHaveURL(/\/discover$/);
 
-  await page.getByRole('button', { name: /生产力/ }).click();
-  await expect(page).toHaveURL(/\/discover\?category=productivity$/);
-  await expect(page.getByLabel('当前发现状态')).toContainText('当前筛选 生产力');
-  await expect(page.getByTestId('discover-project-card')).toHaveCount(5);
-
-  await page.getByRole('button', { name: /AI 与 Agent/ }).click();
-  await expect(page).toHaveURL(/\/discover\?category=ai-agent$/);
-  await expect(page.getByTestId('discover-project-card')).toHaveCount(0);
-  await expect(page.getByTestId('discover-stage-just_discovered')).toContainText(
-    'AI 与 Agent中暂时没有符合该阶段信号门禁的项目',
-  );
+  await page.getByRole('button', { name: new RegExp(categoryLabels[first.category]) }).click();
+  await expect(page).toHaveURL(new RegExp(`/discover\\?category=${first.category}$`));
+  await page.getByRole('button', { name: new RegExp(reasonLabels[first.primaryReason]) }).click();
+  await expect(page).toHaveURL(new RegExp(`/discover\\?category=${first.category}&reason=${first.primaryReason}$`));
   await page.reload();
-  await expect(page.getByRole('button', { name: /AI 与 Agent/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: new RegExp(categoryLabels[first.category]) })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: new RegExp(reasonLabels[first.primaryReason]) })).toHaveAttribute('aria-pressed', 'true');
   await page.goBack();
-  await expect(page).toHaveURL(/\/discover\?category=productivity$/);
-  await expect(page.getByTestId('discover-project-card')).toHaveCount(5);
+  await expect(page).toHaveURL(new RegExp(`/discover\\?category=${first.category}$`));
   await page.goForward();
-  await expect(page).toHaveURL(/\/discover\?category=ai-agent$/);
+  await expect(page).toHaveURL(new RegExp(`/discover\\?category=${first.category}&reason=${first.primaryReason}$`));
   await page.goBack();
 
-  const keyboardCard = page.getByTestId('discover-project-card').nth(1);
+  const keyboardCard = page.getByTestId('selection-project-card').first();
   await keyboardCard.focus();
   await expect(keyboardCard).toBeFocused();
   await keyboardCard.press('Enter');
-  await expect(page).toHaveURL(/\/project\/github\/\d+\?discoverGeneration=/);
-
-  await page.goto('/discover?category=productivity');
-  const spaceCard = page.getByTestId('discover-project-card').nth(2);
-  await spaceCard.focus();
-  await spaceCard.press('Space');
-  await expect(page).toHaveURL(/\/project\/github\/\d+\?discoverGeneration=/);
+  await expect(page).toHaveURL(/\/project\/github\/\d+\?selectionGeneration=/);
 });
 
-test('renders stale, honest empty-stage, and fail-closed Discover states', async ({ page }) => {
-  setMode('discover_stale');
+test('renders honest empty and fail-closed Selection states without momentum fallback', async ({ page }) => {
+  setMode('selection_stale');
   await page.goto('/discover');
-  await expect(page.getByText('数据已延迟')).toBeVisible();
+  await expect(page.getByTestId('selection-stale')).toContainText('本地 Shadow 数据已延迟');
+  await expect(page.getByTestId('selection-project-card').first()).toBeVisible();
 
-  setMode('discover_empty_stage');
+  setMode('selection_empty');
   await page.reload();
-  await expect(page.getByTestId('discover-stage-near_validation')).toContainText(
-    '本次已验证 Observation 中没有符合该阶段信号门禁的项目',
-  );
+  await expect(page.getByRole('heading', { name: '本轮值得看的项目' })).toBeVisible();
+  await expect(page.getByText('0 个结果 · 不公开排名')).toBeVisible();
+  await expect(page.getByText(/momentum|榜外异动|刚刚发现/)).toHaveCount(0);
 
-  setMode('discover_invalid');
+  setMode('selection_invalid');
   await page.reload();
-  await expect(page.getByRole('heading', { name: '近实时发现完整性验证失败' })).toBeVisible();
-  await expect(page.getByText(/没有回退到 Demo/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: '精选数据未通过完整性验证' })).toBeVisible();
+  await expect(page.getByText(/不会回退到旧 momentum 列表/)).toBeVisible();
 });
 
 test('frontend health stays lightweight and Admin remains outside the product shell', async ({ page, request }) => {

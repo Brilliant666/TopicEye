@@ -377,6 +377,10 @@ class SelectionServingLoader:
             raw = self.safe.read_stable(f"{_STORE}/current.json", maximum_bytes=64 * 1024)
         except FileNotFoundError as exc:
             raise SelectionServingError("rardar_selection_not_configured", "Selection is not built") from exc
+        except ValueError as exc:
+            raise SelectionServingError("rardar_selection_invalid", "Selection pointer path is unsafe") from exc
+        except OSError as exc:
+            raise SelectionServingError("rardar_selection_invalid", "Selection pointer read failed") from exc
         return _strict(raw, SelectionServingPointer, "rardar_selection_invalid"), raw
 
     def _manifest(self, generation: str, expected_sha: str | None = None) -> tuple[SelectionServingManifest, bytes]:

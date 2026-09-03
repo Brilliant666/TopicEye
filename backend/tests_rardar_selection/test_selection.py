@@ -667,6 +667,17 @@ def test_serving_rejects_symlink_store(tmp_path: Path) -> None:
         SelectionServingLoader(target).load_with_etag()
 
 
+def test_serving_wraps_unsafe_pointer_path_on_every_platform(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    loader = SelectionServingLoader(tmp_path)
+
+    def reject_unsafe_path(*_args, **_kwargs):
+        raise ValueError("symbolic link, junction, or reparse point rejected")
+
+    monkeypatch.setattr(loader.safe, "read_stable", reject_unsafe_path)
+    with pytest.raises(SelectionServingError, match="unsafe"):
+        loader.load_with_etag()
+
+
 @pytest.mark.asyncio
 async def test_rebuild_timeout_reports_stage_and_preserves_activation_boundary(
     tmp_path: Path,

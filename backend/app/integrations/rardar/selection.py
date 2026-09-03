@@ -58,7 +58,7 @@ VALUE_PROMPT_VERSION = "rardar-worth-seeing-gate-v4"
 VALUE_SCHEMA_VERSION = "rardar-worth-seeing-gate-schema-v4"
 TIMELINESS_PROMPT_VERSION = "rardar-worth-seeing-change-v3"
 TIMELINESS_SCHEMA_VERSION = "rardar-worth-seeing-change-schema-v3"
-COPY_PROMPT_VERSION = "rardar-worth-seeing-copy-v2"
+COPY_PROMPT_VERSION = "rardar-worth-seeing-copy-v3"
 COPY_SCHEMA_VERSION = "rardar-worth-seeing-copy-schema-v2"
 RECALL_POLICY_VERSION = "worth-seeing-recall-v1"
 REASON_POLICY_VERSION = "worth-seeing-reason-v5"
@@ -1253,7 +1253,10 @@ async def _copy(
     caller: LLMCaller,
 ) -> tuple[SelectionCopyResult | None, int]:
     payload = {
-        "task": "Write concise Chinese card copy without adding claims. Keep why-now null unless strong timeliness evidence exists.",
+        "task": (
+            "Write concise Chinese card copy without adding claims. "
+            "Set whyNowZh to a supported explanation when timeliness is strong; otherwise set it to null."
+        ),
         "repository": assessment.candidate.repository,
         "primaryReason": assessment.primaryReason,
         "timeliness": assessment.timeliness.model_dump(mode="json"),

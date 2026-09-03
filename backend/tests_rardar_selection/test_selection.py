@@ -74,10 +74,17 @@ def _metadata(scene: RardarLLMScene) -> RardarLLMMetadata:
 
 
 class ModelDouble:
-    def __init__(self, *, first_invalid: bool = False, regular_value: str = "strong") -> None:
+    def __init__(
+        self,
+        *,
+        first_invalid: bool = False,
+        regular_value: str = "strong",
+        copy_why_now: str | None = "近期发布包含有证据支持的实质能力变化。",
+    ) -> None:
         self.calls: list[tuple[RardarLLMScene, list[dict[str, object]]]] = []
         self.first_invalid = first_invalid
         self.regular_value = regular_value
+        self.copy_why_now = copy_why_now
 
     async def __call__(self, *, scene, messages, reasoning_effort, cache_identity):
         assert reasoning_effort in {ReasoningEffort.MEDIUM, ReasoningEffort.HIGH}
@@ -127,7 +134,7 @@ class ModelDouble:
             value = {
                 "identitySummaryZh": "一个提供可组合 SDK 与命令行工作流的开发工具。",
                 "whyWorthSeeingZh": "它提供可直接检查和接入的 SDK、示例与模块边界。",
-                "whyNowZh": "近期发布包含有证据支持的实质能力变化。",
+                "whyNowZh": self.copy_why_now,
                 "reusableAssets": ["SDK", "命令行工作流"],
                 "bestFit": ["需要复用自动化能力的开发者"],
                 "evidenceIds": ["E01", "T01"],
@@ -534,6 +541,28 @@ async def test_empty_selection_is_published_without_popularity_fallback(tmp_path
     install_selection_serving(target, build_selection_serving(built))
     snapshot, _etag = SelectionServingLoader(target).load_with_etag()
     assert snapshot.status == "empty" and snapshot.items == []
+
+
+@pytest.mark.asyncio
+async def test_missing_generated_why_now_uses_deterministic_serving_fallback(tmp_path: Path) -> None:
+    target, source = _source(tmp_path)
+    async with _client() as client:
+        built = await build_selection(
+            source=source,
+            cache_root=target / "selection-profile-cache",
+            caller=ModelDouble(copy_why_now=None),
+            github_client=client,
+        )
+
+    published = [item for item in built.artifact.assessments if item.publicationDisposition == "publish"]
+    assert published
+    assert all(item.copyResult is not None and item.copyResult.whyNowZh is None for item in published)
+    install_selection_serving(target, build_selection_serving(built))
+    snapshot, _etag = SelectionServingLoader(target).load_with_etag()
+    expected = {item.candidate.githubRepositoryId: serving_module._why_now(item) for item in published}
+    assert all(
+        item.whyNowZh is not None and item.whyNowZh == expected[item.githubRepositoryId] for item in snapshot.items
+    )
 
 
 @pytest.mark.asyncio

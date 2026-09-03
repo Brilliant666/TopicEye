@@ -125,7 +125,7 @@ def _card(assessment: Any, profile: Any) -> SelectionServingCard:
         identitySummaryZh=copy.identitySummaryZh if copy else _fallback_identity(assessment, profile),
         corePositioningZh=(profile.positioningZh or profile.coreValueZh or profile.officialPositioningZh),
         whyWorthSeeingZh=(copy.whyWorthSeeingZh if copy else _REASON_COPY[assessment.primaryReason]),
-        whyNowZh=copy.whyNowZh if copy else _why_now(assessment),
+        whyNowZh=copy.whyNowZh if copy and copy.whyNowZh else _why_now(assessment),
         primaryReason=assessment.primaryReason,
         supportingReasons=assessment.supportingReasons,
         category=assessment.category,

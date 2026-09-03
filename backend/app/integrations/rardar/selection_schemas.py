@@ -41,6 +41,7 @@ _RETRYABLE_PROFILE_FAILURES = {
     "profile_source_http_404",
     "profile_translation_unavailable",
     "profile_model_unavailable",
+    "profile_model_invalid_output",
     "profile_build_interrupted",
     "profile_unknown_failure",
 }
@@ -49,7 +50,6 @@ _PERMANENT_PROFILE_FAILURES = {
     "profile_evidence_incomplete",
     "profile_evidence_mismatch",
     "profile_schema_invalid",
-    "profile_model_invalid_output",
     "profile_path_unsafe",
 }
 

@@ -280,6 +280,7 @@ def _activation_artifact(
     retryable_count: int,
     permanent_count: int = 0,
     published_count: int = 0,
+    retryable_code: str = "profile_source_timeout",
 ) -> SelectionArtifact:
     assert ready_count + retryable_count + permanent_count == recall_count
     assessments: list[SelectionAssessment] = []
@@ -322,7 +323,7 @@ def _activation_artifact(
                     "publicationDisposition": "not_eligible",
                     "displayOrder": None,
                     "copyResult": None,
-                    "failureCode": ("profile_source_timeout" if retryable else "profile_evidence_incomplete"),
+                    "failureCode": (retryable_code if retryable else "profile_evidence_incomplete"),
                     "rejectReason": None,
                 }
             )
@@ -341,7 +342,7 @@ def _activation_artifact(
         for code in sorted({item.failureCode for item in assessments if item.failureCode})
     }
     systemic_threshold = max(5, (recall_count + 4) // 5)
-    systemic_codes = ["profile_source_timeout"] if retryable_count >= systemic_threshold else []
+    systemic_codes = [retryable_code] if retryable_count >= systemic_threshold else []
     coverage = round(ready_count / recall_count if recall_count else 1.0, 6)
     healthy_gate = coverage >= 0.95 and not systemic_codes
     semantic_resolved = ready_count + permanent_count
@@ -716,6 +717,18 @@ async def test_activation_policy_distinguishes_ready_empty_and_degraded(tmp_path
     )
     assert bounded_ready.state == "ready"
     assert bounded_ready.currentEligible is True
+
+    invalid_model_output = _activation_artifact(
+        built,
+        tmp_path,
+        recall_count=48,
+        ready_count=40,
+        retryable_count=8,
+        retryable_code="profile_model_invalid_output",
+    )
+    assert invalid_model_output.profileRetryableFailureCount == 8
+    assert invalid_model_output.profilePermanentUnavailableCount == 0
+    assert invalid_model_output.state == "degraded"
 
 
 @pytest.mark.asyncio

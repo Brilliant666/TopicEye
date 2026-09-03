@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 
 import { isRardarProduct } from '@/lib/product-profile';
-import { loadDiscover } from '@/lib/rardar-discover';
+import { loadSelection } from '@/lib/rardar-selection';
 import { RARDAR_FOUNDATION_PAGES, type RardarFoundationPageKey } from '@/lib/rardar-foundation';
 import {
   assertPublishableProject,
@@ -32,14 +32,14 @@ import {
   type TodaySnapshot,
 } from '@/lib/rardar-intelligence';
 import styles from './RardarFoundation.module.css';
-import RardarDiscoverPage from './RardarDiscoverPage';
 import RardarProjectExplanation from './RardarProjectExplanation';
+import RardarSelectionPage from './RardarSelectionPage';
 
 export default async function RardarFoundationPage({ pageKey }: { pageKey: RardarFoundationPageKey }) {
   if (!isRardarProduct()) notFound();
 
   if (pageKey === 'today') return <TodayFoundation result={await loadTodaySnapshot()} />;
-  if (pageKey === 'discover') return <RardarDiscoverPage result={await loadDiscover()} />;
+  if (pageKey === 'discover') return <RardarSelectionPage result={await loadSelection()} />;
 
   const page = RARDAR_FOUNDATION_PAGES[pageKey];
   return (

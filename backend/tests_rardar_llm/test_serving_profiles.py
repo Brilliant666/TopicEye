@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from app.integrations.rardar import serving_profiles as serving_profiles_module
 from app.integrations.rardar.adapter import RardarIntelligenceAdapter
 from app.integrations.rardar.serving_profiles import (
     DerivedPositioning,
@@ -1133,6 +1134,57 @@ async def test_one_repository_failure_does_not_block_the_profile_batch(tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_unexpected_client_failure_uses_a_valid_absolute_fallback_origin(tmp_path: Path) -> None:
+    board = RardarIntelligenceAdapter.from_config(str(FIXTURE.resolve())).load_explosion_board()
+    project = board.exactRanked[0]
+
+    class BrokenTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            raise ValueError("synthetic client failure")
+
+    async with httpx.AsyncClient(transport=BrokenTransport(), base_url="https://api.github.com") as client:
+        result = await build_official_profiles(
+            [project],
+            "fixture-explosion-a",
+            tmp_path,
+            client=client,
+            translate_top=0,
+            concurrency=1,
+        )
+
+    collected = result.profiles[project.githubRepositoryId]
+    assert collected.profile.profileState == "partial"
+    assert collected.github_requests == 2
+
+
+@pytest.mark.asyncio
+async def test_double_profile_failure_isolated_as_schema_valid_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = _project()
+
+    async def always_fails(*_args, **_kwargs):
+        raise ValueError("synthetic isolated profile failure")
+
+    monkeypatch.setattr(serving_profiles_module, "collect_official_project_profile", always_fails)
+    result = await serving_profiles_module.build_official_profiles(
+        [project],
+        "fixture-explosion-a",
+        tmp_path,
+        translate_top=0,
+        concurrency=1,
+    )
+
+    collected = result.profiles[project.githubRepositoryId]
+    assert collected.profile.profileState == "source_unavailable"
+    assert collected.profile.qualityState == "rejected"
+    assert collected.profile.positioningSourceMode == "insufficient"
+    assert collected.generation_failures == (
+        serving_profiles_module.ProfileGenerationFailure("fallback", "profile_collection_failed", False),
+    )
+
+
+@pytest.mark.asyncio
 async def test_paragraph_only_claims_keep_real_readme_evidence_refs(tmp_path: Path) -> None:
     project = _project().model_copy(update={"description": None})
     markdown = """
@@ -1451,6 +1503,51 @@ Faithful Map is a Node.js renderer and validator that accepts a typed JSON IR an
     ]
     assert {item.sourceMode for item in profile.capabilities} == {"official_translated"}
     assert collected.translation_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_model_generation_can_be_disabled_for_selection_profile_collection(tmp_path: Path) -> None:
+    project = _project().model_copy(
+        update={"repository": "fixture-lab/model-free-selection-profile", "description": None}
+    )
+    markdown = """
+# Model-free Map
+
+**Turn source repositories into reliable, interactive system maps.**
+
+Model-free Map is a renderer and validator that accepts a typed JSON IR and compiles standalone HTML.
+
+- **Open a finished artifact** — Produce an interactive standalone HTML file.
+- **Review changes before merge** — Compare validated Before, Delta, and After snapshots.
+- **Keep exploration grounded** — Bind each conclusion to versioned source evidence.
+
+## Installation
+"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README.md", "type": "file"}])
+        return httpx.Response(200, json=_readme_payload(markdown, sha="8" * 40))
+
+    async def unexpected_model(_payload):
+        raise AssertionError("profile collection must not invoke any model when generation is disabled")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        collected = await collect_official_project_profile(
+            project,
+            "fixture-selection-a",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=unexpected_model,
+            narrative_translator=unexpected_model,
+            positioning_translator=unexpected_model,
+            allow_model_generation=False,
+        )
+
+    assert collected.translation_calls == 0
+    assert collected.profile.githubRepositoryId == project.githubRepositoryId
+    assert collected.profile.generationId == "fixture-selection-a"
 
 
 def test_serving_profile_builder_contains_no_repository_specific_copy() -> None:

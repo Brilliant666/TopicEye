@@ -1,29 +1,46 @@
 import { notFound } from 'next/navigation';
 
 import RardarProjectDetailPage from '@/components/RardarProjectDetailPage';
+import RardarSelectionDetailPage from '@/components/RardarSelectionDetailPage';
 import { isRardarProduct } from '@/lib/product-profile';
 import { loadDiscoverProjectDetail } from '@/lib/rardar-discover';
 import { loadProjectDetail } from '@/lib/rardar-intelligence';
+import { loadSelectionProjectDetail } from '@/lib/rardar-selection';
 
 export default async function ProjectPage({
   params,
   searchParams,
 }: {
   params: Promise<{ githubRepositoryId: string }>;
-  searchParams: Promise<{ generation?: string | string[]; discoverGeneration?: string | string[] }>;
+  searchParams: Promise<{
+    generation?: string | string[];
+    discoverGeneration?: string | string[];
+    selectionGeneration?: string | string[];
+  }>;
 }) {
   if (!isRardarProduct()) notFound();
   const { githubRepositoryId: rawIdentifier } = await params;
   const query = await searchParams;
   const generation = typeof query.generation === 'string' ? query.generation : null;
   const discoverGeneration = typeof query.discoverGeneration === 'string' ? query.discoverGeneration : null;
+  const selectionGeneration = typeof query.selectionGeneration === 'string' ? query.selectionGeneration : null;
+  const revisions = [generation, discoverGeneration, selectionGeneration].filter((value) => value !== null);
   if (
     !/^[1-9]\d{0,19}$/.test(rawIdentifier)
-    || (generation === null) === (discoverGeneration === null)
+    || revisions.length !== 1
+    || (selectionGeneration?.length || 0) > 191
     || (generation?.length || discoverGeneration?.length || 0) > 127
   ) notFound();
   const identifier = Number(rawIdentifier);
   if (!Number.isSafeInteger(identifier)) notFound();
+  if (selectionGeneration) {
+    const selectionResult = await loadSelectionProjectDetail(identifier, selectionGeneration);
+    if (selectionResult.kind === 'not_found') notFound();
+    if (selectionResult.kind === 'error') {
+      return <ProjectError title="精选项目详情暂时不可用" detail={`Selection Serving 已安全停止读取 · ${selectionResult.code}`} />;
+    }
+    return <RardarSelectionDetailPage detail={selectionResult.detail} />;
+  }
   const result = discoverGeneration
     ? await loadDiscoverProjectDetail(identifier, discoverGeneration)
     : await loadProjectDetail(identifier, generation || '');

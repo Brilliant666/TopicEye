@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "sourceRepository": "Brilliant666/rardar",
-  "sourceCommit": "ce3437ecc76765d5961af7a78d08962dce964d63",
+  "sourceCommit": "34556a3ce4765acdc6a91f6fc895846aa33ee5f2",
   "contracts": [
     {
       "sourcePath": "contracts/current-generation.schema.json",
@@ -18,8 +18,8 @@
     {
       "sourcePath": "contracts/trending-capture-bundle.schema.json",
       "vendoredPath": "trending-capture-bundle.schema.json",
-      "sourceSha256": "12f9a5d7e712a33421398c25e4a09f1fc913006d2986beafcff27a3676c2a4fb",
-      "vendoredSha256": "12f9a5d7e712a33421398c25e4a09f1fc913006d2986beafcff27a3676c2a4fb"
+      "sourceSha256": "32e86405dd5060e9a1744bc1c3c7a48f3f7320d5ee62d58882bc3ea5cf9c975e",
+      "vendoredSha256": "32e86405dd5060e9a1744bc1c3c7a48f3f7320d5ee62d58882bc3ea5cf9c975e"
     },
     {
       "sourcePath": "contracts/trending-explosion-artifact.schema.json",

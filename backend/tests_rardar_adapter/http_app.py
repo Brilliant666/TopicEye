@@ -3,6 +3,7 @@
 import asyncio
 import copy
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -15,6 +16,7 @@ from app.services.rardar_intelligence import (
     load_discover_snapshot,
     load_explosion_board,
     load_project_detail,
+    load_selection_snapshot,
     load_today_snapshot,
 )
 
@@ -144,6 +146,50 @@ async def visual_state_fixture(request, call_next):
         return await call_next(request)
     path = Path(mode_path)
     mode = path.read_text(encoding="utf-8").strip() if path.exists() else "ready"
+    if request.url.path == "/api/v1/rardar/discover/selection":
+        if mode == "selection_invalid":
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "mode": "shadow",
+                    "status": "invalid",
+                    "state": "invalid",
+                    "generation": None,
+                    "sourceObservation": None,
+                    "sourceTodayGeneration": None,
+                    "generatedAt": None,
+                    "latestCaptureAt": None,
+                    "items": [],
+                    "categoryCounts": {},
+                    "primaryReasonCounts": {},
+                    "coverageLabelZh": None,
+                    "candidateCount": 0,
+                    "selectedCount": 0,
+                    "publishedCount": 0,
+                    "suppressedCount": 0,
+                    "provenance": {},
+                    "code": "rardar_selection_invalid",
+                },
+            )
+        if mode == "selection_empty":
+            payload, _etag = load_selection_snapshot(now=datetime(2026, 8, 30, 2, 0, tzinfo=UTC))
+            empty = payload.model_dump(mode="json")
+            empty.update(
+                {
+                    "status": "empty",
+                    "state": "empty",
+                    "items": [],
+                    "categoryCounts": {},
+                    "primaryReasonCounts": {},
+                    "publishedCount": 0,
+                }
+            )
+            return JSONResponse(content=empty)
+        frozen_now = (
+            datetime(2099, 1, 1, tzinfo=UTC) if mode == "selection_stale" else datetime(2026, 8, 30, 2, 0, tzinfo=UTC)
+        )
+        payload, _etag = load_selection_snapshot(now=frozen_now)
+        return JSONResponse(content=payload.model_dump(mode="json"))
     if request.url.path == "/api/v1/rardar/discover":
         if mode == "discover_invalid":
             return JSONResponse(

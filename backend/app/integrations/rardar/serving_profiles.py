@@ -3036,6 +3036,7 @@ async def collect_official_project_profile(
     translator: Translator = _translate_with_control,
     narrative_translator: OfficialNarrativeTranslator = _translate_official_with_control,
     positioning_translator: OfficialPositioningTranslator = _translate_official_positioning_with_control,
+    allow_model_generation: bool = True,
 ) -> CollectedProjectProfile:
     tree, readme, github_requests, readme_cache_hit = await _collect_github_source(project, cache_root, client)
     readme_path = readme.get("path") if readme and isinstance(readme.get("path"), str) else None
@@ -3154,7 +3155,7 @@ async def collect_official_project_profile(
     translation_cache_hit = False
     generation_failures: list[ProfileGenerationFailure] = []
     deterministic_fallback_used = False
-    if official_narrative.mature and source_language == "en" and translate:
+    if official_narrative.mature and source_language == "en" and translate and allow_model_generation:
         outcome = await _official_translation(
             project=project,
             evidence=evidence,
@@ -3171,6 +3172,7 @@ async def collect_official_project_profile(
         official_narrative.positioning
         and source_language == "en"
         and translate
+        and allow_model_generation
         and _official_english_positioning_is_high_signal(official_narrative.positioning)
     ):
         outcome = await _official_positioning_translation(
@@ -3268,7 +3270,7 @@ async def collect_official_project_profile(
                 or not direct_capabilities
             )
         )
-        if structured_generation_required:
+        if structured_generation_required and allow_model_generation:
             stage: Literal["translation", "positioning"] = "translation" if translation_required else "positioning"
             outcome = await _translation(
                 project=project,
@@ -3642,6 +3644,7 @@ async def build_official_profiles(
     translator: Translator = _translate_with_control,
     narrative_translator: OfficialNarrativeTranslator = _translate_official_with_control,
     positioning_translator: OfficialPositioningTranslator = _translate_official_positioning_with_control,
+    allow_model_generation: bool = True,
 ) -> ProfileBuildResult:
     """Collect bounded profiles; the publication gate decides whether the full candidate may activate."""
 
@@ -3657,6 +3660,91 @@ async def build_official_profiles(
             trust_env=False,
         )
 
+    def unavailable_profile(project: ExactExplosionProject) -> CollectedProjectProfile:
+        """Return a schema-valid, fact-only record after an isolated collector failure."""
+
+        description = _safe_source_text(project.description, maximum=600)
+        evidence_index = {"repository": project.repository}
+        if description:
+            evidence_index["description"] = description
+        evidence_payload = {
+            "schemaVersion": 1,
+            "githubRepositoryId": project.githubRepositoryId,
+            "repository": project.repository,
+            "generationId": generation_id,
+            "readmePath": None,
+            "readmeBlobSha": None,
+            "sourceLanguage": _source_language("", description),
+            "selectedSections": [],
+            "originalExcerpts": [description] if description else [],
+            "topLevelTree": [],
+            "evidenceIndex": evidence_index,
+            "pathRefs": {},
+        }
+        evidence_payload["digest"] = _digest(evidence_payload)
+        evidence = ProjectEvidenceProjection.model_validate(evidence_payload, strict=True)
+        summary, fallback_issues = _safe_fallback_identity(description)
+        summary_ref = "description" if description else "repository"
+        profile = OfficialProjectProfile(
+            profileSchemaVersion=_PROFILE_SCHEMA,
+            promptVersion=_PROMPT_VERSION,
+            githubRepositoryId=project.githubRepositoryId,
+            repository=project.repository,
+            htmlUrl=project.htmlUrl,
+            generationId=generation_id,
+            profileState="source_unavailable",
+            officialSummaryZh=summary,
+            identitySummaryZh=summary,
+            coreValueZh=None,
+            coreValueEvidenceRefs=[],
+            keyDifferentiators=[],
+            qualityState="rejected",
+            qualityIssues=list(dict.fromkeys(["profile_collection_failed", *fallback_issues])),
+            officialTaglineZh=None,
+            officialTaglineEvidenceRefs=[],
+            officialPositioningZh=None,
+            officialPositioningEvidenceRefs=[],
+            positioningZh=None,
+            positioningSourceMode="insufficient",
+            positioningEvidenceRefs=[],
+            positioningIncludedRoles=[],
+            positioningExcludedClauses=[],
+            officialHighlights=[],
+            officialNarrativeMode="insufficient",
+            officialNarrativeIssues=["official_narrative_insufficient"],
+            officialNarrativePromptVersion=_OFFICIAL_NARRATIVE_PROMPT_VERSION,
+            rardarAssessmentZh=None,
+            rardarAssessmentEvidenceRefs=[],
+            rardarDifferentiators=[],
+            rardarAssessmentPromptVersion=_RARDAR_ASSESSMENT_PROMPT_VERSION,
+            sourceLabel="受限概括",
+            sourceLanguage=evidence.sourceLanguage,
+            capabilityBulletsZh=[],
+            capabilities=[],
+            productFormsZh=[],
+            supportedEnvironmentsZh=[],
+            primaryUseCasesZh=[],
+            deliveryFormsZh=[],
+            claimEvidenceRefs={summary: [summary_ref]},
+            readmePath=None,
+            readmeBlobSha=None,
+            selectedSections=[],
+            originalExcerpts=[description] if description else [],
+            startHere=[],
+            evidenceDigest=evidence.digest,
+            generatedAt=datetime.now(UTC),
+            translationState="unavailable",
+        )
+        return CollectedProjectProfile(
+            profile=profile,
+            evidence=evidence,
+            github_requests=0,
+            readme_cache_hit=False,
+            translation_calls=0,
+            translation_cache_hit=False,
+            generation_failures=(ProfileGenerationFailure("fallback", "profile_collection_failed", False),),
+        )
+
     async def collect(project: ExactExplosionProject) -> tuple[int, CollectedProjectProfile]:
         async with semaphore:
             try:
@@ -3669,22 +3757,32 @@ async def build_official_profiles(
                     translator=translator,
                     narrative_translator=narrative_translator,
                     positioning_translator=positioning_translator,
+                    allow_model_generation=allow_model_generation,
                 )
             except Exception:
                 # Keep repository failures isolated so the caller receives a complete
                 # candidate audit. Exact Top 20 activation remains fail closed.
-                empty_client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _request: httpx.Response(503)))
+                empty_client = httpx.AsyncClient(
+                    transport=httpx.MockTransport(lambda _request: httpx.Response(503)),
+                    base_url="https://api.github.com",
+                    follow_redirects=False,
+                    trust_env=False,
+                )
                 try:
-                    value = await collect_official_project_profile(
-                        project,
-                        generation_id,
-                        cache_root,
-                        client=empty_client,
-                        translate=False,
-                        translator=translator,
-                        narrative_translator=narrative_translator,
-                        positioning_translator=positioning_translator,
-                    )
+                    try:
+                        value = await collect_official_project_profile(
+                            project,
+                            generation_id,
+                            cache_root,
+                            client=empty_client,
+                            translate=False,
+                            translator=translator,
+                            narrative_translator=narrative_translator,
+                            positioning_translator=positioning_translator,
+                            allow_model_generation=allow_model_generation,
+                        )
+                    except Exception:
+                        value = unavailable_profile(project)
                 finally:
                     await empty_client.aclose()
             return project.githubRepositoryId, value

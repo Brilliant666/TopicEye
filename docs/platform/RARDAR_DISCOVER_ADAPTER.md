@@ -2,37 +2,43 @@
 
 ## Purpose
 
-TopicEye consumes Rardar's audited `TrendingDiscoverArtifact` v1, v2 and v3 as a
-near-real-time project-discovery surface. Rardar remains the sole fact
-producer. TopicEye validates and projects the artifact, builds evidence-backed
-static project profiles during sync, and serves the result without recomputing
-stage membership or order.
+TopicEye consumes Rardar's audited facts through two independent local paths.
+The retained legacy momentum projection reads `TrendingDiscoverArtifact` v1,
+v2 and v3 for diagnostics and Shadow comparison. The active local `/discover`
+product reads a separately validated, hash-bound mirror of Observation captures
+and the authoritative Today artifact, then builds an evidence-bound, unranked
+“worth seeing now” Selection outside Today Top 20. Production Discover is not a
+prerequisite. Rardar remains the sole fact producer; TopicEye owns Selection
+semantics and never rewrites an Observation, Today fact, Star value or
+eligibility decision.
 
-The vendored contract is pinned to `Brilliant666/rardar` merge
-`ce3437ecc76765d5961af7a78d08962dce964d63`. Exact source and vendored hashes
+The vendored contract is pinned to `Brilliant666/rardar` main
+`34556a3ce4765acdc6a91f6fc895846aa33ee5f2`. Exact source and vendored hashes
 are recorded in `backend/app/integrations/rardar/contracts/provenance.json`.
 Runtime consumption never depends on a Rardar checkout.
 
 ## Product semantics
 
-### Current runtime and approved evolution
+### Current local Shadow runtime
 
-The four-section contract below describes the currently implemented adapter and
-Serving generation. The calibrated v3 product direction is documented in
+The calibrated v3 product contract is documented in
 [`RARDAR_DISCOVER_WORTH_SEEING_MODEL_V1.md`](../product/RARDAR_DISCOVER_WORTH_SEEING_MODEL_V1.md):
-Discover will become an evidence-bound “worth seeing now” selection outside
-Today Top 20, with no public numeric rank. Producer momentum remains an
+Discover is an evidence-bound “worth seeing now” selection outside Today Top
+20, with no public numeric rank. Producer momentum remains an
 immutable auxiliary Timeliness fact; it is excluded from the Value payload and
 cannot make weak value strong. TopicEye must assess Scope, momentum-blind Value,
 and Timeliness separately. A deterministic matrix owns the semantic decision,
 fixed precedence owns Primary Reason, and peer context may affect only duplicate
-packing. The original Internal Holdout is now revealed historical evidence. A
-new, disjoint 24-project Fresh Holdout passed every frozen gate after the output
-contract was reduced to a minimal alias-bound Schema. PR #26 is the docs-only
-acceptance vehicle; after its exact reviewed revision merges, only a separate
-Local/Shadow Selection Runtime implementation is permitted. Production
-activation is not authorized. This docs-only decision does not change the
-behavior below.
+packing. The Scope/Value Gate uses `prompt_json` plus strict local parsing,
+Schema validation and repository-bound Evidence Aliases. Model output cannot
+own the final decision, primary reason, public order or publication fallback.
+Production activation remains unauthorized.
+
+### Retained legacy momentum projection
+
+The four-section contract below describes the retained compatibility adapter
+and Serving generation. It is no longer the data source for the local
+`/discover` page.
 
 Discover means the most recent verified natural Observation, normally updated
 every two hours. It is not a stream, a full-GitHub scan, or a second Today
@@ -112,6 +118,52 @@ RARDAR_INTELLIGENCE_DATA_DIR/
       └─ evidence/<githubRepositoryId>.json
 ```
 
+## Worth-seeing Selection and static Serving
+
+The Selection source synchronizer verifies a repository-external bundle with a
+26–72 hour Observation inventory, the authoritative Today generation and every
+source hash before atomically activating its own pointer. The Selection builder
+loads that validated source and forms the complete latest-capture universe. It
+excludes only Today's published Top 20 numeric IDs and invalid, archived,
+disabled, forked or incomplete identities; exact rank 21+ remains eligible. Six
+deterministic channels recall 30–60 candidates. Momentum-only recall is capped
+at 40%, and no aggregate score exists.
+
+Each recalled project receives a bounded evidence package from the cached
+canonical profile and, only when missing, GitHub README/tree/release endpoints.
+A profile cache miss uses deterministic evidence extraction and cannot invoke a
+separate profile model; every permitted Selection model call is therefore
+counted against the artifact's 120-call limit. Repository content is untrusted
+text, never executable input. Value evidence
+uses `E##`, timeliness uses `T##`, and peer packing context uses `P##`; aliases
+are verified against the same numeric repository ID. The Value payload is
+scanned after serialization and rejects momentum/rank/Observation language.
+Format-only failures get at most one retry; all structural or evidence failures
+become `UNCERTAIN`, never Star fallback.
+
+The immutable store is repository-external:
+
+```text
+RARDAR_INTELLIGENCE_DATA_DIR/
+└─ discover-worth-seeing/
+   ├─ current.json
+   └─ generations/<selectionGenerationId>/
+      ├─ manifest.json
+      ├─ raw/selection.json
+      ├─ serving/selection.json
+      └─ serving/projects/<githubRepositoryId>.json
+```
+
+The generation identity binds the complete source capture inventory, Today
+generation/published set, candidate universe, evidence-cache inventory, every
+prompt/Schema/policy version, protocol mode, recall limit and a secret-free
+model-route fingerprint. Publication validates the raw and public projection,
+hashes every file, checks the exact inventory, then atomically replaces only
+the Selection pointer. Equal inputs are a true no-op: no GitHub/model calls and
+no pointer rewrite. Rollback first validates a retained immutable generation
+and atomically reactivates its pointer. It never falls back to legacy momentum
+or modifies Today.
+
 Generations are immutable, hash-bound and atomically activated. A repeated
 sync of the same source/profile revision is a no-op. Today and Discover have
 separate raw, metadata and Serving pointers; failure in one path cannot roll
@@ -127,6 +179,8 @@ descriptor conflict fails the whole activation before pointer replacement.
 
 The following routes are registered only when `RARDAR_PRODUCT_MODE=true`:
 
+- `GET /api/v1/rardar/discover/selection`;
+- `GET /api/v1/rardar/discover/selection/projects/<numeric-id>?selectionGeneration=<selection-id>`;
 - `GET /api/v1/rardar/discover`;
 - `GET /api/v1/rardar/discover/projects/<numeric-id>?generationId=<discover-id>`;
 - `POST /api/v1/rardar/discover/projects/<numeric-id>/insight`.
@@ -141,24 +195,16 @@ published and suppressed projects. A normal page request reads only the static
 Discover Serving generation. It performs zero raw Discover reads, zero GitHub
 calls, zero model calls and zero PostgreSQL fact writes.
 
-`/discover` renders four honest sections and category-aware empty states. The
-fixed filters are 全部, AI 与 Agent, 开发工具, 数据与基础设施, 生产力,
-视频与内容 and 其他. Filtering operates only on the already-published static
-cards, preserves producer order and stores its state in `?category=` for
-refresh and browser history. The full card is the internal pointer/keyboard
-target; the title remains a normal internal link and the GitHub link remains an
-independent external link. Internal project links use
-`/project/github/<numeric-id>?discoverGeneration=<discover-generation>`. The
-existing detail component is reused, but its fact block shows Discover stage,
-eligibility class, first/latest observation, actual window and delta,
-capture/positive-interval continuity, latest interval, next Observation, next
-Today settlement and the deterministic reason it has not entered Today. An
-`outside_today_momentum` detail also shows the factual Today exact rank and 24h
-delta, published Top 20 boundary, recent/prior equal windows and acceleration.
-It does not imply a predicted rank or extrapolated 24h value. AI deep insight
-remains an explicit user action through
-TopicEye's existing `routing_group=rardar` control plane. Find Project receives
-only the canonical public GitHub URL.
+`/discover` reads the Selection route only and renders one unranked stream. The
+fixed category filters are 全部, AI 与 Agent, 开发工具, 数据与基础设施,
+生产力, 视频与内容 and 其他; fixed reason filters are 全部理由, 可直接复用,
+解决具体问题, 独特实现 and 参考与学习. Both are URL state and only filter the
+already packed order. The whole card is a pointer and Enter/Space target; the
+GitHub link remains independent. Internal links bind the numeric ID and
+Selection generation. The detail reuses the canonical project profile and
+adds only Selection value, timeliness, evidence and provenance. Empty is a
+valid 200 response; missing, corrupt or stale projections are explicit and
+never fall back to the legacy momentum stream.
 
 Default TopicEye mode does not register these APIs and does not read the Rardar
 filesystem.
@@ -171,6 +217,12 @@ source can be selected for acceptance with
 `RARDAR_DISCOVER_SYNC_SOURCE_DIR`; this variable is backend/operator-only and
 is not exposed to the browser. `rebuild-serving` rebuilds Discover only when a
 raw Discover pointer exists.
+
+`build-selection` (and its explicit `rebuild-selection` alias) creates and
+activates a local Shadow Selection. `selection-status` exposes source,
+generation, counts, failures and the next action. `selection-rollback` requires
+an explicit retained generation ID. These commands reuse the existing
+`routing_group=rardar`; they do not change provider, model, API base or key.
 
 Rollback is pointer-based: keep the previous immutable Discover Serving and
 raw generation, stop the sync writer, restore the previous validated pointers,

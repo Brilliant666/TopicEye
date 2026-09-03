@@ -164,7 +164,7 @@ jobs:
       - name: Run focused Rardar LLM control boundary tests
         env:
           PYTHONPATH: .
-        run: pytest -q tests_rardar_llm
+        run: pytest -q tests_rardar_llm tests_rardar_selection
 
   # ── 依赖安全扫描 ──
   security-scan:

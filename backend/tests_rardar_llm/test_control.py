@@ -26,7 +26,9 @@ from app.services.rardar_llm_control import (
     RardarLLMScene,
     ReasoningEffort,
     call_rardar_llm,
+    call_rardar_prompt_json,
     call_rardar_structured,
+    resolve_rardar_route_identity,
 )
 from app.services.secret_store import encrypt_secret
 
@@ -222,6 +224,39 @@ async def test_model_configuration_owns_provider_endpoint_model_and_generation_s
 
 
 @pytest.mark.asyncio
+async def test_prompt_json_uses_strict_rardar_route_and_route_identity_tracks_configuration(
+    control_plane, monkeypatch
+) -> None:
+    first_id = await control_plane.add_model(name="selection-json", priority=10)
+    await control_plane.reload_routes()
+    identity_before = await resolve_rardar_route_identity()
+    calls: list[dict] = []
+
+    async def fake_completion(**kwargs):
+        calls.append(kwargs)
+        return _response('{"scopeStatus":"in_scope"}', kwargs["model"])
+
+    monkeypatch.setattr(_call_engine, "acompletion", fake_completion)
+    result = await call_rardar_prompt_json(
+        scene=RardarLLMScene.WORTH_SEEING_GATE,
+        messages=[{"role": "user", "content": "bounded evidence"}],
+        reasoning_effort=ReasoningEffort.HIGH,
+        cache_identity="a" * 64,
+    )
+    assert result.content == '{"scopeStatus":"in_scope"}'
+    assert calls[0]["response_format"] == {"type": "json_object"}
+    assert calls[0]["reasoning_effort"] == "high"
+
+    await control_plane.set_enabled(first_id, False)
+    await control_plane.add_model(name="selection-json-next", priority=10)
+    await control_plane.reload_routes()
+    identity_after = await resolve_rardar_route_identity()
+    assert len(identity_before) == len(identity_after) == 64
+    assert identity_before != identity_after
+    assert TEST_KEY not in identity_before + identity_after
+
+
+@pytest.mark.asyncio
 async def test_shared_route_chain_retry_failover_cache_and_call_log(control_plane, monkeypatch) -> None:
     await control_plane.add_model(name="first", model_id="openai/first", priority=10)
     await control_plane.add_model(name="second", model_id="openai/second", priority=20)
@@ -286,6 +321,8 @@ async def test_reasoning_effort_passthrough_audit_and_cache_partition(control_pl
 
     assert "reasoning_effort" not in calls[0]
     assert [call.get("reasoning_effort") for call in calls[1:]] == ["medium", "high", "xhigh"]
+    assert calls[0]["temperature"] == 0.17
+    assert all("temperature" not in call for call in calls[1:])
     assert len(calls) == 4
     assert medium_cached.content == medium.content
     assert medium_cached.metadata.cache_hit is True

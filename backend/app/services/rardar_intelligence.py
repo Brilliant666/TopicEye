@@ -10,6 +10,8 @@ from app.integrations.rardar import ExplosionBoardResponse, RardarArtifactError
 from app.integrations.rardar.discover_serving import DiscoverServingLoader
 from app.integrations.rardar.discover_serving_schemas import DiscoverApiResponse, DiscoverProjectDetail
 from app.integrations.rardar.schemas import ExactExplosionProject
+from app.integrations.rardar.selection_schemas import SelectionApiResponse, SelectionProjectDetail
+from app.integrations.rardar.selection_serving import SelectionServingLoader
 from app.integrations.rardar.serving import ServingProjectionLoader, build_serving_projection
 from app.integrations.rardar.serving_schemas import ServingProjectDetail, ServingTodaySnapshot
 
@@ -214,4 +216,66 @@ def load_discover_project_detail(
     return DiscoverServingLoader(config.RARDAR_INTELLIGENCE_DATA_DIR).load_project_with_etag(
         github_repository_id,
         discover_generation_id,
+    )
+
+
+def load_selection_snapshot(
+    config: Settings = settings,
+    *,
+    now: datetime | None = None,
+) -> tuple[SelectionApiResponse, str]:
+    """Load one immutable Selection Serving generation; never read its raw assessment artifact."""
+
+    snapshot, etag = SelectionServingLoader(config.RARDAR_INTELLIGENCE_DATA_DIR).load_with_etag()
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    stale = current > snapshot.latestCaptureAt + timedelta(minutes=150)
+    state = "stale" if stale else snapshot.status
+    return (
+        SelectionApiResponse(
+            mode="shadow",
+            status=state,
+            state=state,
+            generation=snapshot.selectionGenerationId,
+            sourceObservation=snapshot.sourceObservationSetId,
+            sourceTodayGeneration=snapshot.sourceTodayGeneration,
+            generatedAt=snapshot.generatedAt,
+            latestCaptureAt=snapshot.latestCaptureAt,
+            items=snapshot.items,
+            categoryCounts=snapshot.categoryCounts,
+            primaryReasonCounts=snapshot.primaryReasonCounts,
+            coverageLabelZh=snapshot.coverageLabelZh,
+            candidateCount=snapshot.candidateCount,
+            selectedCount=snapshot.selectedCount,
+            publishedCount=snapshot.publishedCount,
+            suppressedCount=snapshot.suppressedCount,
+            provenance={
+                "selectionGeneration": snapshot.selectionGenerationId,
+                "sourceObservation": snapshot.latestCaptureId,
+                "sourceObservationAt": snapshot.latestCaptureAt.isoformat(),
+                "sourceTodayGeneration": snapshot.sourceTodayGeneration,
+                "sourceCoverageState": snapshot.sourceCoverageState,
+                "pageReads": "static_serving_only",
+            },
+            code=None,
+        ),
+        etag,
+    )
+
+
+def load_selection_project_detail(
+    github_repository_id: int,
+    selection_generation_id: str,
+    config: Settings = settings,
+) -> tuple[SelectionProjectDetail, str]:
+    context, etag = SelectionServingLoader(config.RARDAR_INTELLIGENCE_DATA_DIR).load_project_with_etag(
+        github_repository_id,
+        selection_generation_id,
+    )
+    return (
+        SelectionProjectDetail(
+            selectionGenerationId=context.selectionGenerationId,
+            sourceObservationSetId=context.sourceObservationSetId,
+            context=context,
+        ),
+        etag,
     )

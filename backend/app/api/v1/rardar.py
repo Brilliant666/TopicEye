@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, Request, Response
 from app.core.product_profile import is_rardar_product
 from app.integrations.rardar import ExplosionBoardResponse, RardarArtifactError
 from app.integrations.rardar.discover_serving_schemas import DiscoverApiResponse, DiscoverProjectDetail
+from app.integrations.rardar.selection_schemas import SelectionApiResponse, SelectionProjectDetail
 from app.integrations.rardar.serving_schemas import ServingProjectDetail, ServingTodaySnapshot
 from app.schemas.rardar_product import (
     FindProjectRequest,
@@ -20,6 +21,8 @@ from app.services.rardar_intelligence import (
     load_discover_snapshot,
     load_explosion_board,
     load_project_detail,
+    load_selection_project_detail,
+    load_selection_snapshot,
     load_today_snapshot,
 )
 from app.services.rardar_product import (
@@ -140,6 +143,64 @@ def discover_project_detail(
             status_code = 409
         else:
             status_code = 503
+        raise HTTPException(status_code=status_code, detail={"code": exc.code}) from exc
+    cached = _not_modified(request, etag)
+    if cached:
+        return cached
+    _cache_headers(response, etag)
+    return detail
+
+
+@router.get("/discover/selection", response_model=SelectionApiResponse)
+def selection_snapshot(request: Request, response: Response):
+    if not is_rardar_product():
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        snapshot, etag = load_selection_snapshot()
+    except RardarArtifactError as exc:
+        not_configured = exc.code in {
+            "rardar_intelligence_not_configured",
+            "rardar_intelligence_unavailable",
+            "rardar_selection_not_configured",
+        }
+        response.status_code = 503
+        return SelectionApiResponse(
+            mode="shadow",
+            status="not_configured" if not_configured else "invalid",
+            state="not_configured" if not_configured else "invalid",
+            generation=None,
+            sourceObservation=None,
+            sourceTodayGeneration=None,
+            items=[],
+            categoryCounts={},
+            primaryReasonCounts={},
+            candidateCount=0,
+            selectedCount=0,
+            publishedCount=0,
+            suppressedCount=0,
+            provenance={},
+            code=exc.code,
+        )
+    cached = _not_modified(request, etag)
+    if cached:
+        return cached
+    _cache_headers(response, etag)
+    return snapshot
+
+
+@router.get("/discover/selection/projects/{github_repository_id}", response_model=SelectionProjectDetail)
+def selection_project_detail(
+    request: Request,
+    response: Response,
+    github_repository_id: int = Path(gt=0),
+    selection_generation: str = Query(alias="selectionGeneration", min_length=2, max_length=191),
+):
+    if not is_rardar_product():
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        detail, etag = load_selection_project_detail(github_repository_id, selection_generation)
+    except RardarArtifactError as exc:
+        status_code = 404 if exc.code == "rardar_selection_project_not_found" else 503
         raise HTTPException(status_code=status_code, detail={"code": exc.code}) from exc
     cached = _not_modified(request, etag)
     if cached:

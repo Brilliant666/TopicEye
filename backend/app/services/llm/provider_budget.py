@@ -23,6 +23,7 @@ TASK_ID = "RARDAR-DISCOVER-SHADOW-CONVERGENCE-01"
 LIMIT = 40
 STAGES = {"negative_control", "scope_value", "meaningful_change", "user_copy", "format_retry"}
 _stage: ContextVar[str | None] = ContextVar("rardar_budget_stage", default=None)
+_single_attempt: ContextVar[list[int] | None] = ContextVar("rardar_single_attempt", default=None)
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
 
 
@@ -30,6 +31,22 @@ class ProviderBudgetError(RuntimeError):
     def __init__(self, code: str = "provider_budget_invalid"):
         self.code = code
         super().__init__(code)
+
+
+@contextmanager
+def single_provider_attempt():
+    """One upstream dispatch for an explicitly non-retryable recovery operation.
+
+    The mutable allowance is inherited by async failover tasks; no nested scope
+    can grant another dispatch. The durable task ledger remains authoritative.
+    """
+    if _single_attempt.get() is not None:
+        raise ProviderBudgetError("provider_operation_scope_nested")
+    token = _single_attempt.set([1])
+    try:
+        yield
+    finally:
+        _single_attempt.reset(token)
 
 
 def canonical(value: Any) -> bytes:
@@ -285,6 +302,11 @@ class ProviderBudgetLedger:
     def execution(self, stage: str):
         # Cross-process concurrency=1, independently of TopicEye's route pool.
         with file_lock(self.path.with_name("provider-execution.lock"), blocking=False):
+            allowance = _single_attempt.get()
+            if allowance is not None:
+                if allowance[0] <= 0:
+                    raise ProviderBudgetError("provider_operation_attempt_limit")
+                allowance[0] -= 1
             identifier = self.record("reserved", stage)
             self.record("dispatched", stage, identifier)
             try:

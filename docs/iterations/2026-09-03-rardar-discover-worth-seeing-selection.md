@@ -159,3 +159,33 @@ outside Git. Their actual results are attached to PR #28 after execution; this
 document does not pre-claim real gate, merge, runtime activation or Production
 readiness. See [the adapter contract](../platform/RARDAR_DISCOVER_ADAPTER.md#bounded-local-cohort-review-2026-09-04)
 for explicit commands, state semantics and rollback boundaries.
+
+## 2026-09-04: Meaningful Change invocation-binding correction
+
+The first real cohort reached 16 terminal assessments, with six completed
+controls and one interrupted Scope attempt, but all six release-only change
+requests failed the unchanged evidence-type guard. The sole ledger remained
+28 attempted / 27 completed / one interrupted, limit 40. This is an incomplete
+review, not evidence that no worthwhile projects exist. The zero-call audit
+found missing explicit kind/alias/source-type constraints; rejected structured
+responses were not retained, so none can honestly be reconstructed or replayed.
+No cache cross-scene collision or model-disobedience claim is inferred.
+
+The authorized PR #28 correction adds explicit repository/evidence/route-bound
+assessment context and cache identity. Only the Meaningful Change prompt moves
+to v4; the four-field response schema remains v3 and the T-alias namespace stays
+v1. Scope/Value, User Copy wording, decision matrix and primary reasons do not
+change. The exact source/cohort and all old receipts are preflighted before
+dispatch. Six previously failed change stages may each consume one new attempt;
+Copy may consume one per actual Preview. No automatic retry, second ledger,
+profile recovery, repeated Scope/control call, or replacement candidate exists.
+
+New versioned receipts and an independently identified artifact preserve the
+original incomplete result. Normalized Schema fields are retained for strict
+local replay; raw Provider responses and prompts are not. Each accepted change
+is revalidated; rejected requests are counted separately. Four same-kind
+failures block with the specific evidence-binding code, while an isolated
+failure remains terminal `UNCERTAIN`. Production remains disabled and Today
+is unchanged. The final exact-head test, real recovery, browser, merge and
+Runtime evidence belongs in the external run packet and PR body, not a
+pre-claimed PASS here. See the [recovery contract](../platform/RARDAR_DISCOVER_ADAPTER.md#meaningful-change-evidence-binding-recovery).

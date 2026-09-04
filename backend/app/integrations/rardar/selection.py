@@ -27,6 +27,15 @@ import httpx
 from pydantic import BaseModel, ValidationError
 from pydantic_core import to_jsonable_python
 
+from app.integrations.rardar.meaningful_change import (
+    PROMPT_VERSION as CHANGE_PROMPT_VERSION,
+    SCHEMA_VERSION as CHANGE_SCHEMA_VERSION,
+    MeaningfulChangeContext,
+    change_context,
+    change_payload,
+    validate_change_result,
+    validate_context,
+)
 from app.integrations.rardar.schemas import ExactExplosionProject
 from app.integrations.rardar.selection_schemas import (
     MeaningfulChangeResult,
@@ -58,8 +67,8 @@ POLICY_VERSION = "worth-seeing-selection-v1"
 UNIVERSE_VERSION = "worth-seeing-universe-v1"
 VALUE_PROMPT_VERSION = "rardar-worth-seeing-gate-v4"
 VALUE_SCHEMA_VERSION = "rardar-worth-seeing-gate-schema-v4"
-TIMELINESS_PROMPT_VERSION = "rardar-worth-seeing-change-v3"
-TIMELINESS_SCHEMA_VERSION = "rardar-worth-seeing-change-schema-v3"
+TIMELINESS_PROMPT_VERSION = CHANGE_PROMPT_VERSION
+TIMELINESS_SCHEMA_VERSION = CHANGE_SCHEMA_VERSION
 COPY_PROMPT_VERSION = "rardar-worth-seeing-copy-v3"
 COPY_SCHEMA_VERSION = "rardar-worth-seeing-copy-schema-v2"
 RECALL_POLICY_VERSION = "worth-seeing-recall-v1"
@@ -735,6 +744,7 @@ async def _prompt_json(
     usage: _Usage,
     caller: LLMCaller,
     format_retry: bool = True,
+    cache_identity: str | None = None,
 ) -> tuple[BaseModel | None, int, str | None]:
     schema = response_model.model_json_schema()
     schema_digest = _sha(_canonical_bytes(schema))
@@ -774,7 +784,7 @@ async def _prompt_json(
                     scene=scene,
                     messages=messages,
                     reasoning_effort=effort,
-                    cache_identity=schema_digest,
+                    cache_identity=cache_identity or schema_digest,
                 )
             usage.record(result)
             raw = result.content
@@ -782,6 +792,8 @@ async def _prompt_json(
             return response_model.model_validate(parsed, strict=True), attempts, None
         except RardarLLMError as exc:
             if exc.classification == "budget":
+                if exc.code == "provider_operation_attempt_limit":
+                    return None, attempts, exc.code
                 raise SelectionBuildError(exc.code, "Shared Provider execution budget rejected the attempt") from None
             code = {
                 "timeout": "provider_timeout",
@@ -916,6 +928,11 @@ async def _timeliness(
     evidence: list[SelectionEvidenceAlias],
     usage: _Usage,
     caller: LLMCaller,
+    *,
+    model_route_identity: str | None = None,
+    context: MeaningfulChangeContext | None = None,
+    format_retry: bool = True,
+    result_observer: Callable[[MeaningfulChangeResult], None] | None = None,
 ) -> tuple[SelectionTimeliness, int, str | None]:
     latest = candidate.lastObservedAt
     weak_signals: list[str] = []
@@ -942,13 +959,9 @@ async def _timeliness(
     change: MeaningfulChangeResult | None = None
     attempts = 0
     if evidence and _SUBSTANTIVE_CHANGE.search(" ".join(item.excerpt for item in evidence)):
-        payload = {
-            "task": "Judge whether the bounded release/revision evidence describes a meaningful developer-facing change.",
-            "repository": candidate.repository,
-            "evidence": [item.model_dump(mode="json") for item in evidence],
-            "promptVersion": TIMELINESS_PROMPT_VERSION,
-            "schemaVersion": TIMELINESS_SCHEMA_VERSION,
-        }
+        context = context or change_context(candidate, evidence, model_route_identity)
+        validate_context(context, candidate, evidence, model_route_identity)
+        payload = change_payload(candidate, evidence, context)
         value, attempts, failure = await _prompt_json(
             scene=RardarLLMScene.WORTH_SEEING_MEANINGFUL_CHANGE,
             effort=ReasoningEffort.HIGH,
@@ -956,6 +969,8 @@ async def _timeliness(
             response_model=MeaningfulChangeResult,
             usage=usage,
             caller=caller,
+            format_retry=format_retry,
+            cache_identity=context.cache_digest,
         )
         if value is None:
             return (
@@ -972,8 +987,10 @@ async def _timeliness(
                 failure,
             )
         change = MeaningfulChangeResult.model_validate(value, strict=True)
-        aliases = {item.evidenceId for item in evidence}
-        if not set(change.evidenceIds).issubset(aliases):
+        if result_observer is not None:
+            result_observer(change)
+        evidence_failure = validate_change_result(change, context, candidate, evidence, model_route_identity)
+        if evidence_failure:
             return (
                 SelectionTimeliness(
                     verdict="uncertain",
@@ -985,24 +1002,7 @@ async def _timeliness(
                     weakSignals=weak_signals,
                 ),
                 attempts,
-                "invalid_evidence_alias",
-            )
-        source_types = {item.sourceType for item in evidence if item.evidenceId in change.evidenceIds}
-        if (change.meaningfulRelease == "yes" and "release" not in source_types) or (
-            change.meaningfulUpdate == "yes" and "revision" not in source_types
-        ):
-            return (
-                SelectionTimeliness(
-                    verdict="uncertain",
-                    confidence="low",
-                    reasonCodes=["evidence_uncertain"],
-                    evidenceIds=[],
-                    meaningfulChange=None,
-                    strongSignals=[],
-                    weakSignals=weak_signals,
-                ),
-                attempts,
-                "wrong_assessment_evidence",
+                evidence_failure,
             )
         if change.meaningfulRelease == "yes" or change.meaningfulUpdate == "yes":
             return (
@@ -1284,6 +1284,8 @@ async def _copy(
     collected: Any,
     usage: _Usage,
     caller: LLMCaller,
+    *,
+    format_retry: bool = True,
 ) -> tuple[SelectionCopyResult | None, int]:
     payload = {
         "task": (
@@ -1305,6 +1307,7 @@ async def _copy(
         response_model=SelectionCopyResult,
         usage=usage,
         caller=caller,
+        format_retry=format_retry,
     )
     if value is None:
         return None, attempts
@@ -1411,6 +1414,7 @@ async def build_selection(
                 timeliness_evidence,
                 usage,
                 caller,
+                model_route_identity=model_route_identity,
             )
             failure = gate_failure or timeliness_failure
             decision = semantic_decision(gate, timeliness, failure)

@@ -185,6 +185,37 @@ async def test_selection_shared_budget_counts_actual_retry_cache_and_exhaustion(
 
 
 @pytest.mark.asyncio
+async def test_meaningful_recovery_one_upstream_attempt_including_route_retry(control_plane, monkeypatch, tmp_path):
+    from app.services.llm.provider_budget import ProviderBudgetLedger, single_provider_attempt
+
+    ledger = ProviderBudgetLedger.initialize(tmp_path / "run" / "provider-budget.json", "mock-change-recovery")
+    monkeypatch.setenv("RARDAR_LLM_RUN_ID", ledger.run_id)
+    monkeypatch.setenv("RARDAR_LLM_BUDGET_PATH", str(ledger.path))
+    monkeypatch.setenv("RARDAR_LLM_BUDGET_LIMIT", "40")
+    await control_plane.add_model(name="first-change-route", priority=1)
+    await control_plane.add_model(name="second-change-route", priority=2)
+    await control_plane.reload_routes()
+    _patch_no_wait_retry(monkeypatch)
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        assert kwargs["num_retries"] == 0
+        raise TimeoutError("mock timeout")
+
+    monkeypatch.setattr(_call_engine, "acompletion", completion)
+    with single_provider_attempt(), pytest.raises(RardarLLMError) as error:
+        await call_rardar_prompt_json(
+            scene=RardarLLMScene.WORTH_SEEING_MEANINGFUL_CHANGE,
+            messages=[{"role": "user", "content": "synthetic release evidence"}],
+            cache_identity="b" * 64,
+        )
+    assert error.value.code == "provider_operation_attempt_limit"
+    assert len(calls) == ledger.snapshot()["attempted"] == 1
+    assert ledger.snapshot()["failed"] == 1
+
+
+@pytest.mark.asyncio
 async def test_strict_rardar_route_never_falls_back_to_default(control_plane, monkeypatch) -> None:
     await control_plane.add_model(name="default-only", routing_group="default")
     await control_plane.reload_routes()

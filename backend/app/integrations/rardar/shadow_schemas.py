@@ -7,7 +7,16 @@ from typing import Any, Literal
 
 from pydantic import AwareDatetime, Field, model_validator
 
+from app.integrations.rardar.meaningful_change import (
+    ALIAS_VERSION,
+    PROMPT_VERSION,
+    SCHEMA_VERSION,
+    MeaningfulChangeContext,
+    validate_change_result,
+    validate_context,
+)
 from app.integrations.rardar.selection_schemas import (
+    MeaningfulChangeResult,
     SelectionAssessment,
     SelectionProjectContext,
     SelectionServingCard,
@@ -108,6 +117,10 @@ class ShadowReviewArtifact(StrictSelectionModel):
         ):
             raise ValueError("shadow full coverage mismatch")
         counts = Counter(item.semanticDecision for item in self.assessments)
+        if "meaningfulChangeResume" in self.policyVersions:
+            self._audit_meaningful_resume()
+        elif "meaningfulChangeOutcomes" in self.audit:
+            raise ValueError("shadow meaningful resume version missing")
         if any(
             self.semanticDecisionCounts.get(key) != counts[key]
             for key in ("SELECT_NOW", "WORTHWHILE_NOT_NOW", "REJECT", "UNCERTAIN")
@@ -164,3 +177,74 @@ class ShadowReviewArtifact(StrictSelectionModel):
         if not ready and preview_ids:
             raise ValueError("incomplete shadow cannot expose preview")
         return self
+
+    def _audit_meaningful_resume(self) -> None:
+        """Audit accepted evidence independently from rejected Provider responses."""
+        outcomes = self.audit.get("meaningfulChangeOutcomes")
+        if not isinstance(outcomes, dict) or len(outcomes) != 6:
+            raise ValueError("shadow meaningful contexts missing")
+        if (
+            self.policyVersions.get("meaningfulChangeResume") != "meaningful-change-evidence-v1"
+            or self.policyVersions.get("timelinessPrompt") != PROMPT_VERSION
+            or self.policyVersions.get("meaningfulChangePromptVersion") != PROMPT_VERSION
+            or self.policyVersions.get("meaningfulChangeSchemaVersion") != SCHEMA_VERSION
+            or self.policyVersions.get("evidenceAliasVersion") != ALIAS_VERSION
+        ):
+            raise ValueError("shadow meaningful versions mismatch")
+        by_id = {str(a.candidate.githubRepositoryId): a for a in self.assessments}
+        identities = {}
+        routes = set()
+        rejected = Counter()
+        for identifier, outcome in outcomes.items():
+            if identifier not in by_id or not isinstance(outcome, dict):
+                raise ValueError("shadow meaningful assessment mismatch")
+            assessment = by_id[identifier]
+            context = MeaningfulChangeContext.model_validate(outcome.get("context"), strict=True)
+            validate_context(context, assessment.candidate, assessment.timelinessEvidence, context.modelRouteIdentity)
+            identities[identifier] = context.cache_digest
+            routes.add(context.modelRouteIdentity)
+            result = outcome.get("result")
+            failure = outcome.get("failure")
+            parsed = MeaningfulChangeResult.model_validate(result, strict=True) if result is not None else None
+            invalid = (
+                validate_change_result(
+                    parsed, context, assessment.candidate, assessment.timelinessEvidence, context.modelRouteIdentity
+                )
+                if parsed is not None
+                else None
+            )
+            if failure is not None:
+                rejected[failure] += 1
+                if (
+                    assessment.semanticDecision != "UNCERTAIN"
+                    or assessment.timeliness.meaningfulChange is not None
+                    or any(
+                        x in {"meaningful_release", "meaningful_update"} for x in assessment.timeliness.strongSignals
+                    )
+                    or (invalid and invalid != failure)
+                ):
+                    raise ValueError("shadow rejected meaningful result was accepted")
+            elif invalid or assessment.timeliness.meaningfulChange != parsed:
+                raise ValueError("shadow accepted meaningful evidence invalid")
+        if len(routes) != 1 or self.policyVersions.get("assessmentCacheDigest") != digest(identities):
+            raise ValueError("shadow meaningful cache identity mismatch")
+        systemic = any(n >= 4 for n in rejected.values())
+        if (
+            self.audit.get("meaningfulChangeBindingFailure") != systemic
+            or self.audit.get("rejectedMeaningfulResponses") != sum(rejected.values())
+            or self.audit.get("evidenceViolations") != 0
+            or (systemic and not self.audit.get("systemicProviderFailure"))
+        ):
+            raise ValueError("shadow meaningful failure accounting mismatch")
+        origin = self.audit.get("originBudget", {})
+        if origin.get("digest") != digest({k: v for k, v in origin.items() if k != "digest"}):
+            raise ValueError("shadow origin budget invalid")
+        before, after = origin.get("stageBreakdown", {}), self.providerBudget["stageBreakdown"]
+        if (
+            origin.get("attempted") != 28
+            or origin.get("runId") != self.providerBudget["runId"]
+            or not 0 <= after.get("meaningful_change", 0) - before.get("meaningful_change", 0) <= 6
+            or not 0 <= after.get("user_copy", 0) - before.get("user_copy", 0) <= self.previewCount
+            or any(after.get(k) != before.get(k) for k in ("scope_value", "negative_control", "format_retry"))
+        ):
+            raise ValueError("shadow meaningful resume exceeded authorization")

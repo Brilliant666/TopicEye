@@ -309,8 +309,9 @@ python -m scripts.build_rardar_shadow_review install --mirror <mirror> --run-dir
 
 The runner never fetches GitHub, builds profiles or synchronizes Production.
 Six existing fixed controls precede 16 gate judgments; at most six cached
-change assessments and six selected copy jobs follow. Accepted prompts,
-schemas, decision matrix and primary-reason precedence are unchanged.
+change assessments and six selected copy jobs follow. Scope/Value and copy
+prompts, response schemas, decision matrix and primary-reason precedence are
+unchanged; the narrowly authorized change-binding correction is described below.
 Copy failure preserves membership and canonical identity/positioning/reason;
 missing generated copy is hidden, never replaced with a seventh project.
 
@@ -334,3 +335,64 @@ full unresolved count and shared Provider budget distinctly. Merge still
 requires exact-head real review, clean production-build browser acceptance,
 zero evidence violations and CI. Future production activation retains the
 full >=95% profile/assessment, new-sample and natural-runtime gates.
+
+### Meaningful Change evidence-binding recovery
+
+The six original change requests supplied release evidence under `T01`, but
+the invocation did not explicitly bind assessment kind or explain that release
+evidence cannot justify `meaningfulUpdate=yes`. All six receipts recorded
+`wrong_assessment_evidence`. Rejected parsed fields were discarded, and the
+response cache was process-memory-only; the exact returned alias combinations
+are unavailable. The audit therefore identifies a confirmed invocation gap,
+not proven model disobedience or proven cross-scene cache collision. Lost
+responses must never be reconstructed. The original six-shape test fixtures
+are counterexamples, not purported recovered Provider output.
+
+`rardar-worth-seeing-change-v4` adds only explicit assessment/alias/type
+constraints. The four-field response schema remains
+`rardar-worth-seeing-change-schema-v3`; the `T##` namespace remains
+`worth-seeing-evidence-alias-v1`. Cache identity
+`rardar-meaningful-change-cache-v1` binds `assessmentKind=meaningful_change`,
+its separate scene, repository ID, source revision, prompt/schema/alias/cache
+versions, allowed-evidence-set and full evidence-package digests, and the
+secret-free model-route identity. A missing or mismatched identity fails closed.
+An E/P/long reference, another repository's T alias, wrong source type or
+unsupported `yes` is rejected without remapping or fuzzy matching.
+
+This explicit recovery continues the same frozen source, 16-project cohort,
+run ID and journal from attempted **28/40**. It does not freeze, initialize,
+repeat controls/gates, restore profiles or change the model route. Before any
+new dispatch, it verifies the original artifact and ledger ancestry, all source
+and profile identities, and every reused receipt. The interrupted original
+Scope receipt remains terminal `UNCERTAIN` and remains charged. The original
+incomplete artifact and receipts are never overwritten.
+
+Only after the zero-call audit and exact-head gates, an operator may execute:
+
+```text
+python -m scripts.build_rardar_shadow_review resume-meaningful-change --mirror <frozen-source> --run-dir <same-run> --run-id <same-id>
+python -m scripts.build_rardar_shadow_review install-resumed --mirror <isolated-http-mirror> --run-dir <same-run> --run-id <same-id>
+```
+
+The same three budget environment values remain mandatory. Each of the six
+unrecoverable change stages can dispatch at most once; format, transport and
+route failover cannot consume a second attempt. Copy has the same single-call
+limit, only for the actual 0–6 Preview members. Total attempts cannot exceed 40.
+Completed new receipts replay locally; a started-only receipt is terminal and
+does not silently retry. The new receipts retain only the normalized four-field
+Schema result plus bound context, not raw response text or prompts.
+
+Recovery writes `stage-receipts-meaningful-change-evidence-v1` and
+`shadow-review-artifact-change-v4.json`. The artifact identity binds the new
+versions, aggregate assessment-cache digest and original artifact identity.
+Artifact audit revalidates every accepted result against its exact evidence;
+rejected responses are counted separately and are never accepted evidence.
+An isolated failed change becomes terminal `UNCERTAIN`. The same failure in
+four or more change stages blocks with
+`BLOCKED_MEANINGFUL_CHANGE_EVIDENCE_BINDING` before Copy. Such a result cannot
+be installed or used to authorize merge. Copy failure does not change Preview
+membership. Successful replay/install makes no further Provider calls.
+
+Rollback uses the retained, validated local Shadow pointer or disables the
+local opt-in; it does not rewind the budget journal, alter Today/full Selection,
+or erase failed artifacts. This recovery does not enable Production Discover.

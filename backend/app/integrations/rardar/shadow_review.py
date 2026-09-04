@@ -14,6 +14,13 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.integrations.rardar.meaningful_change import (
+    ALIAS_VERSION,
+    PROMPT_VERSION,
+    SCHEMA_VERSION,
+    MeaningfulChangeContext,
+    validate_change_result,
+)
 from app.integrations.rardar.selection import (
     SelectionBuildError,
     _contract_versions,
@@ -29,6 +36,7 @@ from app.integrations.rardar.selection import (
     semantic_decision,
 )
 from app.integrations.rardar.selection_schemas import (
+    MeaningfulChangeResult,
     SelectionAssessment,
     SelectionCopyResult,
     SelectionEvidenceAlias,
@@ -37,6 +45,7 @@ from app.integrations.rardar.selection_schemas import (
     SelectionTimeliness,
 )
 from app.integrations.rardar.selection_serving import _card
+from app.integrations.rardar.shadow_change_resume import ARTIFACT_NAME, RESUME_VERSION, load_resume_inputs
 from app.integrations.rardar.shadow_cohort import COHORT_VERSION, ShadowIntegrityError, freeze, healthy_pool
 from app.integrations.rardar.shadow_schemas import ShadowReviewArtifact
 from app.services.llm.provider_budget import (
@@ -47,6 +56,7 @@ from app.services.llm.provider_budget import (
     digest,
     file_lock,
     plain,
+    single_provider_attempt,
 )
 from app.services.rardar_llm_control import call_rardar_prompt_json
 
@@ -64,29 +74,55 @@ def neutral_timeliness() -> SelectionTimeliness:
 
 
 class StageReceipts:
-    def __init__(self, root: Path, binding: str):
-        self.root = root / "stage-receipts"
+    def __init__(self, root: Path, binding: str, resume=None):
+        self.root = root / (f"stage-receipts-{RESUME_VERSION}" if resume else "stage-receipts")
         plain(self.root, missing=True)
         self.root.mkdir(exist_ok=True)
         self.binding = binding
+        self.resume = resume
 
-    async def run(self, key: str, operation, model: type[BaseModel]):
+    async def run(self, key: str, operation, model: type[BaseModel], *, context=None, structured=None):
+        if self.resume is not None:
+            legacy = self.resume.legacy(key)
+            if legacy is not None:
+                if legacy["state"] == "started":
+                    return None, 0, "process_interrupted"
+                value = model.model_validate_json(json.dumps(legacy["value"]), strict=True) if legacy["value"] else None
+                return value, legacy["attempts"], legacy["failure"]
+        identity = context.model_dump(mode="json") if context is not None else None
+        if self.resume is not None and key.startswith("timeliness-") and identity is None:
+            raise ShadowIntegrityError("meaningful_change_assessment_kind_missing")
         path = self.root / f"{key}.json"
         plain(path, missing=True)
         if path.exists():
             receipt = json.loads(path.read_bytes())
-            if receipt.get("binding") != self.binding or receipt.get("digest") != digest(
-                {k: v for k, v in receipt.items() if k != "digest"}
+            if (
+                receipt.get("binding") != self.binding
+                or receipt.get("key") != key
+                or receipt.get("state") not in {"started", "completed"}
+                or receipt.get("digest") != digest({k: v for k, v in receipt.items() if k != "digest"})
             ):
                 raise ShadowIntegrityError("shadow_receipt_invalid")
+            if context is not None:
+                saved = MeaningfulChangeContext.model_validate(receipt.get("assessmentContext"), strict=True)
+                if saved != context or receipt.get("cacheKey") != context.cache_digest:
+                    raise ShadowIntegrityError("meaningful_change_receipt_context_mismatch")
+                if structured is not None and receipt.get("structuredResult") is not None:
+                    structured.append(MeaningfulChangeResult.model_validate(receipt["structuredResult"], strict=True))
             if receipt["state"] == "started":
                 return None, 0, "process_interrupted"
             value = model.model_validate_json(json.dumps(receipt["value"]), strict=True) if receipt["value"] else None
             return value, receipt["attempts"], receipt["failure"]
         receipt = {"binding": self.binding, "state": "started", "key": key}
+        if context is not None:
+            receipt.update(assessmentContext=identity, cacheKey=context.cache_digest)
         receipt["digest"] = digest(receipt)
         atomic(path, receipt)
-        result = await operation()
+        if self.resume is not None:
+            with single_provider_attempt():
+                result = await operation()
+        else:
+            result = await operation()
         value, attempts = result[:2]
         failure = result[2] if len(result) == 3 else (None if value is not None else "copy_invalid")
         receipt = {
@@ -97,18 +133,35 @@ class StageReceipts:
             "attempts": attempts,
             "failure": failure,
         }
+        if context is not None:
+            receipt.update(
+                assessmentContext=identity,
+                cacheKey=context.cache_digest,
+                structuredResult=structured[0].model_dump(mode="json") if structured else None,
+            )
         receipt["digest"] = digest(receipt)
         atomic(path, receipt)
         return value, attempts, failure
 
 
 async def _build_shadow_review(
-    mirror: Path, run_dir: Path, ledger: ProviderBudgetLedger, *, route_identity: str, caller=call_rardar_prompt_json
+    mirror: Path,
+    run_dir: Path,
+    ledger: ProviderBudgetLedger,
+    *,
+    route_identity: str,
+    caller=call_rardar_prompt_json,
+    resume_meaningful: bool = False,
 ) -> ShadowReviewArtifact:
     # A second script cannot execute the same run concurrently, even between calls.
     with file_lock(run_dir / "shadow-run.lock", blocking=False):
-        source_freeze, cohort = freeze(mirror, run_dir)
-        source, _recalled, pool = healthy_pool(mirror)
+        resume = load_resume_inputs(mirror, run_dir, ledger, route_identity) if resume_meaningful else None
+        if resume is not None:
+            source_freeze, cohort = resume.source_freeze, resume.cohort
+            source, pool = resume.source, resume.pool
+        else:
+            source_freeze, cohort = freeze(mirror, run_dir)
+            source, _recalled, pool = healthy_pool(mirror)
         pool_by_id = {row.candidate.githubRepositoryId: row for row in pool}
         selected = [pool_by_id[row["githubRepositoryId"]] for row in cohort["items"]]
         binding = digest(
@@ -120,19 +173,35 @@ async def _build_shadow_review(
                 "runId": ledger.run_id,
             }
         )
-        run_path = run_dir / "shadow-run-binding.json"
+        policies = _contract_versions()
+        if resume is not None:
+            policies.update(
+                meaningfulChangePromptVersion=PROMPT_VERSION,
+                meaningfulChangeSchemaVersion=SCHEMA_VERSION,
+                evidenceAliasVersion=ALIAS_VERSION,
+                assessmentCacheDigest=digest({str(i): c.cache_digest for i, c in resume.change_contexts.items()}),
+                meaningfulChangeResume=RESUME_VERSION,
+            )
+            binding = digest({"binding": binding, "origin": resume.origin.digest, "policies": policies})
+        run_path = run_dir / (f"shadow-run-binding-{RESUME_VERSION}.json" if resume else "shadow-run-binding.json")
         if run_path.exists():
             if json.loads(run_path.read_bytes()) != {"binding": binding}:
                 raise ShadowIntegrityError("shadow_run_binding_changed")
         else:
             atomic(run_path, {"binding": binding})
-        completed_path = run_dir / "shadow-review-artifact.json"
+        completed_path = run_dir / (ARTIFACT_NAME if resume else "shadow-review-artifact.json")
         if completed_path.exists():
             artifact = ShadowReviewArtifact.model_validate_json(completed_path.read_bytes(), strict=True)
-            if artifact.providerBudget != ledger.snapshot() or artifact.cohortManifestDigest != cohort["digest"]:
+            if (
+                artifact.providerBudget != ledger.snapshot()
+                or artifact.cohortManifestDigest != cohort["digest"]
+                or artifact.sourceFreezeDigest != source_freeze["digest"]
+                or artifact.policyVersions != policies
+                or (resume is not None and artifact.audit.get("originArtifactDigest") != resume.origin.digest)
+            ):
                 raise ShadowIntegrityError("shadow_completed_run_changed")
             return artifact  # Same run/artifact: zero provider calls, no new ledger.
-        receipts = StageReceipts(run_dir, binding)
+        receipts = StageReceipts(run_dir, binding, resume)
         usage = _Usage()
         controls: list[dict[str, Any]] = []
         for index, (name, text) in enumerate(negative_control_cases(), 1):
@@ -181,17 +250,43 @@ async def _build_shadow_review(
                     SelectionGateResult,
                 )
         assessments = []
+        change_outcomes = {}
         change_ids = {row["githubRepositoryId"] for row in cohort["items"] if row["meaningfulChangeCandidate"]}
         for row in selected:
             candidate = row.candidate
             identifier = candidate.githubRepositoryId
             evidence = list(row.releases) if identifier in change_ids else []
+            context = resume.change_contexts.get(identifier) if resume else None
+            structured = []
             with budget_stage("meaningful_change"):
                 timely, change_attempts, change_failure = await receipts.run(
                     f"timeliness-{identifier}",
-                    lambda c=candidate, e=evidence: _timeliness(c, e, usage, caller),
+                    lambda c=candidate, e=evidence, ctx=context, output=structured: _timeliness(
+                        c,
+                        e,
+                        usage,
+                        caller,
+                        model_route_identity=route_identity,
+                        context=ctx,
+                        format_retry=resume is None,
+                        result_observer=output.append,
+                    ),
                     SelectionTimeliness,
+                    context=context,
+                    structured=structured,
                 )
+            if context is not None:
+                if (
+                    timely
+                    and timely.meaningfulChange
+                    and validate_change_result(timely.meaningfulChange, context, candidate, evidence, route_identity)
+                ):
+                    raise ShadowIntegrityError("meaningful_change_replay_evidence_invalid")
+                change_outcomes[str(identifier)] = {
+                    "context": context.model_dump(mode="json"),
+                    "failure": change_failure,
+                    "result": structured[0].model_dump(mode="json") if structured else None,
+                }
             gate, gate_attempts, failure = gates[identifier]
             failure = failure or change_failure
             timely = timely or neutral_timeliness()
@@ -236,7 +331,9 @@ async def _build_shadow_review(
                 )
             )
             atomic(
-                run_dir / f"assessment-{identifier}.json",
+                receipts.root / f"assessment-{identifier}.json"
+                if resume
+                else run_dir / f"assessment-{identifier}.json",
                 {
                     "binding": binding,
                     "assessment": assessments[-1].model_dump(mode="json"),
@@ -250,6 +347,14 @@ async def _build_shadow_review(
             ]
         )
         packed = _pack([a.model_copy(update={"peerContextDigest": peer_digest}) for a in assessments])
+        if resume is not None:
+            change_failures = Counter(o["failure"] for o in change_outcomes.values() if o["failure"])
+            if any(n >= 4 for n in change_failures.values()):
+                # Stop before user-copy: a blocked review has no actual Preview.
+                packed = [
+                    a.model_copy(update={"publicationDisposition": "not_eligible", "displayOrder": None})
+                    for a in packed
+                ]
         preview_ids = {
             a.candidate.githubRepositoryId
             for a in sorted(packed, key=lambda a: a.displayOrder or 999)
@@ -266,7 +371,9 @@ async def _build_shadow_review(
                 with budget_stage("user_copy"):
                     copy, attempts, failure = await receipts.run(
                         f"copy-{identifier}",
-                        lambda a=assessment, i=identifier: _copy(a, pool_by_id[i].collected, usage, caller),
+                        lambda a=assessment, i=identifier: _copy(
+                            a, pool_by_id[i].collected, usage, caller, format_retry=resume is None
+                        ),
                         SelectionCopyResult,
                     )
                 assessment = assessment.model_copy(update={"copyResult": copy, "copyAttempts": attempts})
@@ -285,6 +392,12 @@ async def _build_shadow_review(
         evidence_violations = sum(
             a.failureCode in {"invalid_evidence_alias", "wrong_assessment_evidence"} for a in finished
         )
+        if resume is not None:
+            # Invalid responses are rejected, not accepted evidence. Isolated failures
+            # remain terminal UNCERTAIN; repeated failures block the entire review.
+            rejected = Counter(o["failure"] for o in change_outcomes.values() if o["failure"])
+            systemic = systemic or any(n >= 4 for n in rejected.values())
+            evidence_violations = 0  # Every accepted result was strictly revalidated above.
         ready = not systemic and evidence_violations == 0
         if not ready:
             finished = [
@@ -360,7 +473,7 @@ async def _build_shadow_review(
             "assessments": [a.model_dump(mode="json") for a in finished],
             "contexts": [c.model_dump(mode="json") for c in contexts],
             "generatedAt": now.isoformat().replace("+00:00", "Z"),
-            "policyVersions": _contract_versions(),
+            "policyVersions": policies,
             "audit": {
                 "momentumLeakage": 0,
                 "evidenceViolations": evidence_violations,
@@ -371,10 +484,35 @@ async def _build_shadow_review(
                 "failureHistogram": dict(failures),
             },
         }
+        if resume is not None:
+            payload["audit"].update(
+                meaningfulChangeOutcomes=change_outcomes,
+                rejectedMeaningfulResponses=sum(o["failure"] is not None for o in change_outcomes.values()),
+                originArtifactDigest=resume.origin.digest,
+                originBudget=resume.origin.providerBudget,
+                meaningfulChangeBindingFailure=any(n >= 4 for n in rejected.values()),
+                blocker="BLOCKED_MEANINGFUL_CHANGE_EVIDENCE_BINDING"
+                if any(n >= 4 for n in rejected.values())
+                else None,
+            )
         payload["digest"] = digest(payload)
         artifact = ShadowReviewArtifact.model_validate_json(json.dumps(payload), strict=True)
         atomic(completed_path, artifact.model_dump(mode="json"))
         return artifact
+
+
+async def resume_meaningful_change(
+    mirror: Path,
+    run_dir: Path,
+    ledger: ProviderBudgetLedger,
+    *,
+    route_identity: str,
+    caller=call_rardar_prompt_json,
+) -> ShadowReviewArtifact:
+    # Deliberately not the legacy exhaustion handler: never overwrite the origin.
+    return await _build_shadow_review(
+        mirror, run_dir, ledger, route_identity=route_identity, caller=caller, resume_meaningful=True
+    )
 
 
 async def build_shadow_review(

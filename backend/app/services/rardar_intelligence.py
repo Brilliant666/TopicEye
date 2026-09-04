@@ -14,6 +14,7 @@ from app.integrations.rardar.selection_schemas import SelectionApiResponse, Sele
 from app.integrations.rardar.selection_serving import SelectionServingLoader
 from app.integrations.rardar.serving import ServingProjectionLoader, build_serving_projection
 from app.integrations.rardar.serving_schemas import ServingProjectDetail, ServingTodaySnapshot
+from app.integrations.rardar.shadow_serving import load_shadow
 
 _DEMO_BOARD = Path(__file__).parents[1] / "integrations" / "rardar" / "fixtures" / "explosion-board-demo-v1.json"
 
@@ -226,39 +227,63 @@ def load_selection_snapshot(
 ) -> tuple[SelectionApiResponse, str]:
     """Load one immutable Selection Serving generation; never read its raw assessment artifact."""
 
-    snapshot, etag = SelectionServingLoader(config.RARDAR_INTELLIGENCE_DATA_DIR).load_with_etag()
+    if getattr(config, "RARDAR_LOCAL_SHADOW_REVIEW", False) and not config.is_production:
+        snapshot, _contexts, etag = load_shadow(Path(config.RARDAR_INTELLIGENCE_DATA_DIR))
+        return snapshot, etag
+
+    loaded = SelectionServingLoader(config.RARDAR_INTELLIGENCE_DATA_DIR).load_state_with_etag()
+    latest = loaded.latest_attempt
+    visible = loaded.current if loaded.current is not None else latest
     current = (now or datetime.now(UTC)).astimezone(UTC)
-    stale = current > snapshot.latestCaptureAt + timedelta(minutes=150)
-    state = "stale" if stale else snapshot.status
+    stale = current > visible.latestCaptureAt + timedelta(minutes=150)
+    state = loaded.state if loaded.state == "degraded" else "stale" if stale else loaded.state
+    items = visible.items if loaded.current is not None or loaded.state != "degraded" else []
+    category_counts = visible.categoryCounts if items else {}
+    reason_counts = visible.primaryReasonCounts if items else {}
+    current_generation = loaded.current.selectionGenerationId if loaded.current is not None else None
     return (
         SelectionApiResponse(
             mode="shadow",
             status=state,
             state=state,
-            generation=snapshot.selectionGenerationId,
-            sourceObservation=snapshot.sourceObservationSetId,
-            sourceTodayGeneration=snapshot.sourceTodayGeneration,
-            generatedAt=snapshot.generatedAt,
-            latestCaptureAt=snapshot.latestCaptureAt,
-            items=snapshot.items,
-            categoryCounts=snapshot.categoryCounts,
-            primaryReasonCounts=snapshot.primaryReasonCounts,
-            coverageLabelZh=snapshot.coverageLabelZh,
-            candidateCount=snapshot.candidateCount,
-            selectedCount=snapshot.selectedCount,
-            publishedCount=snapshot.publishedCount,
-            suppressedCount=snapshot.suppressedCount,
+            generation=current_generation if loaded.state == "degraded" else visible.selectionGenerationId,
+            sourceObservation=latest.sourceObservationSetId,
+            sourceTodayGeneration=latest.sourceTodayGeneration,
+            generatedAt=visible.generatedAt,
+            latestCaptureAt=latest.latestCaptureAt,
+            items=items,
+            categoryCounts=category_counts,
+            primaryReasonCounts=reason_counts,
+            coverageLabelZh=visible.coverageLabelZh,
+            candidateCount=latest.candidateCount,
+            selectedCount=latest.selectedCount,
+            publishedCount=len(items),
+            suppressedCount=latest.suppressedCount,
             provenance={
-                "selectionGeneration": snapshot.selectionGenerationId,
-                "sourceObservation": snapshot.latestCaptureId,
-                "sourceObservationAt": snapshot.latestCaptureAt.isoformat(),
-                "sourceTodayGeneration": snapshot.sourceTodayGeneration,
-                "sourceCoverageState": snapshot.sourceCoverageState,
+                "selectionGeneration": current_generation,
+                "latestAttemptGeneration": latest.selectionGenerationId,
+                "sourceObservation": latest.latestCaptureId,
+                "sourceObservationAt": latest.latestCaptureAt.isoformat(),
+                "sourceTodayGeneration": latest.sourceTodayGeneration,
+                "sourceCoverageState": latest.sourceCoverageState,
                 "pageReads": "static_serving_only",
             },
-            code=None,
+            code="rardar_selection_degraded" if loaded.state == "degraded" else None,
+            currentGeneration=current_generation,
+            latestAttemptGeneration=latest.selectionGenerationId,
+            recallCount=latest.recallCount,
+            profileReadyCount=latest.profileReadyCount,
+            profileReboundCount=latest.profileReboundCount,
+            profileRebuiltCount=latest.profileRebuiltCount,
+            retryableFailureCount=latest.retryableFailureCount,
+            permanentFailureCount=latest.permanentFailureCount,
+            profileCoverage=latest.profileCoverage,
+            assessmentCoverage=latest.assessmentCoverage,
+            systemicFailure=latest.systemicFailure,
+            safeFailureCodes=latest.safeFailureCodes,
+            nextRetryAt=latest.nextRetryAt,
         ),
-        etag,
+        loaded.etag,
     )
 
 
@@ -267,6 +292,20 @@ def load_selection_project_detail(
     selection_generation_id: str,
     config: Settings = settings,
 ) -> tuple[SelectionProjectDetail, str]:
+    if (
+        getattr(config, "RARDAR_LOCAL_SHADOW_REVIEW", False)
+        and not config.is_production
+        and selection_generation_id.startswith("shadow-")
+    ):
+        _snapshot, contexts, etag = load_shadow(Path(config.RARDAR_INTELLIGENCE_DATA_DIR), selection_generation_id)
+        context = contexts.get(github_repository_id)
+        if context is None:
+            raise RardarArtifactError("rardar_selection_project_not_found", "Project is not in this Shadow preview")
+        return SelectionProjectDetail(
+            selectionGenerationId=context.selectionGenerationId,
+            sourceObservationSetId=context.sourceObservationSetId,
+            context=context,
+        ), etag
     context, etag = SelectionServingLoader(config.RARDAR_INTELLIGENCE_DATA_DIR).load_project_with_etag(
         github_repository_id,
         selection_generation_id,

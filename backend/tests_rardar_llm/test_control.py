@@ -143,6 +143,79 @@ def _patch_no_wait_retry(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_selection_shared_budget_counts_actual_retry_cache_and_exhaustion(control_plane, monkeypatch, tmp_path):
+    from app.services.llm.provider_budget import ProviderBudgetLedger
+
+    ledger = ProviderBudgetLedger.initialize(tmp_path / "run" / "provider-budget.json", "mock-executions")
+    monkeypatch.setenv("RARDAR_LLM_RUN_ID", ledger.run_id)
+    monkeypatch.setenv("RARDAR_LLM_BUDGET_PATH", str(ledger.path))
+    monkeypatch.setenv("RARDAR_LLM_BUDGET_LIMIT", "40")
+    await control_plane.add_model(name="budget-route")
+    await control_plane.reload_routes()
+    _patch_no_wait_retry(monkeypatch)
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        assert kwargs["num_retries"] == 0
+        if len(calls) == 1:
+            raise TimeoutError("mock network attempt timed out")
+        return _response("{}", kwargs["model"])
+
+    monkeypatch.setattr(_call_engine, "acompletion", completion)
+
+    async def call(text):
+        return await call_rardar_prompt_json(
+            scene=RardarLLMScene.WORTH_SEEING_GATE,
+            messages=[{"role": "user", "content": text}],
+            reasoning_effort=ReasoningEffort.HIGH,
+            cache_identity="a" * 64,
+        )
+
+    await call("one")
+    assert ledger.snapshot()["attempted"] == 2 and ledger.snapshot()["failed"] == 1
+    await call("one")
+    assert len(calls) == 2 and ledger.snapshot()["cacheHits"] == 1
+    for _ in range(38):
+        ledger.record("reserved", "scope_value")
+    with pytest.raises(RardarLLMError) as error:
+        await call("different")
+    assert error.value.code == "provider_budget_exhausted"
+    assert len(calls) == 2 and ledger.snapshot()["reserved"] == 40
+
+
+@pytest.mark.asyncio
+async def test_meaningful_recovery_one_upstream_attempt_including_route_retry(control_plane, monkeypatch, tmp_path):
+    from app.services.llm.provider_budget import ProviderBudgetLedger, single_provider_attempt
+
+    ledger = ProviderBudgetLedger.initialize(tmp_path / "run" / "provider-budget.json", "mock-change-recovery")
+    monkeypatch.setenv("RARDAR_LLM_RUN_ID", ledger.run_id)
+    monkeypatch.setenv("RARDAR_LLM_BUDGET_PATH", str(ledger.path))
+    monkeypatch.setenv("RARDAR_LLM_BUDGET_LIMIT", "40")
+    await control_plane.add_model(name="first-change-route", priority=1)
+    await control_plane.add_model(name="second-change-route", priority=2)
+    await control_plane.reload_routes()
+    _patch_no_wait_retry(monkeypatch)
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        assert kwargs["num_retries"] == 0
+        raise TimeoutError("mock timeout")
+
+    monkeypatch.setattr(_call_engine, "acompletion", completion)
+    with single_provider_attempt(), pytest.raises(RardarLLMError) as error:
+        await call_rardar_prompt_json(
+            scene=RardarLLMScene.WORTH_SEEING_MEANINGFUL_CHANGE,
+            messages=[{"role": "user", "content": "synthetic release evidence"}],
+            cache_identity="b" * 64,
+        )
+    assert error.value.code == "provider_operation_attempt_limit"
+    assert len(calls) == ledger.snapshot()["attempted"] == 1
+    assert ledger.snapshot()["failed"] == 1
+
+
+@pytest.mark.asyncio
 async def test_strict_rardar_route_never_falls_back_to_default(control_plane, monkeypatch) -> None:
     await control_plane.add_model(name="default-only", routing_group="default")
     await control_plane.reload_routes()
@@ -225,8 +298,14 @@ async def test_model_configuration_owns_provider_endpoint_model_and_generation_s
 
 @pytest.mark.asyncio
 async def test_prompt_json_uses_strict_rardar_route_and_route_identity_tracks_configuration(
-    control_plane, monkeypatch
+    control_plane, monkeypatch, tmp_path
 ) -> None:
+    from app.services.llm.provider_budget import ProviderBudgetLedger
+
+    ledger = ProviderBudgetLedger.initialize(tmp_path / "run" / "provider-budget.json", "mock-control")
+    monkeypatch.setenv("RARDAR_LLM_RUN_ID", "mock-control")
+    monkeypatch.setenv("RARDAR_LLM_BUDGET_PATH", str(ledger.path))
+    monkeypatch.setenv("RARDAR_LLM_BUDGET_LIMIT", "40")
     first_id = await control_plane.add_model(name="selection-json", priority=10)
     await control_plane.reload_routes()
     identity_before = await resolve_rardar_route_identity()

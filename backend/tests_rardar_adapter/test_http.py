@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import shutil
 import socket
@@ -120,6 +121,14 @@ def _selection_root(tmp_path: Path) -> Path:
     return root
 
 
+def _content_inventory(root: Path) -> dict[str, str]:
+    return {
+        path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
 def test_real_http_pointer_switch_and_fail_closed_recovery(tmp_path: Path) -> None:
     root = _combined_root(tmp_path)
     endpoint = "/api/v1/rardar/explosion-board"
@@ -188,6 +197,7 @@ def test_real_http_rardar_mode_reports_unconfigured_data() -> None:
 
 def test_real_http_selection_is_static_etag_cached_and_fails_closed(tmp_path: Path) -> None:
     root = _selection_root(tmp_path)
+    before = _content_inventory(root)
     with _server(root) as url, httpx.Client(trust_env=False) as client:
         response = client.get(f"{url}/api/v1/rardar/discover/selection", timeout=10)
         assert response.status_code == 200
@@ -227,3 +237,4 @@ def test_real_http_selection_is_static_etag_cached_and_fails_closed(tmp_path: Pa
         recovered = client.get(f"{url}/api/v1/rardar/discover/selection", timeout=10)
         assert recovered.status_code == 200
         assert recovered.json()["generation"] == payload["generation"]
+    assert _content_inventory(root) == before

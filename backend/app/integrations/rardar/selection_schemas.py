@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any, Literal
 
@@ -31,6 +32,26 @@ PublicationDisposition = Literal[
     "not_eligible",
 ]
 SelectionCategory = Literal["ai-agent", "dev-tools", "data-infra", "productivity", "video-content", "other"]
+
+_RETRYABLE_PROFILE_FAILURES = {
+    "profile_source_timeout",
+    "profile_source_rate_limited",
+    "profile_source_http_5xx",
+    "profile_source_remote_disconnected",
+    "profile_source_http_404",
+    "profile_translation_unavailable",
+    "profile_model_unavailable",
+    "profile_model_invalid_output",
+    "profile_build_interrupted",
+    "profile_unknown_failure",
+}
+_PERMANENT_PROFILE_FAILURES = {
+    "profile_source_invalid",
+    "profile_evidence_incomplete",
+    "profile_evidence_mismatch",
+    "profile_schema_invalid",
+    "profile_path_unsafe",
+}
 
 
 class SelectionEvidenceAlias(StrictSelectionModel):
@@ -399,6 +420,27 @@ class SelectionArtifact(StrictSelectionModel):
     assessments: list[SelectionAssessment] = Field(max_length=60)
     usage: SelectionUsageSummary
     payloadDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
+    profileCacheIdentityVersion: Literal[1, 2] = 1
+    sourceFactDigest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    profileRevisionSetDigest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    profileBindingSetDigest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    assessmentResultDigest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    failureResolutionDigest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    profileReadyCount: int | None = Field(default=None, ge=0, le=60)
+    profileReboundCount: int | None = Field(default=None, ge=0, le=60)
+    profileRebuiltCount: int | None = Field(default=None, ge=0, le=60)
+    profileRetryableFailureCount: int | None = Field(default=None, ge=0, le=60)
+    profilePermanentUnavailableCount: int | None = Field(default=None, ge=0, le=60)
+    gateAssessedCount: int | None = Field(default=None, ge=0, le=60)
+    semanticResolvedCount: int | None = Field(default=None, ge=0, le=60)
+    unresolvedCount: int | None = Field(default=None, ge=0, le=60)
+    profileCoverage: float | None = Field(default=None, ge=0, le=1)
+    assessmentCoverage: float | None = Field(default=None, ge=0, le=1)
+    failureHistogram: dict[str, int] | None = None
+    systemicFailureCodes: list[str] | None = Field(default=None, max_length=20)
+    state: Literal["ready", "empty", "degraded", "invalid"] | None = None
+    currentEligible: bool | None = None
+    latestAttemptGeneration: str | None = Field(default=None, max_length=190)
 
     @model_validator(mode="after")
     def validate_counts(self) -> SelectionArtifact:
@@ -433,6 +475,94 @@ class SelectionArtifact(StrictSelectionModel):
         orders = sorted(item.displayOrder for item in self.assessments if item.displayOrder is not None)
         if orders != list(range(1, self.publishedCount + 1)):
             raise ValueError("display orders must be contiguous")
+        if self.profileCacheIdentityVersion == 2:
+            required = (
+                self.sourceFactDigest,
+                self.profileRevisionSetDigest,
+                self.profileBindingSetDigest,
+                self.assessmentResultDigest,
+                self.failureResolutionDigest,
+                self.profileReadyCount,
+                self.profileReboundCount,
+                self.profileRebuiltCount,
+                self.profileRetryableFailureCount,
+                self.profilePermanentUnavailableCount,
+                self.gateAssessedCount,
+                self.semanticResolvedCount,
+                self.unresolvedCount,
+                self.profileCoverage,
+                self.assessmentCoverage,
+                self.failureHistogram,
+                self.systemicFailureCodes,
+                self.state,
+                self.currentEligible,
+                self.latestAttemptGeneration,
+            )
+            if any(value is None for value in required):
+                raise ValueError("selection v2 activation metrics are incomplete")
+            if self.latestAttemptGeneration != self.selectionGenerationId:
+                raise ValueError("selection latest attempt identity is inconsistent")
+            if (
+                self.profileReadyCount + self.profileRetryableFailureCount + self.profilePermanentUnavailableCount
+                != self.recalledCount
+            ):
+                raise ValueError("selection profile resolution counts are inconsistent")
+            if self.semanticResolvedCount + self.unresolvedCount != self.recalledCount:
+                raise ValueError("selection semantic counts are inconsistent")
+            if self.profileReboundCount + self.profileRebuiltCount > self.profileReadyCount:
+                raise ValueError("selection profile cache counts are inconsistent")
+            actual_gate_count = sum(item.gate is not None for item in self.assessments)
+            if self.gateAssessedCount != actual_gate_count or self.gateAssessedCount > self.profileReadyCount:
+                raise ValueError("selection assessment count is inconsistent")
+            expected_profile_coverage = round(
+                self.profileReadyCount / self.recalledCount if self.recalledCount else 1.0,
+                6,
+            )
+            expected_assessment_coverage = round(
+                self.gateAssessedCount / self.profileReadyCount if self.profileReadyCount else 0.0,
+                6,
+            )
+            if (
+                self.profileCoverage != expected_profile_coverage
+                or self.assessmentCoverage != expected_assessment_coverage
+            ):
+                raise ValueError("selection coverage metrics are inconsistent")
+            if self.failureHistogram != self.failureSummary:
+                raise ValueError("selection failure histogram is inconsistent")
+            retryable_count = sum(self.failureHistogram.get(code, 0) for code in _RETRYABLE_PROFILE_FAILURES)
+            permanent_count = sum(self.failureHistogram.get(code, 0) for code in _PERMANENT_PROFILE_FAILURES)
+            if (
+                retryable_count != self.profileRetryableFailureCount
+                or permanent_count != self.profilePermanentUnavailableCount
+            ):
+                raise ValueError("selection profile failure counts are inconsistent")
+            systemic_threshold = max(5, math.ceil(self.recalledCount * 0.20))
+            expected_systemic = sorted(
+                code for code in _RETRYABLE_PROFILE_FAILURES if self.failureHistogram.get(code, 0) >= systemic_threshold
+            )
+            if self.systemicFailureCodes != expected_systemic:
+                raise ValueError("selection systemic failure classification is inconsistent")
+            healthy_gate = (
+                self.profileCoverage >= 0.95
+                and self.gateAssessedCount == self.profileReadyCount
+                and not self.systemicFailureCodes
+                and not self.negativeControlFailures
+            )
+            if self.publishedCount > 0 and healthy_gate:
+                expected_state = "ready"
+            elif (
+                self.publishedCount == 0
+                and healthy_gate
+                and self.profileRetryableFailureCount == 0
+                and self.semanticResolvedCount == self.recalledCount
+            ):
+                expected_state = "empty"
+            else:
+                expected_state = "degraded"
+            if self.state != expected_state:
+                raise ValueError("selection activation state is inconsistent")
+            if self.currentEligible != (expected_state in {"ready", "empty"}):
+                raise ValueError("selection activation eligibility is inconsistent")
         return self
 
 
@@ -442,7 +572,7 @@ class SelectionServingCard(StrictSelectionModel):
     htmlUrl: HttpUrl
     identitySummaryZh: str = Field(min_length=4, max_length=180)
     corePositioningZh: str | None = Field(default=None, min_length=4, max_length=500)
-    whyWorthSeeingZh: str = Field(min_length=8, max_length=360)
+    whyWorthSeeingZh: str | None = Field(default=None, min_length=8, max_length=360)
     whyNowZh: str | None = Field(default=None, min_length=4, max_length=240)
     primaryReason: PrimaryReason
     supportingReasons: list[PrimaryReason] = Field(max_length=2)
@@ -494,7 +624,7 @@ class SelectionServingSnapshot(StrictSelectionModel):
     latestCaptureAt: AwareDatetime
     sourceWindowStart: AwareDatetime
     sourceWindowEnd: AwareDatetime
-    status: Literal["ready", "empty"]
+    status: Literal["ready", "empty", "degraded"]
     items: list[SelectionServingCard] = Field(max_length=20)
     categoryCounts: dict[SelectionCategory, int]
     primaryReasonCounts: dict[PrimaryReason, int]
@@ -502,16 +632,31 @@ class SelectionServingSnapshot(StrictSelectionModel):
     sourceCoverageState: Literal["healthy", "degraded"]
     sourceTodayGeneration: str
     candidateCount: int = Field(ge=0, le=500)
+    recallCount: int = Field(default=0, ge=0, le=60)
     selectedCount: int = Field(ge=0, le=60)
     publishedCount: int = Field(ge=0, le=20)
     suppressedCount: int = Field(ge=0, le=60)
+    currentGeneration: str | None = Field(default=None, max_length=190)
+    latestAttemptGeneration: str | None = Field(default=None, max_length=190)
+    profileReadyCount: int = Field(default=0, ge=0, le=60)
+    profileReboundCount: int = Field(default=0, ge=0, le=60)
+    profileRebuiltCount: int = Field(default=0, ge=0, le=60)
+    retryableFailureCount: int = Field(default=0, ge=0, le=60)
+    permanentFailureCount: int = Field(default=0, ge=0, le=60)
+    profileCoverage: float = Field(default=1, ge=0, le=1)
+    assessmentCoverage: float = Field(default=1, ge=0, le=1)
+    systemicFailure: bool = False
+    safeFailureCodes: list[str] = Field(default_factory=list, max_length=20)
+    nextRetryAt: AwareDatetime | None = None
 
     @model_validator(mode="after")
     def validate_inventory(self) -> SelectionServingSnapshot:
         identifiers = [item.githubRepositoryId for item in self.items]
         if len(identifiers) != len(set(identifiers)):
             raise ValueError("selection cards must have unique identities")
-        if (self.status == "empty") != (len(self.items) == 0):
+        if self.status == "ready" and not self.items:
+            raise ValueError("ready selection requires items")
+        if self.status in {"empty", "degraded"} and self.items:
             raise ValueError("selection empty state is inconsistent")
         categories = {key: sum(item.category == key for item in self.items) for key in self.categoryCounts}
         reasons = {key: sum(item.primaryReason == key for item in self.items) for key in self.primaryReasonCounts}
@@ -522,6 +667,13 @@ class SelectionServingSnapshot(StrictSelectionModel):
             or self.primaryReasonCounts != reasons
         ):
             raise ValueError("selection serving counts are inconsistent")
+        if self.latestAttemptGeneration is not None:
+            if self.latestAttemptGeneration != self.selectionGenerationId:
+                raise ValueError("selection latest attempt identity is inconsistent")
+            if self.profileReadyCount + self.retryableFailureCount + self.permanentFailureCount != self.recallCount:
+                raise ValueError("selection serving profile coverage is inconsistent")
+            if self.currentGeneration != (self.selectionGenerationId if self.status in {"ready", "empty"} else None):
+                raise ValueError("selection serving current eligibility is inconsistent")
         return self
 
 
@@ -565,12 +717,14 @@ class SelectionServingPointer(StrictSelectionModel):
     sourceObservationSetId: str = Field(min_length=2, max_length=190)
     manifestSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     activatedAt: AwareDatetime
+    activationState: Literal["ready", "empty", "degraded"] | None = None
+    activationPolicyVersion: Literal["worth-seeing-activation-v2"] | None = None
 
 
 class SelectionApiResponse(StrictSelectionModel):
     mode: Literal["shadow"]
-    status: Literal["ready", "empty", "stale", "not_configured", "invalid"]
-    state: Literal["ready", "empty", "stale", "not_configured", "invalid"]
+    status: Literal["ready", "empty", "degraded", "stale", "not_configured", "invalid"]
+    state: Literal["ready", "empty", "degraded", "stale", "not_configured", "invalid"]
     generation: str | None
     sourceObservation: str | None
     sourceTodayGeneration: str | None
@@ -586,9 +740,49 @@ class SelectionApiResponse(StrictSelectionModel):
     suppressedCount: int = Field(ge=0, le=60)
     provenance: dict[str, Any]
     code: str | None = Field(default=None, max_length=100)
+    currentGeneration: str | None = Field(default=None, max_length=190)
+    latestAttemptGeneration: str | None = Field(default=None, max_length=190)
+    recallCount: int = Field(default=0, ge=0, le=60)
+    profileReadyCount: int = Field(default=0, ge=0, le=60)
+    profileReboundCount: int = Field(default=0, ge=0, le=60)
+    profileRebuiltCount: int = Field(default=0, ge=0, le=60)
+    retryableFailureCount: int = Field(default=0, ge=0, le=60)
+    permanentFailureCount: int = Field(default=0, ge=0, le=60)
+    profileCoverage: float = Field(default=1, ge=0, le=1)
+    assessmentCoverage: float = Field(default=1, ge=0, le=1)
+    systemicFailure: bool = False
+    safeFailureCodes: list[str] = Field(default_factory=list, max_length=20)
+    nextRetryAt: AwareDatetime | None = None
+    productionReady: Literal[False] = False
+    reviewable: bool = False
+    shadowReviewState: Literal["ready", "empty", "incomplete", "invalid"] | None = None
+    shadowReviewGeneration: str | None = None
+    candidateUniverseCount: int = Field(default=0, ge=0, le=500)
+    healthyProfileCount: int = Field(default=0, ge=0, le=60)
+    unresolvedProfileCount: int = Field(default=0, ge=0, le=60)
+    cohortSize: int = Field(default=0, ge=0, le=16)
+    cohortAssessed: int = Field(default=0, ge=0, le=16)
+    previewCount: int = Field(default=0, ge=0, le=6)
+    providerBudget: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_state(self) -> SelectionApiResponse:
+        if self.shadowReviewState is not None:
+            if (
+                self.state != "degraded"
+                or self.currentGeneration is not None
+                or self.generation != self.shadowReviewGeneration
+                or self.cohortSize != 16
+                or self.reviewable != (self.shadowReviewState in {"ready", "empty"})
+                or self.healthyProfileCount + self.unresolvedProfileCount != self.recallCount
+                or self.publishedCount > 6
+                or self.previewCount != self.publishedCount
+            ):
+                raise ValueError("local shadow API contract is inconsistent")
+            if self.reviewable and self.cohortAssessed != 16:
+                raise ValueError("incomplete cohort cannot be reviewable")
+            if (self.shadowReviewState == "ready") != bool(self.items):
+                raise ValueError("shadow preview state is inconsistent")
         if self.status != self.state or self.publishedCount != len(self.items):
             raise ValueError("selection API state is inconsistent")
         if self.status == "ready" and (self.generation is None or not self.items):
@@ -597,6 +791,8 @@ class SelectionApiResponse(StrictSelectionModel):
             raise ValueError("stale Selection requires one generation")
         if self.status == "empty" and (self.generation is None or self.items):
             raise ValueError("empty Selection requires one generation and no items")
+        if self.status == "degraded" and self.latestAttemptGeneration is None:
+            raise ValueError("degraded Selection requires a latest attempt")
         if self.status in {"not_configured", "invalid"} and (self.generation is not None or self.items):
             raise ValueError("unavailable Selection cannot expose a generation")
         return self

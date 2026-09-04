@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from contextlib import nullcontext
 from typing import Any
 
 from litellm import RateLimitError, acompletion
@@ -43,6 +44,7 @@ from app.services.llm._rate_limit import (
     estimate_request_tokens,
 )
 from app.services.llm.error_safety import safe_llm_error
+from app.services.llm.provider_budget import ProviderBudgetError, execution_budget
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +77,8 @@ def _is_deterministic_request_error(exc: Exception) -> bool:
     过滤，也不能缩短超出上下文窗口的输入。将它们计入模型失败会错误地
     冷却健康路由，并在所有模型都拒绝同一请求时打开全局熔断器。
     """
+    if isinstance(exc, ProviderBudgetError):
+        return True
     if isinstance(
         exc,
         BadRequestError
@@ -147,6 +151,7 @@ async def _call_llm_single(
     from app.services.llm.provider import _litellm_extra_kwargs
     from app.services.llm_usage import extract_usage, record_llm_call_in_new_session
 
+    budget = execution_budget(scene)
     pool_scope = _pool_scope(model_config, scene)
     rate_limit_started = time.monotonic()
     await _rate_limiter.acquire()
@@ -172,6 +177,9 @@ async def _call_llm_single(
     if reasoning_effort is None:
         kwargs["temperature"] = temperature
     kwargs.update(_litellm_extra_kwargs(model_config))
+    if budget is not None:
+        # Every network attempt must pass through our durable reservation.
+        kwargs["num_retries"] = 0
     completion_timeout = _completion_timeout_seconds(kwargs.get("timeout"))
     # 同时传给 LiteLLM 和 asyncio。前者取消底层 HTTP 请求，后者为每个
     # provider 提供一致的兜底截止时间。
@@ -195,10 +203,11 @@ async def _call_llm_single(
     start = time.monotonic()
     try:
         async with acquire_completion_slot(model_config, scene):
-            response = await asyncio.wait_for(
-                acompletion(**kwargs),
-                timeout=completion_timeout,
-            )
+            with budget[0].execution(budget[1]) if budget is not None else nullcontext():
+                response = await asyncio.wait_for(
+                    acompletion(**kwargs),
+                    timeout=completion_timeout,
+                )
         duration_ms = int((time.monotonic() - start) * 1000)
         content = response.choices[0].message.content
         usage = extract_usage(response)
@@ -231,6 +240,9 @@ async def _call_llm_single(
             pass  # 指标采集不能影响主链路
         logger.info("LLM response: %d chars", len(content) if content else 0)
         return content or ""
+    except ProviderBudgetError:
+        # Local accounting rejection is not a provider failure or an attempt.
+        raise
     except Exception as exc:
         duration_ms = int((time.monotonic() - start) * 1000)
         await record_llm_call_in_new_session(

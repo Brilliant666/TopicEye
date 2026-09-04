@@ -1,4 +1,4 @@
-export type SelectionStatus = 'ready' | 'empty' | 'stale' | 'not_configured' | 'invalid';
+export type SelectionStatus = 'ready' | 'empty' | 'degraded' | 'stale' | 'not_configured' | 'invalid';
 export type SelectionCategory = 'ai-agent' | 'dev-tools' | 'data-infra' | 'productivity' | 'video-content' | 'other';
 export type SelectionReason =
   | 'directly_reusable'
@@ -12,7 +12,7 @@ export type SelectionCard = {
   htmlUrl: string;
   identitySummaryZh: string;
   corePositioningZh: string | null;
-  whyWorthSeeingZh: string;
+  whyWorthSeeingZh: string | null;
   whyNowZh: string | null;
   primaryReason: SelectionReason;
   supportingReasons: SelectionReason[];
@@ -47,6 +47,30 @@ export type SelectionResponse = {
   suppressedCount: number;
   provenance: Record<string, unknown>;
   code: string | null;
+  currentGeneration: string | null;
+  latestAttemptGeneration: string | null;
+  recallCount: number;
+  profileReadyCount: number;
+  profileReboundCount: number;
+  profileRebuiltCount: number;
+  retryableFailureCount: number;
+  permanentFailureCount: number;
+  profileCoverage: number;
+  assessmentCoverage: number;
+  systemicFailure: boolean;
+  safeFailureCodes: string[];
+  nextRetryAt: string | null;
+  productionReady?: false;
+  reviewable?: boolean;
+  shadowReviewState?: 'ready' | 'empty' | 'incomplete' | 'invalid' | null;
+  shadowReviewGeneration?: string | null;
+  candidateUniverseCount?: number;
+  healthyProfileCount?: number;
+  unresolvedProfileCount?: number;
+  cohortSize?: number;
+  cohortAssessed?: number;
+  previewCount?: number;
+  providerBudget?: { limit: number; attempted: number; remaining: number; [key: string]: unknown } | null;
 };
 
 export type SelectionEvidence = {
@@ -129,7 +153,7 @@ export function parseSelectionCard(value: unknown): SelectionCard {
     || !validGitHubUrl(value.htmlUrl, value.repository)
     || typeof value.identitySummaryZh !== 'string' || value.identitySummaryZh.length < 4
     || !nullableString(value.corePositioningZh)
-    || typeof value.whyWorthSeeingZh !== 'string' || value.whyWorthSeeingZh.length < 8
+    || (value.whyWorthSeeingZh !== null && (typeof value.whyWorthSeeingZh !== 'string' || value.whyWorthSeeingZh.length < 8))
     || !nullableString(value.whyNowZh)
     || !REASONS.has(value.primaryReason as SelectionReason)
     || !strings(value.supportingReasons) || value.supportingReasons.some((item) => !REASONS.has(item as SelectionReason))
@@ -151,7 +175,7 @@ export function parseSelectionCard(value: unknown): SelectionCard {
 export function parseSelectionResponse(value: unknown): SelectionResponse {
   if (!record(value)
     || value.mode !== 'shadow'
-    || !['ready', 'empty', 'stale', 'not_configured', 'invalid'].includes(String(value.status))
+    || !['ready', 'empty', 'degraded', 'stale', 'not_configured', 'invalid'].includes(String(value.status))
     || value.state !== value.status
     || !nullableString(value.generation)
     || !nullableString(value.sourceObservation)
@@ -167,15 +191,47 @@ export function parseSelectionResponse(value: unknown): SelectionResponse {
     || !Number.isSafeInteger(value.publishedCount) || Number(value.publishedCount) < 0
     || !Number.isSafeInteger(value.suppressedCount) || Number(value.suppressedCount) < 0
     || !record(value.provenance)
-    || !nullableString(value.code)) {
+    || !nullableString(value.code)
+    || !nullableString(value.currentGeneration)
+    || !nullableString(value.latestAttemptGeneration)
+    || !Number.isSafeInteger(value.recallCount) || Number(value.recallCount) < 0
+    || !Number.isSafeInteger(value.profileReadyCount) || Number(value.profileReadyCount) < 0
+    || !Number.isSafeInteger(value.profileReboundCount) || Number(value.profileReboundCount) < 0
+    || !Number.isSafeInteger(value.profileRebuiltCount) || Number(value.profileRebuiltCount) < 0
+    || !Number.isSafeInteger(value.retryableFailureCount) || Number(value.retryableFailureCount) < 0
+    || !Number.isSafeInteger(value.permanentFailureCount) || Number(value.permanentFailureCount) < 0
+    || typeof value.profileCoverage !== 'number' || value.profileCoverage < 0 || value.profileCoverage > 1
+    || typeof value.assessmentCoverage !== 'number' || value.assessmentCoverage < 0 || value.assessmentCoverage > 1
+    || typeof value.systemicFailure !== 'boolean'
+    || !strings(value.safeFailureCodes)
+    || !nullableString(value.nextRetryAt)) {
     throw new Error('rardar_selection_response_invalid');
   }
   const items = value.items.map(parseSelectionCard);
+  if (value.shadowReviewState != null) {
+    const reviewable = ['ready', 'empty'].includes(String(value.shadowReviewState));
+    if (!['ready', 'empty', 'incomplete', 'invalid'].includes(String(value.shadowReviewState))
+      || value.productionReady !== false || value.state !== 'degraded'
+      || value.currentGeneration !== null || value.generation !== value.shadowReviewGeneration
+      || value.cohortSize !== 16 || value.reviewable !== reviewable
+      || !Number.isSafeInteger(value.cohortAssessed) || Number(value.cohortAssessed) < 0 || Number(value.cohortAssessed) > 16
+      || (reviewable && value.cohortAssessed !== 16)
+      || !Number.isSafeInteger(value.healthyProfileCount) || !Number.isSafeInteger(value.unresolvedProfileCount)
+      || Number(value.healthyProfileCount) + Number(value.unresolvedProfileCount) !== value.recallCount
+      || items.length > 6 || value.previewCount !== items.length
+      || (value.shadowReviewState === 'ready') !== (items.length > 0)
+      || !record(value.providerBudget) || value.providerBudget.limit !== 40
+      || !Number.isSafeInteger(value.providerBudget.attempted) || Number(value.providerBudget.attempted) > 40
+      || Number(value.providerBudget.attempted) < 0) {
+      throw new Error('rardar_shadow_response_invalid');
+    }
+  }
   if (items.length > 20
     || new Set(items.map((item) => item.githubRepositoryId)).size !== items.length
     || (value.status === 'ready' && (!value.generation || items.length === 0))
     || (value.status === 'stale' && !value.generation)
-    || (value.status === 'empty' && (!value.generation || items.length !== 0))) {
+    || (value.status === 'empty' && (!value.generation || items.length !== 0))
+    || (value.status === 'degraded' && !value.latestAttemptGeneration)) {
     throw new Error('rardar_selection_response_invalid');
   }
   return { ...value, items } as SelectionResponse;
@@ -191,7 +247,7 @@ export async function loadSelection(
       headers: { Accept: 'application/json' },
     });
     const parsed = parseSelectionResponse(await response.json());
-    if (response.ok && ['ready', 'empty', 'stale'].includes(parsed.status)) {
+    if (response.ok && ['ready', 'empty', 'degraded', 'stale'].includes(parsed.status)) {
       return { kind: 'published', selection: parsed };
     }
     if (parsed.status === 'not_configured') {

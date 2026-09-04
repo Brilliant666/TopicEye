@@ -14,6 +14,7 @@ from app.integrations.rardar.selection import build_selection, selection_input_d
 from app.integrations.rardar.selection_serving import (
     SelectionServingError,
     SelectionServingLoader,
+    artifact_activation_state,
     build_selection_serving,
     install_selection_serving,
     rollback_selection,
@@ -31,6 +32,7 @@ async def rebuild(
     recall_limit: int = 48,
     timeout_seconds: int = _DEFAULT_BUILD_TIMEOUT_SECONDS,
     report_stage: StageReporter | None = None,
+    force_retryable: bool = False,
 ) -> dict[str, object]:
     report = report_stage or (lambda _stage: None)
     target = target.resolve()
@@ -53,7 +55,11 @@ async def rebuild(
         if exc.code != "rardar_selection_not_configured":
             raise
     else:
-        if active.inputDigest == expected_input:
+        if (
+            active.inputDigest == expected_input
+            and artifact_activation_state(active) in {"ready", "empty"}
+            and not force_retryable
+        ):
             report("complete")
             return {
                 "status": "healthy",
@@ -65,6 +71,31 @@ async def rebuild(
                 "githubRequests": 0,
                 "publishedCount": active.publishedCount,
             }
+    if not force_retryable and hasattr(loader, "load_latest_attempt_with_etag"):
+        try:
+            latest_snapshot, _etag = loader.load_latest_attempt_with_etag()
+            latest_artifact = loader.load_artifact(latest_snapshot.selectionGenerationId)
+        except SelectionServingError:
+            pass
+        else:
+            retry_deferred = latest_snapshot.nextRetryAt is not None and latest_snapshot.nextRetryAt > datetime.now(UTC)
+            if (
+                artifact_activation_state(latest_artifact) == "degraded"
+                and latest_artifact.inputDigest == expected_input
+                and retry_deferred
+            ):
+                report("complete")
+                return {
+                    "status": "degraded",
+                    "state": "degraded",
+                    "selectionGenerationId": latest_artifact.selectionGenerationId,
+                    "sourceObservationSetId": latest_artifact.sourceObservationSetId,
+                    "created": False,
+                    "changed": False,
+                    "modelCalls": 0,
+                    "githubRequests": 0,
+                    "publishedCount": 0,
+                }
     report("selection_build")
     try:
         built = await asyncio.wait_for(
@@ -73,6 +104,7 @@ async def rebuild(
                 cache_root=cache_root,
                 recall_limit=recall_limit,
                 model_route_identity=route_before,
+                force_retryable=force_retryable,
             ),
             timeout=timeout_seconds,
         )
@@ -94,8 +126,10 @@ async def rebuild(
     report("serving_validation")
     validated = loader.validate_generation(installed.selection_generation_id)
     report("complete")
+    state = artifact_activation_state(validated)
     return {
-        "status": "healthy",
+        "status": "healthy" if state in {"ready", "empty"} else "degraded",
+        "state": state,
         "selectionGenerationId": installed.selection_generation_id,
         "sourceObservationSetId": installed.source_observation_set_id,
         "created": installed.created,
@@ -107,28 +141,38 @@ async def rebuild(
 
 
 def status(target: Path) -> dict[str, object]:
+    loader = SelectionServingLoader(target.resolve())
     try:
-        artifact = SelectionServingLoader(target.resolve()).validate_generation()
+        snapshot, _etag = loader.load_latest_attempt_with_etag()
+        artifact = loader.validate_generation(snapshot.selectionGenerationId)
     except SelectionServingError as exc:
         if exc.code != "rardar_selection_not_configured":
-            raise
-        return {
-            "mode": "shadow",
-            "status": "healthy",
-            "state": "not_configured",
-            "rawGenerationId": None,
-            "servingGenerationId": None,
-            "eligibleCount": 0,
-            "recalledCount": 0,
-            "selectedCount": 0,
-            "publishedCount": 0,
-            "failedCount": 0,
-            "nextAction": "run build-selection",
-        }
+            try:
+                artifact = loader.validate_generation()
+            except SelectionServingError:
+                raise exc from None
+            state = artifact_activation_state(artifact)
+            snapshot = None
+        else:
+            return {
+                "mode": "shadow",
+                "status": "healthy",
+                "state": "not_configured",
+                "rawGenerationId": None,
+                "servingGenerationId": None,
+                "eligibleCount": 0,
+                "recalledCount": 0,
+                "selectedCount": 0,
+                "publishedCount": 0,
+                "failedCount": 0,
+                "nextAction": "run build-selection",
+            }
+    else:
+        state = artifact_activation_state(artifact)
     return {
         "mode": "shadow",
-        "status": "healthy",
-        "state": "empty" if artifact.publishedCount == 0 else "ready",
+        "status": "healthy" if state in {"ready", "empty"} else "degraded",
+        "state": state,
         "selectionGenerationId": artifact.selectionGenerationId,
         "rawGenerationId": artifact.selectionGenerationId,
         "servingGenerationId": artifact.selectionGenerationId,
@@ -142,7 +186,18 @@ def status(target: Path) -> dict[str, object]:
         "selectedCount": artifact.decisionCounts.get("SELECT_NOW", 0),
         "publishedCount": artifact.publishedCount,
         "failedCount": sum(artifact.failureSummary.values()),
-        "nextAction": "review local Discover" if artifact.publishedCount else "review empty selection evidence",
+        "profileReadyCount": artifact.profileReadyCount,
+        "profileCoverage": artifact.profileCoverage,
+        "systemicFailureCodes": artifact.systemicFailureCodes,
+        "currentEligible": artifact.currentEligible,
+        "nextRetryAt": snapshot.nextRetryAt.isoformat() if snapshot and snapshot.nextRetryAt else None,
+        "nextAction": (
+            "review local Discover"
+            if state == "ready"
+            else "review empty selection evidence"
+            if state == "empty"
+            else "retry recoverable profile failures"
+        ),
         "modelCalls": artifact.usage.modelCalls,
         "githubRequests": artifact.usage.githubRequests,
     }
@@ -160,6 +215,11 @@ def main() -> int:
         default=_DEFAULT_BUILD_TIMEOUT_SECONDS,
         choices=range(60, 43201),
         metavar="60..43200",
+    )
+    parser.add_argument(
+        "--retry-retryable-now",
+        action="store_true",
+        help="Explicitly retry bounded transient profile failures before their next retry time",
     )
     arguments = parser.parse_args()
 
@@ -181,6 +241,7 @@ def main() -> int:
                     recall_limit=arguments.recall_limit,
                     timeout_seconds=arguments.timeout_seconds,
                     report_stage=report_stage,
+                    force_retryable=arguments.retry_retryable_now,
                 )
             )
         elif arguments.command == "status":

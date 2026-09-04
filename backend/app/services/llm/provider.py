@@ -204,6 +204,11 @@ async def call_llm_with_metadata(
     )
     cached = cache.get(messages, temperature, max_tokens, model=cache_scope)
     if cached is not None:
+        from app.services.llm.provider_budget import execution_budget
+
+        budget = execution_budget(scene)
+        if budget is not None:
+            budget[0].record("cache_hit", budget[1])
         return cached, {
             "cache_hit": True,
             "routing_group": routing_group,

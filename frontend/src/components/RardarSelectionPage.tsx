@@ -99,6 +99,25 @@ export default function RardarSelectionPage({ result }: { result: SelectionLoadR
           <p>仍展示最近一次完整验证的 Selection；不会用旧 momentum 列表或实时请求补齐。</p>
         </section>
       )}
+      {selection.shadowReviewState != null && (
+        <section className={styles.selectionState} data-testid="selection-shadow-review">
+          <Radar size={22} />
+          <h2>{selection.reviewable ? '本地 Shadow 样本 · 可评审' : '本地 Shadow 样本 · 尚未完成'}</h2>
+          <p>候选全集 {selection.candidateUniverseCount}，宽召回 {selection.recallCount}。完整精选仍处于 degraded；以下仅是固定 {selection.cohortSize} 项体验样本，不是全部候选的最终精选，不可用于 Production。</p>
+          <span>{selection.healthyProfileCount}/{selection.recallCount} 项画像已就绪 · {selection.unresolvedProfileCount} 项仍等待画像恢复</span>
+          <span>Cohort {selection.cohortAssessed}/{selection.cohortSize} 已评估 · {selection.items.length} 项预览 · Provider {selection.providerBudget?.attempted}/{selection.providerBudget?.limit}</span>
+        </section>
+      )}
+      {selection.status === 'degraded' && selection.shadowReviewState == null && (
+        <section className={styles.selectionState} data-testid="selection-degraded">
+          <Radar size={22} />
+          <h2>正在恢复最新画像</h2>
+          <p>{selection.items.length > 0
+            ? '最新一轮画像覆盖不足，本页暂时展示上一份健康精选。'
+            : '项目画像覆盖不足，本轮精选结果尚未发布；这不代表当前没有值得看的项目。'}</p>
+          <span>{selection.profileReadyCount}/{selection.recallCount} 项画像已就绪</span>
+        </section>
+      )}
       <section className={styles.selectionFilters} aria-label="值得看项目筛选">
         <div><Filter size={15} /><strong>方向</strong></div>
         <nav aria-label="项目方向">
@@ -122,7 +141,19 @@ export default function RardarSelectionPage({ result }: { result: SelectionLoadR
         <div><p>Curated stream</p><h2>本轮值得看的项目</h2></div>
         <span>{filtered.length} 个结果 · 不公开排名</span>
       </div>
-      {filtered.length === 0 ? (
+      {selection.shadowReviewState === 'empty' ? (
+        <section className={styles.selectionState} data-testid="selection-shadow-empty">
+          <Eye size={24} /><h2>本轮 16 项样本没有通过即时精选的项目</h2><p>这是完整、可评审的空结果，不代表全部候选都不值得看，也不会用热度候选补齐。</p>
+        </section>
+      ) : selection.shadowReviewState === 'incomplete' || selection.shadowReviewState === 'invalid' ? (
+        <section className={styles.selectionState} data-testid="selection-shadow-incomplete">
+          <Eye size={24} /><h2>本轮样本尚不可评审</h2><p>样本执行或完整性门禁尚未通过；这不是有效空结果，也不会补位或自动恢复其他画像。</p>
+        </section>
+      ) : selection.status === 'degraded' && selection.items.length === 0 ? (
+        <section className={styles.selectionState} data-testid="selection-degraded-empty">
+          <Eye size={24} /><h2>最新精选尚未发布</h2><p>系统会在画像覆盖恢复并通过完整门禁后再发布。</p>
+        </section>
+      ) : filtered.length === 0 ? (
         <section className={styles.selectionState}><Eye size={24} /><h2>当前筛选没有项目</h2><p>这是有效的空结果，不会用热度候选补齐。</p></section>
       ) : (
         <section className={styles.selectionGrid} aria-label="Rardar 值得看精选">
@@ -191,7 +222,7 @@ function SelectionCardView({ project, generation }: { project: SelectionCard; ge
       <h3><Link href={detailHref}>{project.repository}<ArrowRight size={15} /></Link></h3>
       <p className={styles.selectionIdentity}>{project.identitySummaryZh}</p>
       {project.corePositioningZh && <p className={styles.selectionPositioning}>{project.corePositioningZh}</p>}
-      <section className={styles.selectionWhy}><strong>为什么值得看</strong><p>{project.whyWorthSeeingZh}</p></section>
+      {project.whyWorthSeeingZh && <section className={styles.selectionWhy}><strong>为什么值得看</strong><p>{project.whyWorthSeeingZh}</p></section>}
       {project.whyNowZh && <section className={styles.selectionWhyNow}><Clock3 size={15} /><p>{project.whyNowZh}</p></section>}
       <div className={styles.selectionTags}>
         {project.supportingReasons.map((item) => <span key={item}>{reasonLabel(item)}</span>)}

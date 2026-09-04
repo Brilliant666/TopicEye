@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import stat
 import tempfile
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -26,6 +27,15 @@ import httpx
 from pydantic import BaseModel, ValidationError
 from pydantic_core import to_jsonable_python
 
+from app.integrations.rardar.meaningful_change import (
+    PROMPT_VERSION as CHANGE_PROMPT_VERSION,
+    SCHEMA_VERSION as CHANGE_SCHEMA_VERSION,
+    MeaningfulChangeContext,
+    change_context,
+    change_payload,
+    validate_change_result,
+    validate_context,
+)
 from app.integrations.rardar.schemas import ExactExplosionProject
 from app.integrations.rardar.selection_schemas import (
     MeaningfulChangeResult,
@@ -42,6 +52,7 @@ from app.integrations.rardar.selection_schemas import (
 )
 from app.integrations.rardar.selection_source import LoadedSelectionSource
 from app.integrations.rardar.serving_profiles import ProfileBuildResult, build_official_profiles
+from app.services.llm.provider_budget import budget_stage, execution_budget
 from app.services.llm.strict_json import StrictJSONError, loads_strict_json
 from app.services.rardar_llm_control import (
     RardarLLMError,
@@ -56,8 +67,8 @@ POLICY_VERSION = "worth-seeing-selection-v1"
 UNIVERSE_VERSION = "worth-seeing-universe-v1"
 VALUE_PROMPT_VERSION = "rardar-worth-seeing-gate-v4"
 VALUE_SCHEMA_VERSION = "rardar-worth-seeing-gate-schema-v4"
-TIMELINESS_PROMPT_VERSION = "rardar-worth-seeing-change-v3"
-TIMELINESS_SCHEMA_VERSION = "rardar-worth-seeing-change-schema-v3"
+TIMELINESS_PROMPT_VERSION = CHANGE_PROMPT_VERSION
+TIMELINESS_SCHEMA_VERSION = CHANGE_SCHEMA_VERSION
 COPY_PROMPT_VERSION = "rardar-worth-seeing-copy-v3"
 COPY_SCHEMA_VERSION = "rardar-worth-seeing-copy-schema-v2"
 RECALL_POLICY_VERSION = "worth-seeing-recall-v1"
@@ -68,7 +79,9 @@ PACKING_POLICY_VERSION = "worth-seeing-packing-v2"
 EVIDENCE_ALIAS_VERSION = "worth-seeing-evidence-alias-v1"
 PROTOCOL_VERSION = "prompt-json-local-validation-v1"
 RETRY_POLICY_VERSION = "format-only-retry-v1"
-PROFILE_EVIDENCE_POLICY_VERSION = "canonical-profile-cache-or-deterministic-v1"
+PROFILE_EVIDENCE_POLICY_VERSION = "evidence-content-profile-cache-v2"
+ACTIVATION_POLICY_VERSION = "worth-seeing-activation-v2"
+SYSTEMIC_FAILURE_POLICY_VERSION = "worth-seeing-systemic-failure-v1"
 
 _MAX_RECALL = 48
 _MAX_MODEL_CALLS = 120
@@ -299,6 +312,8 @@ def _contract_versions() -> dict[str, str]:
         "protocol": PROTOCOL_VERSION,
         "retryPolicy": RETRY_POLICY_VERSION,
         "profileEvidencePolicy": PROFILE_EVIDENCE_POLICY_VERSION,
+        "activationPolicy": ACTIVATION_POLICY_VERSION,
+        "systemicFailurePolicy": SYSTEMIC_FAILURE_POLICY_VERSION,
         "routingGroup": "rardar",
     }
 
@@ -320,11 +335,27 @@ def _cache_inventory_digest(cache_root: Path) -> str:
             raise SelectionBuildError("rardar_selection_cache_unsafe", "Selection cache contains a link")
         if stat.S_ISDIR(info.st_mode):
             continue
-        if not stat.S_ISREG(info.st_mode):
+        if not stat.S_ISREG(info.st_mode) or getattr(info, "st_nlink", 1) != 1 or info.st_size > 2 * 1024 * 1024:
             raise SelectionBuildError("rardar_selection_cache_unsafe", "Selection cache contains an unsafe entry")
         raw = path.read_bytes()
-        if len(raw) > 2 * 1024 * 1024:
-            raise SelectionBuildError("rardar_selection_cache_unsafe", "Selection cache entry is oversized")
+        after = os.lstat(path)
+        stable = (
+            info.st_dev,
+            info.st_ino,
+            info.st_size,
+            info.st_mtime_ns,
+            getattr(info, "st_nlink", 1),
+            getattr(info, "st_file_attributes", 0),
+        ) == (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+            getattr(after, "st_nlink", 1),
+            getattr(after, "st_file_attributes", 0),
+        )
+        if not stable or len(raw) != info.st_size:
+            raise SelectionBuildError("rardar_selection_cache_unsafe", "Selection cache changed while reading")
         inventory.append(
             {
                 "path": path.relative_to(cache_root).as_posix(),
@@ -712,6 +743,8 @@ async def _prompt_json(
     response_model: type[BaseModel],
     usage: _Usage,
     caller: LLMCaller,
+    format_retry: bool = True,
+    cache_identity: str | None = None,
 ) -> tuple[BaseModel | None, int, str | None]:
     schema = response_model.model_json_schema()
     schema_digest = _sha(_canonical_bytes(schema))
@@ -729,7 +762,7 @@ async def _prompt_json(
     ]
     attempts = 0
     failure = "non_json_output"
-    for attempt in range(2):
+    for attempt in range(2 if format_retry else 1):
         attempts += 1
         usage.reserve(scene)
         messages = list(base_messages)
@@ -746,17 +779,22 @@ async def _prompt_json(
                 }
             )
         try:
-            result = await caller(
-                scene=scene,
-                messages=messages,
-                reasoning_effort=effort,
-                cache_identity=schema_digest,
-            )
+            with budget_stage("format_retry") if attempt else nullcontext():
+                result = await caller(
+                    scene=scene,
+                    messages=messages,
+                    reasoning_effort=effort,
+                    cache_identity=cache_identity or schema_digest,
+                )
             usage.record(result)
             raw = result.content
             parsed = loads_strict_json(raw)
             return response_model.model_validate(parsed, strict=True), attempts, None
         except RardarLLMError as exc:
+            if exc.classification == "budget":
+                if exc.code == "provider_operation_attempt_limit":
+                    return None, attempts, exc.code
+                raise SelectionBuildError(exc.code, "Shared Provider execution budget rejected the attempt") from None
             code = {
                 "timeout": "provider_timeout",
                 "rate_limited": "provider_transport_failure",
@@ -806,6 +844,8 @@ async def _run_gate(
     evidence: list[SelectionEvidenceAlias],
     usage: _Usage,
     caller: LLMCaller,
+    *,
+    format_retry: bool = True,
 ) -> tuple[SelectionGateResult | None, int, str | None]:
     if not evidence:
         return None, 0, "weak_evidence"
@@ -816,6 +856,7 @@ async def _run_gate(
         response_model=SelectionGateResult,
         usage=usage,
         caller=caller,
+        format_retry=format_retry,
     )
     if value is None:
         return None, attempts, failure
@@ -887,6 +928,11 @@ async def _timeliness(
     evidence: list[SelectionEvidenceAlias],
     usage: _Usage,
     caller: LLMCaller,
+    *,
+    model_route_identity: str | None = None,
+    context: MeaningfulChangeContext | None = None,
+    format_retry: bool = True,
+    result_observer: Callable[[MeaningfulChangeResult], None] | None = None,
 ) -> tuple[SelectionTimeliness, int, str | None]:
     latest = candidate.lastObservedAt
     weak_signals: list[str] = []
@@ -913,13 +959,9 @@ async def _timeliness(
     change: MeaningfulChangeResult | None = None
     attempts = 0
     if evidence and _SUBSTANTIVE_CHANGE.search(" ".join(item.excerpt for item in evidence)):
-        payload = {
-            "task": "Judge whether the bounded release/revision evidence describes a meaningful developer-facing change.",
-            "repository": candidate.repository,
-            "evidence": [item.model_dump(mode="json") for item in evidence],
-            "promptVersion": TIMELINESS_PROMPT_VERSION,
-            "schemaVersion": TIMELINESS_SCHEMA_VERSION,
-        }
+        context = context or change_context(candidate, evidence, model_route_identity)
+        validate_context(context, candidate, evidence, model_route_identity)
+        payload = change_payload(candidate, evidence, context)
         value, attempts, failure = await _prompt_json(
             scene=RardarLLMScene.WORTH_SEEING_MEANINGFUL_CHANGE,
             effort=ReasoningEffort.HIGH,
@@ -927,6 +969,8 @@ async def _timeliness(
             response_model=MeaningfulChangeResult,
             usage=usage,
             caller=caller,
+            format_retry=format_retry,
+            cache_identity=context.cache_digest,
         )
         if value is None:
             return (
@@ -943,8 +987,10 @@ async def _timeliness(
                 failure,
             )
         change = MeaningfulChangeResult.model_validate(value, strict=True)
-        aliases = {item.evidenceId for item in evidence}
-        if not set(change.evidenceIds).issubset(aliases):
+        if result_observer is not None:
+            result_observer(change)
+        evidence_failure = validate_change_result(change, context, candidate, evidence, model_route_identity)
+        if evidence_failure:
             return (
                 SelectionTimeliness(
                     verdict="uncertain",
@@ -956,24 +1002,7 @@ async def _timeliness(
                     weakSignals=weak_signals,
                 ),
                 attempts,
-                "invalid_evidence_alias",
-            )
-        source_types = {item.sourceType for item in evidence if item.evidenceId in change.evidenceIds}
-        if (change.meaningfulRelease == "yes" and "release" not in source_types) or (
-            change.meaningfulUpdate == "yes" and "revision" not in source_types
-        ):
-            return (
-                SelectionTimeliness(
-                    verdict="uncertain",
-                    confidence="low",
-                    reasonCodes=["evidence_uncertain"],
-                    evidenceIds=[],
-                    meaningfulChange=None,
-                    strongSignals=[],
-                    weakSignals=weak_signals,
-                ),
-                attempts,
-                "wrong_assessment_evidence",
+                evidence_failure,
             )
         if change.meaningfulRelease == "yes" or change.meaningfulUpdate == "yes":
             return (
@@ -1196,8 +1225,9 @@ def _negative_control_candidate(index: int, text: str) -> SelectionCandidateFact
     )
 
 
-async def _negative_controls(usage: _Usage, caller: LLMCaller) -> list[str]:
-    controls = (
+def negative_control_cases() -> tuple[tuple[str, str], ...]:
+    """The six fixed controls already accepted with Selection v1; not a new study."""
+    return (
         (
             "out_of_product_scope",
             "A collection of celebrity wallpaper photographs with no developer or productivity use.",
@@ -1217,8 +1247,11 @@ async def _negative_controls(usage: _Usage, caller: LLMCaller) -> list[str]:
             "A personal status note with no code, workflow, reference, or actionable knowledge.",
         ),
     )
+
+
+async def _negative_controls(usage: _Usage, caller: LLMCaller) -> list[str]:
     failures: list[str] = []
-    for index, (name, text) in enumerate(controls, 1):
+    for index, (name, text) in enumerate(negative_control_cases(), 1):
         candidate = _negative_control_candidate(index, text)
         evidence = [
             SelectionEvidenceAlias(
@@ -1251,6 +1284,8 @@ async def _copy(
     collected: Any,
     usage: _Usage,
     caller: LLMCaller,
+    *,
+    format_retry: bool = True,
 ) -> tuple[SelectionCopyResult | None, int]:
     payload = {
         "task": (
@@ -1272,6 +1307,7 @@ async def _copy(
         response_model=SelectionCopyResult,
         usage=usage,
         caller=caller,
+        format_retry=format_retry,
     )
     if value is None:
         return None, attempts
@@ -1292,7 +1328,10 @@ async def build_selection(
     github_client: httpx.AsyncClient | None = None,
     recall_limit: int = _MAX_RECALL,
     model_route_identity: str | None = None,
+    force_retryable: bool = False,
 ) -> BuiltSelection:
+    if caller is call_rardar_prompt_json:
+        execution_budget(RardarLLMScene.WORTH_SEEING_GATE.value)
     if model_route_identity is None:
         model_route_identity = (
             await resolve_rardar_route_identity()
@@ -1327,15 +1366,18 @@ async def build_selection(
             profile_projects,
             source.source_observation_set_id,
             cache_root,
-            translate_top=0,
+            translate_top=recall_limit,
             concurrency=4,
             client=github_client,
-            allow_model_generation=False,
+            allow_model_generation=caller is call_rardar_prompt_json,
+            model_route_identity=model_route_identity,
+            force_retryable=force_retryable,
         )
-        if profiles.translation_calls:
+        usage.model_calls += profiles.translation_calls
+        if usage.model_calls > _MAX_MODEL_CALLS:
             raise SelectionBuildError(
-                "rardar_selection_untracked_profile_call",
-                "Selection profile evidence unexpectedly invoked the model",
+                "rardar_selection_model_budget_exhausted",
+                "Profile recovery exceeded the shared Selection model-call budget",
             )
         assessments: list[SelectionAssessment] = []
         release_requests = 0
@@ -1350,7 +1392,7 @@ async def build_selection(
                 value_evidence = []
                 gate = None
                 gate_attempts = 0
-                gate_failure = "profile_unavailable"
+                gate_failure = collected.profile_failure_code or "profile_unknown_failure"
             else:
                 try:
                     value_evidence = _value_evidence(candidate, collected)
@@ -1372,6 +1414,7 @@ async def build_selection(
                 timeliness_evidence,
                 usage,
                 caller,
+                model_route_identity=model_route_identity,
             )
             failure = gate_failure or timeliness_failure
             decision = semantic_decision(gate, timeliness, failure)
@@ -1474,14 +1517,118 @@ async def build_selection(
         model_route_identity=model_route_identity,
         recall_limit=recall_limit,
     )
+    source_fact_digest = _sha(
+        _canonical_bytes(
+            {
+                "sourceObservationSetId": source.source_observation_set_id,
+                "sourceManifestSha256": source.manifest_sha256,
+                "sourceInventorySha256": source.inventory_digest,
+                "sourcePointerSha256": _sha(source.pointer_raw),
+                "todayGenerationId": source.today_generation_id,
+                "todayExplosionSha256": source.today_explosion_sha256,
+                "recallLimit": recall_limit,
+                **identities,
+            }
+        )
+    )
+    profile_revision_set_digest = _sha(
+        _canonical_bytes(
+            {
+                str(identifier): collected.profile_revision or "unavailable"
+                for identifier, collected in sorted(profiles.profiles.items())
+            }
+        )
+    )
+    profile_binding_set_digest = _sha(
+        _canonical_bytes(
+            {
+                str(identifier): collected.profile_binding_digest or "unavailable"
+                for identifier, collected in sorted(profiles.profiles.items())
+            }
+        )
+    )
+    assessment_result_digest = _sha(_canonical_bytes([item.model_dump(mode="json") for item in copied]))
+    failure_resolution_digest = _sha(
+        _canonical_bytes(
+            {
+                str(identifier): {
+                    "state": collected.profile_cache_state,
+                    "failureCode": collected.profile_failure_code,
+                    "retryable": collected.profile_failure_retryable,
+                    "profileRevision": collected.profile_revision,
+                }
+                for identifier, collected in sorted(profiles.profiles.items())
+            }
+        )
+    )
     seed = {
         "inputDigest": input_digest,
-        "assessments": [item.model_dump(mode="json") for item in copied],
+        "sourceFactDigest": source_fact_digest,
+        "profileRevisionSetDigest": profile_revision_set_digest,
+        "profileBindingSetDigest": profile_binding_set_digest,
+        "assessmentResultDigest": assessment_result_digest,
+        "failureResolutionDigest": failure_resolution_digest,
+        "contracts": _contract_versions(),
         "routes": sorted(usage.routes),
     }
     generation_id = f"{generated_at.strftime('%Y%m%dT%H%M%S%fZ')}-{_sha(_canonical_bytes(seed))[:12]}"
     non_momentum = sum(item.recallChannels != ["momentum"] for item in recalled)
     momentum_only = len(recalled) - non_momentum
+    profile_ready_count = sum(value.profile_failure_code is None for value in profiles.profiles.values())
+    profile_rebound_count = sum(
+        value.profile_cache_state in {"rebound", "migrated"} for value in profiles.profiles.values()
+    )
+    profile_rebuilt_count = sum(value.profile_cache_state == "rebuilt" for value in profiles.profiles.values())
+    profile_retryable_failure_count = sum(
+        value.profile_failure_code is not None and value.profile_failure_retryable
+        for value in profiles.profiles.values()
+    )
+    profile_permanent_unavailable_count = sum(
+        value.profile_failure_code is not None and not value.profile_failure_retryable
+        for value in profiles.profiles.values()
+    )
+    gate_assessed_count = sum(item.gate is not None for item in copied)
+    semantic_resolved_count = sum(
+        item.semanticDecision != "UNCERTAIN"
+        or (
+            profiles.profiles[item.candidate.githubRepositoryId].profile_failure_code is not None
+            and not profiles.profiles[item.candidate.githubRepositoryId].profile_failure_retryable
+        )
+        for item in copied
+    )
+    unresolved_count = len(copied) - semantic_resolved_count
+    profile_coverage = profile_ready_count / len(recalled) if recalled else 1.0
+    assessment_coverage = gate_assessed_count / profile_ready_count if profile_ready_count else 0.0
+    failure_histogram = {
+        code: sum(item.failureCode == code for item in copied)
+        for code in sorted({item.failureCode for item in copied if item.failureCode})
+    }
+    retryable_histogram: dict[str, int] = {}
+    for collected in profiles.profiles.values():
+        if collected.profile_failure_code is not None and collected.profile_failure_retryable:
+            retryable_histogram[collected.profile_failure_code] = (
+                retryable_histogram.get(collected.profile_failure_code, 0) + 1
+            )
+    systemic_threshold = max(5, math.ceil(len(recalled) * 0.20))
+    systemic_failure_codes = sorted(code for code, count in retryable_histogram.items() if count >= systemic_threshold)
+    published_count = sum(item.publicationDisposition == "publish" for item in copied)
+    healthy_gate = (
+        profile_coverage >= 0.95
+        and gate_assessed_count == profile_ready_count
+        and not systemic_failure_codes
+        and not negative_failures
+    )
+    if published_count > 0 and healthy_gate:
+        activation_state = "ready"
+    elif (
+        published_count == 0
+        and healthy_gate
+        and profile_retryable_failure_count == 0
+        and semantic_resolved_count == len(recalled)
+    ):
+        activation_state = "empty"
+    else:
+        activation_state = "degraded"
     base = {
         "schemaVersion": 1,
         "policyVersion": POLICY_VERSION,
@@ -1516,7 +1663,7 @@ async def build_selection(
         "metadataIncompleteCount": universe_summary.metadataIncomplete,
         "recalledCount": len(recalled),
         "assessedCount": len(copied),
-        "publishedCount": sum(item.publicationDisposition == "publish" for item in copied),
+        "publishedCount": published_count,
         "todayExcludedCount": universe_summary.todayTop20Excluded,
         "invalidExcludedCount": universe_summary.invalidIdentity + universe_summary.metadataIncomplete,
         "nonMomentumRecallCount": non_momentum,
@@ -1537,6 +1684,27 @@ async def build_selection(
         },
         "assessments": copied,
         "usage": usage.summary(profiles.github_requests + release_requests),
+        "profileCacheIdentityVersion": 2,
+        "sourceFactDigest": source_fact_digest,
+        "profileRevisionSetDigest": profile_revision_set_digest,
+        "profileBindingSetDigest": profile_binding_set_digest,
+        "assessmentResultDigest": assessment_result_digest,
+        "failureResolutionDigest": failure_resolution_digest,
+        "profileReadyCount": profile_ready_count,
+        "profileReboundCount": profile_rebound_count,
+        "profileRebuiltCount": profile_rebuilt_count,
+        "profileRetryableFailureCount": profile_retryable_failure_count,
+        "profilePermanentUnavailableCount": profile_permanent_unavailable_count,
+        "gateAssessedCount": gate_assessed_count,
+        "semanticResolvedCount": semantic_resolved_count,
+        "unresolvedCount": unresolved_count,
+        "profileCoverage": round(profile_coverage, 6),
+        "assessmentCoverage": round(assessment_coverage, 6),
+        "failureHistogram": failure_histogram,
+        "systemicFailureCodes": systemic_failure_codes,
+        "state": activation_state,
+        "currentEligible": activation_state in {"ready", "empty"},
+        "latestAttemptGeneration": generation_id,
     }
     base["payloadDigest"] = _sha(_canonical_bytes(base))
     artifact = SelectionArtifact.model_validate(base, strict=True)

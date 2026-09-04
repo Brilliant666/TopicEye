@@ -54,6 +54,19 @@ const selection: SelectionResponse = {
   suppressedCount: 0,
   provenance: { mode: 'shadow', sourceTodayGeneration: 'today-generation-1' },
   code: null,
+  currentGeneration: 'selection-generation-1',
+  latestAttemptGeneration: 'selection-generation-1',
+  recallCount: 1,
+  profileReadyCount: 1,
+  profileReboundCount: 0,
+  profileRebuiltCount: 1,
+  retryableFailureCount: 0,
+  permanentFailureCount: 0,
+  profileCoverage: 1,
+  assessmentCoverage: 1,
+  systemicFailure: false,
+  safeFailureCodes: [],
+  nextRetryAt: null,
 };
 
 const detail: SelectionProjectDetail = {
@@ -93,6 +106,48 @@ const detail: SelectionProjectDetail = {
 };
 
 describe('Rardar worth-seeing Selection', () => {
+  const shadow: SelectionResponse = {
+    ...selection, status: 'degraded', state: 'degraded', generation: 'shadow-123', currentGeneration: null,
+    latestAttemptGeneration: 'shadow-123', productionReady: false, reviewable: true,
+    shadowReviewState: 'ready', shadowReviewGeneration: 'shadow-123', candidateUniverseCount: 478,
+    recallCount: 48, profileReadyCount: 41, healthyProfileCount: 41, unresolvedProfileCount: 7,
+    cohortSize: 16, cohortAssessed: 16, previewCount: 1, providerBudget: { limit: 40, attempted: 28, remaining: 12 },
+  };
+
+  it('renders a reviewable cohort without claiming full recovery or production readiness', () => {
+    expect(parseSelectionResponse(shadow).reviewable).toBe(true);
+    const html = renderToStaticMarkup(<RardarSelectionPage result={{ kind: 'published', selection: shadow }} />);
+    expect(html).toContain('本地 Shadow 样本 · 可评审');
+    expect(html).toContain('7 项仍等待画像恢复');
+    expect(html).toContain('Provider 28/40');
+    expect(html).not.toContain('上一份健康精选');
+    expect(html).toContain('selectionGeneration=shadow-123');
+  });
+
+  it('distinguishes an empty completed cohort from incomplete full selection', () => {
+    const empty: SelectionResponse = { ...shadow, items: [], publishedCount: 0, previewCount: 0, shadowReviewState: 'empty' };
+    expect(parseSelectionResponse(empty).reviewable).toBe(true);
+    const html = renderToStaticMarkup(<RardarSelectionPage result={{ kind: 'published', selection: empty }} />);
+    expect(html).toContain('本轮 16 项样本没有通过即时精选的项目');
+    expect(html).not.toContain('系统会在画像覆盖恢复');
+    expect(() => parseSelectionResponse({ ...shadow, cohortAssessed: 15 })).toThrow();
+    expect(() => parseSelectionResponse({ ...shadow, productionReady: true })).toThrow();
+    expect(() => parseSelectionResponse({ ...shadow, providerBudget: { limit: 40, attempted: 41 } })).toThrow();
+  });
+
+  it.each(['incomplete', 'invalid'] as const)('keeps %s Shadow results non-reviewable without refill', (state) => {
+    const partial: SelectionResponse = {
+      ...shadow, items: [], publishedCount: 0, previewCount: 0,
+      cohortAssessed: 15, shadowReviewState: state, reviewable: false,
+    };
+    const parsed = parseSelectionResponse(partial);
+    const html = renderToStaticMarkup(<RardarSelectionPage result={{ kind: 'published', selection: parsed }} />);
+    expect(html).toContain('本轮样本尚不可评审');
+    expect(html).not.toContain('系统会在画像覆盖恢复');
+    expect(html).not.toContain('这是有效的空结果');
+    expect(html).not.toContain(card.repository);
+  });
+
   it('strictly parses one unranked Selection and rejects mixed identities', () => {
     expect(parseSelectionResponse(selection).items).toHaveLength(1);
     expect(() => parseSelectionResponse({ ...selection, items: [card, card] })).toThrow(
@@ -116,6 +171,89 @@ describe('Rardar worth-seeing Selection', () => {
       publishedCount: 0,
     };
     expect(parseSelectionResponse(staleEmpty).items).toEqual([]);
+  });
+
+  it('renders a legitimate empty result only after complete assessment', () => {
+    const empty = {
+      ...selection,
+      status: 'empty' as const,
+      state: 'empty' as const,
+      items: [],
+      categoryCounts: {},
+      primaryReasonCounts: {},
+      selectedCount: 0,
+      publishedCount: 0,
+    };
+    const html = renderToStaticMarkup(
+      <RardarSelectionPage result={{ kind: 'published', selection: empty }} />,
+    );
+    expect(html).toContain('这是有效的空结果');
+    expect(html).not.toContain('项目画像覆盖不足');
+  });
+
+  it('labels a degraded rebuild while retaining the last healthy items', () => {
+    const degraded = {
+      ...selection,
+      status: 'degraded' as const,
+      state: 'degraded' as const,
+      latestAttemptGeneration: 'selection-generation-degraded',
+      recallCount: 48,
+      profileReadyCount: 2,
+      retryableFailureCount: 46,
+      profileCoverage: 2 / 48,
+      assessmentCoverage: 1,
+      systemicFailure: true,
+      safeFailureCodes: ['profile_source_http_5xx'],
+      code: 'rardar_selection_degraded',
+    };
+    const parsed = parseSelectionResponse(degraded);
+    const html = renderToStaticMarkup(
+      <RardarSelectionPage result={{ kind: 'published', selection: parsed }} />,
+    );
+    expect(html).toContain('正在恢复最新画像');
+    expect(html).toContain('暂时展示上一份健康精选');
+    expect(html).toContain(card.repository);
+    expect(html).not.toContain('当前没有值得看的项目');
+  });
+
+  it('does not mislabel degraded-without-current as an empty selection', () => {
+    const degraded = {
+      ...selection,
+      status: 'degraded' as const,
+      state: 'degraded' as const,
+      generation: null,
+      currentGeneration: null,
+      latestAttemptGeneration: 'selection-generation-degraded',
+      items: [],
+      categoryCounts: {},
+      primaryReasonCounts: {},
+      selectedCount: 0,
+      publishedCount: 0,
+      recallCount: 48,
+      profileReadyCount: 2,
+      retryableFailureCount: 46,
+      profileCoverage: 2 / 48,
+      assessmentCoverage: 1,
+      systemicFailure: true,
+      safeFailureCodes: ['profile_source_http_5xx'],
+      code: 'rardar_selection_degraded',
+    };
+    const parsed = parseSelectionResponse(degraded);
+    const html = renderToStaticMarkup(
+      <RardarSelectionPage result={{ kind: 'published', selection: parsed }} />,
+    );
+    expect(html).toContain('本轮精选结果尚未发布');
+    expect(html).toContain('最新精选尚未发布');
+    expect(html).not.toContain('这是有效的空结果');
+  });
+
+  it('renders an integrity-safe invalid state without internal details', () => {
+    const html = renderToStaticMarkup(
+      <RardarSelectionPage result={{ kind: 'invalid', code: 'rardar_selection_invalid' }} />,
+    );
+    expect(html).toContain('精选数据未通过完整性验证');
+    expect(html).toContain('rardar_selection_invalid');
+    expect(html).not.toContain('Traceback');
   });
 
   it('renders a single stream with no public rank or confidence', () => {

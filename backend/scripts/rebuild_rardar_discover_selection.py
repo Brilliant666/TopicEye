@@ -30,6 +30,29 @@ StageReporter = Callable[[str], None]
 _DEFAULT_BUILD_TIMEOUT_SECONDS = 7200
 
 
+def _cache_replay_hits(artifact) -> tuple[int, int, int]:
+    profile_hits = sum(item.profileCacheState == "hit" for item in artifact.assessments)
+    gate_hits = sum(item.gate is not None and item.gateCacheHit for item in artifact.assessments)
+    copy_hits = sum(item.copyResult is not None and item.copyCacheHit for item in artifact.assessments)
+    expected_profile_hits = (
+        artifact.profileReadyCount if artifact.profileReadyCount is not None else artifact.assessedCount
+    )
+    if (
+        artifact.usage.modelCalls != 0
+        or profile_hits != expected_profile_hits
+        or gate_hits != artifact.gateAssessedCount
+        or any(
+            item.publicationDisposition == "publish" and (item.copyResult is None or not item.copyCacheHit)
+            for item in artifact.assessments
+        )
+    ):
+        raise SelectionServingError(
+            "rardar_selection_cache_verification_miss",
+            "Cache verification found a per-project Profile, Value, or copy miss",
+        )
+    return profile_hits, gate_hits, copy_hits
+
+
 async def rebuild(
     target: Path,
     *,
@@ -159,22 +182,7 @@ async def rebuild(
                 "rardar_selection_cache_verification_mismatch",
                 "Per-project cache replay did not reproduce the active Selection inputs and results",
             )
-        profile_hits = sum(item.profileCacheState == "hit" for item in built.artifact.assessments)
-        gate_hits = sum(item.gate is not None and item.gateCacheHit for item in built.artifact.assessments)
-        copy_hits = sum(item.copyResult is not None and item.copyCacheHit for item in built.artifact.assessments)
-        if (
-            built.artifact.usage.modelCalls != 0
-            or profile_hits != built.artifact.assessedCount
-            or gate_hits != built.artifact.gateAssessedCount
-            or any(
-                item.publicationDisposition == "publish" and (item.copyResult is None or not item.copyCacheHit)
-                for item in built.artifact.assessments
-            )
-        ):
-            raise SelectionServingError(
-                "rardar_selection_cache_verification_miss",
-                "Cache verification found a per-project Profile, Value, or copy miss",
-            )
+        profile_hits, gate_hits, copy_hits = _cache_replay_hits(built.artifact)
         report("complete")
         return {
             "status": "healthy",

@@ -887,6 +887,39 @@ def _profile_project(candidate: SelectionCandidateFacts, rank: int) -> ExactExpl
     )
 
 
+def _activation_gate(
+    *,
+    execution_mode: str,
+    resolution_count: int,
+    profile_ready_count: int,
+    profile_retryable_failure_count: int,
+    profile_permanent_unavailable_count: int,
+    gate_assessed_count: int,
+    semantic_resolved_count: int,
+    profile_coverage: float,
+    systemic_failure_codes: list[str],
+    negative_failures: list[str],
+    copy_complete: bool,
+) -> bool:
+    """Permit one explicit, resolved small-batch miss without weakening full builds."""
+
+    isolated_small_batch_failure = (
+        execution_mode == "small_batch"
+        and resolution_count > 1
+        and profile_ready_count == resolution_count - 1
+        and profile_retryable_failure_count == 0
+        and profile_permanent_unavailable_count == 1
+        and semantic_resolved_count == resolution_count
+    )
+    return (
+        (profile_coverage >= 0.95 or isolated_small_batch_failure)
+        and gate_assessed_count == profile_ready_count
+        and not systemic_failure_codes
+        and not negative_failures
+        and copy_complete
+    )
+
+
 def _contains_popularity_fact(value: str) -> bool:
     return any(pattern.search(value) for pattern in _POPULARITY_FACTS)
 
@@ -2015,21 +2048,27 @@ async def build_selection(
     systemic_threshold = max(5, math.ceil(len(processed) * 0.20))
     systemic_failure_codes = sorted(code for code, count in retryable_histogram.items() if count >= systemic_threshold)
     published_count = sum(item.publicationDisposition == "publish" for item in copied)
-    healthy_gate = (
-        profile_coverage >= 0.95
-        and gate_assessed_count == profile_ready_count
-        and not systemic_failure_codes
-        and not negative_failures
-        and (
+    activation_gate = _activation_gate(
+        execution_mode="small_batch" if process_candidate_ids is not None else "full",
+        resolution_count=len(processed),
+        profile_ready_count=profile_ready_count,
+        profile_retryable_failure_count=profile_retryable_failure_count,
+        profile_permanent_unavailable_count=profile_permanent_unavailable_count,
+        gate_assessed_count=gate_assessed_count,
+        semantic_resolved_count=semantic_resolved_count,
+        profile_coverage=profile_coverage,
+        systemic_failure_codes=systemic_failure_codes,
+        negative_failures=negative_failures,
+        copy_complete=(
             process_candidate_ids is None
             or all(item.publicationDisposition != "publish" or item.copyResult is not None for item in copied)
-        )
+        ),
     )
-    if published_count > 0 and healthy_gate:
+    if published_count > 0 and activation_gate:
         activation_state = "ready"
     elif (
         published_count == 0
-        and healthy_gate
+        and activation_gate
         and profile_retryable_failure_count == 0
         and semantic_resolved_count == len(processed)
     ):

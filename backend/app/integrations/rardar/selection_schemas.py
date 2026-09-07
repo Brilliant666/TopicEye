@@ -630,8 +630,16 @@ class SelectionArtifact(StrictSelectionModel):
             )
             if self.systemicFailureCodes != expected_systemic:
                 raise ValueError("selection systemic failure classification is inconsistent")
-            healthy_gate = (
-                self.profileCoverage >= 0.95
+            isolated_small_batch_failure = (
+                self.executionMode == "small_batch"
+                and resolution_count > 1
+                and self.profileReadyCount == resolution_count - 1
+                and self.profileRetryableFailureCount == 0
+                and self.profilePermanentUnavailableCount == 1
+                and self.semanticResolvedCount == resolution_count
+            )
+            activation_gate = (
+                (self.profileCoverage >= 0.95 or isolated_small_batch_failure)
                 and self.gateAssessedCount == self.profileReadyCount
                 and not self.systemicFailureCodes
                 and not self.negativeControlFailures
@@ -643,11 +651,11 @@ class SelectionArtifact(StrictSelectionModel):
                     )
                 )
             )
-            if self.publishedCount > 0 and healthy_gate:
+            if self.publishedCount > 0 and activation_gate:
                 expected_state = "ready"
             elif (
                 self.publishedCount == 0
-                and healthy_gate
+                and activation_gate
                 and self.profileRetryableFailureCount == 0
                 and self.semanticResolvedCount == resolution_count
             ):

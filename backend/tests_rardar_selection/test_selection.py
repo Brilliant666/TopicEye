@@ -20,6 +20,7 @@ from app.integrations.rardar import selection_serving as serving_module
 from app.integrations.rardar.selection import (
     BuiltSelection,
     SelectionBuildError,
+    _activation_gate,
     _gate_payload,
     _negative_controls,
     _pack,
@@ -41,6 +42,7 @@ from app.integrations.rardar.selection_schemas import (
     SelectionArtifact,
     SelectionAssessment,
     SelectionCandidateFacts,
+    SelectionCopyResult,
     SelectionEvidenceAlias,
     SelectionGateResult,
     SelectionServingSnapshot,
@@ -325,11 +327,21 @@ def _activation_artifact(
     permanent_count: int = 0,
     published_count: int = 0,
     retryable_code: str = "profile_source_timeout",
+    processed_count: int | None = None,
 ) -> SelectionArtifact:
-    assert ready_count + retryable_count + permanent_count == recall_count
+    resolution_count = processed_count if processed_count is not None else recall_count
+    assert ready_count + retryable_count + permanent_count == resolution_count
     assessments: list[SelectionAssessment] = []
     existing = built.artifact.assessments
-    for index in range(recall_count):
+    copy_template = SelectionCopyResult(
+        identitySummaryZh="一个提供可组合开发能力的工具。",
+        whyWorthSeeingZh="它提供了可以直接检查和复用的实现边界。",
+        whyNowZh=None,
+        reusableAssets=["SDK"],
+        bestFit=["开发者"],
+        evidenceIds=["E01"],
+    )
+    for index in range(resolution_count):
         item = existing[index] if index < len(existing) else _assessment(_candidate(tmp_path, 10_000 + index))
         if index < published_count:
             item = item.model_copy(
@@ -343,6 +355,7 @@ def _activation_artifact(
                     "valueFailureCode": None,
                     "timelinessFailureCode": None,
                     "copyFailureCode": None,
+                    "copyResult": item.copyResult or copy_template,
                     "rejectReason": None,
                 }
             )
@@ -381,6 +394,8 @@ def _activation_artifact(
                 }
             )
         assessments.append(item)
+    if processed_count is not None:
+        assert all(item.publicationDisposition != "publish" or item.copyResult is not None for item in assessments)
 
     decision_counts = {
         decision: sum(item.semanticDecision == decision for item in assessments)
@@ -394,14 +409,26 @@ def _activation_artifact(
         code: sum(item.failureCode == code for item in assessments)
         for code in sorted({item.failureCode for item in assessments if item.failureCode})
     }
-    systemic_threshold = max(5, (recall_count + 4) // 5)
+    systemic_threshold = max(5, (resolution_count + 4) // 5)
     systemic_codes = [retryable_code] if retryable_count >= systemic_threshold else []
-    coverage = round(ready_count / recall_count if recall_count else 1.0, 6)
-    healthy_gate = coverage >= 0.95 and not systemic_codes
+    coverage = round(ready_count / resolution_count if resolution_count else 1.0, 6)
     semantic_resolved = ready_count + permanent_count
-    if published_count and healthy_gate:
+    activation_gate = _activation_gate(
+        execution_mode="small_batch" if processed_count is not None else "full",
+        resolution_count=resolution_count,
+        profile_ready_count=ready_count,
+        profile_retryable_failure_count=retryable_count,
+        profile_permanent_unavailable_count=permanent_count,
+        gate_assessed_count=ready_count,
+        semantic_resolved_count=semantic_resolved,
+        profile_coverage=coverage,
+        systemic_failure_codes=systemic_codes,
+        negative_failures=[],
+        copy_complete=True,
+    )
+    if published_count and activation_gate:
         state = "ready"
-    elif not published_count and healthy_gate and not retryable_count and semantic_resolved == recall_count:
+    elif not published_count and activation_gate and not retryable_count and semantic_resolved == resolution_count:
         state = "empty"
     else:
         state = "degraded"
@@ -418,7 +445,7 @@ def _activation_artifact(
             "preExactCount": 0,
             "metadataIncompleteCount": 0,
             "recalledCount": recall_count,
-            "assessedCount": recall_count,
+            "assessedCount": resolution_count,
             "publishedCount": published_count,
             "todayExcludedCount": 0,
             "invalidExcludedCount": 0,
@@ -451,6 +478,18 @@ def _activation_artifact(
             "latestAttemptGeneration": generation,
         }
     )
+    if processed_count is not None:
+        processed_ids = [item.candidate.githubRepositoryId for item in assessments]
+        unprocessed_ids = [30_000 + index for index in range(recall_count - resolution_count)]
+        payload.update(
+            {
+                "executionMode": "small_batch",
+                "processedCount": resolution_count,
+                "recalledCandidateIds": [*processed_ids, *unprocessed_ids],
+                "processedCandidateIds": processed_ids,
+                "unprocessedCandidateIds": unprocessed_ids,
+            }
+        )
     payload["payloadDigest"] = "0" * 64
     canonical = dict(payload)
     canonical.pop("payloadDigest")
@@ -1023,6 +1062,67 @@ async def test_activation_policy_distinguishes_ready_empty_and_degraded(tmp_path
     assert invalid_model_output.profileRetryableFailureCount == 8
     assert invalid_model_output.profilePermanentUnavailableCount == 0
     assert invalid_model_output.state == "degraded"
+
+    isolated_small_batch_failure = _activation_artifact(
+        built,
+        tmp_path,
+        recall_count=7,
+        processed_count=6,
+        ready_count=5,
+        retryable_count=0,
+        permanent_count=1,
+        published_count=4,
+    )
+    assert isolated_small_batch_failure.state == "ready"
+    assert isolated_small_batch_failure.currentEligible is True
+    assert isolated_small_batch_failure.profileCoverage == 0.833333
+    isolated_built = BuiltSelection(
+        artifact=isolated_small_batch_failure,
+        profiles=built.profiles,
+        raw_bytes=serving_module._canonical_bytes(isolated_small_batch_failure),
+    )
+    isolated_serving = build_selection_serving(isolated_built)
+    isolated_snapshot = SelectionServingSnapshot.model_validate_json(
+        isolated_serving.files["serving/selection.json"],
+        strict=True,
+    )
+    assert isolated_snapshot.status == "ready"
+    assert isolated_snapshot.publishedCount == 4
+    assert isolated_snapshot.profileReadyCount == 5
+    assert isolated_snapshot.permanentFailureCount == 1
+    assert install_selection_serving(target, isolated_serving).current_changed is True
+    assert SelectionServingLoader(target).load_with_etag()[0].selectionGenerationId == (
+        isolated_small_batch_failure.selectionGenerationId
+    )
+
+    replay_assessments = [
+        item.model_copy(
+            update={
+                "profileCacheState": "hit" if item.failureCode is None else "unavailable",
+                "gateCacheHit": item.gate is not None,
+                "copyCacheHit": item.copyResult is not None,
+            }
+        )
+        for item in isolated_small_batch_failure.assessments
+    ]
+    replay_usage = isolated_small_batch_failure.usage.model_copy(update={"modelCalls": 0})
+    replay_artifact = isolated_small_batch_failure.model_copy(
+        update={"assessments": replay_assessments, "usage": replay_usage}
+    )
+    assert rebuild_module._cache_replay_hits(replay_artifact) == (5, 5, 4)
+
+    two_small_batch_failures = _activation_artifact(
+        built,
+        tmp_path,
+        recall_count=8,
+        processed_count=6,
+        ready_count=4,
+        retryable_count=0,
+        permanent_count=2,
+        published_count=3,
+    )
+    assert two_small_batch_failures.state == "degraded"
+    assert two_small_batch_failures.currentEligible is False
 
 
 @pytest.mark.asyncio

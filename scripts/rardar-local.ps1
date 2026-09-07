@@ -170,18 +170,41 @@ function Show-Status {
     } | Format-List
 }
 
-function Stop-AppProcess([object]$ProcessId, [string]$ExpectedName) {
-    if (-not (Test-Process $ProcessId)) { return }
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$ProcessId)"
-    if (
-        -not $process `
-        -or $process.Name -notmatch $ExpectedName `
-        -or -not $process.CommandLine `
-        -or $process.CommandLine.IndexOf($RepoRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0
-    ) {
-        throw "Refusing to stop an unexpected process recorded in local runtime state."
+function Stop-AppProcess(
+    [object]$ProcessId,
+    [string]$ExpectedName,
+    [int]$ExpectedPort = 0,
+    [object]$ExpectedListenerPid = $null
+) {
+    if (Test-Process $ProcessId) {
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$ProcessId)"
+        if (
+            -not $process `
+            -or $process.Name -notmatch $ExpectedName `
+            -or -not $process.CommandLine `
+            -or $process.CommandLine.IndexOf($RepoRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0
+        ) {
+            throw "Refusing to stop an unexpected process recorded in local runtime state."
+        }
+        & taskkill.exe /PID ([int]$ProcessId) /T /F | Out-Null
     }
-    & taskkill.exe /PID ([int]$ProcessId) /T /F | Out-Null
+
+    $deadline = (Get-Date).AddSeconds(8)
+    do {
+        $parentAlive = Test-Process $ProcessId
+        $listenerAlive = $ExpectedListenerPid -and (Test-Process $ExpectedListenerPid)
+        if (-not $parentAlive -and -not $listenerAlive) { break }
+        Start-Sleep -Milliseconds 200
+    } while ((Get-Date) -lt $deadline)
+
+    $portListeners = if ($ExpectedPort) {
+        @(Get-NetTCPConnection -LocalPort $ExpectedPort -State Listen -ErrorAction SilentlyContinue)
+    } else {
+        @()
+    }
+    if ((Test-Process $ProcessId) -or ($ExpectedListenerPid -and (Test-Process $ExpectedListenerPid)) -or $portListeners) {
+        throw "Rardar process cleanup could not be verified; runtime state was preserved."
+    }
 }
 
 function Stop-Rardar {
@@ -190,8 +213,8 @@ function Stop-Rardar {
         if (-not $state.repository -or $state.repository -ne $RepoRoot) {
             throw "Refusing to use local runtime state owned by another repository."
         }
-        Stop-AppProcess $state.frontendPid "^(node|cmd)\.exe$"
-        Stop-AppProcess $state.backendPid "^python(w)?\.exe$"
+        Stop-AppProcess $state.frontendPid "^(node|cmd)\.exe$" 3000 $state.frontendListenerPid
+        Stop-AppProcess $state.backendPid "^python(w)?\.exe$" 8102 $state.backendListenerPid
         Remove-Item -LiteralPath $StatePath -Force -ErrorAction SilentlyContinue
     }
     Write-Host "Rardar frontend/backend stopped. Existing PostgreSQL data was preserved."
@@ -423,20 +446,41 @@ function Start-Rardar {
         Assert-RecordedRuntime (Read-State) $head $dataMode
         Show-Status
     } catch {
+        $startupError = $_
+        $cleanupErrors = @()
+        try {
+            if ($frontend) {
+                Stop-AppProcess $frontend.Id "^node\.exe$" 3000 $frontendListenerPid
+            }
+        } catch {
+            $cleanupErrors += $_.Exception.Message
+        }
+        try {
+            if ($backend) {
+                Stop-AppProcess $backend.Id "^python(w)?\.exe$" 8102 $backendListenerPid
+            }
+        } catch {
+            $cleanupErrors += $_.Exception.Message
+        }
+
         if ($statePublished) {
             $published = $null
             try { $published = Read-State } catch { $published = $null }
             if (
-                $published `
+                $cleanupErrors.Count -eq 0 `
+                -and $published `
                 -and [int]$published.backendPid -eq [int]$backend.Id `
                 -and [int]$published.frontendPid -eq [int]$frontend.Id
             ) {
                 Remove-Item -LiteralPath $StatePath -Force -ErrorAction SilentlyContinue
+            } elseif ($cleanupErrors.Count -eq 0) {
+                $cleanupErrors += "Published Runtime state could not be matched for safe removal."
             }
         }
-        if ($frontend -and (Test-Process $frontend.Id)) { & taskkill.exe /PID $frontend.Id /T /F | Out-Null }
-        if (Test-Process $backend.Id) { & taskkill.exe /PID $backend.Id /T /F | Out-Null }
-        throw
+        if ($cleanupErrors.Count -gt 0) {
+            throw "Rardar startup failed and cleanup was not fully verified; runtime state was preserved. $($cleanupErrors -join ' ')"
+        }
+        throw $startupError
     }
 }
 

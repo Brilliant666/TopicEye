@@ -18,10 +18,12 @@ from app.services.rardar_hotspot_news import (
     HOTSPOT_NEWS_PLATFORM,
     HOTSPOT_NEWS_SOURCES,
     _FeedFetchResult,
+    classify_news_topic,
     load_hotspot_news,
     normalize_news_url,
     refresh_hotspot_news,
 )
+from app.services.trending_scrapers._hackernews import HackerNewsTrending
 
 
 def _entry(
@@ -52,12 +54,18 @@ def test_normalize_news_url_removes_tracking_but_not_meaningful_query():
         normalize_news_url("javascript:alert(1)")
 
 
+def test_topic_uses_item_evidence_instead_of_source_identity():
+    assert classify_news_topic("OpenAI appoints a new finance officer", []) == "uncategorized"
+    assert classify_news_topic("OpenAI releases a new foundation model", []) == "ai"
+    assert classify_news_topic("Critical Linux security vulnerability fixed", []) == "security"
+
+
 @pytest.mark.asyncio
 async def test_refresh_is_zero_model_deduplicated_and_truthful(db, monkeypatch):
     definition = HOTSPOT_NEWS_SOURCES[0]
     calls = 0
 
-    async def fake_fetch(source):
+    async def fake_fetch(source, definition):
         nonlocal calls
         calls += 1
         return _FeedFetchResult(
@@ -67,7 +75,7 @@ async def test_refresh_is_zero_model_deduplicated_and_truthful(db, monkeypatch):
             not_modified=False,
         )
 
-    monkeypatch.setattr(news_service, "_fetch_feed", fake_fetch)
+    monkeypatch.setattr(news_service, "_fetch_source", fake_fetch)
     first = await refresh_hotspot_news(db, definitions=(definition,))
     second = await refresh_hotspot_news(db, definitions=(definition,))
 
@@ -94,6 +102,8 @@ async def test_refresh_is_zero_model_deduplicated_and_truthful(db, monkeypatch):
     assert loaded.itemCount == 1
     assert loaded.items[0].publishedAt == datetime(2026, 9, 8, 1, 0, tzinfo=UTC)
     assert loaded.items[0].updatedAt == datetime(2026, 9, 8, 2, 0, tzinfo=UTC)
+    assert loaded.items[0].publisherName == definition.name
+    assert loaded.items[0].discoveryChannels[0].key == definition.key
 
 
 @pytest.mark.asyncio
@@ -104,10 +114,10 @@ async def test_304_preserves_saved_rows(db, monkeypatch):
         _FeedFetchResult(entries=[], etag='"v1"', last_modified=None, not_modified=True),
     ]
 
-    async def fake_fetch(source):
+    async def fake_fetch(source, definition):
         return results.pop(0)
 
-    monkeypatch.setattr(news_service, "_fetch_feed", fake_fetch)
+    monkeypatch.setattr(news_service, "_fetch_source", fake_fetch)
     await refresh_hotspot_news(db, definitions=(definition,))
     before = (await db.execute(select(ContentItem))).scalar_one()
     before_fetched = before.crawled_at
@@ -133,10 +143,10 @@ async def test_refresh_bounds_large_feeds_to_the_newest_entries(db, monkeypatch)
         for index in range(HOTSPOT_NEWS_MAX_ENTRIES_PER_SOURCE + 5)
     ]
 
-    async def fake_fetch(source):
+    async def fake_fetch(source, definition):
         return _FeedFetchResult(entries=entries, etag=None, last_modified=None, not_modified=False)
 
-    monkeypatch.setattr(news_service, "_fetch_feed", fake_fetch)
+    monkeypatch.setattr(news_service, "_fetch_source", fake_fetch)
     result = await refresh_hotspot_news(db, definitions=(definition,))
 
     rows = (await db.execute(select(ContentItem))).scalars().all()
@@ -149,7 +159,7 @@ async def test_refresh_bounds_large_feeds_to_the_newest_entries(db, monkeypatch)
 async def test_source_failure_preserves_old_content_and_degrades_independently(db, monkeypatch):
     first, second = HOTSPOT_NEWS_SOURCES[:2]
 
-    async def initial_fetch(source):
+    async def initial_fetch(source, definition):
         suffix = "github" if source.url == first.feed_url else "hugging-face"
         return _FeedFetchResult(
             entries=[_entry(url=f"https://example.com/{suffix}", title=f"{suffix} change")],
@@ -158,15 +168,15 @@ async def test_source_failure_preserves_old_content_and_degrades_independently(d
             not_modified=False,
         )
 
-    monkeypatch.setattr(news_service, "_fetch_feed", initial_fetch)
+    monkeypatch.setattr(news_service, "_fetch_source", initial_fetch)
     await refresh_hotspot_news(db, definitions=(first, second))
 
-    async def partial_failure(source):
+    async def partial_failure(source, definition):
         if source.url == first.feed_url:
             raise RuntimeError("token=should-not-be-exposed")
         return _FeedFetchResult(entries=[], etag=None, last_modified=None, not_modified=True)
 
-    monkeypatch.setattr(news_service, "_fetch_feed", partial_failure)
+    monkeypatch.setattr(news_service, "_fetch_source", partial_failure)
     result = await refresh_hotspot_news(db, definitions=(first, second))
     loaded, _ = await load_hotspot_news(db)
 
@@ -186,16 +196,16 @@ async def test_source_failure_preserves_old_content_and_degrades_independently(d
 async def test_saved_news_api_never_fetches_sources_or_models(db, monkeypatch):
     definition = HOTSPOT_NEWS_SOURCES[0]
 
-    async def initial_fetch(source):
+    async def initial_fetch(source, source_definition):
         return _FeedFetchResult(entries=[_entry()], etag=None, last_modified=None, not_modified=False)
 
-    monkeypatch.setattr(news_service, "_fetch_feed", initial_fetch)
+    monkeypatch.setattr(news_service, "_fetch_source", initial_fetch)
     await refresh_hotspot_news(db, definitions=(definition,))
 
-    async def forbidden_fetch(source):
+    async def forbidden_fetch(source, source_definition):
         raise AssertionError("GET must not fetch a source")
 
-    monkeypatch.setattr(news_service, "_fetch_feed", forbidden_fetch)
+    monkeypatch.setattr(news_service, "_fetch_source", forbidden_fetch)
     monkeypatch.setattr(settings, "RARDAR_PRODUCT_MODE", True)
 
     app = FastAPI()
@@ -209,10 +219,196 @@ async def test_saved_news_api_never_fetches_sources_or_models(db, monkeypatch):
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/api/v1/rardar/hotspot-news")
         filtered = await client.get(f"/api/v1/rardar/hotspot-news?source={definition.key}")
+        paged = await client.get(
+            f"/api/v1/rardar/hotspot-news?source={definition.key}&topic=software-open-source&sort=latest&pageSize=1"
+        )
         unknown = await client.get("/api/v1/rardar/hotspot-news?source=unknown")
+        unknown_topic = await client.get("/api/v1/rardar/hotspot-news?topic=unknown")
 
     assert response.status_code == 200
     assert response.json()["itemCount"] == 1
     assert filtered.status_code == 200
     assert filtered.json()["selectedSource"] == definition.key
+    assert paged.status_code == 200
+    assert paged.json()["selectedTopic"] == "software-open-source"
+    assert paged.json()["sort"] == "latest"
     assert unknown.status_code == 422
+    assert unknown_topic.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_cross_source_duplicate_preserves_publisher_and_all_discovery_channels(db, monkeypatch):
+    publisher = HOTSPOT_NEWS_SOURCES[1]
+    community = HOTSPOT_NEWS_SOURCES[-1]
+    shared_url = "https://example.com/chips/new-architecture"
+
+    async def fake_fetch(source, definition):
+        if definition.key == community.key:
+            return _FeedFetchResult(
+                entries=[
+                    {
+                        **_entry(url=shared_url, title="New chip architecture reaches production"),
+                        "summary": None,
+                        "published_at": None,
+                        "updated_at": None,
+                        "discussion_at": datetime(2026, 9, 8, 3, 0, tzinfo=UTC),
+                        "discussion_url": "https://news.ycombinator.com/item?id=42",
+                        "rank": 2,
+                        "points": 321,
+                        "comments": 45,
+                    }
+                ],
+                etag=None,
+                last_modified=None,
+                not_modified=False,
+            )
+        return _FeedFetchResult(
+            entries=[_entry(url=shared_url, title="New chip architecture reaches production")],
+            etag=None,
+            last_modified=None,
+            not_modified=False,
+        )
+
+    monkeypatch.setattr(news_service, "_fetch_source", fake_fetch)
+    await refresh_hotspot_news(db, definitions=(publisher, community))
+    loaded, _ = await load_hotspot_news(db)
+
+    assert loaded.totalItems == 1
+    item = loaded.items[0]
+    assert item.publisherName == publisher.name
+    assert item.publishedAt == datetime(2026, 9, 8, 1, 0, tzinfo=UTC)
+    assert [channel.key for channel in item.discoveryChannels] == [publisher.key, community.key]
+    hn = item.discoveryChannels[1]
+    assert hn.discussionAt == datetime(2026, 9, 8, 3, 0, tzinfo=UTC)
+    assert str(hn.discussionUrl) == "https://news.ycombinator.com/item?id=42"
+    assert (hn.rank, hn.points, hn.comments) == (2, 321, 45)
+
+
+@pytest.mark.asyncio
+async def test_filters_pagination_and_facets_cover_the_full_saved_range(db, monkeypatch):
+    definition = HOTSPOT_NEWS_SOURCES[0]
+    entries = []
+    for index in range(25):
+        title = f"Security vulnerability report {index}" if index % 2 == 0 else f"New processor hardware {index}"
+        entries.append(
+            {
+                **_entry(url=f"https://example.com/news/{index}", title=title),
+                "published_at": datetime(2026, 9, 8, index % 24, tzinfo=UTC),
+            }
+        )
+
+    async def fake_fetch(source, source_definition):
+        return _FeedFetchResult(entries=entries, etag=None, last_modified=None, not_modified=False)
+
+    monkeypatch.setattr(news_service, "_fetch_source", fake_fetch)
+    await refresh_hotspot_news(db, definitions=(definition,))
+
+    first, _ = await load_hotspot_news(db, selected_topic="security", page=1, page_size=5)
+    third, _ = await load_hotspot_news(db, selected_topic="security", page=3, page_size=5)
+    filtered, _ = await load_hotspot_news(db, selected_source=definition.key, page_size=40)
+
+    assert first.totalItems == 13
+    assert first.sourceScopeItemCount == 13
+    assert first.topicScopeItemCount == 25
+    assert first.itemCount == 5
+    assert first.totalPages == 3
+    assert third.page == 3
+    assert third.itemCount == 3
+    assert all(item.topicKey == "security" for item in [*first.items, *third.items])
+    assert filtered.totalItems == 25
+    assert {topic.key: topic.itemCount for topic in filtered.topics} == {
+        "security": 13,
+        "hardware-chips": 12,
+    }
+
+
+@pytest.mark.asyncio
+async def test_balanced_sort_diversifies_sources_inside_same_time_window(db, monkeypatch):
+    first, second = HOTSPOT_NEWS_SOURCES[:2]
+
+    async def fake_fetch(source, definition):
+        base = 10 if definition.key == first.key else 9
+        entries = [
+            {
+                **_entry(
+                    url=f"https://{definition.key}.example.com/{index}",
+                    title=f"{definition.name} software update {index}",
+                ),
+                "published_at": datetime(2026, 9, 8, base - index, tzinfo=UTC),
+            }
+            for index in range(3)
+        ]
+        return _FeedFetchResult(entries=entries, etag=None, last_modified=None, not_modified=False)
+
+    monkeypatch.setattr(news_service, "_fetch_source", fake_fetch)
+    await refresh_hotspot_news(db, definitions=(first, second))
+
+    balanced, _ = await load_hotspot_news(db, sort="balanced", page_size=10)
+    latest, _ = await load_hotspot_news(db, sort="latest", page_size=10)
+    scoped, _ = await load_hotspot_news(
+        db,
+        selected_source=first.key,
+        selected_topic="software-open-source",
+        page_size=10,
+    )
+    balanced_sources = [item.discoveryChannels[0].key for item in balanced.items]
+    latest_sources = [item.discoveryChannels[0].key for item in latest.items]
+
+    assert balanced_sources[:4] == [first.key, second.key, first.key, second.key]
+    assert latest_sources[:3] == [first.key, second.key, first.key]
+    assert scoped.totalItems == 3
+    assert scoped.sourceScopeItemCount == 6
+    assert scoped.topicScopeItemCount == 3
+
+
+@pytest.mark.asyncio
+async def test_hacker_news_adapter_preserves_discussion_time_and_conditionals():
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("topstories.json"):
+            return httpx.Response(200, json=[123], headers={"ETag": '"hn-v2"'})
+        return httpx.Response(
+            200,
+            json={
+                "id": 123,
+                "title": "A compiler release",
+                "url": "https://example.com/compiler",
+                "score": 88,
+                "descendants": 12,
+                "by": "author",
+                "time": 1788836400,
+            },
+        )
+
+    scraper = HackerNewsTrending()
+    scraper.conditional_etag = '"hn-v1"'
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await scraper.fetch(client)
+
+    assert result[0]["extra"]["time"] == 1788836400
+    assert result[0]["extra"]["hn_link"] == "https://news.ycombinator.com/item?id=123"
+    assert requests[0].headers["If-None-Match"] == '"hn-v1"'
+    assert "If-None-Match" not in requests[1].headers
+    assert scraper._latest_etag == '"hn-v2"'
+
+
+@pytest.mark.asyncio
+async def test_hacker_news_adapter_304_skips_item_requests():
+    requests = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return httpx.Response(304, headers={"ETag": '"hn-v1"'})
+
+    scraper = HackerNewsTrending()
+    scraper.conditional_etag = '"hn-v1"'
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await scraper.fetch(client)
+
+    assert result == []
+    assert scraper.not_modified is True
+    assert scraper.fetch_degraded is False
+    assert requests == 1

@@ -182,20 +182,23 @@ powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 sync-data
 powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 start
 ```
 
-The Rardar navigation also exposes `/news`, a saved timeline from a small set
-of public, official technology feeds. Refresh it explicitly without running a
-repository scan, Discover evaluation, or model call:
+The Rardar navigation also exposes `/news`, a saved multi-source technology
+timeline spanning official updates, technology reporting and community
+discussion. Refresh it explicitly without running a repository scan, Discover
+evaluation, or model call:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 refresh-news
 ```
 
-The command reuses TopicEye's SSRF-guarded RSS client, conditional HTTP cache
+The command reuses TopicEye's SSRF-guarded clients, conditional HTTP cache
 (`ETag` / `Last-Modified`) and existing PostgreSQL content tables. A failed
 source keeps previously saved items; normal page requests only read that cache.
-Feed `publishedAt`, `updatedAt`, and local `fetchedAt` remain distinct, and a
-missing publication time is shown as unknown rather than replaced with fetch
-time. The MVP performs no translation or AI summarization.
+Source and topic filters, ordering and pagination run over the complete saved
+result set. `publishedAt`, `updatedAt`, community discussion time and local
+`fetchedAt` remain distinct, and a missing publication time is shown as unknown
+rather than replaced with fetch time. The current path performs no translation
+or AI summarization.
 
 `sync-data` reads the configured `rardar-prod` host without changing it and
 independently synchronizes Today and Discover below

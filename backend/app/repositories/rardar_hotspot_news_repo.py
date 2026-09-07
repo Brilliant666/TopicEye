@@ -43,14 +43,13 @@ class RardarHotspotNewsRepository:
         )
         return list(result.scalars().all())
 
-    async def list_items(self, *, source_ids: Sequence[int], limit: int = 500) -> list[ContentItem]:
+    async def list_items(self, *, source_ids: Sequence[int]) -> list[ContentItem]:
         if not source_ids:
             return []
         result = await self.db.execute(
             select(ContentItem)
             .where(ContentItem.source_id.in_(source_ids))
             .order_by(ContentItem.crawled_at.desc(), ContentItem.id.desc())
-            .limit(limit)
         )
         return list(result.scalars().all())
 

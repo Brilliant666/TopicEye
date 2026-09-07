@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,16 +64,31 @@ async def hotspot_news(
     request: Request,
     response: Response,
     source: str | None = Query(default=None, min_length=1, max_length=40),
-    limit: int = Query(default=60, ge=1, le=100),
+    topic: str | None = Query(default=None, min_length=1, max_length=40),
+    sort: Literal["balanced", "latest"] = Query(default="balanced"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=18, alias="pageSize", ge=1, le=40),
     db: AsyncSession = Depends(get_db),
 ):
     """Read the last saved news refresh; GET never contacts a source or model."""
     if not is_rardar_product():
         raise HTTPException(status_code=404, detail="Not found")
     try:
-        snapshot, etag = await load_hotspot_news(db, selected_source=source, limit=limit)
+        snapshot, etag = await load_hotspot_news(
+            db,
+            selected_source=source,
+            selected_topic=topic,
+            sort=sort,
+            page=page,
+            page_size=page_size,
+        )
     except ValueError as exc:
-        if str(exc) == "hotspot_news_source_unknown":
+        if str(exc) in {
+            "hotspot_news_source_unknown",
+            "hotspot_news_topic_unknown",
+            "hotspot_news_sort_unknown",
+            "hotspot_news_pagination_invalid",
+        }:
             raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
         raise
     cached = _not_modified(request, etag)

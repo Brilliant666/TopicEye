@@ -9,7 +9,7 @@
 #   make setup          安装后端 + 前端依赖
 #   make dev            docker compose 起全栈
 #   make test           跑后端 + 前端测试
-#   make lint           完整质量门（ruff + 分层 + 前端类型检查）
+#   make lint           静态质量门（ruff + 分层 + 前端类型检查）
 # =============================================================================
 
 .DEFAULT_GOAL := help
@@ -38,7 +38,7 @@ test-backend:  ## 后端全量 pytest（自动起一次性 PG 容器，跑完即
 test-frontend:  ## 前端 vitest + 覆盖率门禁（对应 CI frontend-tests）
 	cd frontend && npm run test:coverage
 
-lint: lint-backend layering lint-frontend  ## 完整质量门（ruff + 分层 + tsc）
+lint: lint-backend layering lint-frontend  ## 静态质量门（ruff + 分层 + tsc）
 
 lint-backend:  ## 后端 ruff 全量检查 + 格式检查（手动质量门）
 	cd backend && ruff check . && ruff format --check .
@@ -46,7 +46,7 @@ lint-backend:  ## 后端 ruff 全量检查 + 格式检查（手动质量门）
 layering:  ## 分层纪律检查：api/v1 禁止直接 ORM 查询 / 禁用 import
 	cd backend && python scripts/check_layering.py
 
-lint-frontend:  ## 前端类型检查（AGENTS.md 首选，比 npm run lint 稳）
+lint-frontend:  ## 前端类型检查（对应 CI frontend-types）
 	cd frontend && npx tsc --noEmit
 
 backup:  ## 备份数据库（PG pg_dump，保留最近 7 份）

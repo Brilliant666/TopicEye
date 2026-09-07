@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
-# 本地全量 PG 测试（承接 GitHub Actions 已移除的 backend-tests 作业）
+# 本地隔离的全量 PG 测试入口
 #
-# 为什么本地跑：GitHub Actions 上全量 PostgreSQL 测试成本高；本地用一次性
-# 容器（127.0.0.1:5433）跑完即删，不占用开发栈的 postgres:5432，也就避开
-# 了「测试 TRUNCATE 与运行中 backend 互相锁库」的已知竞争问题。
+# GitHub 的 Rardar 控制作业也会运行完整 backend/tests；本入口用于本地复现
+# 或风险需要时的独立验证。一次性容器（127.0.0.1:5433）跑完即删，不占用
+# 开发栈的 postgres:5432，也避开测试 TRUNCATE 与运行中 backend 互相锁库。
 #
 # 用法：
 #   bash backend/scripts/test_full_local.sh [pytest 参数...]

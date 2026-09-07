@@ -46,17 +46,70 @@ git diff --cached --stat
 git diff --cached --summary
 ```
 
-Run the smallest relevant verification:
+Run verification proportional to the change. Do not repeat an unchanged full
+suite merely because a historical task required it:
 
 - Backend Python syntax: `python -m py_compile <changed-python-files>`
 - Backend tests: `python -m pytest <relevant-tests> -q`
 - Shell scripts: `bash -n <script>`
+- Frontend changed-file lint: `cd frontend && npx eslint <changed-frontend-files>`
 - Frontend type check: `cd frontend && npx tsc --noEmit`
-- Full quality gate (manual): `make lint`（ruff + 分层检查 + 前端类型检查）
+- Repository static gate (manual): `make lint`（ruff + 分层检查 + 前端类型检查）
 
-Note: `frontend` currently has an `npm run lint` script that invokes `next lint`,
-which may fail under the installed Next.js version by treating `lint` as a
-project directory. Prefer `npx tsc --noEmit` unless the lint script is fixed.
+`cd frontend && npm run lint` is the real full-tree ESLint entry, but GitHub CI
+does not use it as a required gate. Run it when the change scope warrants it,
+and do not claim a repository-wide lint pass unless it actually passed.
+
+GitHub CI is the source of truth for the repository gates configured in
+`.github/workflows/ci.yml`. An exact commit that already passed an applicable
+check does not need the same expensive local check again unless inputs changed,
+the failure is being reproduced, or the risk of the new operation requires it.
+
+## Default Execution Paths
+
+### Data runs
+
+- When code and configuration are unchanged, use the existing data/runtime
+  entry. Validate only this run's source, budget, artifacts, pointer and page.
+- Do not create a code PR or rerun unrelated repository-wide suites for a data
+  run. Keep runtime data, caches and ledgers out of Git.
+
+### Ordinary code changes
+
+- Run the focused checks and regression that prove the changed behavior, then
+  let the repository's required CI complete. Reuse valid verification for the
+  same commit and relevant inputs instead of repeating it without cause.
+- Add a real browser check when page behavior or the data-to-page connection
+  changed; documentation-only and backend-only changes do not inherit it.
+
+### High-risk changes
+
+- Permissions, real data, budgets, Schema compatibility, publication and
+  recovery paths require additional failure, compatibility and rollback
+  evidence proportional to their risk. Right-sizing never disables an
+  existing integrity or security boundary.
+- When one task already authorizes implementation, merge and local update,
+  continue through those stages without requesting confirmation at every
+  boundary. Stop for newly introduced Production work, destructive data work,
+  a cost-limit increase or a real permission boundary.
+
+Files under `docs/research/` and `docs/iterations/` preserve evidence for their
+named, completed tasks. Fixed sample sizes, budgets, failure counts, task names,
+"next" states and confirmation gates in those records are not defaults for a
+new task unless the current request explicitly adopts them. A failed Discover
+Profile is normally a per-project result, not a product-wide blocker, and new
+trending work does not depend on repairing every historical Profile.
+
+## Discover Follow-ups (Non-blocking)
+
+- `backend/app/integrations/rardar/shadow_cohort.py::choose_cohort` and the
+  legacy `shadow_review.py` artifact still hard-code a 16-project research
+  cohort. This limits reuse of that historical runner for right-sized batches;
+  it does not gate the current Selection path.
+- `backend/app/integrations/rardar/selection.py::_activation_gate` permits
+  partial small-batch publication only when exactly one Profile is permanently
+  unavailable. Two independent per-project failures can therefore hold back
+  otherwise valid results; changing that policy remains a separate tested task.
 
 ## Rewriting Local Commits
 

@@ -3,7 +3,7 @@
 **AI-powered content discovery and topic radar for creators.**
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![CI](https://github.com/fxbin/TopicEye/actions/workflows/ci.yml/badge.svg)](https://github.com/fxbin/TopicEye/actions/workflows/ci.yml)
+[![CI](https://github.com/Brilliant666/TopicEye/actions/workflows/ci.yml/badge.svg)](https://github.com/Brilliant666/TopicEye/actions/workflows/ci.yml)
 [![Backend: FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![Frontend: Next.js](https://img.shields.io/badge/Frontend-Next.js_16-black.svg)](https://nextjs.org/)
 
@@ -278,7 +278,7 @@ mirrored generations are preserved on stop.
 Uses [docker-compose.prod.yml](docker-compose.prod.yml): code baked into the image, no hot reload, healthchecks, resource limits, Postgres by default.
 
 ```bash
-git clone https://github.com/fxbin/TopicEye.git
+git clone https://github.com/Brilliant666/TopicEye.git
 cd TopicEye
 docker compose -f docker-compose.prod.yml up -d --build
 ```
@@ -291,15 +291,17 @@ docker compose -f docker-compose.prod.yml up -d --build
 ### Option B — Docker Compose (development with hot reload)
 
 ```bash
-git clone https://github.com/fxbin/TopicEye.git
+git clone https://github.com/Brilliant666/TopicEye.git
 cd TopicEye
 docker compose up -d
 ```
 
-Same ports as above. Source changes reload automatically. PostgreSQL is opt-in via the `postgres` profile:
+Same ports as above. Source changes reload automatically. PostgreSQL is part of
+the default Compose stack and the backend waits for its health check. To start
+only the database:
 
 ```bash
-docker compose --profile postgres up -d
+docker compose up -d postgres
 ```
 
 ### Option C — Local development (no Docker)
@@ -367,14 +369,20 @@ curl -X POST http://127.0.0.1:8102/api/v1/sources/1/sync
 
 The project uses Conventional Commits (`feat(auth): ...`, `fix(cache): ...`). See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow, and [AGENTS.md](AGENTS.md) for the commit discipline and layering rules enforced in this repo.
 
-CI runs lightweight gates on every PR:
+CI runs these gates on every PR:
 
 - **Frontend type check** (`tsc --noEmit`).
 - **Frontend unit tests + coverage gate** on `src/lib` pure logic modules.
 - **Lint** (`ruff`) on changed Python files (incremental, not a full-history sweep).
 - **Layering check** (AST-enforced `api → service → repo` discipline) and **dependency security scan**.
+- **Rardar adapter contracts** and the **complete backend + Rardar control
+  regression** against a PostgreSQL service.
 
-The full PostgreSQL test suite runs locally instead of on GitHub: `make test-backend` spins up a throwaway `postgres:16-alpine` container on port 5433, runs pytest against it, and removes it afterwards.
+For local reproduction or a high-risk backend change, `make test-backend` runs
+the backend suite against a throwaway `postgres:16-alpine` container on port
+5433 and removes it afterwards. Follow the proportional verification paths in
+[AGENTS.md](AGENTS.md); an unchanged full suite is not a default requirement
+for every task.
 
 ## Contributing
 

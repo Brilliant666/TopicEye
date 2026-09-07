@@ -895,7 +895,6 @@ def _activation_gate(
     profile_retryable_failure_count: int,
     profile_permanent_unavailable_count: int,
     gate_assessed_count: int,
-    semantic_resolved_count: int,
     profile_coverage: float,
     systemic_failure_codes: list[str],
     negative_failures: list[str],
@@ -909,7 +908,6 @@ def _activation_gate(
         and profile_ready_count == resolution_count - 1
         and profile_retryable_failure_count == 0
         and profile_permanent_unavailable_count == 1
-        and semantic_resolved_count == resolution_count
     )
     return (
         (profile_coverage >= 0.95 or isolated_small_batch_failure)
@@ -2055,7 +2053,6 @@ async def build_selection(
         profile_retryable_failure_count=profile_retryable_failure_count,
         profile_permanent_unavailable_count=profile_permanent_unavailable_count,
         gate_assessed_count=gate_assessed_count,
-        semantic_resolved_count=semantic_resolved_count,
         profile_coverage=profile_coverage,
         systemic_failure_codes=systemic_failure_codes,
         negative_failures=negative_failures,

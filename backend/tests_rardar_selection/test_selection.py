@@ -328,9 +328,11 @@ def _activation_artifact(
     published_count: int = 0,
     retryable_code: str = "profile_source_timeout",
     processed_count: int | None = None,
+    semantic_unresolved_ready_count: int = 0,
 ) -> SelectionArtifact:
     resolution_count = processed_count if processed_count is not None else recall_count
     assert ready_count + retryable_count + permanent_count == resolution_count
+    assert semantic_unresolved_ready_count <= ready_count - published_count
     assessments: list[SelectionAssessment] = []
     existing = built.artifact.assessments
     copy_template = SelectionCopyResult(
@@ -360,9 +362,10 @@ def _activation_artifact(
                 }
             )
         elif index < ready_count:
+            unresolved = index >= ready_count - semantic_unresolved_ready_count
             item = item.model_copy(
                 update={
-                    "semanticDecision": "REJECT",
+                    "semanticDecision": "UNCERTAIN" if unresolved else "REJECT",
                     "primaryReason": None,
                     "supportingReasons": [],
                     "publicationDisposition": "not_eligible",
@@ -372,7 +375,7 @@ def _activation_artifact(
                     "valueFailureCode": None,
                     "timelinessFailureCode": None,
                     "copyFailureCode": None,
-                    "rejectReason": "no_clear_value",
+                    "rejectReason": "weak_evidence" if unresolved else "no_clear_value",
                 }
             )
         else:
@@ -412,7 +415,7 @@ def _activation_artifact(
     systemic_threshold = max(5, (resolution_count + 4) // 5)
     systemic_codes = [retryable_code] if retryable_count >= systemic_threshold else []
     coverage = round(ready_count / resolution_count if resolution_count else 1.0, 6)
-    semantic_resolved = ready_count + permanent_count
+    semantic_resolved = ready_count - semantic_unresolved_ready_count + permanent_count
     activation_gate = _activation_gate(
         execution_mode="small_batch" if processed_count is not None else "full",
         resolution_count=resolution_count,
@@ -420,7 +423,6 @@ def _activation_artifact(
         profile_retryable_failure_count=retryable_count,
         profile_permanent_unavailable_count=permanent_count,
         gate_assessed_count=ready_count,
-        semantic_resolved_count=semantic_resolved,
         profile_coverage=coverage,
         systemic_failure_codes=systemic_codes,
         negative_failures=[],
@@ -468,7 +470,7 @@ def _activation_artifact(
             "profilePermanentUnavailableCount": permanent_count,
             "gateAssessedCount": ready_count,
             "semanticResolvedCount": semantic_resolved,
-            "unresolvedCount": retryable_count,
+            "unresolvedCount": retryable_count + semantic_unresolved_ready_count,
             "profileCoverage": coverage,
             "assessmentCoverage": 1.0 if ready_count else 0.0,
             "failureHistogram": failure_summary,
@@ -1072,10 +1074,13 @@ async def test_activation_policy_distinguishes_ready_empty_and_degraded(tmp_path
         retryable_count=0,
         permanent_count=1,
         published_count=4,
+        semantic_unresolved_ready_count=1,
     )
     assert isolated_small_batch_failure.state == "ready"
     assert isolated_small_batch_failure.currentEligible is True
     assert isolated_small_batch_failure.profileCoverage == 0.833333
+    assert isolated_small_batch_failure.semanticResolvedCount == 5
+    assert isolated_small_batch_failure.unresolvedCount == 1
     isolated_built = BuiltSelection(
         artifact=isolated_small_batch_failure,
         profiles=built.profiles,

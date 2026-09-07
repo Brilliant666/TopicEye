@@ -636,7 +636,6 @@ class SelectionArtifact(StrictSelectionModel):
                 and self.profileReadyCount == resolution_count - 1
                 and self.profileRetryableFailureCount == 0
                 and self.profilePermanentUnavailableCount == 1
-                and self.semanticResolvedCount == resolution_count
             )
             activation_gate = (
                 (self.profileCoverage >= 0.95 or isolated_small_batch_failure)

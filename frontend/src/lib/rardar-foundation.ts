@@ -1,5 +1,6 @@
 export type RardarFoundationPageKey =
   | 'today'
+  | 'news'
   | 'activity'
   | 'discover'
   | 'find'
@@ -28,6 +29,15 @@ export const RARDAR_FOUNDATION_PAGES: Record<
     description: '优先读取经过 generation、Hash、Schema 与来源版本验证的 Explosion Artifact；本地可显式启用已标记的 Demo。',
     slot: 'Rardar Intelligence Adapter · AI explanation on demand',
     nextStep: '项目 AI 解读已经按需接入，且不会改变客观名次。',
+  },
+  news: {
+    key: 'news',
+    href: '/news',
+    eyebrow: 'Hotspot News · Source Timeline',
+    title: '热点资讯已接入',
+    description: '从少量公开技术信源读取已保存的真实事件，按来源时间组织，并保留原文入口。',
+    slot: 'TopicEye RSS · Rardar product surface',
+    nextStep: '通过显式刷新命令更新；普通页面访问不会抓取源站或调用模型。',
   },
   activity: {
     key: 'activity',

@@ -34,6 +34,7 @@ class RSSScraper(BaseScraper):
     """Fetch and parse RSS/Atom feeds."""
 
     async def fetch(self, client: httpx.AsyncClient) -> list[dict[str, Any]]:
+        self.not_modified = False
         resp = await fetch_feed_with_retry(
             client,
             self.url,
@@ -48,17 +49,32 @@ class RSSScraper(BaseScraper):
         # the Source row and send If-None-Match / If-Modified-Since next time.
         self._latest_etag = resp.headers.get("etag")
         self._latest_last_modified = resp.headers.get("last-modified")
+        self._latest_content_type = resp.headers.get("content-type")
 
         if resp.status_code == 304:
             logger.info("RSS feed not modified: %s", self.url)
+            self.not_modified = True
             return []
 
         feed = feedparser.parse(resp.text)
         entries: list[dict[str, Any]] = []
+        preserve_feed_timestamps = self.config.get("preserve_feed_timestamps") is True
 
         for entry in feed.entries:
-            published = entry.get("published_parsed") or entry.get("updated_parsed")
-            published_at = datetime(*published[:6]) if published else datetime.now(UTC)
+            published = entry.get("published_parsed")
+            updated = entry.get("updated_parsed")
+            if preserve_feed_timestamps:
+                # Hotspot News exposes the feed's actual published/updated
+                # facts separately.  Missing publication time must remain
+                # unknown instead of being replaced with fetch time.
+                published_at = datetime(*published[:6], tzinfo=UTC) if published else None
+                updated_at = datetime(*updated[:6], tzinfo=UTC) if updated else None
+            else:
+                # Preserve the established generic ingestion contract.  The
+                # dedicated news path opts into truthful split timestamps.
+                effective = published or updated
+                published_at = datetime(*effective[:6]) if effective else datetime.now(UTC)
+                updated_at = None
 
             entries.append(
                 {
@@ -69,6 +85,7 @@ class RSSScraper(BaseScraper):
                     "raw_content": (entry.get("content", [{}])[0].get("value", "") if entry.get("content") else ""),
                     "tags": [tag.get("term", "") for tag in entry.get("tags", [])],
                     "published_at": published_at,
+                    "updated_at": updated_at,
                 }
             )
 

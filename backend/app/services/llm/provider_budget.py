@@ -21,7 +21,14 @@ from uuid import uuid4
 
 TASK_ID = "RARDAR-DISCOVER-SHADOW-CONVERGENCE-01"
 LIMIT = 40
-STAGES = {"negative_control", "scope_value", "meaningful_change", "user_copy", "format_retry"}
+LEGACY_STAGES = {
+    "negative_control",
+    "scope_value",
+    "meaningful_change",
+    "user_copy",
+    "format_retry",
+}
+STAGES = LEGACY_STAGES | {"project_profile", "profile_translation"}
 _stage: ContextVar[str | None] = ContextVar("rardar_budget_stage", default=None)
 _single_attempt: ContextVar[list[int] | None] = ContextVar("rardar_single_attempt", default=None)
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
@@ -135,32 +142,63 @@ def budget_stage(stage: str):
 
 
 class ProviderBudgetLedger:
-    def __init__(self, path: Path, run_id: str):
+    def __init__(
+        self,
+        path: Path,
+        run_id: str,
+        *,
+        task_id: str = TASK_ID,
+        limit: int = LIMIT,
+    ):
         if not _SAFE_ID.fullmatch(run_id):
             raise ProviderBudgetError("provider_budget_run_invalid")
+        if not _SAFE_ID.fullmatch(task_id):
+            raise ProviderBudgetError("provider_budget_task_invalid")
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise ProviderBudgetError("provider_budget_limit_invalid")
+        if task_id == TASK_ID and limit != LIMIT:
+            raise ProviderBudgetError("provider_budget_limit_invalid")
         self.path = path
         self.run_id = run_id
+        self.task_id = task_id
+        self.limit = limit
+        self.stages = LEGACY_STAGES if task_id == TASK_ID else STAGES
         self.events = path.with_name("provider-budget-events.jsonl")
         self.lock = path.with_name("provider-budget.lock")
+        self.registry = (
+            path.parent.parent / "shadow-convergence-budget-registration.json"
+            if task_id == TASK_ID
+            else path.parent / "provider-budget-registration.json"
+        )
 
     @classmethod
-    def initialize(cls, path: Path, run_id: str) -> ProviderBudgetLedger:
+    def initialize(
+        cls,
+        path: Path,
+        run_id: str,
+        *,
+        task_id: str = TASK_ID,
+        limit: int = LIMIT,
+    ) -> ProviderBudgetLedger:
         """Explicit operator action only; child execution never calls this."""
-        ledger = cls(path, run_id)
+        ledger = cls(path, run_id, task_id=task_id, limit=limit)
         plain(path.parent, missing=True)
         path.parent.mkdir(parents=True, exist_ok=True)
-        registry = path.parent.parent / "shadow-convergence-budget-registration.json"
+        registry = ledger.registry
         with file_lock(registry.with_suffix(".lock")):
             if registry.exists() or path.exists() or ledger.events.exists():
                 raise ProviderBudgetError("provider_budget_already_initialized")
-            atomic(registry, {"taskId": TASK_ID, "runId": run_id, "path": str(path)})
+            registration = {"taskId": task_id, "runId": run_id, "path": str(path)}
+            if task_id != TASK_ID:
+                registration["limit"] = limit
+            atomic(registry, registration)
             event = {
                 "sequence": 1,
                 "runId": run_id,
-                "taskId": TASK_ID,
+                "taskId": task_id,
                 "kind": "created",
                 "at": _now(),
-                "limit": LIMIT,
+                "limit": limit,
                 "previousDigest": None,
             }
             event["digest"] = digest(event)
@@ -178,7 +216,7 @@ class ProviderBudgetLedger:
             raise ProviderBudgetError()
         try:
             events = [json.loads(line) for line in raw.splitlines()]
-            if not events or events[0].get("kind") != "created" or events[0].get("limit") != LIMIT:
+            if not events or events[0].get("kind") != "created" or events[0].get("limit") != self.limit:
                 raise ValueError()
             previous = None
             attempts: dict[str, dict[str, Any]] = {}
@@ -189,7 +227,7 @@ class ProviderBudgetLedger:
                     event["sequence"] != index
                     or event["previousDigest"] != previous
                     or event["runId"] != self.run_id
-                    or event["taskId"] != TASK_ID
+                    or event["taskId"] != self.task_id
                     or claimed != digest({key: value for key, value in event.items() if key != "digest"})
                 ):
                     raise ValueError()
@@ -199,13 +237,13 @@ class ProviderBudgetLedger:
                     if index != 1:
                         raise ValueError()
                     continue
-                if event["stage"] not in STAGES:
+                if event["stage"] not in self.stages:
                     raise ValueError()
                 identifier = event.get("attemptId")
                 if kind == "cache_hit":
                     hits += 1
                 elif kind == "reserved":
-                    if identifier in attempts or len(attempts) >= LIMIT:
+                    if identifier in attempts or len(attempts) >= self.limit:
                         raise ValueError()
                     attempts[identifier] = {"stage": event["stage"], "dispatched": False, "outcome": None}
                 elif kind in {"dispatched", "succeeded", "failed"}:
@@ -225,19 +263,19 @@ class ProviderBudgetLedger:
             summary = {
                 "schemaVersion": 1,
                 "runId": self.run_id,
-                "taskId": TASK_ID,
+                "taskId": self.task_id,
                 "createdAt": events[0]["at"],
                 "updatedAt": events[-1]["at"],
-                "limit": LIMIT,
+                "limit": self.limit,
                 "reserved": len(attempts),
                 "attempted": sum(a["dispatched"] for a in attempts.values()),
                 "completed": sum(a["outcome"] is not None for a in attempts.values()),
                 "succeeded": sum(a["outcome"] == "succeeded" for a in attempts.values()),
                 "failed": sum(a["outcome"] == "failed" for a in attempts.values()),
                 "cacheHits": hits,
-                "remaining": LIMIT - len(attempts),
+                "remaining": self.limit - len(attempts),
                 "stageBreakdown": {
-                    stage: sum(a["stage"] == stage for a in attempts.values()) for stage in sorted(STAGES)
+                    stage: sum(a["stage"] == stage for a in attempts.values()) for stage in sorted(self.stages)
                 },
                 "lastAttemptId": next(reversed(attempts), None),
                 "journalDigest": previous,
@@ -249,10 +287,15 @@ class ProviderBudgetLedger:
 
     def _read(self) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         plain(self.path)
-        registry = self.path.parent.parent / "shadow-convergence-budget-registration.json"
+        registry = self.registry
         plain(registry)
         try:
-            if json.loads(registry.read_bytes()) != {"taskId": TASK_ID, "runId": self.run_id, "path": str(self.path)}:
+            expected_registry = {"taskId": self.task_id, "runId": self.run_id, "path": str(self.path)}
+            saved_registry = json.loads(registry.read_bytes())
+            if self.task_id == TASK_ID:
+                if saved_registry != expected_registry:
+                    raise ValueError()
+            elif saved_registry != {**expected_registry, "limit": self.limit}:
                 raise ValueError()
             saved = json.loads(self.path.read_bytes())
             if saved.get("digest") != digest({key: value for key, value in saved.items() if key != "digest"}):
@@ -270,7 +313,7 @@ class ProviderBudgetLedger:
             return self._read()[0]
 
     def record(self, kind: str, stage: str, attempt_id: str | None = None) -> str | None:
-        if stage not in STAGES:
+        if stage not in self.stages:
             raise ProviderBudgetError("provider_budget_stage_invalid")
         with file_lock(self.lock):
             summary, events = self._read()
@@ -283,7 +326,7 @@ class ProviderBudgetLedger:
             event = {
                 "sequence": len(events) + 1,
                 "runId": self.run_id,
-                "taskId": TASK_ID,
+                "taskId": self.task_id,
                 "kind": kind,
                 "at": _now(),
                 "stage": stage,
@@ -322,21 +365,37 @@ def execution_budget(scene: str) -> tuple[ProviderBudgetLedger, str] | None:
     """Selection requires a ledger. With one attached, all Rardar calls share it."""
     guarded = scene.startswith("rardar_worth_seeing_")
     configured = any(
-        os.environ.get(name) for name in ("RARDAR_LLM_RUN_ID", "RARDAR_LLM_BUDGET_PATH", "RARDAR_LLM_BUDGET_LIMIT")
+        os.environ.get(name)
+        for name in (
+            "RARDAR_LLM_TASK_ID",
+            "RARDAR_LLM_RUN_ID",
+            "RARDAR_LLM_BUDGET_PATH",
+            "RARDAR_LLM_BUDGET_LIMIT",
+        )
     )
     if not guarded and not (configured and scene.startswith("rardar_")):
         return None
     run_id = os.environ.get("RARDAR_LLM_RUN_ID", "")
     path = os.environ.get("RARDAR_LLM_BUDGET_PATH", "")
-    if not run_id or not path or os.environ.get("RARDAR_LLM_BUDGET_LIMIT") != str(LIMIT):
+    task_id = os.environ.get("RARDAR_LLM_TASK_ID", "")
+    raw_limit = os.environ.get("RARDAR_LLM_BUDGET_LIMIT", "")
+    if not re.fullmatch(r"[1-9][0-9]*", raw_limit):
+        raise ProviderBudgetError("provider_budget_missing") from None
+    limit = int(raw_limit)
+    if not run_id or not path or not raw_limit or (not task_id and limit != LIMIT):
         raise ProviderBudgetError("provider_budget_missing")
     stages = {
         "rardar_worth_seeing_gate": "scope_value",
         "rardar_worth_seeing_meaningful_change": "meaningful_change",
         "rardar_worth_seeing_copy": "user_copy",
     }
+    if task_id and task_id != TASK_ID:
+        stages["rardar_project_profile"] = "project_profile"
     if scene not in stages:
         raise ProviderBudgetError("provider_budget_scene_forbidden")
-    ledger = ProviderBudgetLedger(Path(path), run_id)
+    ledger = ProviderBudgetLedger(Path(path), run_id, task_id=task_id or TASK_ID, limit=limit)
     ledger.snapshot()
-    return ledger, _stage.get() or stages[scene]
+    stage = _stage.get() or stages[scene]
+    if stage not in ledger.stages:
+        raise ProviderBudgetError("provider_budget_stage_invalid")
+    return ledger, stage

@@ -6,6 +6,7 @@ import copy
 import json
 import os
 import random
+import shutil
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,6 +20,7 @@ from app.integrations.rardar import selection_serving as serving_module
 from app.integrations.rardar.selection import (
     BuiltSelection,
     SelectionBuildError,
+    _activation_gate,
     _gate_payload,
     _negative_controls,
     _pack,
@@ -33,6 +35,7 @@ from app.integrations.rardar.selection import (
     build_candidate_universe,
     build_selection,
     recall_candidates,
+    selection_input_digest,
     semantic_decision,
 )
 from app.integrations.rardar.selection_schemas import (
@@ -40,8 +43,10 @@ from app.integrations.rardar.selection_schemas import (
     SelectionArtifact,
     SelectionAssessment,
     SelectionCandidateFacts,
+    SelectionCopyResult,
     SelectionEvidenceAlias,
     SelectionGateResult,
+    SelectionServingSnapshot,
     SelectionTimeliness,
 )
 from app.integrations.rardar.selection_serving import (
@@ -323,11 +328,23 @@ def _activation_artifact(
     permanent_count: int = 0,
     published_count: int = 0,
     retryable_code: str = "profile_source_timeout",
+    processed_count: int | None = None,
+    semantic_unresolved_ready_count: int = 0,
 ) -> SelectionArtifact:
-    assert ready_count + retryable_count + permanent_count == recall_count
+    resolution_count = processed_count if processed_count is not None else recall_count
+    assert ready_count + retryable_count + permanent_count == resolution_count
+    assert semantic_unresolved_ready_count <= ready_count - published_count
     assessments: list[SelectionAssessment] = []
     existing = built.artifact.assessments
-    for index in range(recall_count):
+    copy_template = SelectionCopyResult(
+        identitySummaryZh="一个提供可组合开发能力的工具。",
+        whyWorthSeeingZh="它提供了可以直接检查和复用的实现边界。",
+        whyNowZh=None,
+        reusableAssets=["SDK"],
+        bestFit=["开发者"],
+        evidenceIds=["E01"],
+    )
+    for index in range(resolution_count):
         item = existing[index] if index < len(existing) else _assessment(_candidate(tmp_path, 10_000 + index))
         if index < published_count:
             item = item.model_copy(
@@ -338,20 +355,28 @@ def _activation_artifact(
                     "publicationDisposition": "publish",
                     "displayOrder": index + 1,
                     "failureCode": None,
+                    "valueFailureCode": None,
+                    "timelinessFailureCode": None,
+                    "copyFailureCode": None,
+                    "copyResult": item.copyResult or copy_template,
                     "rejectReason": None,
                 }
             )
         elif index < ready_count:
+            unresolved = index >= ready_count - semantic_unresolved_ready_count
             item = item.model_copy(
                 update={
-                    "semanticDecision": "REJECT",
+                    "semanticDecision": "UNCERTAIN" if unresolved else "REJECT",
                     "primaryReason": None,
                     "supportingReasons": [],
                     "publicationDisposition": "not_eligible",
                     "displayOrder": None,
                     "copyResult": None,
                     "failureCode": None,
-                    "rejectReason": "no_clear_value",
+                    "valueFailureCode": None,
+                    "timelinessFailureCode": None,
+                    "copyFailureCode": None,
+                    "rejectReason": "weak_evidence" if unresolved else "no_clear_value",
                 }
             )
         else:
@@ -366,10 +391,15 @@ def _activation_artifact(
                     "displayOrder": None,
                     "copyResult": None,
                     "failureCode": (retryable_code if retryable else "profile_evidence_incomplete"),
+                    "valueFailureCode": (retryable_code if retryable else "profile_evidence_incomplete"),
+                    "timelinessFailureCode": None,
+                    "copyFailureCode": None,
                     "rejectReason": None,
                 }
             )
         assessments.append(item)
+    if processed_count is not None:
+        assert all(item.publicationDisposition != "publish" or item.copyResult is not None for item in assessments)
 
     decision_counts = {
         decision: sum(item.semanticDecision == decision for item in assessments)
@@ -383,14 +413,25 @@ def _activation_artifact(
         code: sum(item.failureCode == code for item in assessments)
         for code in sorted({item.failureCode for item in assessments if item.failureCode})
     }
-    systemic_threshold = max(5, (recall_count + 4) // 5)
+    systemic_threshold = max(5, (resolution_count + 4) // 5)
     systemic_codes = [retryable_code] if retryable_count >= systemic_threshold else []
-    coverage = round(ready_count / recall_count if recall_count else 1.0, 6)
-    healthy_gate = coverage >= 0.95 and not systemic_codes
-    semantic_resolved = ready_count + permanent_count
-    if published_count and healthy_gate:
+    coverage = round(ready_count / resolution_count if resolution_count else 1.0, 6)
+    semantic_resolved = ready_count - semantic_unresolved_ready_count + permanent_count
+    activation_gate = _activation_gate(
+        execution_mode="small_batch" if processed_count is not None else "full",
+        resolution_count=resolution_count,
+        profile_ready_count=ready_count,
+        profile_retryable_failure_count=retryable_count,
+        profile_permanent_unavailable_count=permanent_count,
+        gate_assessed_count=ready_count,
+        profile_coverage=coverage,
+        systemic_failure_codes=systemic_codes,
+        negative_failures=[],
+        copy_complete=True,
+    )
+    if published_count and activation_gate:
         state = "ready"
-    elif not published_count and healthy_gate and not retryable_count and semantic_resolved == recall_count:
+    elif not published_count and activation_gate and not retryable_count and semantic_resolved == resolution_count:
         state = "empty"
     else:
         state = "degraded"
@@ -407,7 +448,7 @@ def _activation_artifact(
             "preExactCount": 0,
             "metadataIncompleteCount": 0,
             "recalledCount": recall_count,
-            "assessedCount": recall_count,
+            "assessedCount": resolution_count,
             "publishedCount": published_count,
             "todayExcludedCount": 0,
             "invalidExcludedCount": 0,
@@ -430,7 +471,7 @@ def _activation_artifact(
             "profilePermanentUnavailableCount": permanent_count,
             "gateAssessedCount": ready_count,
             "semanticResolvedCount": semantic_resolved,
-            "unresolvedCount": retryable_count,
+            "unresolvedCount": retryable_count + semantic_unresolved_ready_count,
             "profileCoverage": coverage,
             "assessmentCoverage": 1.0 if ready_count else 0.0,
             "failureHistogram": failure_summary,
@@ -440,6 +481,18 @@ def _activation_artifact(
             "latestAttemptGeneration": generation,
         }
     )
+    if processed_count is not None:
+        processed_ids = [item.candidate.githubRepositoryId for item in assessments]
+        unprocessed_ids = [30_000 + index for index in range(recall_count - resolution_count)]
+        payload.update(
+            {
+                "executionMode": "small_batch",
+                "processedCount": resolution_count,
+                "recalledCandidateIds": [*processed_ids, *unprocessed_ids],
+                "processedCandidateIds": processed_ids,
+                "unprocessedCandidateIds": unprocessed_ids,
+            }
+        )
     payload["payloadDigest"] = "0" * 64
     canonical = dict(payload)
     canonical.pop("payloadDigest")
@@ -1013,6 +1066,70 @@ async def test_activation_policy_distinguishes_ready_empty_and_degraded(tmp_path
     assert invalid_model_output.profilePermanentUnavailableCount == 0
     assert invalid_model_output.state == "degraded"
 
+    isolated_small_batch_failure = _activation_artifact(
+        built,
+        tmp_path,
+        recall_count=7,
+        processed_count=6,
+        ready_count=5,
+        retryable_count=0,
+        permanent_count=1,
+        published_count=4,
+        semantic_unresolved_ready_count=1,
+    )
+    assert isolated_small_batch_failure.state == "ready"
+    assert isolated_small_batch_failure.currentEligible is True
+    assert isolated_small_batch_failure.profileCoverage == 0.833333
+    assert isolated_small_batch_failure.semanticResolvedCount == 5
+    assert isolated_small_batch_failure.unresolvedCount == 1
+    isolated_built = BuiltSelection(
+        artifact=isolated_small_batch_failure,
+        profiles=built.profiles,
+        raw_bytes=serving_module._canonical_bytes(isolated_small_batch_failure),
+    )
+    isolated_serving = build_selection_serving(isolated_built)
+    isolated_snapshot = SelectionServingSnapshot.model_validate_json(
+        isolated_serving.files["serving/selection.json"],
+        strict=True,
+    )
+    assert isolated_snapshot.status == "ready"
+    assert isolated_snapshot.publishedCount == 4
+    assert isolated_snapshot.profileReadyCount == 5
+    assert isolated_snapshot.permanentFailureCount == 1
+    assert install_selection_serving(target, isolated_serving).current_changed is True
+    assert SelectionServingLoader(target).load_with_etag()[0].selectionGenerationId == (
+        isolated_small_batch_failure.selectionGenerationId
+    )
+
+    replay_assessments = [
+        item.model_copy(
+            update={
+                "profileCacheState": "hit" if item.failureCode is None else "unavailable",
+                "gateCacheHit": item.gate is not None,
+                "copyCacheHit": item.copyResult is not None,
+            }
+        )
+        for item in isolated_small_batch_failure.assessments
+    ]
+    replay_usage = isolated_small_batch_failure.usage.model_copy(update={"modelCalls": 0})
+    replay_artifact = isolated_small_batch_failure.model_copy(
+        update={"assessments": replay_assessments, "usage": replay_usage}
+    )
+    assert rebuild_module._cache_replay_hits(replay_artifact) == (5, 5, 4)
+
+    two_small_batch_failures = _activation_artifact(
+        built,
+        tmp_path,
+        recall_count=8,
+        processed_count=6,
+        ready_count=4,
+        retryable_count=0,
+        permanent_count=2,
+        published_count=3,
+    )
+    assert two_small_batch_failures.state == "degraded"
+    assert two_small_batch_failures.currentEligible is False
+
 
 @pytest.mark.asyncio
 async def test_retained_v1_artifact_digest_is_checked_without_v2_default_fields(tmp_path: Path) -> None:
@@ -1046,6 +1163,15 @@ async def test_retained_v1_artifact_digest_is_checked_without_v2_default_fields(
     for assessment in payload["assessments"]:
         if assessment["failureCode"] == "profile_source_timeout":
             assessment["failureCode"] = "profile_unavailable"
+        for field in (
+            "valueFailureCode",
+            "timelinessFailureCode",
+            "copyFailureCode",
+            "gateCacheHit",
+            "copyCacheHit",
+            "profileCacheState",
+        ):
+            assessment.pop(field, None)
     payload["failureSummary"] = {"profile_unavailable": 46}
     for field in (
         "profileCacheIdentityVersion",
@@ -1069,6 +1195,11 @@ async def test_retained_v1_artifact_digest_is_checked_without_v2_default_fields(
         "state",
         "currentEligible",
         "latestAttemptGeneration",
+        "executionMode",
+        "recalledCandidateIds",
+        "processedCandidateIds",
+        "unprocessedCandidateIds",
+        "processedCount",
     ):
         payload.pop(field)
     payload.pop("payloadDigest")
@@ -1371,6 +1502,339 @@ async def test_pointer_interruption_restores_both_existing_activation_pointers(
     assert (store / "current.json").read_bytes() == current_before
     assert (store / "latest-attempt.json").read_bytes() == latest_before
     assert not (store / "generations" / replacement_artifact.selectionGenerationId).exists()
+
+
+def _small_batch_ids(source, *, batch_id: str = "small-batch-fixture") -> tuple[int, ...]:
+    universe, _summary = build_candidate_universe(source)
+    recalled = recall_candidates(universe, 30, batch_id=batch_id)
+    assert len(recalled) >= 6
+    return tuple(candidate.githubRepositoryId for candidate in recalled[:6])
+
+
+@pytest.mark.asyncio
+async def test_small_batch_preserves_recall_inventory_and_processes_exact_six(tmp_path: Path) -> None:
+    target, source = _source(tmp_path)
+    batch_id = "small-batch-fixture"
+    identifiers = _small_batch_ids(source, batch_id=batch_id)
+    double = ModelDouble()
+    async with _client() as client:
+        built = await build_selection(
+            source=source,
+            cache_root=target / "selection-profile-cache",
+            caller=double,
+            github_client=client,
+            recall_limit=30,
+            recall_batch_id=batch_id,
+            process_candidate_ids=identifiers,
+            model_route_identity="c" * 64,
+        )
+
+    artifact = built.artifact
+    assert artifact.executionMode == "small_batch"
+    assert artifact.recalledCount == 7
+    assert artifact.processedCount == 6
+    assert artifact.assessedCount == 6
+    assert artifact.processedCandidateIds == list(identifiers)
+    assert len(artifact.recalledCandidateIds) == 7
+    assert artifact.unprocessedCandidateIds == [
+        identifier for identifier in artifact.recalledCandidateIds if identifier not in identifiers
+    ]
+    assert all(scene != RardarLLMScene.WORTH_SEEING_MEANINGFUL_CHANGE for scene, _messages in double.calls)
+    missing_copy = [
+        item for item in artifact.assessments if item.publicationDisposition == "publish" and item.copyResult is None
+    ]
+    assert missing_copy
+    assert all(item.copyFailureCode == "copy_unavailable" for item in missing_copy)
+    assert artifact.state == "degraded"
+    assert artifact.currentEligible is False
+
+    serving = build_selection_serving(built)
+    snapshot = SelectionServingSnapshot.model_validate_json(
+        serving.files["serving/selection.json"],
+        strict=True,
+    )
+    assert snapshot.executionMode == "small_batch"
+    assert snapshot.processedCount == 6
+    assert snapshot.unprocessedCount == 1
+    assert "宽召回 7 项中的 6 项" in snapshot.coverageLabelZh
+    assert "不是对全部 GitHub 的完整扫描" in snapshot.coverageLabelZh
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["duplicate", "unknown", "wrong_order"])
+async def test_small_batch_identity_preflight_fails_before_model_or_github(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    target, source = _source(tmp_path)
+    identifiers = list(_small_batch_ids(source))
+    if mode == "duplicate":
+        identifiers[-1] = identifiers[0]
+        expected = "rardar_selection_small_batch_invalid"
+    elif mode == "unknown":
+        identifiers[-1] = 9_999_999_999
+        expected = "rardar_selection_small_batch_not_recalled"
+    else:
+        identifiers[0], identifiers[1] = identifiers[1], identifiers[0]
+        expected = "rardar_selection_small_batch_order_invalid"
+
+    double = ModelDouble()
+    github_calls: list[str] = []
+
+    def transport(request: httpx.Request) -> httpx.Response:
+        github_calls.append(str(request.url))
+        return _github_transport(request)
+
+    async with httpx.AsyncClient(
+        base_url="https://api.github.com",
+        transport=httpx.MockTransport(transport),
+    ) as client:
+        with pytest.raises(SelectionBuildError) as error:
+            await build_selection(
+                source=source,
+                cache_root=target / "selection-profile-cache",
+                caller=double,
+                github_client=client,
+                recall_limit=30,
+                recall_batch_id="small-batch-fixture",
+                process_candidate_ids=tuple(identifiers),
+                model_route_identity="c" * 64,
+            )
+    assert error.value.code == expected
+    assert double.calls == []
+    assert github_calls == []
+
+
+@pytest.mark.asyncio
+async def test_small_batch_replays_per_project_success_cache_with_provider_disabled(tmp_path: Path) -> None:
+    target, source = _source(tmp_path)
+    batch_id = "small-batch-cache-fixture"
+    identifiers = _small_batch_ids(source, batch_id=batch_id)
+    first_caller = ModelDouble(copy_why_now=None)
+    async with _client() as client:
+        first = await build_selection(
+            source=source,
+            cache_root=target / "selection-profile-cache",
+            caller=first_caller,
+            github_client=client,
+            recall_limit=30,
+            recall_batch_id=batch_id,
+            process_candidate_ids=identifiers,
+            model_route_identity="d" * 64,
+        )
+    install_selection_serving(target, build_selection_serving(first))
+    store = target / "discover-worth-seeing"
+    pointer_before = (store / "current.json").read_bytes()
+    generations_before = sorted(path.name for path in (store / "generations").iterdir())
+
+    class ProviderMustNotRun:
+        calls = 0
+
+        async def __call__(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("cache replay must not call the Provider")
+
+    second_caller = ProviderMustNotRun()
+    async with _client() as client:
+        replay = await build_selection(
+            source=source,
+            cache_root=target / "selection-profile-cache",
+            caller=second_caller,
+            github_client=client,
+            recall_limit=30,
+            recall_batch_id=batch_id,
+            process_candidate_ids=identifiers,
+            model_route_identity="d" * 64,
+            provider_calls_allowed=False,
+        )
+
+    assert second_caller.calls == 0
+    assert replay.artifact.usage.modelCalls == 0
+    assert replay.artifact.usage.cacheHits >= 12
+    assert replay.artifact.inputDigest == first.artifact.inputDigest
+    assert replay.artifact.assessmentResultDigest == first.artifact.assessmentResultDigest
+    assert all(item.gateCacheHit for item in replay.artifact.assessments if item.gate is not None)
+    assert all(item.copyCacheHit for item in replay.artifact.assessments if item.publicationDisposition == "publish")
+    assert all(item.profileCacheState == "hit" for item in replay.artifact.assessments)
+    assert (store / "current.json").read_bytes() == pointer_before
+    assert sorted(path.name for path in (store / "generations").iterdir()) == generations_before
+
+
+@pytest.mark.asyncio
+async def test_provider_disabled_cache_miss_fails_without_outbound_call(tmp_path: Path) -> None:
+    target, source = _source(tmp_path)
+    identifiers = _small_batch_ids(source)
+
+    class ProviderMustNotRun:
+        calls = 0
+
+        async def __call__(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("Provider calls are disabled")
+
+    caller = ProviderMustNotRun()
+    async with _client() as client:
+        with pytest.raises(SelectionBuildError) as error:
+            await build_selection(
+                source=source,
+                cache_root=target / "selection-profile-cache",
+                caller=caller,
+                github_client=client,
+                recall_limit=30,
+                recall_batch_id="small-batch-fixture",
+                process_candidate_ids=identifiers,
+                model_route_identity="e" * 64,
+                provider_calls_allowed=False,
+            )
+    assert error.value.code == "rardar_selection_negative_control_failed"
+    assert caller.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_tampered_result_cache_fails_closed_before_provider_replay(tmp_path: Path) -> None:
+    target, source = _source(tmp_path)
+    batch_id = "small-batch-cache-tamper"
+    identifiers = _small_batch_ids(source, batch_id=batch_id)
+    async with _client() as client:
+        await build_selection(
+            source=source,
+            cache_root=target / "selection-profile-cache",
+            caller=ModelDouble(),
+            github_client=client,
+            recall_limit=30,
+            recall_batch_id=batch_id,
+            process_candidate_ids=identifiers,
+            model_route_identity="f" * 64,
+        )
+    entry = next((target / "selection-profile-cache" / "selection-result-cache-v1").rglob("*.json"))
+    saved = json.loads(entry.read_bytes())
+    saved["value"] = {}
+    entry.write_text(json.dumps(saved), encoding="utf-8")
+
+    double = ModelDouble()
+    async with _client() as client:
+        with pytest.raises(SelectionBuildError) as error:
+            await build_selection(
+                source=source,
+                cache_root=target / "selection-profile-cache",
+                caller=double,
+                github_client=client,
+                recall_limit=30,
+                recall_batch_id=batch_id,
+                process_candidate_ids=identifiers,
+                model_route_identity="f" * 64,
+                provider_calls_allowed=False,
+            )
+    assert error.value.code == "rardar_selection_result_cache_invalid"
+    assert double.calls == []
+
+
+@pytest.mark.asyncio
+async def test_rebuild_cache_verification_traverses_caches_without_republishing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target, source = _source(tmp_path)
+    batch_id = "small-batch-rebuild-cache"
+    identifiers = _small_batch_ids(source, batch_id=batch_id)
+    route_identity = "1" * 64
+    active_caller: object = ModelDouble(copy_why_now=None)
+    original_build = build_selection
+
+    class SourceAdapterDouble:
+        def load(self):
+            return source
+
+    async def route() -> str:
+        return route_identity
+
+    async def controlled_build(**kwargs):
+        async with _client() as client:
+            return await original_build(
+                **kwargs,
+                caller=active_caller,
+                github_client=client,
+            )
+
+    monkeypatch.setattr(rebuild_module.SelectionSourceAdapter, "from_config", lambda _target: SourceAdapterDouble())
+    monkeypatch.setattr(rebuild_module, "resolve_rardar_route_identity", route)
+    monkeypatch.setattr(rebuild_module, "build_selection", controlled_build)
+
+    first = await rebuild_module.rebuild(
+        target,
+        recall_limit=30,
+        recall_batch_id=batch_id,
+        process_candidate_ids=identifiers,
+    )
+    assert first["created"] is True
+    store = target / "discover-worth-seeing"
+    pointer_before = (store / "current.json").read_bytes()
+    generations_before = sorted(path.name for path in (store / "generations").iterdir())
+    active = SelectionServingLoader(target).validate_generation()
+    cache_marker = target / "selection-profile-cache" / "cache-verification-marker.json"
+    cache_marker.write_text("{}", encoding="utf-8")
+    changed_cache_input = selection_input_digest(
+        source,
+        cache_root=target / "selection-profile-cache",
+        model_route_identity=route_identity,
+        recall_limit=30,
+        recall_batch_id=batch_id,
+        process_candidate_ids=identifiers,
+    )
+    assert changed_cache_input != active.inputDigest
+
+    class ProviderMustNotRun:
+        calls = 0
+
+        async def __call__(self, **_kwargs):
+            self.calls += 1
+            raise AssertionError("cache verification must not call the Provider")
+
+    forbidden = ProviderMustNotRun()
+    active_caller = forbidden
+    replay = await rebuild_module.rebuild(
+        target,
+        recall_limit=30,
+        recall_batch_id=batch_id,
+        process_candidate_ids=identifiers,
+        verify_cache_reuse=True,
+    )
+    assert replay["cacheVerification"] is True
+    assert replay["created"] is False
+    assert replay["changed"] is False
+    assert replay["modelCalls"] == 0
+    assert replay["cacheHits"] >= 12
+    assert replay["profileCacheHits"] == 6
+    assert replay["gateCacheHits"] == 6
+    assert replay["copyCacheHits"] == replay["publishedCount"]
+    assert forbidden.calls == 0
+    assert (
+        rebuild_module._cache_replay_binding_mismatches(
+            active,
+            active.model_copy(update={"inputDigest": changed_cache_input}),
+        )
+        == []
+    )
+    assert rebuild_module._cache_replay_binding_mismatches(
+        active,
+        active.model_copy(update={"modelRouteIdentity": "2" * 64}),
+    ) == ["modelRouteIdentity"]
+    assert (store / "current.json").read_bytes() == pointer_before
+    assert sorted(path.name for path in (store / "generations").iterdir()) == generations_before
+
+    shutil.rmtree(store)
+    cache_only = await rebuild_module.rebuild(
+        target,
+        recall_limit=30,
+        recall_batch_id=batch_id,
+        process_candidate_ids=identifiers,
+        provider_calls_allowed=False,
+    )
+    assert cache_only["created"] is True
+    assert cache_only["status"] == "healthy"
+    assert cache_only["modelCalls"] == 0
+    assert forbidden.calls == 0
+    assert (store / "current.json").is_file()
 
 
 @pytest.mark.asyncio

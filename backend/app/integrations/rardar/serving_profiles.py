@@ -48,6 +48,7 @@ from app.integrations.rardar.serving_schemas import (
     ServingCapability,
     StartHereLink,
 )
+from app.services.llm.provider_budget import budget_stage
 
 _README_BYTES = 1_500_000
 _README_CHARS = 80_000
@@ -2882,7 +2883,8 @@ async def _official_translation(
     for attempt in range(1, 3):
         try:
             calls += 1
-            value = await translator(payload | {"validationAttempt": attempt})
+            with budget_stage("profile_translation"):
+                value = await translator(payload | {"validationAttempt": attempt})
             _validate_official_translation(value, narrative)
             break
         except Exception as exc:
@@ -2930,13 +2932,14 @@ async def _official_positioning_translation(
     for attempt in range(1, 3):
         try:
             calls += 1
-            value = await translator(
-                {
-                    "repository": project.repository,
-                    "sourcePositioning": source_positioning,
-                    "validationAttempt": attempt,
-                }
-            )
+            with budget_stage("profile_translation"):
+                value = await translator(
+                    {
+                        "repository": project.repository,
+                        "sourcePositioning": source_positioning,
+                        "validationAttempt": attempt,
+                    }
+                )
             _validate_official_positioning_translation(value)
             break
         except Exception as exc:
@@ -3044,7 +3047,8 @@ async def _translation(
     for attempt in range(1, 3):
         try:
             calls += 1
-            value = await translator(payload | {"validationAttempt": attempt})
+            with budget_stage("profile_translation" if stage == "translation" else "project_profile"):
+                value = await translator(payload | {"validationAttempt": attempt})
             _validate_translation(value, set(evidence.evidenceIndex))
             break
         except Exception as exc:

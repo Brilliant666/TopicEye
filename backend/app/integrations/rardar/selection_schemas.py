@@ -280,9 +280,12 @@ class SelectionAssessment(StrictSelectionModel):
     timelinessFailureCode: str | None = Field(default=None, max_length=80)
     copyFailureCode: str | None = Field(default=None, max_length=80)
     gateAttempts: int = Field(ge=0, le=2)
+    gateCacheHit: bool = False
     meaningfulChangeAttempts: int = Field(ge=0, le=2)
     copyAttempts: int = Field(ge=0, le=2)
+    copyCacheHit: bool = False
     copyResult: SelectionCopyResult | None = None
+    profileCacheState: Literal["hit", "rebound", "migrated", "rebuilt", "unavailable"] | None = None
     category: SelectionCategory
     categorySource: Literal["canonical_profile", "research_derived"]
     productFormsZh: list[str] = Field(max_length=3)
@@ -434,7 +437,7 @@ class SelectionArtifact(StrictSelectionModel):
     candidateUniverseVersion: Literal["worth-seeing-universe-v1"]
     candidateUniverseDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
     inputDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
-    contractVersions: dict[str, str] = Field(min_length=1, max_length=20)
+    contractVersions: dict[str, str] = Field(min_length=1, max_length=24)
     protocolMode: Literal["prompt_json_with_local_strict_validation"]
     modelRouteIdentity: str = Field(pattern=r"^[a-f0-9]{64}$")
     modelRouteIdentities: list[str] = Field(max_length=8)
@@ -445,6 +448,11 @@ class SelectionArtifact(StrictSelectionModel):
     metadataIncompleteCount: int = Field(ge=0, le=500)
     recalledCount: int = Field(ge=0, le=60)
     assessedCount: int = Field(ge=0, le=60)
+    executionMode: Literal["full", "small_batch"] = "full"
+    recalledCandidateIds: list[int] = Field(default_factory=list, max_length=60)
+    processedCandidateIds: list[int] = Field(default_factory=list, max_length=60)
+    unprocessedCandidateIds: list[int] = Field(default_factory=list, max_length=60)
+    processedCount: int | None = Field(default=None, ge=0, le=60)
     publishedCount: int = Field(ge=0, le=20)
     todayExcludedCount: int = Field(ge=0, le=20)
     invalidExcludedCount: int = Field(ge=0, le=500)
@@ -490,6 +498,43 @@ class SelectionArtifact(StrictSelectionModel):
             raise ValueError("source capture digest is invalid")
         if self.assessedCount != len(self.assessments):
             raise ValueError("assessment count mismatch")
+        assessment_ids = [item.candidate.githubRepositoryId for item in self.assessments]
+        if len(assessment_ids) != len(set(assessment_ids)):
+            raise ValueError("assessment identities must be unique")
+        if self.executionMode == "small_batch":
+            if self.processedCount is None or not 1 <= self.processedCount <= 6:
+                raise ValueError("small-batch processed count is invalid")
+            if (
+                len(self.recalledCandidateIds) != self.recalledCount
+                or len(self.recalledCandidateIds) != len(set(self.recalledCandidateIds))
+                or len(self.processedCandidateIds) != self.processedCount
+                or len(self.processedCandidateIds) != len(set(self.processedCandidateIds))
+                or self.processedCount != self.assessedCount
+                or assessment_ids != self.processedCandidateIds
+                or self.unprocessedCandidateIds
+                != [
+                    identifier
+                    for identifier in self.recalledCandidateIds
+                    if identifier not in set(self.processedCandidateIds)
+                ]
+                or set(self.recalledCandidateIds) != set(self.processedCandidateIds) | set(self.unprocessedCandidateIds)
+            ):
+                raise ValueError("small-batch candidate partition is inconsistent")
+        elif any(
+            (
+                self.recalledCandidateIds,
+                self.processedCandidateIds,
+                self.unprocessedCandidateIds,
+                self.processedCount is not None,
+            )
+        ):
+            if (
+                self.processedCount != self.assessedCount
+                or self.recalledCandidateIds != self.processedCandidateIds
+                or self.unprocessedCandidateIds
+                or assessment_ids != self.processedCandidateIds
+            ):
+                raise ValueError("full execution candidate inventory is inconsistent")
         if self.publishedCount != sum(item.publicationDisposition == "publish" for item in self.assessments):
             raise ValueError("publication count mismatch")
         if self.usage.modelCalls > 120:
@@ -518,6 +563,7 @@ class SelectionArtifact(StrictSelectionModel):
         if self.contractVersions.get("packingPolicy") == "worth-seeing-packing-v3" and self.publishedCount > 6:
             raise ValueError("value-first preview capacity exceeded")
         if self.profileCacheIdentityVersion == 2:
+            resolution_count = self.processedCount if self.executionMode == "small_batch" else self.recalledCount
             required = (
                 self.sourceFactDigest,
                 self.profileRevisionSetDigest,
@@ -546,10 +592,10 @@ class SelectionArtifact(StrictSelectionModel):
                 raise ValueError("selection latest attempt identity is inconsistent")
             if (
                 self.profileReadyCount + self.profileRetryableFailureCount + self.profilePermanentUnavailableCount
-                != self.recalledCount
+                != resolution_count
             ):
                 raise ValueError("selection profile resolution counts are inconsistent")
-            if self.semanticResolvedCount + self.unresolvedCount != self.recalledCount:
+            if self.semanticResolvedCount + self.unresolvedCount != resolution_count:
                 raise ValueError("selection semantic counts are inconsistent")
             if self.profileReboundCount + self.profileRebuiltCount > self.profileReadyCount:
                 raise ValueError("selection profile cache counts are inconsistent")
@@ -557,7 +603,7 @@ class SelectionArtifact(StrictSelectionModel):
             if self.gateAssessedCount != actual_gate_count or self.gateAssessedCount > self.profileReadyCount:
                 raise ValueError("selection assessment count is inconsistent")
             expected_profile_coverage = round(
-                self.profileReadyCount / self.recalledCount if self.recalledCount else 1.0,
+                self.profileReadyCount / resolution_count if resolution_count else 1.0,
                 6,
             )
             expected_assessment_coverage = round(
@@ -578,25 +624,39 @@ class SelectionArtifact(StrictSelectionModel):
                 or permanent_count != self.profilePermanentUnavailableCount
             ):
                 raise ValueError("selection profile failure counts are inconsistent")
-            systemic_threshold = max(5, math.ceil(self.recalledCount * 0.20))
+            systemic_threshold = max(5, math.ceil(resolution_count * 0.20))
             expected_systemic = sorted(
                 code for code in _RETRYABLE_PROFILE_FAILURES if self.failureHistogram.get(code, 0) >= systemic_threshold
             )
             if self.systemicFailureCodes != expected_systemic:
                 raise ValueError("selection systemic failure classification is inconsistent")
-            healthy_gate = (
-                self.profileCoverage >= 0.95
+            isolated_small_batch_failure = (
+                self.executionMode == "small_batch"
+                and resolution_count > 1
+                and self.profileReadyCount == resolution_count - 1
+                and self.profileRetryableFailureCount == 0
+                and self.profilePermanentUnavailableCount == 1
+            )
+            activation_gate = (
+                (self.profileCoverage >= 0.95 or isolated_small_batch_failure)
                 and self.gateAssessedCount == self.profileReadyCount
                 and not self.systemicFailureCodes
                 and not self.negativeControlFailures
+                and (
+                    self.executionMode != "small_batch"
+                    or all(
+                        item.publicationDisposition != "publish" or item.copyResult is not None
+                        for item in self.assessments
+                    )
+                )
             )
-            if self.publishedCount > 0 and healthy_gate:
+            if self.publishedCount > 0 and activation_gate:
                 expected_state = "ready"
             elif (
                 self.publishedCount == 0
-                and healthy_gate
+                and activation_gate
                 and self.profileRetryableFailureCount == 0
-                and self.semanticResolvedCount == self.recalledCount
+                and self.semanticResolvedCount == resolution_count
             ):
                 expected_state = "empty"
             else:
@@ -675,6 +735,9 @@ class SelectionServingSnapshot(StrictSelectionModel):
     sourceTodayGeneration: str
     candidateCount: int = Field(ge=0, le=500)
     recallCount: int = Field(default=0, ge=0, le=60)
+    executionMode: Literal["full", "small_batch"] = "full"
+    processedCount: int | None = Field(default=None, ge=0, le=60)
+    unprocessedCount: int = Field(default=0, ge=0, le=60)
     selectedCount: int = Field(ge=0, le=60)
     publishedCount: int = Field(ge=0, le=20)
     suppressedCount: int = Field(ge=0, le=60)
@@ -710,9 +773,17 @@ class SelectionServingSnapshot(StrictSelectionModel):
         ):
             raise ValueError("selection serving counts are inconsistent")
         if self.latestAttemptGeneration is not None:
+            resolution_count = self.processedCount if self.executionMode == "small_batch" else self.recallCount
+            if self.executionMode == "small_batch" and (
+                resolution_count is None
+                or resolution_count < 1
+                or resolution_count > 6
+                or resolution_count + self.unprocessedCount != self.recallCount
+            ):
+                raise ValueError("selection serving small-batch inventory is inconsistent")
             if self.latestAttemptGeneration != self.selectionGenerationId:
                 raise ValueError("selection latest attempt identity is inconsistent")
-            if self.profileReadyCount + self.retryableFailureCount + self.permanentFailureCount != self.recallCount:
+            if self.profileReadyCount + self.retryableFailureCount + self.permanentFailureCount != resolution_count:
                 raise ValueError("selection serving profile coverage is inconsistent")
             if self.currentGeneration != (self.selectionGenerationId if self.status in {"ready", "empty"} else None):
                 raise ValueError("selection serving current eligibility is inconsistent")
@@ -785,6 +856,9 @@ class SelectionApiResponse(StrictSelectionModel):
     currentGeneration: str | None = Field(default=None, max_length=190)
     latestAttemptGeneration: str | None = Field(default=None, max_length=190)
     recallCount: int = Field(default=0, ge=0, le=60)
+    executionMode: Literal["full", "small_batch"] = "full"
+    processedCount: int | None = Field(default=None, ge=0, le=60)
+    unprocessedCount: int = Field(default=0, ge=0, le=60)
     profileReadyCount: int = Field(default=0, ge=0, le=60)
     profileReboundCount: int = Field(default=0, ge=0, le=60)
     profileRebuiltCount: int = Field(default=0, ge=0, le=60)

@@ -30,6 +30,52 @@ StageReporter = Callable[[str], None]
 _DEFAULT_BUILD_TIMEOUT_SECONDS = 7200
 
 
+def _cache_replay_binding_mismatches(active, replay) -> list[str]:
+    """Compare stable evidence/result bindings, not the mutable cache inventory."""
+
+    fields = (
+        "sourceObservationSetId",
+        "todayGenerationId",
+        "sourceFactDigest",
+        "profileRevisionSetDigest",
+        "profileBindingSetDigest",
+        "assessmentResultDigest",
+        "modelRouteIdentity",
+        "contractVersions",
+        "protocolMode",
+        "candidateUniverseVersion",
+        "recallBatchId",
+        "executionMode",
+        "recalledCandidateIds",
+        "processedCandidateIds",
+        "unprocessedCandidateIds",
+    )
+    return [field for field in fields if getattr(active, field) != getattr(replay, field)]
+
+
+def _cache_replay_hits(artifact) -> tuple[int, int, int]:
+    profile_hits = sum(item.profileCacheState == "hit" for item in artifact.assessments)
+    gate_hits = sum(item.gate is not None and item.gateCacheHit for item in artifact.assessments)
+    copy_hits = sum(item.copyResult is not None and item.copyCacheHit for item in artifact.assessments)
+    expected_profile_hits = (
+        artifact.profileReadyCount if artifact.profileReadyCount is not None else artifact.assessedCount
+    )
+    if (
+        artifact.usage.modelCalls != 0
+        or profile_hits != expected_profile_hits
+        or gate_hits != artifact.gateAssessedCount
+        or any(
+            item.publicationDisposition == "publish" and (item.copyResult is None or not item.copyCacheHit)
+            for item in artifact.assessments
+        )
+    ):
+        raise SelectionServingError(
+            "rardar_selection_cache_verification_miss",
+            "Cache verification found a per-project Profile, Value, or copy miss",
+        )
+    return profile_hits, gate_hits, copy_hits
+
+
 async def rebuild(
     target: Path,
     *,
@@ -38,6 +84,9 @@ async def rebuild(
     timeout_seconds: int = _DEFAULT_BUILD_TIMEOUT_SECONDS,
     report_stage: StageReporter | None = None,
     force_retryable: bool = False,
+    process_candidate_ids: tuple[int, ...] | None = None,
+    verify_cache_reuse: bool = False,
+    provider_calls_allowed: bool = True,
 ) -> dict[str, object]:
     report = report_stage or (lambda _stage: None)
     target = target.resolve()
@@ -53,6 +102,7 @@ async def rebuild(
         model_route_identity=route_before,
         recall_limit=recall_limit,
         recall_batch_id=recall_batch_id,
+        process_candidate_ids=process_candidate_ids,
     )
     loader = SelectionServingLoader(target)
     report("idempotence_check")
@@ -66,6 +116,7 @@ async def rebuild(
             active.inputDigest == expected_input
             and artifact_activation_state(active) in {"ready", "empty"}
             and not force_retryable
+            and not verify_cache_reuse
         ):
             report("complete")
             return {
@@ -78,7 +129,7 @@ async def rebuild(
                 "githubRequests": 0,
                 "publishedCount": active.publishedCount,
             }
-    if not force_retryable and hasattr(loader, "load_latest_attempt_with_etag"):
+    if not force_retryable and not verify_cache_reuse and hasattr(loader, "load_latest_attempt_with_etag"):
         try:
             latest_snapshot, _etag = loader.load_latest_attempt_with_etag()
             latest_artifact = loader.load_artifact(latest_snapshot.selectionGenerationId)
@@ -113,6 +164,8 @@ async def rebuild(
                 recall_batch_id=recall_batch_id,
                 model_route_identity=route_before,
                 force_retryable=force_retryable,
+                process_candidate_ids=process_candidate_ids,
+                provider_calls_allowed=provider_calls_allowed and not verify_cache_reuse,
             ),
             timeout=timeout_seconds,
         )
@@ -128,6 +181,38 @@ async def rebuild(
             "rardar_selection_route_changed",
             "The configured Rardar model route changed during the build",
         )
+    if verify_cache_reuse:
+        try:
+            active = loader.validate_generation()
+        except SelectionServingError as exc:
+            raise SelectionServingError(
+                "rardar_selection_cache_verification_requires_current",
+                "Cache verification requires a validated current Selection",
+            ) from exc
+        if _cache_replay_binding_mismatches(active, built.artifact):
+            raise SelectionServingError(
+                "rardar_selection_cache_verification_mismatch",
+                "Per-project cache replay did not reproduce the active Selection inputs and results",
+            )
+        profile_hits, gate_hits, copy_hits = _cache_replay_hits(built.artifact)
+        report("complete")
+        return {
+            "status": "healthy",
+            "state": artifact_activation_state(active),
+            "selectionGenerationId": active.selectionGenerationId,
+            "sourceObservationSetId": active.sourceObservationSetId,
+            "created": False,
+            "changed": False,
+            "cacheVerification": True,
+            "modelCalls": built.artifact.usage.modelCalls,
+            "cacheHits": built.artifact.usage.cacheHits,
+            "profileCacheHits": profile_hits,
+            "gateCacheHits": gate_hits,
+            "copyCacheHits": copy_hits,
+            "githubRequests": built.artifact.usage.githubRequests,
+            "publishedCount": active.publishedCount,
+            "processedCandidateIds": list(active.processedCandidateIds),
+        }
     serving = build_selection_serving(built)
     report("atomic_activation")
     installed = install_selection_serving(target, serving)
@@ -146,6 +231,10 @@ async def rebuild(
         "githubRequests": validated.usage.githubRequests,
         "publishedCount": validated.publishedCount,
         "recallBatchId": validated.recallBatchId,
+        "executionMode": validated.executionMode,
+        "processedCandidateIds": list(validated.processedCandidateIds),
+        "unprocessedCandidateIds": list(validated.unprocessedCandidateIds),
+        "cacheHits": validated.usage.cacheHits,
     }
 
 
@@ -192,6 +281,9 @@ def status(target: Path) -> dict[str, object]:
         "eligibleCount": artifact.universeCount,
         "recalledCount": artifact.recalledCount,
         "assessedCount": artifact.assessedCount,
+        "executionMode": artifact.executionMode,
+        "processedCandidateIds": list(artifact.processedCandidateIds),
+        "unprocessedCandidateIds": list(artifact.unprocessedCandidateIds),
         "selectedCount": artifact.decisionCounts.get("SELECT_NOW", 0),
         "publishedCount": artifact.publishedCount,
         "failedCount": sum(artifact.failureSummary.values()),
@@ -221,6 +313,23 @@ def main() -> int:
     parser.add_argument(
         "--recall-batch-id",
         help="Stable explicit batch identity; defaults to the current source revision",
+    )
+    parser.add_argument(
+        "--process-candidate-id",
+        dest="process_candidate_ids",
+        type=int,
+        action="append",
+        help="Explicit small-batch numeric repository ID; repeat exactly six times in stable recall order",
+    )
+    parser.add_argument(
+        "--verify-cache-reuse",
+        action="store_true",
+        help="Traverse per-project caches with Provider calls disabled; validate against current without publishing",
+    )
+    parser.add_argument(
+        "--provider-calls-disabled",
+        action="store_true",
+        help="Fail closed on any model cache miss while retaining normal validated publication behavior",
     )
     parser.add_argument(
         "--timeout-seconds",
@@ -256,6 +365,11 @@ def main() -> int:
                     timeout_seconds=arguments.timeout_seconds,
                     report_stage=report_stage,
                     force_retryable=arguments.retry_retryable_now,
+                    process_candidate_ids=(
+                        tuple(arguments.process_candidate_ids) if arguments.process_candidate_ids is not None else None
+                    ),
+                    verify_cache_reuse=arguments.verify_cache_reuse,
+                    provider_calls_allowed=not arguments.provider_calls_disabled,
                 )
             )
         elif arguments.command == "status":

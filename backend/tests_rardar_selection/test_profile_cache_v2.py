@@ -22,6 +22,7 @@ from app.integrations.rardar.profile_cache_v2 import (
     retryable_error,
 )
 from app.integrations.rardar.serving_profiles import (
+    ProfileTranslation,
     _build_evidence_context,
     _digest,
     _github_get,
@@ -29,8 +30,10 @@ from app.integrations.rardar.serving_profiles import (
     _profile_identity_candidates,
     _profile_identity_for_result,
     _profile_identity_versions,
+    _translation,
     collect_official_project_profile,
 )
+from app.services.llm.provider_budget import ProviderBudgetLedger, execution_budget
 
 FIXTURE = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_intelligence" / "revision-a"
 MARKDOWN = """
@@ -116,6 +119,78 @@ def test_model_route_identity_preserves_legacy_translation_cache_keys() -> None:
 def test_invalid_model_output_uses_bounded_retry_while_local_schema_failure_does_not() -> None:
     assert retryable_error("profile_model_invalid_output") is True
     assert retryable_error("profile_schema_invalid") is False
+
+
+@pytest.mark.asyncio
+async def test_profile_and_translation_stages_share_the_configured_task_ledger(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ledger = ProviderBudgetLedger.initialize(
+        tmp_path / "budget" / "provider-budget.json",
+        "incremental-profile-budget",
+        task_id="RARDAR-DISCOVER-INCREMENTAL-REAL-RUN-01",
+        limit=40,
+    )
+    monkeypatch.setenv("RARDAR_LLM_TASK_ID", ledger.task_id)
+    monkeypatch.setenv("RARDAR_LLM_RUN_ID", ledger.run_id)
+    monkeypatch.setenv("RARDAR_LLM_BUDGET_PATH", str(ledger.path))
+    monkeypatch.setenv("RARDAR_LLM_BUDGET_LIMIT", str(ledger.limit))
+    project = _project()
+    evidence = _build_evidence_context(project, "observation-a", TREE, _readme()).evidence
+    reference = next(iter(evidence.evidenceIndex))
+    observed_stages: list[str] = []
+
+    async def translator(_payload):
+        resolved, stage = execution_budget("rardar_project_profile")
+        observed_stages.append(stage)
+        with resolved.execution(stage):
+            pass
+        return ProfileTranslation.model_validate(
+            {
+                "summary": {"text": "一个整理项目证据的开发工具。", "evidenceRefs": [reference]},
+                "positioning": {
+                    "positioningZh": "通过结构化证据索引组织仓库事实，帮助开发者复核项目能力。",
+                    "includedEvidenceRefs": [reference],
+                    "includedRoles": ["core_mechanism", "primary_outcome"],
+                    "excludedClauses": [],
+                },
+                "coreValue": None,
+                "keyDifferentiators": [],
+                "capabilities": [
+                    {
+                        "title": "证据索引",
+                        "detail": "把仓库内容整理成可复核的结构化证据索引。",
+                        "shortDetail": None,
+                        "evidenceRefs": [reference],
+                        "sourceMode": "rardar_derived",
+                    }
+                ],
+                "productForms": [],
+                "supportedEnvironments": [],
+                "useCases": [],
+                "deliveryForms": [],
+            },
+            strict=True,
+        )
+
+    for stage in ("positioning", "translation"):
+        outcome = await _translation(
+            project=project,
+            evidence=evidence,
+            cache_root=tmp_path / stage,
+            translator=translator,
+            stage=stage,
+            model_route_identity="9" * 64,
+        )
+        assert outcome.value is not None
+        assert outcome.calls == 1
+
+    assert observed_stages == ["project_profile", "profile_translation"]
+    summary = ledger.snapshot()
+    assert summary["attempted"] == 2
+    assert summary["stageBreakdown"]["project_profile"] == 1
+    assert summary["stageBreakdown"]["profile_translation"] == 1
 
 
 @pytest.mark.asyncio

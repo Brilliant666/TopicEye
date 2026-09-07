@@ -50,6 +50,9 @@ export type SelectionResponse = {
   currentGeneration: string | null;
   latestAttemptGeneration: string | null;
   recallCount: number;
+  executionMode: 'full' | 'small_batch';
+  processedCount: number | null;
+  unprocessedCount: number;
   profileReadyCount: number;
   profileReboundCount: number;
   profileRebuiltCount: number;
@@ -174,6 +177,11 @@ export function parseSelectionCard(value: unknown): SelectionCard {
 }
 
 export function parseSelectionResponse(value: unknown): SelectionResponse {
+  const executionMode = record(value) && value.executionMode === 'small_batch' ? 'small_batch' : 'full';
+  const processedCount = record(value) && value.processedCount !== undefined
+    ? value.processedCount
+    : (record(value) && Number.isSafeInteger(value.recallCount) ? Number(value.recallCount) : null);
+  const unprocessedCount = record(value) && value.unprocessedCount !== undefined ? value.unprocessedCount : 0;
   if (!record(value)
     || value.mode !== 'shadow'
     || !['ready', 'empty', 'degraded', 'stale', 'not_configured', 'invalid'].includes(String(value.status))
@@ -196,6 +204,10 @@ export function parseSelectionResponse(value: unknown): SelectionResponse {
     || !nullableString(value.currentGeneration)
     || !nullableString(value.latestAttemptGeneration)
     || !Number.isSafeInteger(value.recallCount) || Number(value.recallCount) < 0
+    || (value.executionMode !== undefined && !['full', 'small_batch'].includes(String(value.executionMode)))
+    || (processedCount !== null
+      && (!Number.isSafeInteger(processedCount) || Number(processedCount) < 0))
+    || !Number.isSafeInteger(unprocessedCount) || Number(unprocessedCount) < 0
     || !Number.isSafeInteger(value.profileReadyCount) || Number(value.profileReadyCount) < 0
     || !Number.isSafeInteger(value.profileReboundCount) || Number(value.profileReboundCount) < 0
     || !Number.isSafeInteger(value.profileRebuiltCount) || Number(value.profileRebuiltCount) < 0
@@ -209,6 +221,13 @@ export function parseSelectionResponse(value: unknown): SelectionResponse {
     throw new Error('rardar_selection_response_invalid');
   }
   const items = value.items.map(parseSelectionCard);
+  if (executionMode === 'small_batch'
+    && (processedCount === null
+      || Number(processedCount) < 1
+      || Number(processedCount) > 6
+      || Number(processedCount) + Number(unprocessedCount) !== Number(value.recallCount))) {
+    throw new Error('rardar_selection_small_batch_invalid');
+  }
   if (value.shadowReviewState != null) {
     const reviewable = ['ready', 'empty'].includes(String(value.shadowReviewState));
     if (!['ready', 'empty', 'incomplete', 'invalid'].includes(String(value.shadowReviewState))
@@ -235,7 +254,7 @@ export function parseSelectionResponse(value: unknown): SelectionResponse {
     || (value.status === 'degraded' && !value.latestAttemptGeneration)) {
     throw new Error('rardar_selection_response_invalid');
   }
-  return { ...value, items } as SelectionResponse;
+  return { ...value, executionMode, processedCount, unprocessedCount, items } as SelectionResponse;
 }
 
 export async function loadSelection(

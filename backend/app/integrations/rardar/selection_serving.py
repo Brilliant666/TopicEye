@@ -213,13 +213,24 @@ def build_selection_serving(built: BuiltSelection) -> BuiltSelectionServing:
         categoryCounts=categories,
         primaryReasonCounts=reasons,
         coverageLabelZh=(
-            "基于 Rardar 多源候选召回与已验证 Observation 历史形成的本地精选；"
-            "它不是对全部 GitHub 的完整扫描，也不按热度公开排名。"
+            (
+                f"本次是宽召回 {artifact.recalledCount} 项中的 {artifact.processedCount} 项本地小批量验证；"
+                f"其余 {len(artifact.unprocessedCandidateIds)} 项明确未处理。"
+                "它不是对全部 GitHub 的完整扫描，也不按热度公开排名。"
+            )
+            if artifact.executionMode == "small_batch"
+            else (
+                "基于 Rardar 多源候选召回与已验证 Observation 历史形成的本地精选；"
+                "它不是对全部 GitHub 的完整扫描，也不按热度公开排名。"
+            )
         ),
         sourceCoverageState=artifact.sourceCoverageState,
         sourceTodayGeneration=artifact.todayGenerationId,
         candidateCount=artifact.universeCount,
         recallCount=artifact.recalledCount,
+        executionMode=artifact.executionMode,
+        processedCount=artifact.processedCount,
+        unprocessedCount=len(artifact.unprocessedCandidateIds),
         selectedCount=sum(item.value_is_publishable() for item in artifact.assessments),
         publishedCount=len(cards),
         suppressedCount=(

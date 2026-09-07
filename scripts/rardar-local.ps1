@@ -66,13 +66,189 @@ function Test-ProcessDescendsFrom([int]$ProcessId, [int]$AncestorId) {
     return $false
 }
 
-function Assert-RecordedRuntime([object]$State, [string]$Head, [string]$DataMode) {
+function Resolve-LocalSelectionSource(
+    [string]$DataRoot = $MirrorRoot,
+    [string]$PythonExecutable = $Python,
+    [string]$ApplicationRoot = $BackendRoot,
+    [scriptblock]$NormalValidator = $null
+) {
+    $store = Join-Path $DataRoot "discover-worth-seeing"
+    $pointerPath = Join-Path $store "current.json"
+
+    foreach ($directory in @($DataRoot, $store)) {
+        if (-not (Test-Path -LiteralPath $directory)) { continue }
+        $item = Get-Item -LiteralPath $directory -Force
+        if (
+            -not $item.PSIsContainer `
+            -or (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)
+        ) {
+            throw "Rardar Selection data path is unsafe; local source selection stopped."
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $pointerPath)) {
+        return [pscustomobject]@{
+            source = "shadow"
+            localShadowReview = $true
+            selectionGenerationId = $null
+        }
+    }
+    if (-not (Test-Path -LiteralPath $pointerPath -PathType Leaf)) {
+        throw "Rardar Selection current pointer is not a regular file."
+    }
+
+    $before = Get-Item -LiteralPath $pointerPath -Force
+    if (
+        $before.PSIsContainer `
+        -or (($before.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) `
+        -or $before.Length -le 0 `
+        -or $before.Length -gt (64 * 1024)
+    ) {
+        throw "Rardar Selection current pointer is unsafe."
+    }
+    try {
+        $raw = [System.IO.File]::ReadAllText($pointerPath, [System.Text.Encoding]::UTF8)
+    } catch {
+        throw "Rardar Selection current pointer could not be read safely."
+    }
+    $after = Get-Item -LiteralPath $pointerPath -Force
+    if (
+        $after.PSIsContainer `
+        -or (($after.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) `
+        -or $after.Length -ne $before.Length `
+        -or $after.LastWriteTimeUtc.Ticks -ne $before.LastWriteTimeUtc.Ticks
+    ) {
+        throw "Rardar Selection current pointer changed during validation."
+    }
+
+    try {
+        # Preserve the original RFC3339 token.  PowerShell's default date
+        # coercion discards the exact offset spelling before we can verify it.
+        $pointer = $raw | ConvertFrom-Json -DateKind String
+    } catch {
+        throw "Rardar Selection current pointer is invalid JSON."
+    }
+    if ($pointer -isnot [pscustomobject]) {
+        throw "Rardar Selection current pointer must be a JSON object."
+    }
+
+    $properties = @($pointer.PSObject.Properties.Name)
+    $required = @(
+        "schemaVersion", "selectionGenerationId", "sourceObservationSetId",
+        "manifestSha256", "activatedAt"
+    )
+    $allowed = @($required + @("activationState", "activationPolicyVersion"))
+    if (
+        @($required | Where-Object { $_ -cnotin $properties }).Count -ne 0 `
+        -or @($properties | Where-Object { $_ -cnotin $allowed }).Count -ne 0
+    ) {
+        throw "Rardar Selection current pointer has an untrusted structure."
+    }
+    if (
+        ($pointer.schemaVersion -isnot [int] -and $pointer.schemaVersion -isnot [long]) `
+        -or [int64]$pointer.schemaVersion -ne 1 `
+        -or $pointer.selectionGenerationId -isnot [string] `
+        -or $pointer.selectionGenerationId -cnotmatch '^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$' `
+        -or $pointer.sourceObservationSetId -isnot [string] `
+        -or $pointer.sourceObservationSetId.Length -lt 2 `
+        -or $pointer.sourceObservationSetId.Length -gt 190 `
+        -or $pointer.manifestSha256 -isnot [string] `
+        -or $pointer.manifestSha256 -cnotmatch '^[a-f0-9]{64}$' `
+        -or $pointer.activatedAt -isnot [string] `
+        -or $pointer.activatedAt -cnotmatch '(?:Z|[+-][0-9]{2}:[0-9]{2})$'
+    ) {
+        throw "Rardar Selection current pointer has invalid identity metadata."
+    }
+    $activatedAt = [datetimeoffset]::MinValue
+    if (-not [datetimeoffset]::TryParse(
+        $pointer.activatedAt,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind,
+        [ref]$activatedAt
+    )) {
+        throw "Rardar Selection current pointer has an invalid activation time."
+    }
+
+    $hasActivationState = $properties -ccontains "activationState"
+    $hasActivationPolicy = $properties -ccontains "activationPolicyVersion"
+    if (-not $hasActivationState -and -not $hasActivationPolicy) {
+        # An otherwise well-formed v1 pointer predates audited activation.  It
+        # remains retained, but the local product keeps showing the historical
+        # Shadow until a v2 ready/empty pointer is atomically installed.
+        return [pscustomobject]@{
+            source = "shadow"
+            localShadowReview = $true
+            selectionGenerationId = $null
+        }
+    }
+    if (-not $hasActivationState -or -not $hasActivationPolicy) {
+        throw "Rardar Selection activation metadata is incomplete."
+    }
+    if (
+        $pointer.activationPolicyVersion -cne "worth-seeing-activation-v2" `
+        -or $pointer.activationState -cnotin @("ready", "empty")
+    ) {
+        throw "Rardar Selection current pointer is not eligible for normal serving."
+    }
+
+    if ($NormalValidator) {
+        $validatedGeneration = & $NormalValidator $DataRoot $pointer.selectionGenerationId
+    } else {
+        if (-not (Test-Path -LiteralPath $PythonExecutable -PathType Leaf)) {
+            throw "TopicEye Python is unavailable for audited Selection validation."
+        }
+        $validationProgram = @'
+import sys
+from app.integrations.rardar.selection_serving import SelectionServingLoader
+
+snapshot, _etag = SelectionServingLoader(sys.argv[1]).load_with_etag()
+if snapshot.selectionGenerationId != sys.argv[2]:
+    raise RuntimeError("selection generation changed during validation")
+print(snapshot.selectionGenerationId)
+'@
+        $savedPythonPath = $env:PYTHONPATH
+        $savedDatabaseUrl = $env:DATABASE_URL
+        $env:PYTHONPATH = $ApplicationRoot
+        if (-not $env:DATABASE_URL) {
+            $env:DATABASE_URL = "postgresql+asyncpg://selection-source@127.0.0.1:1/selection-source"
+        }
+        try {
+            $validationOutput = @(& $PythonExecutable -c $validationProgram $DataRoot $pointer.selectionGenerationId 2>$null)
+            $validationExitCode = $LASTEXITCODE
+        } finally {
+            $env:PYTHONPATH = $savedPythonPath
+            $env:DATABASE_URL = $savedDatabaseUrl
+        }
+        if ($validationExitCode -ne 0) {
+            throw "Rardar Selection current generation failed audited validation."
+        }
+        $validatedGeneration = @($validationOutput | Where-Object { $_ })[-1]
+    }
+    if (-not $validatedGeneration -or $validatedGeneration.Trim() -cne $pointer.selectionGenerationId) {
+        throw "Rardar Selection validation returned a mismatched generation."
+    }
+
+    return [pscustomobject]@{
+        source = "normal"
+        localShadowReview = $false
+        selectionGenerationId = $pointer.selectionGenerationId
+    }
+}
+
+function Assert-RecordedRuntime(
+    [object]$State,
+    [string]$Head,
+    [string]$DataMode,
+    [string]$SelectionSource
+) {
+    $expectedShadowReview = $SelectionSource -eq "shadow"
     if (
         -not $State `
         -or $State.repository -ne $RepoRoot `
         -or $State.head -ne $Head `
         -or $State.frontendMode -ne "production" `
-        -or -not $State.localShadowReview `
+        -or [bool]$State.localShadowReview -ne $expectedShadowReview `
+        -or $State.selectionSource -ne $SelectionSource `
         -or $State.dataMode -ne $DataMode `
         -or $State.dataMirror -ne $MirrorRoot `
         -or -not (Test-Process $State.backendPid) `
@@ -164,6 +340,7 @@ function Show-Status {
         FrontendMode = if ($state -and $state.frontendMode) { $state.frontendMode } else { "unknown" }
         Head = if ($state -and $state.head) { $state.head } else { "unknown" }
         DataMode = if ($state -and $state.dataMode) { $state.dataMode } elseif ($env:RARDAR_DATA_MODE) { $env:RARDAR_DATA_MODE } else { "real" }
+        SelectionSource = if ($state -and $state.selectionSource) { $state.selectionSource } elseif ($state -and $state.localShadowReview) { "shadow" } else { "unknown" }
         DataMirror = $MirrorRoot
         DataSynced = if (Test-Path -LiteralPath (Join-Path $MirrorRoot "serving\current.json") -PathType Leaf) { "yes" } else { "no; run rebuild-serving" }
         Selection = if (Test-Path -LiteralPath (Join-Path $MirrorRoot "discover-worth-seeing\current.json") -PathType Leaf) { "built" } else { "not built; run build-selection" }
@@ -325,10 +502,13 @@ function Start-Rardar {
     if ($dataMode -notin @("real", "demo")) {
         throw 'RARDAR_DATA_MODE must be "real" or "demo".'
     }
+    $selection = Resolve-LocalSelectionSource
+    $selectionSource = $selection.source
+    $localShadowReview = [bool]$selection.localShadowReview
 
     $existing = Read-State
     if ($existing -and ((Test-Process $existing.backendPid) -or (Test-Process $existing.frontendPid))) {
-        Assert-RecordedRuntime $existing $head $dataMode
+        Assert-RecordedRuntime $existing $head $dataMode $selectionSource
         Show-Status
         return
     }
@@ -357,7 +537,7 @@ function Start-Rardar {
         RARDAR_PRODUCT_MODE = "true"
         RARDAR_DATA_MODE = $dataMode
         RARDAR_DEMO_DATA_ENABLED = "false"
-        RARDAR_LOCAL_SHADOW_REVIEW = "true"
+        RARDAR_LOCAL_SHADOW_REVIEW = if ($localShadowReview) { "true" } else { "false" }
         RARDAR_INTELLIGENCE_DATA_DIR = $MirrorRoot
         CORS_ORIGINS = "http://127.0.0.1:3000"
         SCHEDULER_ENABLED = "false"
@@ -429,7 +609,7 @@ function Start-Rardar {
         $frontendListenerPid = Get-LoopbackListenerPid 3000
 
         $runtimeState = [pscustomobject]@{
-            schemaVersion = 2
+            schemaVersion = 3
             repository = $RepoRoot
             startedAt = (Get-Date).ToUniversalTime().ToString("o")
             backendPid = $backend.Id
@@ -443,11 +623,12 @@ function Start-Rardar {
             head = $head
             frontendMode = "production"
             frontendBuildId = $frontendBuildId
-            localShadowReview = $true
+            localShadowReview = $localShadowReview
+            selectionSource = $selectionSource
         }
         Write-StateAtomically $runtimeState
         $statePublished = $true
-        Assert-RecordedRuntime (Read-State) $head $dataMode
+        Assert-RecordedRuntime (Read-State) $head $dataMode $selectionSource
         Show-Status
     } catch {
         $startupError = $_

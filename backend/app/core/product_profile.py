@@ -11,6 +11,7 @@ ProductProfileKey = Literal["topiceye", "rardar"]
 
 RARDAR_NAVIGATION: tuple[tuple[str, str], ...] = (
     ("/", "今日"),
+    ("/news", "热点资讯"),
     ("/activity", "动态"),
     ("/discover", "发现"),
     ("/find", "找项目"),

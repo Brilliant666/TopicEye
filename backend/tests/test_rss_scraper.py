@@ -6,7 +6,12 @@ arXiv RSS 的 <description> 带 'arXiv:XXXX.NNNNN Announce Type: new\nAbstract: 
 
 from __future__ import annotations
 
-from app.services.scrapers.rss import _clean_summary
+from datetime import UTC, datetime
+
+import httpx
+import pytest
+
+from app.services.scrapers.rss import RSSScraper, _clean_summary
 
 
 def test_clean_arxiv_prefix_new():
@@ -62,3 +67,53 @@ def test_clean_arxiv_preserves_latex():
     cleaned = _clean_summary(raw)
     assert "\\chisao{}" in cleaned
     assert cleaned.startswith("We introduce")
+
+
+@pytest.mark.asyncio
+async def test_truthful_timestamp_mode_keeps_published_updated_and_fetch_time_separate():
+    atom = """<?xml version="1.0" encoding="utf-8"?>
+    <feed xmlns="http://www.w3.org/2005/Atom">
+      <title>Example</title>
+      <entry>
+        <title>Updated only</title>
+        <link href="https://example.com/updated-only" />
+        <id>updated-only</id>
+        <updated>2026-09-08T01:02:03Z</updated>
+        <summary>Concrete change details.</summary>
+      </entry>
+      <entry>
+        <title>No timestamp</title>
+        <link href="https://example.com/no-time" />
+        <id>no-time</id>
+        <summary>Another concrete change.</summary>
+      </entry>
+    </feed>"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=atom, request=request)
+
+    scraper = RSSScraper("https://example.com/feed.xml", {"preserve_feed_timestamps": True})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        entries = await scraper.fetch(client)
+
+    assert entries[0]["published_at"] is None
+    assert entries[0]["updated_at"] == datetime(2026, 9, 8, 1, 2, 3, tzinfo=UTC)
+    assert entries[1]["published_at"] is None
+    assert entries[1]["updated_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_rss_scraper_marks_304_without_clearing_saved_content_contract():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["if-none-match"] == '"feed-v1"'
+        return httpx.Response(304, request=request)
+
+    scraper = RSSScraper("https://example.com/feed.xml", {"preserve_feed_timestamps": True})
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        headers={"If-None-Match": '"feed-v1"'},
+    ) as client:
+        entries = await scraper.fetch(client)
+
+    assert entries == []
+    assert scraper.not_modified is True

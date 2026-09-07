@@ -1,6 +1,6 @@
 param(
     [ValidateSet(
-        "start", "stop", "status", "sync-data", "rebuild-serving",
+        "start", "stop", "status", "sync-data", "refresh-news", "rebuild-serving",
         "build-selection", "rebuild-selection", "selection-status", "selection-rollback"
     )]
     [string]$Command = "start",
@@ -759,6 +759,43 @@ function Rebuild-RardarServing {
     }
 }
 
+function Refresh-RardarHotspotNews {
+    if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw "Existing TopicEye Python runtime is unavailable: $Python"
+    }
+    Start-Postgres
+    $script:DatabaseUser = Resolve-DatabaseUser
+    $database = Resolve-Database
+    $encodedUser = [Uri]::EscapeDataString($script:DatabaseUser)
+    $encodedDatabase = [Uri]::EscapeDataString($database)
+    $databaseUrl = "postgresql+asyncpg://${encodedUser}@127.0.0.1:${PgPort}/${encodedDatabase}"
+    $savedEnvironment = @{}
+    $refreshEnvironment = @{
+        DATABASE_URL = $databaseUrl
+        RARDAR_PRODUCT_MODE = "true"
+        PYTHONPATH = $BackendRoot
+        PYTHONUTF8 = "1"
+        PYTHONIOENCODING = "utf-8"
+        RARDAR_LLM_RUN_ID = $null
+        RARDAR_LLM_BUDGET_PATH = $null
+        RARDAR_LLM_BUDGET_LIMIT = $null
+    }
+    foreach ($name in $refreshEnvironment.Keys) {
+        $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+        [Environment]::SetEnvironmentVariable($name, $refreshEnvironment[$name], "Process")
+    }
+    Push-Location $BackendRoot
+    try {
+        & $Python -m scripts.refresh_rardar_hotspot_news
+        if ($LASTEXITCODE -ne 0) { throw "Rardar Hotspot News refresh did not complete." }
+    } finally {
+        Pop-Location
+        foreach ($name in $refreshEnvironment.Keys) {
+            [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], "Process")
+        }
+    }
+}
+
 function Invoke-SelectionCommand([string[]]$Arguments) {
     if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
         throw "Existing TopicEye Python runtime is unavailable: $Python"
@@ -824,6 +861,7 @@ switch ($Command) {
     "stop" { Stop-Rardar }
     "status" { Show-Status; Show-RardarSelectionStatus }
     "sync-data" { Sync-RardarData }
+    "refresh-news" { Refresh-RardarHotspotNews }
     "rebuild-serving" { Rebuild-RardarServing }
     "build-selection" { Build-RardarSelection }
     "rebuild-selection" { Build-RardarSelection }

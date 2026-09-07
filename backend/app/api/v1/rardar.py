@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Path, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.database import get_db
 from app.core.product_profile import is_rardar_product
 from app.integrations.rardar import ExplosionBoardResponse, RardarArtifactError
 from app.integrations.rardar.discover_serving_schemas import DiscoverApiResponse, DiscoverProjectDetail
 from app.integrations.rardar.selection_schemas import SelectionApiResponse, SelectionProjectDetail
 from app.integrations.rardar.serving_schemas import ServingProjectDetail, ServingTodaySnapshot
+from app.schemas.rardar_hotspot_news import HotspotNewsResponse
 from app.schemas.rardar_product import (
     FindProjectRequest,
     FindProjectResponse,
@@ -16,6 +19,7 @@ from app.schemas.rardar_product import (
     ProjectExplanationResponse,
     ProjectInsightRequest,
 )
+from app.services.rardar_hotspot_news import load_hotspot_news
 from app.services.rardar_intelligence import (
     load_discover_project_detail,
     load_discover_snapshot,
@@ -51,6 +55,30 @@ def _not_modified(request: Request, etag: str) -> Response | None:
             headers={"ETag": etag, "Cache-Control": _SERVING_CACHE_CONTROL, "Vary": "Accept"},
         )
     return None
+
+
+@router.get("/hotspot-news", response_model=HotspotNewsResponse)
+async def hotspot_news(
+    request: Request,
+    response: Response,
+    source: str | None = Query(default=None, min_length=1, max_length=40),
+    limit: int = Query(default=60, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read the last saved news refresh; GET never contacts a source or model."""
+    if not is_rardar_product():
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        snapshot, etag = await load_hotspot_news(db, selected_source=source, limit=limit)
+    except ValueError as exc:
+        if str(exc) == "hotspot_news_source_unknown":
+            raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
+        raise
+    cached = _not_modified(request, etag)
+    if cached:
+        return cached
+    _cache_headers(response, etag)
+    return snapshot
 
 
 @router.get("/today", response_model=ServingTodaySnapshot)

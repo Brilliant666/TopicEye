@@ -46,6 +46,7 @@ describe('product profile contract', () => {
   it('keeps the approved navigation in one ordered contract', () => {
     expect(RARDAR_NAVIGATION).toEqual([
       { href: '/', label: '今日' },
+      { href: '/news', label: '热点资讯' },
       { href: '/activity', label: '动态' },
       { href: '/discover', label: '发现' },
       { href: '/find', label: '找项目' },
@@ -57,6 +58,7 @@ describe('product profile contract', () => {
   it('allows the Rardar shell, isolates admin/system routes, and redirects legacy content', () => {
     expect(rardarRouteVisibility('/')).toBe(RARDAR_ROUTE_VISIBILITY.ALLOW);
     expect(rardarRouteVisibility('/find')).toBe(RARDAR_ROUTE_VISIBILITY.ALLOW);
+    expect(rardarRouteVisibility('/news')).toBe(RARDAR_ROUTE_VISIBILITY.ALLOW);
     expect(rardarRouteVisibility('/project/github/1211139949')).toBe(RARDAR_ROUTE_VISIBILITY.ALLOW);
     expect(rardarRouteVisibility(RARDAR_INTERNAL_HOME)).toBe(RARDAR_ROUTE_VISIBILITY.ALLOW);
     expect(rardarRouteVisibility('/admin/sources')).toBe(RARDAR_ROUTE_VISIBILITY.HIDE_FROM_NAV);

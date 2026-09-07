@@ -2416,7 +2416,7 @@
     z-index: 60;
     padding: 0.38rem;
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     border: 1px solid var(--rardar-border);
     border-radius: 1.15rem;
     background: rgb(255 255 255 / 0.96);
@@ -3934,4 +3934,265 @@
   .moreResources code {
     grid-column: 1;
   }
+}
+
+/* Hotspot News is a saved-source timeline, deliberately separate from the
+   ranked Today board and the Discover eligibility flow. */
+.newsPage {
+  display: grid;
+  gap: 1.25rem;
+  padding-top: clamp(1.1rem, 2.2vw, 1.75rem);
+}
+
+.newsHero {
+  position: relative;
+  overflow: hidden;
+  padding: clamp(1.55rem, 4vw, 3.25rem);
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(16rem, 0.55fr);
+  gap: clamp(1.2rem, 4vw, 3rem);
+  align-items: end;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 1.8rem;
+  background:
+    radial-gradient(circle at 88% 8%, rgb(8 145 178 / 0.16), transparent 28%),
+    linear-gradient(145deg, #fff 0%, #f5f9ff 68%, #eef8fb 100%);
+  box-shadow: var(--rardar-shadow);
+}
+
+.newsHero h1 {
+  max-width: 48rem;
+  margin: 0.75rem 0 0.85rem;
+  color: #102653;
+  font-size: clamp(2.15rem, 4.8vw, 4.25rem);
+  line-height: 1.05;
+  letter-spacing: -0.055em;
+}
+
+.newsHero h1 span { color: #087e99; }
+
+.newsHero > div > p:last-child {
+  max-width: 46rem;
+  margin: 0;
+  color: #586b84;
+  line-height: 1.75;
+}
+
+.newsHero dl {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 1.15rem;
+  border: 1px solid rgba(59, 113, 203, 0.13);
+  border-radius: 1.2rem;
+  background: rgb(255 255 255 / 0.78);
+  backdrop-filter: blur(12px);
+}
+
+.newsHero dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.newsHero dt { color: #7b8ba1; font-size: 0.75rem; }
+.newsHero dd { margin: 0; color: #213c64; font-size: 0.77rem; font-weight: 760; text-align: right; }
+
+.newsSourcePanel {
+  padding: 1rem 1.1rem;
+  border: 1px solid rgba(58, 108, 196, 0.13);
+  border-radius: 1.25rem;
+  background: rgb(255 255 255 / 0.88);
+}
+
+.newsSourceHeading,
+.newsSectionHeading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.newsSourceHeading h2,
+.newsSectionHeading h2 {
+  margin: 0.32rem 0 0;
+  color: #17345f;
+  font-size: 1.2rem;
+}
+
+.newsSourceHeading > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #53708f;
+  font-size: 0.74rem;
+}
+
+.newsFilters {
+  display: flex;
+  gap: 0.55rem;
+  overflow-x: auto;
+  margin-top: 0.9rem;
+  padding: 0.1rem 0 0.25rem;
+  scrollbar-width: thin;
+}
+
+.newsFilters button {
+  min-height: 2.35rem;
+  padding: 0.48rem 0.7rem;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid #d9e5f6;
+  border-radius: 999px;
+  color: #526984;
+  background: #f8fbff;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.newsFilters button[aria-pressed='true'] {
+  border-color: #2563eb;
+  color: #fff;
+  background: #2563eb;
+}
+
+.newsFilters button span {
+  min-width: 1.25rem;
+  padding: 0.08rem 0.3rem;
+  border-radius: 999px;
+  background: rgb(37 99 235 / 0.09);
+  text-align: center;
+}
+
+.newsFilters button[aria-pressed='true'] span { background: rgb(255 255 255 / 0.2); }
+.newsFilters button i { color: #0b8068; font-size: 0.64rem; font-style: normal; }
+.newsFilters button i[data-status='failed'] { color: #b45309; }
+.newsFilters button i[data-status='stale'],
+.newsFilters button i[data-status='not_synced'] { color: #7b879a; }
+.newsFilters button[aria-pressed='true'] i { color: #dbeafe; }
+
+.newsWarning,
+.newsFailure,
+.newsEmpty {
+  padding: 1rem 1.1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  border: 1px solid #f4d499;
+  border-radius: 1rem;
+  color: #8a5012;
+  background: #fff9ed;
+  line-height: 1.55;
+}
+
+.newsFailure,
+.newsEmpty {
+  min-height: 10rem;
+  justify-content: center;
+  border-color: #dbe6f5;
+  color: #64758c;
+  background: rgb(255 255 255 / 0.88);
+}
+
+.newsFailure h2,
+.newsEmpty h2 { margin: 0; color: #28466f; font-size: 1.05rem; }
+.newsFailure p,
+.newsEmpty p { margin: 0.3rem 0 0; font-size: 0.82rem; }
+
+.newsSectionHeading { margin-top: 0.45rem; }
+.newsSectionHeading p { margin: 0.35rem 0 0; color: #6c7d94; font-size: 0.8rem; }
+.newsSectionHeading > span { color: #6c7d94; font-size: 0.76rem; }
+
+.newsTimeline {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.newsCard {
+  min-width: 0;
+  padding: 1.15rem;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #dce7f6;
+  border-radius: 1.25rem;
+  background: rgb(255 255 255 / 0.94);
+  box-shadow: 0 12px 34px rgb(30 64 175 / 0.055);
+}
+
+.newsCardMeta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.75rem;
+  color: #7a899d;
+  font-size: 0.68rem;
+}
+
+.newsCardMeta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: #08738e;
+  font-weight: 780;
+}
+
+.newsCard h3 {
+  margin: 0.72rem 0 0.55rem;
+  color: #152f59;
+  font-size: 1.05rem;
+  line-height: 1.42;
+  letter-spacing: -0.015em;
+}
+
+.newsSummary,
+.newsSummaryMissing {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0 0 1rem;
+  color: #5e7088;
+  font-size: 0.83rem;
+  line-height: 1.7;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
+.newsSummaryMissing { color: #8794a6; font-style: italic; }
+
+.newsCard footer {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  border-top: 1px solid #edf2f8;
+}
+
+.newsCard footer small { color: #8a98aa; font-size: 0.67rem; }
+.newsCard footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  color: #2563eb;
+  font-size: 0.77rem;
+  font-weight: 780;
+  text-decoration: none;
+}
+
+@media (min-width: 1200px) {
+  .newsTimeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .newsHero { grid-template-columns: 1fr; padding: 1.45rem; border-radius: 1.4rem; }
+  .newsHero h1 { font-size: clamp(2rem, 11vw, 3rem); }
+  .newsTimeline { grid-template-columns: 1fr; }
+  .newsSourceHeading,
+  .newsSectionHeading { align-items: flex-start; flex-direction: column; }
+  .newsSourceHeading > span { align-items: flex-start; }
 }

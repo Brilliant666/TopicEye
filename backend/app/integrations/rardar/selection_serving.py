@@ -220,7 +220,7 @@ def build_selection_serving(built: BuiltSelection) -> BuiltSelectionServing:
         sourceTodayGeneration=artifact.todayGenerationId,
         candidateCount=artifact.universeCount,
         recallCount=artifact.recalledCount,
-        selectedCount=artifact.decisionCounts.get("SELECT_NOW", 0),
+        selectedCount=sum(item.value_is_publishable() for item in artifact.assessments),
         publishedCount=len(cards),
         suppressedCount=(
             artifact.publicationCounts.get("suppress_duplicate", 0)

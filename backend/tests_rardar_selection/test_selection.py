@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import copy
 import json
 import os
+import random
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +18,7 @@ from pydantic import ValidationError
 from app.integrations.rardar import selection_serving as serving_module
 from app.integrations.rardar.selection import (
     BuiltSelection,
+    SelectionBuildError,
     _gate_payload,
     _negative_controls,
     _pack,
@@ -25,6 +29,7 @@ from app.integrations.rardar.selection import (
     _safe_excerpt,
     _timeliness,
     _Usage,
+    _value_evidence,
     build_candidate_universe,
     build_selection,
     recall_candidates,
@@ -48,6 +53,7 @@ from app.integrations.rardar.selection_serving import (
 )
 from app.services.rardar_intelligence import load_selection_snapshot
 from app.services.rardar_llm_control import (
+    RardarLLMError,
     RardarLLMMetadata,
     RardarLLMResult,
     RardarLLMScene,
@@ -136,15 +142,51 @@ class ModelDouble:
                 "confidence": "high",
             }
         else:
+            evidence_ids = [item["evidenceId"] for item in payload.get("evidence", [])][:12]
             value = {
                 "identitySummaryZh": "一个提供可组合 SDK 与命令行工作流的开发工具。",
                 "whyWorthSeeingZh": "它提供可直接检查和接入的 SDK、示例与模块边界。",
                 "whyNowZh": self.copy_why_now,
                 "reusableAssets": ["SDK", "命令行工作流"],
                 "bestFit": ["需要复用自动化能力的开发者"],
-                "evidenceIds": ["E01", "T01"],
+                "evidenceIds": evidence_ids,
             }
         return RardarLLMResult(json.dumps(value, ensure_ascii=False), _metadata(scene))
+
+
+class NegativeControlDouble(ModelDouble):
+    def __init__(self, mode: str, *, repository: str = "negative-control/case-2") -> None:
+        super().__init__()
+        self.mode = mode
+        self.repository = repository
+
+    async def __call__(self, *, scene, messages, reasoning_effort, cache_identity):
+        payload = json.loads(messages[1]["content"])
+        if scene != RardarLLMScene.WORTH_SEEING_GATE or payload.get("repository") != self.repository:
+            return await super().__call__(
+                scene=scene,
+                messages=messages,
+                reasoning_effort=reasoning_effort,
+                cache_identity=cache_identity,
+            )
+        self.calls.append((scene, messages))
+        if self.mode == "provider_failure":
+            raise RardarLLMError("rardar_llm_timeout", classification="timeout")
+        if self.mode == "invalid_structure":
+            return RardarLLMResult('{"scopeStatus":"in_scope"}', _metadata(scene))
+        evidence_ids = ["E99"] if self.mode == "invalid_evidence" else ["E01"]
+        value = {
+            "scopeStatus": "in_scope",
+            "valueVerdict": "strong" if self.mode != "wrong_scope" else "weak",
+            "reasonCandidates": (
+                [{"reason": "directly_reusable", "supported": True, "evidenceIds": evidence_ids}]
+                if self.mode != "wrong_scope"
+                else []
+            ),
+            "counterEvidenceIds": [],
+            "confidence": "high",
+        }
+        return RardarLLMResult(json.dumps(value), _metadata(scene))
 
 
 def _github_transport(request: httpx.Request) -> httpx.Response:
@@ -420,6 +462,59 @@ def test_universe_excludes_today_top_and_invalid_and_recall_is_not_momentum_domi
     assert sum(item.recallChannels == ["momentum"] for item in recalled) <= int(len(recalled) * 0.4)
 
 
+def test_recall_batch_is_input_and_repository_name_independent_and_rotates_coverage(tmp_path: Path) -> None:
+    template = _candidate(tmp_path, 1000)
+    pool: list[SelectionCandidateFacts] = []
+    renamed: list[SelectionCandidateFacts] = []
+    for offset in range(40):
+        identifier = 1000 + offset
+        channels = ["reusable_asset"]
+        if offset % 3 == 0:
+            channels.append("specific_problem")
+        if offset % 5 == 0:
+            channels.append("reference_learning")
+        repository = f"fixture-lab/a-project-{offset:02d}"
+        candidate = template.model_copy(
+            update={
+                "githubRepositoryId": identifier,
+                "repository": repository,
+                "htmlUrl": f"https://github.com/{repository}",
+                "recallChannels": channels,
+            }
+        )
+        pool.append(candidate)
+        renamed_repository = f"fixture-lab/z-project-{39 - offset:02d}"
+        renamed.append(
+            candidate.model_copy(
+                update={
+                    "repository": renamed_repository,
+                    "htmlUrl": f"https://github.com/{renamed_repository}",
+                }
+            )
+        )
+
+    shuffled = list(pool)
+    random.Random(20260907).shuffle(shuffled)
+    first = recall_candidates(pool, 30, batch_id="batch-a")
+    assert [item.githubRepositoryId for item in first] == [
+        item.githubRepositoryId for item in recall_candidates(shuffled, 30, batch_id="batch-a")
+    ]
+    assert [item.githubRepositoryId for item in first] == [
+        item.githubRepositoryId for item in recall_candidates(renamed, 30, batch_id="batch-a")
+    ]
+
+    batches = [recall_candidates(pool, 30, batch_id=f"batch-{index}") for index in range(6)]
+    assert len({tuple(item.githubRepositoryId for item in batch) for batch in batches}) > 1
+    assert len({item.githubRepositoryId for batch in batches for item in batch}) > len(first)
+
+    overlapping = [
+        item.model_copy(update={"recallChannels": ["reusable_asset", "specific_problem"]}) for item in pool[:5]
+    ]
+    assert {item.githubRepositoryId for item in recall_candidates(overlapping, batch_id="small-batch")} == {
+        item.githubRepositoryId for item in overlapping
+    }
+
+
 def test_value_payload_is_momentum_blind(tmp_path: Path) -> None:
     _target, source = _source(tmp_path)
     candidate = build_candidate_universe(source)[0][0]
@@ -485,6 +580,74 @@ def test_prompt_injection_and_html_noise_are_not_value_evidence() -> None:
     assert _safe_excerpt("A reusable SDK with bounded adapters.") is not None
 
 
+def test_value_projection_removes_popularity_facts_without_banning_technical_words(tmp_path: Path) -> None:
+    kept = (
+        "Window management toolkit with delta encoding for incremental growth analysis and newly added data. "
+        "It also manages GitHub Star collections. src/growth/window_delta.py is the primary module. "
+        "它支持新增数据处理和增长分析工具的业务工作流。 Fork a coding session without losing context."
+    )
+    assert _safe_excerpt(kept) == kept
+    mixed = "A reusable window management SDK. It recently gained 12,000 stars and ranks #1 on GitHub Trending."
+    assert _safe_excerpt(mixed) == "A reusable window management SDK."
+    assert _safe_excerpt("This repository currently has 12,000 stars.") is None
+    assert _safe_excerpt("This project grew by 15% this week.") is None
+    assert _safe_excerpt("The repository has 1.2k GitHub stars.") is None
+    assert _safe_excerpt("Stars increased by 420 this week.") is None
+    assert _safe_excerpt("A reusable SDK. Released v2 yesterday.") == "A reusable SDK."
+    assert _safe_excerpt("This project added 3 reusable adapters.") == "This project added 3 reusable adapters."
+    assert _safe_excerpt("Recent context evolution is shown in a local graph.") == (
+        "Recent context evolution is shown in a local graph."
+    )
+    assert _safe_excerpt("This project is popular, so it must be a high-quality tool.") is None
+    assert _safe_excerpt("该项目很受欢迎，因此值得采用。") is None
+
+    candidate = _candidate(tmp_path).model_copy(update={"description": mixed})
+    collected = SimpleNamespace(
+        profile=SimpleNamespace(
+            evidenceDigest="profile-revision",
+            identitySummaryZh="用于窗口管理和增量数据处理的开发工具。",
+            coreValueZh=None,
+            positioningZh=None,
+            capabilities=[],
+        ),
+        evidence=SimpleNamespace(
+            digest="evidence-revision",
+            readmeBlobSha="readme-revision",
+            originalExcerpts=[],
+            topLevelTree=[],
+        ),
+    )
+    aliases = _value_evidence(candidate, collected)
+    description = next(item for item in aliases if item.sourcePath == "github.description")
+    assert description.excerpt == "A reusable window management SDK."
+    assert description.projectionRule == "popularity_sentences_removed"
+
+
+def test_short_observation_window_keeps_value_candidates_and_marks_growth_unknown(tmp_path: Path) -> None:
+    _target, source = _source(tmp_path)
+    short = replace(source, captures=source.captures[-2:])
+    candidates, summary = build_candidate_universe(short)
+    assert candidates and summary.finalEligible == len(candidates)
+    assert all(item.observedWindowHours == 2 for item in candidates)
+    assert all(item.observedStarDelta is None for item in candidates)
+
+
+def test_recently_discovered_candidate_has_unknown_growth_inside_a_complete_source_window(tmp_path: Path) -> None:
+    _target, source = _source(tmp_path)
+    original = build_candidate_universe(source)[0][0]
+    captures = copy.deepcopy(source.captures)
+    for capture in captures[:-2]:
+        capture["observations"] = [
+            item for item in capture["observations"] if int(item["githubRepositoryId"]) != original.githubRepositoryId
+        ]
+
+    candidates, _summary = build_candidate_universe(replace(source, captures=captures))
+    recent = next(item for item in candidates if item.githubRepositoryId == original.githubRepositoryId)
+    assert recent.observedWindowHours == 2
+    assert recent.observedStarDelta is None
+    assert "momentum" not in recent.recallChannels
+
+
 @pytest.mark.parametrize(
     ("scope", "value", "value_confidence", "timely", "timely_confidence", "expected"),
     [
@@ -544,6 +707,36 @@ async def test_fixed_negative_controls_never_select_and_out_of_scope_rejects() -
     failures = await _negative_controls(_Usage(), double)
     assert failures == []
     assert len(double.calls) == 6
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["publishable", "invalid_structure", "invalid_evidence", "provider_failure"])
+async def test_negative_control_requires_valid_non_publishable_value_result(mode: str) -> None:
+    failures = await _negative_controls(_Usage(), NegativeControlDouble(mode))
+    assert failures == ["identity_or_source_invalid"]
+
+
+@pytest.mark.asyncio
+async def test_out_of_scope_control_requires_out_of_scope_gate_result() -> None:
+    failures = await _negative_controls(
+        _Usage(),
+        NegativeControlDouble("wrong_scope", repository="negative-control/case-1"),
+    )
+    assert failures == ["out_of_product_scope"]
+
+
+@pytest.mark.asyncio
+async def test_build_selection_fails_closed_when_control_has_publishable_value(tmp_path: Path) -> None:
+    target, source = _source(tmp_path)
+    async with _client() as client:
+        with pytest.raises(SelectionBuildError) as raised:
+            await build_selection(
+                source=source,
+                cache_root=target / "selection-profile-cache",
+                caller=NegativeControlDouble("publishable"),
+                github_client=client,
+            )
+    assert raised.value.code == "rardar_selection_negative_control_failed"
 
 
 @pytest.mark.asyncio
@@ -621,10 +814,98 @@ def test_duplicate_and_capacity_packing_are_deterministic(tmp_path: Path) -> Non
         update={"valueEvidence": [duplicate.valueEvidence[0].model_copy(update={"githubRepositoryId": 999})]}
     )
     packed = _pack([*assessments, duplicate])
-    assert sum(item.publicationDisposition == "publish" for item in packed) == 20
-    assert sum(item.publicationDisposition == "suppress_capacity" for item in packed) == 2
+    assert sum(item.publicationDisposition == "publish" for item in packed) == 6
+    assert sum(item.publicationDisposition == "suppress_capacity" for item in packed) == 16
     assert sum(item.publicationDisposition == "suppress_duplicate" for item in packed) == 1
-    assert sorted(item.displayOrder for item in packed if item.displayOrder) == list(range(1, 21))
+    assert sorted(item.displayOrder for item in packed if item.displayOrder) == list(range(1, 7))
+
+
+def test_value_eligibility_publishes_without_timeliness_but_not_without_valid_value(tmp_path: Path) -> None:
+    valuable = _assessment(_candidate(tmp_path, 301)).model_copy(
+        update={
+            "timeliness": SelectionTimeliness(
+                verdict="none",
+                confidence="high",
+                reasonCodes=["no_strong_why_now"],
+                evidenceIds=[],
+                meaningfulChange=None,
+                strongSignals=[],
+                weakSignals=[],
+            ),
+            "semanticDecision": "WORTHWHILE_NOT_NOW",
+        }
+    )
+    timing_failed = _assessment(_candidate(tmp_path, 302)).model_copy(
+        update={
+            "timeliness": SelectionTimeliness(
+                verdict="uncertain",
+                confidence="low",
+                reasonCodes=["evidence_uncertain"],
+                evidenceIds=[],
+                meaningfulChange=None,
+                strongSignals=[],
+                weakSignals=[],
+            ),
+            "semanticDecision": "UNCERTAIN",
+            "failureCode": "provider_timeout",
+            "valueFailureCode": None,
+            "timelinessFailureCode": "provider_timeout",
+        }
+    )
+    invalid_value = _assessment(_candidate(tmp_path, 303)).model_copy(
+        update={
+            "gate": None,
+            "semanticDecision": "UNCERTAIN",
+            "primaryReason": None,
+            "failureCode": "provider_timeout",
+            "valueFailureCode": "provider_timeout",
+            "timelinessFailureCode": None,
+        }
+    )
+    packed = _pack([valuable, timing_failed, invalid_value])
+    assert [item.candidate.githubRepositoryId for item in packed if item.publicationDisposition == "publish"] == [
+        301,
+        302,
+    ]
+    assert next(item for item in packed if item.candidate.githubRepositoryId == 303).publicationDisposition == (
+        "not_eligible"
+    )
+
+
+def test_timeliness_and_growth_do_not_change_value_publication_order(tmp_path: Path) -> None:
+    assessments = [_assessment(_candidate(tmp_path, identifier)) for identifier in range(401, 410)]
+    baseline = _pack(assessments)
+    changed = []
+    for index, item in enumerate(reversed(assessments)):
+        changed.append(
+            item.model_copy(
+                update={
+                    "candidate": item.candidate.model_copy(
+                        update={"totalStars": 1_000_000 - index, "observedStarDelta": index * 10_000}
+                    ),
+                    "timeliness": SelectionTimeliness(
+                        verdict="none",
+                        confidence="high",
+                        reasonCodes=["no_strong_why_now"],
+                        evidenceIds=[],
+                        meaningfulChange=None,
+                        strongSignals=[],
+                        weakSignals=[],
+                    ),
+                    "semanticDecision": "WORTHWHILE_NOT_NOW",
+                }
+            )
+        )
+    repacked = _pack(changed)
+
+    def display(values: list[SelectionAssessment]) -> list[int]:
+        return [
+            item.candidate.githubRepositoryId
+            for item in sorted(values, key=lambda value: value.displayOrder or 999)
+            if item.publicationDisposition == "publish"
+        ]
+
+    assert display(baseline) == display(repacked)
 
 
 @pytest.mark.asyncio
@@ -640,7 +921,9 @@ async def test_build_publish_validate_idempotence_and_rollback(tmp_path: Path) -
         )
     assert built.profiles.translation_calls == 0
     assert built.artifact.usage.modelCalls <= 120
-    assert built.artifact.usage.meaningfulChangeCalls <= 25
+    assert built.artifact.usage.meaningfulChangeCalls == 0
+    assert built.artifact.recallBatchId is not None
+    assert not any(scene == RardarLLMScene.WORTH_SEEING_MEANINGFUL_CHANGE for scene, _messages in double.calls)
     assert built.artifact.usage.copyCalls <= 20
     assert built.artifact.negativeControlFailures == []
     serving = build_selection_serving(built)
@@ -937,7 +1220,7 @@ async def test_empty_selection_is_published_without_popularity_fallback(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_missing_generated_why_now_uses_deterministic_serving_fallback(tmp_path: Path) -> None:
+async def test_missing_optional_why_now_remains_absent_without_verified_timeliness(tmp_path: Path) -> None:
     target, source = _source(tmp_path)
     async with _client() as client:
         built = await build_selection(
@@ -952,10 +1235,7 @@ async def test_missing_generated_why_now_uses_deterministic_serving_fallback(tmp
     assert all(item.copyResult is not None and item.copyResult.whyNowZh is None for item in published)
     install_selection_serving(target, build_selection_serving(built))
     snapshot, _etag = SelectionServingLoader(target).load_with_etag()
-    expected = {item.candidate.githubRepositoryId: serving_module._why_now(item) for item in published}
-    assert all(
-        item.whyNowZh is not None and item.whyNowZh == expected[item.githubRepositoryId] for item in snapshot.items
-    )
+    assert all(item.whyNowZh is None for item in snapshot.items)
 
 
 @pytest.mark.asyncio
@@ -1169,7 +1449,7 @@ async def test_degraded_rebuild_without_retry_deadline_is_not_permanently_short_
     monkeypatch.setattr(rebuild_module, "build_selection", attempted_build)
 
     with pytest.raises(RuntimeError, match="degraded rebuild attempted"):
-        await rebuild_module.rebuild(tmp_path)
+        await rebuild_module.rebuild(tmp_path, recall_batch_id="test-batch")
 
 
 @pytest.mark.asyncio
@@ -1218,7 +1498,7 @@ async def test_degraded_profile_retry_backoff_defers_rebuild_until_deadline(
     monkeypatch.setattr(rebuild_module, "SelectionServingLoader", LoaderDouble)
     monkeypatch.setattr(rebuild_module, "build_selection", unexpected_build)
 
-    result = await rebuild_module.rebuild(tmp_path)
+    result = await rebuild_module.rebuild(tmp_path, recall_batch_id="test-batch")
     assert result == {
         "status": "degraded",
         "state": "degraded",
@@ -1266,6 +1546,7 @@ async def test_rebuild_timeout_reports_stage_and_preserves_activation_boundary(
     with pytest.raises(SelectionServingError) as error:
         await rebuild_module.rebuild(
             tmp_path,
+            recall_batch_id="test-batch",
             timeout_seconds=0.01,
             report_stage=stages.append,
         )

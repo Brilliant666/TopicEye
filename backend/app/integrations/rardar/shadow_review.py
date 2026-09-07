@@ -26,6 +26,7 @@ from app.integrations.rardar.selection import (
     _contract_versions,
     _copy,
     _negative_control_candidate,
+    _negative_control_passed,
     _pack,
     _primary_reason,
     _run_gate,
@@ -161,7 +162,7 @@ async def _build_shadow_review(
             source, pool = resume.source, resume.pool
         else:
             source_freeze, cohort = freeze(mirror, run_dir)
-            source, _recalled, pool = healthy_pool(mirror)
+            source, _recalled, pool = healthy_pool(mirror, source_freeze.get("recallBatchId"))
         pool_by_id = {row.candidate.githubRepositoryId: row for row in pool}
         selected = [pool_by_id[row["githubRepositoryId"]] for row in cohort["items"]]
         binding = digest(
@@ -223,11 +224,7 @@ async def _build_shadow_review(
                     SelectionGateResult,
                 )
             decision = semantic_decision(gate, neutral_timeliness(), failure)
-            passed = (
-                gate is not None
-                and failure is None
-                and (decision == "REJECT" if name == "out_of_product_scope" else decision in {"REJECT", "UNCERTAIN"})
-            )
+            passed = _negative_control_passed(name, gate, failure)
             controls.append(
                 {"name": name, "decision": decision, "passed": passed, "attempts": attempts, "failure": failure}
             )
@@ -255,26 +252,41 @@ async def _build_shadow_review(
         for row in selected:
             candidate = row.candidate
             identifier = candidate.githubRepositoryId
-            evidence = list(row.releases) if identifier in change_ids else []
+            evidence = list(row.releases) if resume is not None and identifier in change_ids else []
             context = resume.change_contexts.get(identifier) if resume else None
             structured = []
-            with budget_stage("meaningful_change"):
+            if resume is None:
+                # New Shadow runs share the value-first main flow. They retain
+                # deterministic time context but do not require a change call.
                 timely, change_attempts, change_failure = await receipts.run(
                     f"timeliness-{identifier}",
-                    lambda c=candidate, e=evidence, ctx=context, output=structured: _timeliness(
+                    lambda c=candidate: _timeliness(
                         c,
-                        e,
+                        [],
                         usage,
                         caller,
                         model_route_identity=route_identity,
-                        context=ctx,
-                        format_retry=resume is None,
-                        result_observer=output.append,
                     ),
                     SelectionTimeliness,
-                    context=context,
-                    structured=structured,
                 )
+            else:
+                with budget_stage("meaningful_change"):
+                    timely, change_attempts, change_failure = await receipts.run(
+                        f"timeliness-{identifier}",
+                        lambda c=candidate, e=evidence, ctx=context, output=structured: _timeliness(
+                            c,
+                            e,
+                            usage,
+                            caller,
+                            model_route_identity=route_identity,
+                            context=ctx,
+                            format_retry=False,
+                            result_observer=output.append,
+                        ),
+                        SelectionTimeliness,
+                        context=context,
+                        structured=structured,
+                    )
             if context is not None:
                 if (
                     timely
@@ -287,13 +299,20 @@ async def _build_shadow_review(
                     "failure": change_failure,
                     "result": structured[0].model_dump(mode="json") if structured else None,
                 }
-            gate, gate_attempts, failure = gates[identifier]
-            failure = failure or change_failure
+            gate, gate_attempts, value_failure = gates[identifier]
+            failure = value_failure or change_failure
             timely = timely or neutral_timeliness()
             decision = semantic_decision(gate, timely, failure)
             primary, supporting = _primary_reason(gate)
-            if decision in {"SELECT_NOW", "WORTHWHILE_NOT_NOW"} and primary is None:
-                decision, failure = "UNCERTAIN", failure or "weak_evidence"
+            if (
+                gate is not None
+                and gate.scopeStatus == "in_scope"
+                and gate.valueVerdict == "strong"
+                and primary is None
+            ):
+                value_failure = value_failure or "weak_evidence"
+                failure = value_failure
+                decision = "UNCERTAIN"
             assessments.append(
                 SelectionAssessment(
                     candidate=candidate,
@@ -313,8 +332,8 @@ async def _build_shadow_review(
                     gate=gate,
                     timeliness=timely,
                     semanticDecision=decision,
-                    primaryReason=primary if decision in {"SELECT_NOW", "WORTHWHILE_NOT_NOW"} else None,
-                    supportingReasons=supporting if decision in {"SELECT_NOW", "WORTHWHILE_NOT_NOW"} else [],
+                    primaryReason=primary,
+                    supportingReasons=supporting,
                     publicationDisposition="not_eligible",
                     rejectReason=(
                         "out_of_product_scope" if gate and gate.scopeStatus == "out_of_scope" else "no_clear_value"
@@ -322,6 +341,8 @@ async def _build_shadow_review(
                     if decision == "REJECT"
                     else None,
                     failureCode=failure,
+                    valueFailureCode=value_failure,
+                    timelinessFailureCode=change_failure,
                     gateAttempts=gate_attempts,
                     meaningfulChangeAttempts=change_attempts,
                     copyAttempts=0,
@@ -347,14 +368,6 @@ async def _build_shadow_review(
             ]
         )
         packed = _pack([a.model_copy(update={"peerContextDigest": peer_digest}) for a in assessments])
-        if resume is not None:
-            change_failures = Counter(o["failure"] for o in change_outcomes.values() if o["failure"])
-            if any(n >= 4 for n in change_failures.values()):
-                # Stop before user-copy: a blocked review has no actual Preview.
-                packed = [
-                    a.model_copy(update={"publicationDisposition": "not_eligible", "displayOrder": None})
-                    for a in packed
-                ]
         preview_ids = {
             a.candidate.githubRepositoryId
             for a in sorted(packed, key=lambda a: a.displayOrder or 999)
@@ -379,10 +392,15 @@ async def _build_shadow_review(
                 assessment = assessment.model_copy(update={"copyResult": copy, "copyAttempts": attempts})
                 if copy is None:
                     # Membership was frozen before copy: hide missing text, never replace the project.
-                    assessment = assessment.model_copy(update={"failureCode": failure})
+                    assessment = assessment.model_copy(
+                        update={
+                            "failureCode": assessment.failureCode or failure,
+                            "copyFailureCode": failure,
+                        }
+                    )
             finished.append(SelectionAssessment.model_validate(assessment.model_dump(mode="python"), strict=True))
         failures = Counter(a.failureCode for a in finished if a.failureCode)
-        semantic_failures = Counter(a.failureCode for a in assessments if a.failureCode)
+        semantic_failures = Counter(a.valueFailureCode for a in assessments if a.valueFailureCode)
         systemic = any(
             count >= 4
             for code, count in semantic_failures.items()
@@ -390,13 +408,12 @@ async def _build_shadow_review(
             in {"provider_timeout", "provider_transport_failure", "provider_protocol_rejected", "process_interrupted"}
         )
         evidence_violations = sum(
-            a.failureCode in {"invalid_evidence_alias", "wrong_assessment_evidence"} for a in finished
+            a.valueFailureCode in {"invalid_evidence_alias", "wrong_assessment_evidence"} for a in finished
         )
         if resume is not None:
-            # Invalid responses are rejected, not accepted evidence. Isolated failures
-            # remain terminal UNCERTAIN; repeated failures block the entire review.
+            # Rejected time evidence is recorded but cannot veto a complete
+            # strong Value assessment under the value-first publication rule.
             rejected = Counter(o["failure"] for o in change_outcomes.values() if o["failure"])
-            systemic = systemic or any(n >= 4 for n in rejected.values())
             evidence_violations = 0  # Every accepted result was strictly revalidated above.
         ready = not systemic and evidence_violations == 0
         if not ready:
@@ -491,9 +508,7 @@ async def _build_shadow_review(
                 originArtifactDigest=resume.origin.digest,
                 originBudget=resume.origin.providerBudget,
                 meaningfulChangeBindingFailure=any(n >= 4 for n in rejected.values()),
-                blocker="BLOCKED_MEANINGFUL_CHANGE_EVIDENCE_BINDING"
-                if any(n >= 4 for n in rejected.values())
-                else None,
+                blocker=None,
             )
         payload["digest"] = digest(payload)
         artifact = ShadowReviewArtifact.model_validate_json(json.dumps(payload), strict=True)
@@ -526,7 +541,7 @@ async def build_shadow_review(
         # Preserve completed semantics; unstarted projects are not fabricated as negatives.
         with file_lock(run_dir / "shadow-run.lock", blocking=False):
             source_freeze, cohort = freeze(mirror, run_dir)
-            source, _recalled, pool = healthy_pool(mirror)
+            source, _recalled, pool = healthy_pool(mirror, source_freeze.get("recallBatchId"))
             binding = json.loads((run_dir / "shadow-run-binding.json").read_bytes())["binding"]
             assessments = []
             for row in cohort["items"]:
@@ -557,14 +572,16 @@ async def build_shadow_review(
                     else None
                 )
                 decision = semantic_decision(gate, neutral_timeliness(), receipt["failure"])
-                passed = (
-                    gate is not None
-                    and receipt["failure"] is None
-                    and (
-                        decision == "REJECT" if name == "out_of_product_scope" else decision in {"REJECT", "UNCERTAIN"}
-                    )
+                passed = _negative_control_passed(name, gate, receipt["failure"])
+                controls.append(
+                    {
+                        "name": name,
+                        "decision": decision,
+                        "passed": passed,
+                        "attempts": receipt["attempts"],
+                        "failure": receipt["failure"],
+                    }
                 )
-                controls.append({"name": name, "decision": decision, "passed": passed})
             now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
             payload = {
                 "schemaVersion": 1,

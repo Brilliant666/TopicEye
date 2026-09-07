@@ -45,6 +45,110 @@ function Test-Http([string]$Url) {
     }
 }
 
+function Get-LoopbackListenerPid([int]$Port) {
+    $listeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+    if ($listeners.Count -ne 1 -or $listeners[0].LocalAddress -ne "127.0.0.1") {
+        throw "Expected exactly one loopback listener on port $Port."
+    }
+    return [int]$listeners[0].OwningProcess
+}
+
+function Test-ProcessDescendsFrom([int]$ProcessId, [int]$AncestorId) {
+    $current = $ProcessId
+    foreach ($depth in 0..16) {
+        if ($current -eq $AncestorId) { return $true }
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId = $current" -ErrorAction SilentlyContinue
+        if (-not $process -or -not $process.ParentProcessId -or $process.ParentProcessId -eq $current) {
+            return $false
+        }
+        $current = [int]$process.ParentProcessId
+    }
+    return $false
+}
+
+function Assert-RecordedRuntime([object]$State, [string]$Head, [string]$DataMode) {
+    if (
+        -not $State `
+        -or $State.repository -ne $RepoRoot `
+        -or $State.head -ne $Head `
+        -or $State.frontendMode -ne "production" `
+        -or -not $State.localShadowReview `
+        -or $State.dataMode -ne $DataMode `
+        -or $State.dataMirror -ne $MirrorRoot `
+        -or -not (Test-Process $State.backendPid) `
+        -or -not (Test-Process $State.frontendPid)
+    ) {
+        throw "Recorded Rardar Runtime does not match the requested source and product mode."
+    }
+
+    $backend = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$State.backendPid)"
+    $frontend = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$State.frontendPid)"
+    if (
+        -not $backend `
+        -or $backend.Name -notmatch "^python(w)?\.exe$" `
+        -or -not $backend.CommandLine `
+        -or $backend.CommandLine.IndexOf($RepoRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0 `
+        -or $backend.CommandLine -notmatch "(?i)\buvicorn\b" `
+        -or $backend.CommandLine -notmatch "(?i)--port\s+8102" `
+        -or -not $frontend `
+        -or $frontend.Name -ne "node.exe" `
+        -or -not $frontend.CommandLine `
+        -or $frontend.CommandLine.IndexOf($RepoRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0 `
+        -or $frontend.CommandLine -notmatch "(?i)next(?:\.js)?[\\/]dist[\\/]bin[\\/]next" `
+        -or $frontend.CommandLine -notmatch "(?i)\sstart\s" `
+        -or $frontend.CommandLine -notmatch "(?i)--port\s+3000"
+    ) {
+        throw "Recorded Rardar Runtime process identity does not match production startup."
+    }
+
+    $backendListenerPid = Get-LoopbackListenerPid 8102
+    $frontendListenerPid = Get-LoopbackListenerPid 3000
+    if (
+        $backendListenerPid -ne [int]$State.backendListenerPid `
+        -or $frontendListenerPid -ne [int]$State.frontendListenerPid `
+        -or -not (Test-ProcessDescendsFrom $backendListenerPid ([int]$State.backendPid)) `
+        -or -not (Test-ProcessDescendsFrom $frontendListenerPid ([int]$State.frontendPid)) `
+        -or -not (Test-Http "http://127.0.0.1:8102/health/live") `
+        -or -not (Test-Http "http://127.0.0.1:3000/api/health")
+    ) {
+        throw "Recorded Rardar Runtime listener or health identity does not match."
+    }
+
+    $buildIdPath = Join-Path $FrontendRoot ".next\BUILD_ID"
+    if (
+        -not (Test-Path -LiteralPath $buildIdPath -PathType Leaf) `
+        -or (Get-Content -LiteralPath $buildIdPath -Raw).Trim() -ne $State.frontendBuildId
+    ) {
+        throw "Recorded Rardar Runtime build identity does not match the installed production build."
+    }
+}
+
+function Write-StateAtomically([object]$State) {
+    $temporary = Join-Path $RuntimeRoot ("runtime.json.{0}.{1}.tmp" -f $PID, [Guid]::NewGuid().ToString("N"))
+    try {
+        $json = $State | ConvertTo-Json -Depth 8
+        [System.IO.File]::WriteAllText($temporary, $json, [System.Text.UTF8Encoding]::new($false))
+        $parsed = Get-Content -LiteralPath $temporary -Raw | ConvertFrom-Json
+        if (
+            $parsed.repository -ne $State.repository `
+            -or $parsed.head -ne $State.head `
+            -or [int]$parsed.backendPid -ne [int]$State.backendPid `
+            -or [int]$parsed.frontendPid -ne [int]$State.frontendPid
+        ) {
+            throw "Runtime state verification failed before publication."
+        }
+        if (Test-Path -LiteralPath $StatePath -PathType Leaf) {
+            [System.IO.File]::Replace($temporary, $StatePath, $null)
+        } else {
+            [System.IO.File]::Move($temporary, $StatePath)
+        }
+    } finally {
+        if (Test-Path -LiteralPath $temporary) {
+            Remove-Item -LiteralPath $temporary -Force
+        }
+    }
+}
+
 function Show-Status {
     $state = Read-State
     $postgresHealthy = (& $PgReady -h 127.0.0.1 -p $PgPort 2>$null) -match "accepting connections"
@@ -53,6 +157,8 @@ function Show-Status {
         PostgreSQL = if ($postgresHealthy) { "healthy" } else { "stopped" }
         Backend = if ($state -and (Test-Process $state.backendPid) -and (Test-Http "http://127.0.0.1:8102/health/live")) { "healthy" } else { "stopped" }
         Frontend = if ($state -and (Test-Process $state.frontendPid) -and (Test-Http "http://127.0.0.1:3000/api/health")) { "healthy" } else { "stopped" }
+        FrontendMode = if ($state -and $state.frontendMode) { $state.frontendMode } else { "unknown" }
+        Head = if ($state -and $state.head) { $state.head } else { "unknown" }
         DataMode = if ($state -and $state.dataMode) { $state.dataMode } elseif ($env:RARDAR_DATA_MODE) { $env:RARDAR_DATA_MODE } else { "real" }
         DataMirror = $MirrorRoot
         DataSynced = if (Test-Path -LiteralPath (Join-Path $MirrorRoot "serving\current.json") -PathType Leaf) { "yes" } else { "no; run rebuild-serving" }
@@ -64,18 +170,41 @@ function Show-Status {
     } | Format-List
 }
 
-function Stop-AppProcess([object]$ProcessId, [string]$ExpectedName) {
-    if (-not (Test-Process $ProcessId)) { return }
-    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$ProcessId)"
-    if (
-        -not $process `
-        -or $process.Name -notmatch $ExpectedName `
-        -or -not $process.CommandLine `
-        -or $process.CommandLine.IndexOf($RepoRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0
-    ) {
-        throw "Refusing to stop an unexpected process recorded in local runtime state."
+function Stop-AppProcess(
+    [object]$ProcessId,
+    [string]$ExpectedName,
+    [int]$ExpectedPort = 0,
+    [object]$ExpectedListenerPid = $null
+) {
+    if (Test-Process $ProcessId) {
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$ProcessId)"
+        if (
+            -not $process `
+            -or $process.Name -notmatch $ExpectedName `
+            -or -not $process.CommandLine `
+            -or $process.CommandLine.IndexOf($RepoRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0
+        ) {
+            throw "Refusing to stop an unexpected process recorded in local runtime state."
+        }
+        & taskkill.exe /PID ([int]$ProcessId) /T /F | Out-Null
     }
-    & taskkill.exe /PID ([int]$ProcessId) /T /F | Out-Null
+
+    $deadline = (Get-Date).AddSeconds(8)
+    do {
+        $parentAlive = Test-Process $ProcessId
+        $listenerAlive = $ExpectedListenerPid -and (Test-Process $ExpectedListenerPid)
+        if (-not $parentAlive -and -not $listenerAlive) { break }
+        Start-Sleep -Milliseconds 200
+    } while ((Get-Date) -lt $deadline)
+
+    $portListeners = if ($ExpectedPort) {
+        @(Get-NetTCPConnection -LocalPort $ExpectedPort -State Listen -ErrorAction SilentlyContinue)
+    } else {
+        @()
+    }
+    if ((Test-Process $ProcessId) -or ($ExpectedListenerPid -and (Test-Process $ExpectedListenerPid)) -or $portListeners) {
+        throw "Rardar process cleanup could not be verified; runtime state was preserved."
+    }
 }
 
 function Stop-Rardar {
@@ -84,8 +213,8 @@ function Stop-Rardar {
         if (-not $state.repository -or $state.repository -ne $RepoRoot) {
             throw "Refusing to use local runtime state owned by another repository."
         }
-        Stop-AppProcess $state.frontendPid "^(node|cmd)\.exe$"
-        Stop-AppProcess $state.backendPid "^python(w)?\.exe$"
+        Stop-AppProcess $state.frontendPid "^(node|cmd)\.exe$" 3000 $state.frontendListenerPid
+        Stop-AppProcess $state.backendPid "^python(w)?\.exe$" 8102 $state.backendListenerPid
         Remove-Item -LiteralPath $StatePath -Force -ErrorAction SilentlyContinue
     }
     Write-Host "Rardar frontend/backend stopped. Existing PostgreSQL data was preserved."
@@ -98,20 +227,44 @@ function Start-Postgres {
             throw "Existing TopicEye local runtime is incomplete: $required"
         }
     }
-    if ((& $PgReady -h 127.0.0.1 -p $PgPort 2>$null) -match "accepting connections") { return }
+    $listeners = @(Get-NetTCPConnection -LocalPort $PgPort -State Listen -ErrorAction SilentlyContinue)
+    if ($listeners.Count -gt 0) {
+        if ($listeners.Count -ne 1 -or $listeners[0].LocalAddress -ne "127.0.0.1") {
+            throw "Existing PostgreSQL listener identity is unclear."
+        }
+        $postgres = Get-CimInstance Win32_Process -Filter "ProcessId = $($listeners[0].OwningProcess)"
+        $expectedExecutable = Join-Path $PgRoot "bin\postgres.exe"
+        if (
+            -not $postgres `
+            -or $postgres.ExecutablePath -ine $expectedExecutable `
+            -or -not $postgres.CommandLine `
+            -or $postgres.CommandLine.Replace("/", "\").IndexOf($PgData, [StringComparison]::OrdinalIgnoreCase) -lt 0
+        ) {
+            throw "Port $PgPort is not owned by the existing TopicEye PostgreSQL runtime."
+        }
+        if (-not ((& $PgReady -h 127.0.0.1 -p $PgPort 2>$null) -match "accepting connections")) {
+            throw "Existing TopicEye PostgreSQL listener is not healthy."
+        }
+        return
+    }
 
     $pidPath = Join-Path $PgData "postmaster.pid"
     if (Test-Path -LiteralPath $pidPath) {
-        $recordedPid = Get-Content -LiteralPath $pidPath -TotalCount 1
-        if (-not (Test-Process $recordedPid)) {
-            Remove-Item -LiteralPath $pidPath -Force
+        $recordedPidText = (Get-Content -LiteralPath $pidPath -TotalCount 1).Trim()
+        $recordedPid = 0
+        if (-not [int]::TryParse($recordedPidText, [ref]$recordedPid) -or $recordedPid -le 0) {
+            throw "Existing PostgreSQL PID record is invalid; it was left unchanged."
+        }
+        if (Test-Process $recordedPid) {
+            throw "Existing PostgreSQL PID is alive without the expected listener; refusing to start a second server."
         }
     }
     $pgLog = Join-Path $ControlRoot "postgres.log"
-    & $PgCtl start -D $PgData -l $pgLog -o "-p $PgPort -h 127.0.0.1" -w
+    & $PgCtl start -D $PgData -l $pgLog -o "-p $PgPort -h 127.0.0.1" -w -t 60
     if ($LASTEXITCODE -ne 0 -or -not ((& $PgReady -h 127.0.0.1 -p $PgPort 2>$null) -match "accepting connections")) {
         throw "Existing TopicEye PostgreSQL could not be started; see $pgLog"
     }
+    $null = Get-LoopbackListenerPid $PgPort
 }
 
 function Resolve-Database {
@@ -156,8 +309,22 @@ function Wait-Http([string]$Url, [int]$Seconds) {
 
 function Start-Rardar {
     New-Item -ItemType Directory -Path $RuntimeRoot -Force | Out-Null
+    $head = (& git -C $RepoRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $head) {
+        throw "Could not identify the Runtime source revision."
+    }
+    $dirty = & git -C $RepoRoot status --short --untracked-files=all
+    if ($LASTEXITCODE -ne 0 -or $dirty) {
+        throw "Runtime worktree must be clean before startup."
+    }
+    $dataMode = if ($env:RARDAR_DATA_MODE) { $env:RARDAR_DATA_MODE.Trim().ToLowerInvariant() } else { "real" }
+    if ($dataMode -notin @("real", "demo")) {
+        throw 'RARDAR_DATA_MODE must be "real" or "demo".'
+    }
+
     $existing = Read-State
-    if ($existing -and (Test-Process $existing.backendPid) -and (Test-Process $existing.frontendPid)) {
+    if ($existing -and ((Test-Process $existing.backendPid) -or (Test-Process $existing.frontendPid))) {
+        Assert-RecordedRuntime $existing $head $dataMode
         Show-Status
         return
     }
@@ -173,11 +340,6 @@ function Start-Rardar {
     $encodedUser = [Uri]::EscapeDataString($script:DatabaseUser)
     $encodedDatabase = [Uri]::EscapeDataString($database)
     $databaseUrl = "postgresql+asyncpg://${encodedUser}@127.0.0.1:${PgPort}/${encodedDatabase}"
-    $dataMode = if ($env:RARDAR_DATA_MODE) { $env:RARDAR_DATA_MODE.Trim().ToLowerInvariant() } else { "real" }
-    if ($dataMode -notin @("real", "demo")) {
-        throw 'RARDAR_DATA_MODE must be "real" or "demo".'
-    }
-
     if (-not (Test-Path -LiteralPath (Join-Path $FrontendRoot "node_modules"))) {
         Push-Location $FrontendRoot
         try { & $Node $NpmCli ci } finally { Pop-Location }
@@ -191,6 +353,7 @@ function Start-Rardar {
         RARDAR_PRODUCT_MODE = "true"
         RARDAR_DATA_MODE = $dataMode
         RARDAR_DEMO_DATA_ENABLED = "false"
+        RARDAR_LOCAL_SHADOW_REVIEW = "true"
         RARDAR_INTELLIGENCE_DATA_DIR = $MirrorRoot
         CORS_ORIGINS = "http://127.0.0.1:3000"
         SCHEDULER_ENABLED = "false"
@@ -198,6 +361,9 @@ function Start-Rardar {
         DUCKDB_STARTUP_INIT_ENABLED = "false"
         STARTUP_SEED_ENABLED = "false"
         ADMIN_SEED_ENABLED = "false"
+        RARDAR_LLM_RUN_ID = $null
+        RARDAR_LLM_BUDGET_PATH = $null
+        RARDAR_LLM_BUDGET_LIMIT = $null
         PYTHONUTF8 = "1"
         PYTHONIOENCODING = "utf-8"
     }
@@ -205,6 +371,7 @@ function Start-Rardar {
         $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
         [Environment]::SetEnvironmentVariable($name, $backendEnvironment[$name], "Process")
     }
+    $statePublished = $false
     try {
         $backend = Start-Process -FilePath $Python -ArgumentList @("-m", "uvicorn", "app.main:app", "--app-dir", $BackendRoot, "--host", "127.0.0.1", "--port", "8102") -WorkingDirectory $BackendRoot -RedirectStandardOutput (Join-Path $RuntimeRoot "backend.out.log") -RedirectStandardError (Join-Path $RuntimeRoot "backend.err.log") -WindowStyle Hidden -PassThru
     } finally {
@@ -217,36 +384,104 @@ function Start-Rardar {
         # The deeper /health/ready may probe optional DuckDB state and is not a
         # local product startup gate.
         Wait-Http "http://127.0.0.1:8102/health/live" 120
-        $savedProductMode = $env:RARDAR_PRODUCT_MODE
-        $savedBackendUrl = $env:BACKEND_API_URL
-        $env:RARDAR_PRODUCT_MODE = "true"
-        $env:BACKEND_API_URL = "http://127.0.0.1:8102"
+        $savedFrontendEnvironment = @{}
+        $frontendEnvironment = @{
+            NODE_ENV = "production"
+            RARDAR_PRODUCT_MODE = "true"
+            BACKEND_API_URL = "http://127.0.0.1:8102"
+            NEXT_TELEMETRY_DISABLED = "1"
+        }
+        foreach ($name in $frontendEnvironment.Keys) {
+            $savedFrontendEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+            [Environment]::SetEnvironmentVariable($name, $frontendEnvironment[$name], "Process")
+        }
         try {
             $next = Join-Path $FrontendRoot "node_modules\next\dist\bin\next"
-            $frontend = Start-Process -FilePath $Node -ArgumentList @($next, "dev", "--webpack", "--hostname", "127.0.0.1", "--port", "3000") -WorkingDirectory $FrontendRoot -RedirectStandardOutput (Join-Path $RuntimeRoot "frontend.out.log") -RedirectStandardError (Join-Path $RuntimeRoot "frontend.err.log") -WindowStyle Hidden -PassThru
+            Push-Location $FrontendRoot
+            try {
+                & $Node $next build --webpack
+                $buildExitCode = $LASTEXITCODE
+            } finally {
+                Pop-Location
+            }
+            if ($buildExitCode -ne 0) { throw "Rardar production frontend build failed." }
+            if (& git -C $RepoRoot status --short --untracked-files=all) {
+                throw "Runtime source changed while building the frontend."
+            }
+            $routes = Get-Content -LiteralPath (Join-Path $FrontendRoot ".next\routes-manifest.json") -Raw | ConvertFrom-Json
+            $apiRewrite = @($routes.rewrites.afterFiles | Where-Object { $_.source -eq "/api/:path*" })
+            if ($apiRewrite.Count -ne 1 -or $apiRewrite[0].destination -ne "http://127.0.0.1:8102/api/:path*") {
+                throw "Rardar production frontend build has an unexpected backend binding."
+            }
+            $frontendBuildId = (Get-Content -LiteralPath (Join-Path $FrontendRoot ".next\BUILD_ID") -Raw).Trim()
+            $frontend = Start-Process -FilePath $Node -ArgumentList @($next, "start", "--hostname", "127.0.0.1", "--port", "3000") -WorkingDirectory $FrontendRoot -RedirectStandardOutput (Join-Path $RuntimeRoot "frontend.out.log") -RedirectStandardError (Join-Path $RuntimeRoot "frontend.err.log") -WindowStyle Hidden -PassThru
         } finally {
-            $env:RARDAR_PRODUCT_MODE = $savedProductMode
-            $env:BACKEND_API_URL = $savedBackendUrl
+            foreach ($name in $frontendEnvironment.Keys) {
+                [Environment]::SetEnvironmentVariable($name, $savedFrontendEnvironment[$name], "Process")
+            }
         }
         Wait-Http "http://127.0.0.1:3000/api/health" 120
-    } catch {
-        if ($frontend -and (Test-Process $frontend.Id)) { & taskkill.exe /PID $frontend.Id /T /F | Out-Null }
-        if (Test-Process $backend.Id) { & taskkill.exe /PID $backend.Id /T /F | Out-Null }
-        throw
-    }
+        $backendListenerPid = Get-LoopbackListenerPid 8102
+        $frontendListenerPid = Get-LoopbackListenerPid 3000
 
-    [pscustomobject]@{
-        schemaVersion = 1
-        repository = $RepoRoot
-        startedAt = (Get-Date).ToUniversalTime().ToString("o")
-        backendPid = $backend.Id
-        frontendPid = $frontend.Id
-        postgresPort = $PgPort
-        database = $database
-        dataMode = $dataMode
-        dataMirror = $MirrorRoot
-    } | ConvertTo-Json | Set-Content -LiteralPath $StatePath -Encoding utf8
-    Show-Status
+        $runtimeState = [pscustomobject]@{
+            schemaVersion = 2
+            repository = $RepoRoot
+            startedAt = (Get-Date).ToUniversalTime().ToString("o")
+            backendPid = $backend.Id
+            backendListenerPid = $backendListenerPid
+            frontendPid = $frontend.Id
+            frontendListenerPid = $frontendListenerPid
+            postgresPort = $PgPort
+            database = $database
+            dataMode = $dataMode
+            dataMirror = $MirrorRoot
+            head = $head
+            frontendMode = "production"
+            frontendBuildId = $frontendBuildId
+            localShadowReview = $true
+        }
+        Write-StateAtomically $runtimeState
+        $statePublished = $true
+        Assert-RecordedRuntime (Read-State) $head $dataMode
+        Show-Status
+    } catch {
+        $startupError = $_
+        $cleanupErrors = @()
+        try {
+            if ($frontend) {
+                Stop-AppProcess $frontend.Id "^node\.exe$" 3000 $frontendListenerPid
+            }
+        } catch {
+            $cleanupErrors += $_.Exception.Message
+        }
+        try {
+            if ($backend) {
+                Stop-AppProcess $backend.Id "^python(w)?\.exe$" 8102 $backendListenerPid
+            }
+        } catch {
+            $cleanupErrors += $_.Exception.Message
+        }
+
+        if ($statePublished) {
+            $published = $null
+            try { $published = Read-State } catch { $published = $null }
+            if (
+                $cleanupErrors.Count -eq 0 `
+                -and $published `
+                -and [int]$published.backendPid -eq [int]$backend.Id `
+                -and [int]$published.frontendPid -eq [int]$frontend.Id
+            ) {
+                Remove-Item -LiteralPath $StatePath -Force -ErrorAction SilentlyContinue
+            } elseif ($cleanupErrors.Count -eq 0) {
+                $cleanupErrors += "Published Runtime state could not be matched for safe removal."
+            }
+        }
+        if ($cleanupErrors.Count -gt 0) {
+            throw "Rardar startup failed and cleanup was not fully verified; runtime state was preserved. $($cleanupErrors -join ' ')"
+        }
+        throw $startupError
+    }
 }
 
 function Sync-RardarData {

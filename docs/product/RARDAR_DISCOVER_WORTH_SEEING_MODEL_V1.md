@@ -16,11 +16,17 @@ All 36 samples remain provisional. Exactly 9 product-boundary decisions are
 user-approved and record `userReviewed=true`; the other 27 remain
 `userReviewed=false` and are not user-approved production truth.
 
-The product definition is:
+The current product definition is:
 
-> Discover answers “outside Today Top 20, which projects are worth looking at
-> now, and why?” It is one unranked, evidence-bound stream, not a momentum
-> ranking.
+> Discover answers “outside Today Top 20, which projects are worth
+> understanding, learning from or reusing, and why?” It is one unranked,
+> evidence-bound stream, not a momentum ranking.
+
+The 2026-09-07 runtime correction separates publication from Timeliness. A
+complete `in_scope` / `strong` / `high` Value result with a supported,
+same-repository reason is eligible even when Timeliness is absent, weak,
+uncertain or unavailable. `semanticDecision` remains readable as historical
+and diagnostic state; it is not the publication gate for new artifacts.
 
 The frozen Fresh Holdout v1 passed every protocol, semantic, and repeat gate.
 That makes this contract ready only for a separate final review and merge of
@@ -51,7 +57,7 @@ validation, and the Gold JSON governs recorded review history.
 | Surface | User question | Authority | Ordering |
 |---|---|---|---|
 | Today | Which projects have the greatest verified Star gain over a complete 24-hour window? | Rardar | exact producer rank |
-| Discover | What outside Top 20 deserves attention now? | TopicEye over validated Rardar facts | deterministic packing, no public rank |
+| Discover | What outside Top 20 has specific learning or reuse value? | TopicEye over validated Rardar facts | deterministic value packing, no public rank |
 | Find Project | Which project fits my stated need? | explicit user request | task-specific comparison |
 | Deep Insight | What does one project mean in depth? | explicit user request | no collection ordering |
 
@@ -63,12 +69,13 @@ producer facts, invent candidates, execute repository code, infer a global
 rank, or use model memory as evidence.
 
 Rardar does not own the worth-seeing judgment or page packing. TopicEye owns
-Scope/Value and Timeliness assessments, deterministic semantic projection, and
-publication packing over validated inputs. Neither TopicEye nor the model may
+the required Scope/Value assessment, optional Timeliness context,
+deterministic semantic projection, and publication packing over validated
+inputs. Neither TopicEye nor the model may
 write back to a Rardar Artifact, Today rank, Star, Observation, or eligibility
 fact.
 
-## Three independent assessments
+## Required Value assessment and optional Timeliness
 
 ### Scope Assessment
 
@@ -85,9 +92,14 @@ explicit user-review boundaries in Gold v3.
 
 ### Momentum-blind Value Assessment
 
-The Value payload must not contain field names or natural-language equivalents
-of stars, rank, deltas, growth, momentum, first-seen facts, Today membership,
-Observation windows, release dates, or recent activity. Its only inputs are:
+The Value payload must not contain this repository's current Star/fork counts,
+growth, rank, popularity endorsement, Observation timestamps, Today membership
+or other dynamic attention facts. Filtering is fact-shaped, not a keyword ban:
+technical descriptions such as window management, delta encoding, incremental
+growth analysis, newly added data handling, GitHub Star collection management,
+and matching file paths remain legitimate Value evidence. Mixed text removes
+the explicit popularity sentence where possible and records its source,
+revision and projection rule. Its inputs are:
 
 - canonical identity and repository name;
 - description, language, topics, and license;
@@ -99,11 +111,14 @@ Observation windows, release dates, or recent activity. Its only inputs are:
 not output `SELECT_NOW` or `WORTHWHILE_NOT_NOW`. High attention cannot upgrade
 weak or uncertain value.
 
-### Timeliness Assessment
+### Optional Timeliness Assessment
 
-Timeliness runs after Value and cannot change the Value verdict or reasons.
-Most signals are deterministic facts. A model may assess only whether supplied
-release notes or bounded revision evidence prove a meaningful release/update.
+Timeliness is auxiliary context and cannot change Value eligibility, reasons or
+display order. The normal build does not require release retrieval or a
+Meaningful Change model call. Historical artifacts and explicit recovery flows
+may retain their already-bound Timeliness result; a model may assess only
+whether supplied release notes or bounded revision evidence prove a meaningful
+release/update.
 Missing release notes make an ordinary version tag insufficient.
 
 Strong signals:
@@ -151,7 +166,11 @@ first supported reason in the fixed order above and keeps at most two other
 reasons as supporting reasons. This makes Primary Reason independent of array
 order and repeat wording.
 
-## Deterministic semantic decision
+## Retained deterministic semantic decision
+
+The matrix below remains the compatibility meaning of `semanticDecision` for
+old artifacts and diagnostics. New publication does not require
+`SELECT_NOW`.
 
 ```text
 scope out_of_scope                         -> REJECT
@@ -168,8 +187,9 @@ any structure/schema/evidence failure       -> UNCERTAIN
 ```
 
 AI is not the final decision authority. It supplies bounded assessments; the
-matrix above is the only authority. Empty or fewer-than-ten publications are
-valid and never filled by stars or a fallback ranking.
+matrix above remains deterministic, while publication eligibility is the
+separate Value rule below. Empty or partial publications are valid and never
+filled by stars or a fallback ranking.
 
 ## Reject reasons v3
 
@@ -188,7 +208,7 @@ valid and never filled by stars or a fallback ranking.
 a packing fact; a strong project without why-now is
 `WORTHWHILE_NOT_NOW`, not a reject.
 
-## Semantic decision and publication packing
+## Value eligibility and publication packing
 
 `semanticDecision` is separate from `publicationDisposition`:
 
@@ -196,13 +216,26 @@ a packing fact; a strong project without why-now is
 - disposition: `publish`, `hold`, `suppress_duplicate`,
   `suppress_capacity`, `not_eligible`.
 
+For a new artifact, eligibility requires all of:
+
+- `scopeStatus=in_scope`;
+- `valueVerdict=strong` and Value `confidence=high`;
+- a complete valid Value assessment;
+- at least one supported reason with legal same-repository evidence aliases;
+- no identity, Value-evidence or structural failure.
+
+Timeliness absence or failure is classified separately and cannot veto an
+otherwise eligible project. Stable de-duplication and capacity then publish at
+most six items without Timeliness, Star, rank, growth or a composite score.
+
 Peer context may establish `nearDuplicateGroup`, product-form differences, and
 packing disposition only. It must never support the current project's value.
 Each group publishes one item by default; two require evidence of materially
 different users, mechanisms, forms, or use cases.
 
-User-facing copy is a later projection. It runs only after
-`semanticDecision`, `primaryReason`, Timeliness, and packing are complete.
+User-facing copy is a later projection. It runs only after Value eligibility,
+`primaryReason` and packing are complete. Timeliness may supply optional
+secondary copy when verified.
 Copy failure cannot change those fields, trigger a weaker Gate, or refill the
 stream.
 
@@ -218,10 +251,10 @@ is allowed.
 
 The selected information architecture is `IA_A_SINGLE_CURATED_STREAM`: one
 unranked curated stream with category and Primary Reason filters and optional
-why-now tags. A card shows canonical identity, concise Chinese value,
-Primary Reason, an explicit why-now only for strong timeliness, product form,
-category, and a small producer-owned momentum fact. Momentum is never the
-headline or ordering explanation.
+why-now tags. A card leads with canonical identity, concise Chinese value and
+the supported reason to inspect or learn from the project. Verified Timeliness
+and producer-owned momentum may appear only as secondary context; neither is a
+membership or ordering explanation.
 
 The stream may contain fewer than ten projects or be empty. It never fills a
 quota with low-quality candidates, the next Star-ranked project, or a momentum
@@ -233,9 +266,11 @@ remain explicit user actions; viewing a card does not write a user fact.
 
 ## AI failure and last-known-good behavior
 
-- Invalid JSON, unknown fields, schema failure, bad Evidence Aliases, timeout, or
-  provider failure cannot newly publish a candidate.
-- A failed assessment becomes `UNCERTAIN`; it is not replaced by attention.
+- Invalid Value JSON, unknown fields, schema failure, bad Value aliases,
+  timeout, or Value-provider failure cannot newly publish a candidate.
+- A failed Value assessment becomes `UNCERTAIN`; it is not replaced by
+  attention. A separately classified Timeliness-only failure does not erase a
+  complete valid Value assessment.
 - Cached/LKG selection is reusable only when the complete evidence, prompt,
   schema, policy, and peer-context digests are identical.
 - A changed digest has no LKG entitlement.
@@ -330,8 +365,10 @@ run semantic decision before packing and user copy, and provide no Star,
 momentum, model-failure, or capacity refill fallback. It must include a fixed
 negative-control set covering `out_of_product_scope`,
 `identity_or_source_invalid`, `marketing_only`, `popularity_only`,
-`weak_evidence`, and `not_reusable_or_actionable`, none of which may publish as
-`SELECT_NOW`. Any future blind-evaluation claim requires a new unseen set.
+`weak_evidence`, and `not_reusable_or_actionable`, none of which may satisfy the
+current value-publication eligibility contract. Invalid structure, invalid
+evidence, or a failed call does not complete a control. Any future blind-evaluation
+claim requires a new unseen set.
 Production writes, Production Discover activation, and page deployment require
 later independent authorization.
 

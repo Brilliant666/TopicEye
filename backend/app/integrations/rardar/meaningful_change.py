@@ -22,6 +22,12 @@ CACHE_VERSION = "rardar-meaningful-change-cache-v1"
 SCENE = "rardar_worth_seeing_meaningful_change"
 
 
+def _alias_v1(evidence: SelectionEvidenceAlias) -> dict:
+    """Serialize the retained Meaningful Change evidence contract exactly."""
+
+    return evidence.model_dump(mode="json", exclude={"projectionRule"})
+
+
 class MeaningfulChangeContext(StrictSelectionModel):
     assessmentKind: Literal["meaningful_change"]
     scene: Literal["rardar_worth_seeing_meaningful_change"]
@@ -71,7 +77,7 @@ def change_context(
         evidenceAliasVersion=ALIAS_VERSION,
         cacheIdentityVersion=CACHE_VERSION,
         allowedEvidenceSetDigest=digest(allowed),
-        evidencePackageDigest=digest([item.model_dump(mode="json") for item in evidence]),
+        evidencePackageDigest=digest([_alias_v1(item) for item in evidence]),
         modelRouteIdentity=route,
     )
 
@@ -126,7 +132,7 @@ def change_payload(
         ),
         "repository": candidate.repository,
         "allowedEvidenceAliases": [item.evidenceId for item in evidence],
-        "evidence": [item.model_dump(mode="json") for item in evidence],
+        "evidence": [_alias_v1(item) for item in evidence],
         "promptVersion": PROMPT_VERSION,
         "schemaVersion": SCHEMA_VERSION,
     }

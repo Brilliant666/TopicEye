@@ -49,6 +49,7 @@ from app.integrations.rardar.selection_schemas import (
     SelectionTimeliness,
     SelectionUsageSummary,
     SemanticDecision,
+    value_gate_is_publishable,
 )
 from app.integrations.rardar.selection_source import LoadedSelectionSource
 from app.integrations.rardar.serving_profiles import ProfileBuildResult, build_official_profiles
@@ -71,12 +72,13 @@ TIMELINESS_PROMPT_VERSION = CHANGE_PROMPT_VERSION
 TIMELINESS_SCHEMA_VERSION = CHANGE_SCHEMA_VERSION
 COPY_PROMPT_VERSION = "rardar-worth-seeing-copy-v3"
 COPY_SCHEMA_VERSION = "rardar-worth-seeing-copy-schema-v2"
-RECALL_POLICY_VERSION = "worth-seeing-recall-v1"
+RECALL_POLICY_VERSION = "worth-seeing-recall-v2"
 REASON_POLICY_VERSION = "worth-seeing-reason-v5"
 TIMELINESS_POLICY_VERSION = "worth-seeing-timeliness-v4"
 DECISION_POLICY_VERSION = "worth-seeing-decision-v4"
-PACKING_POLICY_VERSION = "worth-seeing-packing-v2"
-EVIDENCE_ALIAS_VERSION = "worth-seeing-evidence-alias-v1"
+PUBLICATION_POLICY_VERSION = "worth-seeing-value-publication-v1"
+PACKING_POLICY_VERSION = "worth-seeing-packing-v3"
+EVIDENCE_ALIAS_VERSION = "worth-seeing-evidence-alias-v2"
 PROTOCOL_VERSION = "prompt-json-local-validation-v1"
 RETRY_POLICY_VERSION = "format-only-retry-v1"
 PROFILE_EVIDENCE_POLICY_VERSION = "evidence-content-profile-cache-v2"
@@ -125,15 +127,37 @@ _PRODUCTIVE = re.compile(
     r"\b(?:developer|development|productivity|automation|workflow|agent|coding|data|database|api|sdk|cli|library|framework|tool)\w*\b",
     re.IGNORECASE,
 )
-_VALUE_DENY = re.compile(
-    r"(?:\bstars?\b|\bstarred\b|\bforks?\b|\bwatchers?\b|\bpopularity\b|\bpopular\b|"
-    r"\btrending\b|\btrendshift\b|\bmomentum\b|\brank(?:ing)?\b|\bobserv(?:ed|ation)\b|"
-    r"\bdelta\b|\bgrowth\b|\bviral\b|first[ _-]?seen(?:[ _-]?at)?|created[ _-]?at|"
-    r"updated[ _-]?at|pushed[ _-]?at|release[ _-]?date|\brecent\b|\btoday\b|24\s*h|\bwindow\b|"
-    r"新增|增长|热度|趋势|排名|榜单|"
-    r"首次发现|最近更新|近期|今日|小时)",
-    re.IGNORECASE,
+_POPULARITY_FACTS = (
+    re.compile(
+        r"(?:\b\d[\d,.]*(?:[kmb])?\s*(?:github\s+)?(?:stars?|forks?|watchers?)\b|\b(?:stars?|forks?|watchers?)\s*(?:count|total|growth|delta)?\s*[:=+]?\s*\d[\d,.]*(?:[kmb])?|\b(?:stars?|forks?|watchers?)\s+(?:grew|gained|increased|rose)\s+(?:by\s+)?[+]?\d[\d,.]*(?:[kmb])?)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:\brank(?:ed|ing)?\s*(?:#|no\.?\s*)?\d+|#\d+\s+on\s+(?:github\s+)?trending|(?:github\s+)?trending\s+(?:rank|ranking|list|chart))",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:\b(?:most|very|widely)\s+popular\b|\b(?:this\s+)?(?:repository|repo|project)\s+is\s+(?:very\s+)?popular\b|\bwent\s+viral\b|\btrending\s+on\s+github\b|\bpopularity\s+(?:proves?|shows?|demonstrates?)\b)",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:\b(?:first|last)\s+observed(?:\s+at)?\s*[:=]?\s*\d{4}-\d{2}-\d{2}|\b(?:firstSeenAt|observedAt|capturedAt|pushedAt|updatedAt)\s*[:=]\s*\d{4}-\d{2}-\d{2})",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:\b(?:released?|published|updated|pushed)\s+(?:(?:version\s+)?v?\d+(?:\.\d+){0,3}\s+)?(?:on\s+)?(?:today|yesterday|\d+\s+(?:hours?|days?)\s+ago|\d{4}-\d{2}-\d{2})|\brecent(?:ly)?\s+(?:release[ds]?|updated|pushed)|(?:发布|更新|推送)(?:于|在)?(?:今天|昨日|昨天|\d+\s*(?:小时|天)前|\d{4}-\d{1,2}-\d{1,2}))",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:\b(?:this\s+)?(?:repository|repo|project)\s+(?:grew|gained|added)\s+(?:by\s+)?[+]?\d[\d,.]*(?:[kmb])?\s*(?:%|stars?|forks?|watchers?)|(?:该|此|本)?(?:仓库|项目).{0,18}(?:增长|新增)\s*[+]?\d[\d,.]*(?:[kmb])?\s*(?:%|Stars?|星标|收藏|Forks?))",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:\d[\d,.]*(?:[kmb])?\s*(?:个)?\s*(?:Star|星标|收藏|Fork)|(?:Star|星标|收藏|Fork)\s*(?:增长|新增)\s*[+]?\d[\d,.]*(?:[kmb])?|(?:当前|目前|最近|近期).{0,18}(?:排名|热度|爆火|热门)|(?:该|此|本)?(?:仓库|项目).{0,10}(?:很受欢迎|广受欢迎|非常热门)|(?:GitHub\s*)?Trending\s*(?:第|排名))",
+        re.IGNORECASE,
+    ),
 )
+_RECALL_BATCH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _UNTRUSTED_NOISE = re.compile(
     r"(?:<\s*(?:script|style|iframe|object|embed|img)\b|javascript:|data:text/html|"
     r"authorization\s*:|api[_ -]?key|cookie\s*:|ignore (?:all |the )?(?:previous|prior) instructions|"
@@ -307,6 +331,7 @@ def _contract_versions() -> dict[str, str]:
         "reasonPolicy": REASON_POLICY_VERSION,
         "timelinessPolicy": TIMELINESS_POLICY_VERSION,
         "decisionPolicy": DECISION_POLICY_VERSION,
+        "publicationPolicy": PUBLICATION_POLICY_VERSION,
         "packingPolicy": PACKING_POLICY_VERSION,
         "evidenceAlias": EVIDENCE_ALIAS_VERSION,
         "protocol": PROTOCOL_VERSION,
@@ -399,7 +424,10 @@ def selection_input_digest(
     cache_root: Path,
     model_route_identity: str,
     recall_limit: int,
+    recall_batch_id: str | None = None,
 ) -> str:
+    recall_batch_id = recall_batch_id or default_recall_batch_id(source)
+    _validate_recall_batch_id(recall_batch_id)
     universe, _summary = build_candidate_universe(source)
     identities = _source_identities(source, universe)
     return _sha(
@@ -415,6 +443,7 @@ def selection_input_digest(
                 "cacheInventoryDigest": _cache_inventory_digest(cache_root),
                 "modelRouteIdentity": model_route_identity,
                 "recallLimit": recall_limit,
+                "recallBatchId": recall_batch_id,
                 "candidateUniverseVersion": UNIVERSE_VERSION,
                 "contracts": _contract_versions(),
             }
@@ -460,11 +489,6 @@ def build_candidate_universe(
 
     if not source.captures:
         raise SelectionBuildError("rardar_selection_source_invalid", "Observation history is empty")
-    window_hours = (
-        _timestamp(source.captures[-1]["scheduledAt"]) - _timestamp(source.captures[0]["scheduledAt"])
-    ).total_seconds() / 3600
-    if window_hours < 26:
-        raise SelectionBuildError("rardar_selection_observation_window_short", "Selection requires at least 26 hours")
     history = _observation_history(source)
     latest = source.captures[-1]
     top20 = {int(item["githubRepositoryId"]) for item in source.today["exactRanked"] if int(item["rank"]) <= 20}
@@ -504,7 +528,7 @@ def build_candidate_universe(
         observations = history[identifier]
         first_capture, first = observations[0]
         last_capture, last = observations[-1]
-        delta = int(last["totalStars"]) - int(first["totalStars"])
+        raw_delta = int(last["totalStars"]) - int(first["totalStars"])
         hours = max(
             0.0,
             (_timestamp(last_capture["scheduledAt"]) - _timestamp(first_capture["scheduledAt"])).total_seconds() / 3600,
@@ -528,7 +552,8 @@ def build_candidate_universe(
             channels.append("meaningful_change")
         if _REFERENCE.search(text):
             channels.append("reference_learning")
-        if delta > 0 or identifier in exact:
+        delta = raw_delta if hours >= 26 else None
+        if (delta is not None and delta > 0) or identifier in exact:
             channels.append("momentum")
         exact_item = exact.get(identifier)
         candidates.append(
@@ -570,14 +595,52 @@ def build_candidate_universe(
     )
 
 
+def _validate_recall_batch_id(batch_id: str) -> None:
+    if not _RECALL_BATCH_ID.fullmatch(batch_id):
+        raise SelectionBuildError("rardar_selection_batch_invalid", "Recall batch identity is invalid")
+
+
+def default_recall_batch_id(source: LoadedSelectionSource) -> str:
+    seed = _canonical_bytes(
+        {
+            "sourceObservationSetId": source.source_observation_set_id,
+            "latestCaptureId": source.latest_capture_id,
+        }
+    )
+    return f"source-{_sha(seed)[:24]}"
+
+
+def _recall_order_key(candidate: SelectionCandidateFacts, batch_id: str, channel: str) -> tuple[str, int]:
+    return (
+        _sha(
+            _canonical_bytes(
+                {
+                    "policy": RECALL_POLICY_VERSION,
+                    "batchId": batch_id,
+                    "channel": channel,
+                    "githubRepositoryId": candidate.githubRepositoryId,
+                }
+            )
+        ),
+        candidate.githubRepositoryId,
+    )
+
+
 def recall_candidates(
-    universe: list[SelectionCandidateFacts], limit: int = _MAX_RECALL
+    universe: list[SelectionCandidateFacts],
+    limit: int = _MAX_RECALL,
+    *,
+    batch_id: str = "default",
 ) -> list[SelectionCandidateFacts]:
     """Round-robin six independent channels without manufacturing an aggregate score."""
 
+    _validate_recall_batch_id(batch_id)
     limit = max(30, min(limit, 60, len(universe))) if len(universe) >= 30 else len(universe)
     buckets = {
-        channel: [candidate for candidate in universe if channel in candidate.recallChannels]
+        channel: sorted(
+            (candidate for candidate in universe if channel in candidate.recallChannels),
+            key=lambda candidate, current=channel: _recall_order_key(candidate, batch_id, current),
+        )
         for channel in _RECALL_CHANNELS
     }
     selected: list[SelectionCandidateFacts] = []
@@ -607,7 +670,7 @@ def recall_candidates(
         if not progressed:
             break
     if len(selected) < limit:
-        for candidate in universe:
+        for candidate in sorted(universe, key=lambda item: _recall_order_key(item, batch_id, "fallback")):
             if candidate.githubRepositoryId in seen:
                 continue
             if not candidate.recallChannels:
@@ -653,45 +716,71 @@ def _profile_project(candidate: SelectionCandidateFacts, rank: int) -> ExactExpl
     )
 
 
-def _safe_excerpt(value: Any, maximum: int = 1200) -> str | None:
+def _contains_popularity_fact(value: str) -> bool:
+    return any(pattern.search(value) for pattern in _POPULARITY_FACTS)
+
+
+def _project_value_excerpt(value: Any, maximum: int = 1200) -> tuple[str | None, str]:
     if not isinstance(value, str):
-        return None
+        return None, "verbatim_safe"
     cleaned = " ".join(value.split())
-    if not cleaned or _VALUE_DENY.search(cleaned) or _UNTRUSTED_NOISE.search(cleaned):
-        return None
-    return cleaned[:maximum].rstrip()
+    if not cleaned or _UNTRUSTED_NOISE.search(cleaned):
+        return None, "verbatim_safe"
+    units = [item.strip() for item in re.split(r"(?<=[.!?;])\s+|(?<=[。！？；])", cleaned) if item.strip()]
+    retained = [item for item in units if not _contains_popularity_fact(item)]
+    if not retained:
+        return None, "popularity_sentences_removed"
+    projected = " ".join(retained)
+    removed = len(retained) != len(units)
+    bounded = len(projected) > maximum
+    rule = (
+        "bounded_after_popularity_removal"
+        if removed and bounded
+        else "popularity_sentences_removed"
+        if removed
+        else "bounded_verbatim"
+        if bounded
+        else "verbatim_safe"
+    )
+    return projected[:maximum].rstrip(), rule
+
+
+def _safe_excerpt(value: Any, maximum: int = 1200) -> str | None:
+    return _project_value_excerpt(value, maximum)[0]
 
 
 def _value_evidence(candidate: SelectionCandidateFacts, collected: Any) -> list[SelectionEvidenceAlias]:
     profile = collected.profile
     evidence = collected.evidence
-    values: list[tuple[str, str, str, str]] = []
-    description = _safe_excerpt(candidate.description)
+    values: list[tuple[str, str, str, str, str]] = []
+    description, rule = _project_value_excerpt(candidate.description)
     if description:
-        values.append(("description", "github.description", evidence.digest, description))
+        values.append(("description", "github.description", evidence.digest, description, rule))
     profile_fields = [
         ("profile", "profile.identitySummaryZh", profile.evidenceDigest, profile.identitySummaryZh),
         ("profile", "profile.coreValueZh", profile.evidenceDigest, profile.coreValueZh),
         ("profile", "profile.positioningZh", profile.evidenceDigest, profile.positioningZh),
     ]
     for source_type, path, revision, raw in profile_fields:
-        excerpt = _safe_excerpt(raw)
+        excerpt, rule = _project_value_excerpt(raw)
         if excerpt:
-            values.append((source_type, path, revision, excerpt))
+            values.append((source_type, path, revision, excerpt, rule))
     for index, capability in enumerate(profile.capabilities[:6]):
-        excerpt = _safe_excerpt(f"{capability.title}：{capability.detail}")
+        excerpt, rule = _project_value_excerpt(f"{capability.title}：{capability.detail}")
         if excerpt:
-            values.append(("profile", f"profile.capabilities[{index}]", profile.evidenceDigest, excerpt))
+            values.append(("profile", f"profile.capabilities[{index}]", profile.evidenceDigest, excerpt, rule))
     for index, raw in enumerate(evidence.originalExcerpts[:6]):
-        excerpt = _safe_excerpt(raw)
+        excerpt, rule = _project_value_excerpt(raw)
         if excerpt:
-            values.append(("readme", f"readme.excerpts[{index}]", evidence.readmeBlobSha or evidence.digest, excerpt))
+            values.append(
+                ("readme", f"readme.excerpts[{index}]", evidence.readmeBlobSha or evidence.digest, excerpt, rule)
+            )
     tree_text = ", ".join(
         item.get("path", "") for item in evidence.topLevelTree[:40] if isinstance(item, dict) and item.get("path")
     )
-    tree_excerpt = _safe_excerpt(tree_text)
+    tree_excerpt, rule = _project_value_excerpt(tree_text)
     if tree_excerpt:
-        values.append(("tree", "repository.tree", _sha(_canonical_bytes(evidence.topLevelTree)), tree_excerpt))
+        values.append(("tree", "repository.tree", _sha(_canonical_bytes(evidence.topLevelTree)), tree_excerpt, rule))
     aliases = [
         SelectionEvidenceAlias(
             evidenceId=f"E{index:02d}",
@@ -700,10 +789,11 @@ def _value_evidence(candidate: SelectionCandidateFacts, collected: Any) -> list[
             sourceRevision=str(revision),
             excerpt=excerpt,
             githubRepositoryId=candidate.githubRepositoryId,
+            projectionRule=rule,
         )
-        for index, (source_type, path, revision, excerpt) in enumerate(values[:24], 1)
+        for index, (source_type, path, revision, excerpt, rule) in enumerate(values[:24], 1)
     ]
-    if _VALUE_DENY.search(_canonical_bytes([item.model_dump(mode="json") for item in aliases]).decode("utf-8")):
+    if any(_contains_popularity_fact(item.excerpt) for item in aliases):
         raise SelectionBuildError("value_momentum_leakage", "Value evidence contains a forbidden momentum field")
     return aliases
 
@@ -832,9 +922,7 @@ def _gate_payload(candidate: SelectionCandidateFacts, evidence: list[SelectionEv
     # Repository identity is explicitly allowed even when its literal name
     # contains words such as "trending". Everything that can influence the
     # value judgment is scanned exactly as serialized.
-    scanned = {**payload, "repository": "<allowed-repository-identity>"}
-    serialized = _canonical_bytes(scanned).decode("utf-8")
-    if _VALUE_DENY.search(serialized):
+    if any(_contains_popularity_fact(item.excerpt) for item in evidence):
         raise SelectionBuildError("value_momentum_leakage", "Value payload contains forbidden momentum data")
     return payload
 
@@ -1126,21 +1214,19 @@ def _duplicate_group(assessment: SelectionAssessment) -> str:
 
 
 def _pack(assessments: list[SelectionAssessment]) -> list[SelectionAssessment]:
-    eligible = [item for item in assessments if item.semanticDecision == "SELECT_NOW" and item.primaryReason]
+    eligible = [item for item in assessments if item.value_is_publishable()]
     buckets: dict[str, list[SelectionAssessment]] = {
         reason: [item for item in eligible if item.primaryReason == reason] for reason in _REASON_PRECEDENCE
     }
-    signal_priority = {
-        "meaningful_release": 0,
-        "meaningful_update": 0,
-        "genuinely_new_asset": 1,
-        "strong_recent_momentum": 2,
-    }
     for values in buckets.values():
         values.sort(
-            key=lambda item: (
-                min((signal_priority[value] for value in item.timeliness.strongSignals), default=3),
-                item.candidate.githubRepositoryId,
+            key=lambda item: _sha(
+                _canonical_bytes(
+                    {
+                        "policy": PACKING_POLICY_VERSION,
+                        "githubRepositoryId": item.candidate.githubRepositoryId,
+                    }
+                )
             )
         )
     ordered: list[SelectionAssessment] = []
@@ -1167,7 +1253,7 @@ def _pack(assessments: list[SelectionAssessment]) -> list[SelectionAssessment]:
             suppressed[item.candidate.githubRepositoryId] = ("suppress_duplicate", group)
             continue
         seen_groups.add(group)
-        if len(selected) < 20:
+        if len(selected) < 6:
             selected.append(item)
             groups[item.candidate.githubRepositoryId] = group
     selected_ids = {item.candidate.githubRepositoryId for item in selected}
@@ -1188,7 +1274,7 @@ def _pack(assessments: list[SelectionAssessment]) -> list[SelectionAssessment]:
         elif identifier in suppressed:
             disposition, group = suppressed[identifier]
             result.append(item.model_copy(update={"publicationDisposition": disposition, "nearDuplicateGroup": group}))
-        elif item.semanticDecision == "SELECT_NOW":
+        elif item.value_is_publishable():
             result.append(item.model_copy(update={"publicationDisposition": "suppress_capacity"}))
         elif item.semanticDecision == "WORTHWHILE_NOT_NOW":
             result.append(item.model_copy(update={"publicationDisposition": "hold"}))
@@ -1249,6 +1335,19 @@ def negative_control_cases() -> tuple[tuple[str, str], ...]:
     )
 
 
+def _negative_control_passed(
+    name: str,
+    gate: SelectionGateResult | None,
+    failure: str | None,
+) -> bool:
+    if gate is None or failure is not None:
+        return False
+    if name == "out_of_product_scope":
+        return gate.scopeStatus == "out_of_scope"
+    primary, _supporting = _primary_reason(gate)
+    return not value_gate_is_publishable(gate, primary, failure)
+
+
 async def _negative_controls(usage: _Usage, caller: LLMCaller) -> list[str]:
     failures: list[str] = []
     for index, (name, text) in enumerate(negative_control_cases(), 1):
@@ -1264,17 +1363,7 @@ async def _negative_controls(usage: _Usage, caller: LLMCaller) -> list[str]:
             )
         ]
         gate, _attempts, failure = await _run_gate(candidate, evidence, usage, caller)
-        neutral = SelectionTimeliness(
-            verdict="none",
-            confidence="high",
-            reasonCodes=["no_strong_why_now"],
-            evidenceIds=[],
-            meaningfulChange=None,
-            strongSignals=[],
-            weakSignals=[],
-        )
-        decision = semantic_decision(gate, neutral, failure)
-        if decision == "SELECT_NOW" or (name == "out_of_product_scope" and decision != "REJECT"):
+        if not _negative_control_passed(name, gate, failure):
             failures.append(name)
     return failures
 
@@ -1327,6 +1416,7 @@ async def build_selection(
     caller: LLMCaller = call_rardar_prompt_json,
     github_client: httpx.AsyncClient | None = None,
     recall_limit: int = _MAX_RECALL,
+    recall_batch_id: str | None = None,
     model_route_identity: str | None = None,
     force_retryable: bool = False,
 ) -> BuiltSelection:
@@ -1342,7 +1432,9 @@ async def build_selection(
         raise SelectionBuildError("rardar_selection_route_invalid", "Model route identity is invalid")
     _cache_inventory_digest(cache_root)
     universe, universe_summary = build_candidate_universe(source)
-    recalled = recall_candidates(universe, recall_limit)
+    recall_batch_id = recall_batch_id or default_recall_batch_id(source)
+    _validate_recall_batch_id(recall_batch_id)
+    recalled = recall_candidates(universe, recall_limit, batch_id=recall_batch_id)
     usage = _Usage()
     negative_failures = await _negative_controls(usage, caller)
     if negative_failures:
@@ -1402,13 +1494,9 @@ async def build_selection(
                     gate = None
                     gate_attempts = 0
                     gate_failure = exc.code
+            # Timeliness remains optional display context. The normal build
+            # never fetches release evidence or invokes Meaningful Change.
             timeliness_evidence: list[SelectionEvidenceAlias] = []
-            if usage.change_calls < _MAX_CHANGE_CALLS and collected.github_requests < 4:
-                try:
-                    timeliness_evidence, requests = await _release_evidence(candidate, cache_root, github_client)
-                    release_requests += requests
-                except (httpx.HTTPError, ValueError, SelectionBuildError):
-                    timeliness_evidence = []
             timeliness, change_attempts, timeliness_failure = await _timeliness(
                 candidate,
                 timeliness_evidence,
@@ -1419,9 +1507,15 @@ async def build_selection(
             failure = gate_failure or timeliness_failure
             decision = semantic_decision(gate, timeliness, failure)
             primary, supporting = _primary_reason(gate)
-            if decision in {"SELECT_NOW", "WORTHWHILE_NOT_NOW"} and primary is None:
+            if (
+                gate is not None
+                and gate.scopeStatus == "in_scope"
+                and gate.valueVerdict == "strong"
+                and primary is None
+            ):
                 decision = "UNCERTAIN"
-                failure = failure or "weak_evidence"
+                gate_failure = gate_failure or "weak_evidence"
+                failure = gate_failure
             reject_reason = None
             if decision == "REJECT":
                 reject_reason = (
@@ -1449,12 +1543,14 @@ async def build_selection(
                     gate=gate,
                     timeliness=timeliness,
                     semanticDecision=decision,
-                    primaryReason=primary if decision in {"SELECT_NOW", "WORTHWHILE_NOT_NOW"} else None,
-                    supportingReasons=supporting if decision in {"SELECT_NOW", "WORTHWHILE_NOT_NOW"} else [],
+                    primaryReason=primary,
+                    supportingReasons=supporting,
                     publicationDisposition="not_eligible",
                     nearDuplicateGroup=None,
                     rejectReason=reject_reason,
                     failureCode=failure,
+                    valueFailureCode=gate_failure,
+                    timelinessFailureCode=timeliness_failure,
                     gateAttempts=gate_attempts,
                     meaningfulChangeAttempts=change_attempts,
                     copyAttempts=0,
@@ -1516,6 +1612,7 @@ async def build_selection(
         cache_root=cache_root,
         model_route_identity=model_route_identity,
         recall_limit=recall_limit,
+        recall_batch_id=recall_batch_id,
     )
     source_fact_digest = _sha(
         _canonical_bytes(
@@ -1527,6 +1624,7 @@ async def build_selection(
                 "todayGenerationId": source.today_generation_id,
                 "todayExplosionSha256": source.today_explosion_sha256,
                 "recallLimit": recall_limit,
+                "recallBatchId": recall_batch_id,
                 **identities,
             }
         )
@@ -1642,6 +1740,7 @@ async def build_selection(
         "sourceCaptureDigests": identities["sourceCaptureDigests"],
         "sourceCaptureInventoryDigest": identities["sourceCaptureInventoryDigest"],
         "latestCaptureId": source.latest_capture_id,
+        "recallBatchId": recall_batch_id,
         "latestCaptureAt": _timestamp(source.latest_capture_at),
         "sourceWindowStart": _timestamp(source.source_window_start),
         "sourceWindowEnd": _timestamp(source.source_window_end),
@@ -1716,6 +1815,7 @@ __all__ = [
     "SelectionBuildError",
     "build_candidate_universe",
     "build_selection",
+    "default_recall_batch_id",
     "recall_candidates",
     "selection_input_digest",
     "semantic_decision",

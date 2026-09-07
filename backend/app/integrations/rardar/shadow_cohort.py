@@ -19,6 +19,7 @@ from app.integrations.rardar.selection import (
     _source_identities,
     _value_evidence,
     build_candidate_universe,
+    default_recall_batch_id,
     negative_control_cases,
     recall_candidates,
 )
@@ -52,11 +53,15 @@ def _read(root: Path, relative: str) -> bytes:
     return _SafeRoot(str(root)).read_stable(relative, maximum_bytes=4 * 1024 * 1024)
 
 
-def healthy_pool(mirror: Path) -> tuple[LoadedSelectionSource, list[SelectionCandidateFacts], list[HealthyProfile]]:
+def healthy_pool(
+    mirror: Path,
+    recall_batch_id: str | None = None,
+) -> tuple[LoadedSelectionSource, list[SelectionCandidateFacts], list[HealthyProfile]]:
     """Never generates, migrates, fetches, updates attempts or writes cache files."""
     source = SelectionSourceAdapter.from_config(str(mirror)).load()
     universe, _summary = build_candidate_universe(source)
-    recalled = recall_candidates(universe)
+    recall_batch_id = recall_batch_id or default_recall_batch_id(source)
+    recalled = recall_candidates(universe, batch_id=recall_batch_id)
     pool: list[HealthyProfile] = []
     for index, candidate in enumerate(recalled, 1):
         directory = mirror / "selection-profile-cache" / "profile-store" / "v2" / str(candidate.githubRepositoryId)
@@ -227,8 +232,13 @@ def _immutable(path: Path, payload: dict[str, Any]) -> None:
     atomic(path, payload)
 
 
-def freeze(mirror: Path, target: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    source, recalled, pool = healthy_pool(mirror)
+def freeze(
+    mirror: Path,
+    target: Path,
+    recall_batch_id: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    source, recalled, pool = healthy_pool(mirror, recall_batch_id)
+    recall_batch_id = recall_batch_id or default_recall_batch_id(source)
     universe, _ = build_candidate_universe(source)
     identities = _source_identities(source, universe)
     selected, limitations = choose_cohort(pool)
@@ -269,6 +279,7 @@ def freeze(mirror: Path, target: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     source_data = {
         "schemaVersion": 1,
         "sourceObservation": source.source_observation_set_id,
+        "recallBatchId": recall_batch_id,
         "sourceCaptureDigests": identities["sourceCaptureDigests"],
         "sourceTodayGeneration": source.today_generation_id,
         "todayTop20Digest": source.today_published_set_digest,

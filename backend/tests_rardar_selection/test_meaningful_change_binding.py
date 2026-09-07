@@ -291,10 +291,9 @@ async def test_resume_only_six_changes_preserves_origin_and_budget(tmp_path, mon
     assert artifact.providerBudget["attempted"] == 34 + artifact.previewCount <= 40
     assert artifact.audit["rejectedMeaningfulResponses"] == bad_count
     assert artifact.audit["evidenceViolations"] == 0
-    assert artifact.reviewable == (bad_count < 4)
-    if bad_count >= 4:
-        assert artifact.audit["blocker"] == "BLOCKED_MEANINGFUL_CHANGE_EVIDENCE_BINDING"
-        assert artifact.previewCount == 0
+    assert artifact.reviewable
+    assert artifact.previewCount == 6
+    assert artifact.audit["blocker"] is None
     assert (run / "shadow-review-artifact.json").read_bytes() == origin_raw
     assert (run / ARTIFACT_NAME).is_file()
     prior = ledger.snapshot()
@@ -386,6 +385,7 @@ async def loader_fixture(tmp_path, monkeypatch):
                 timelinessEvidence=[e.model_dump(mode="json") for e in updated[i].releases],
                 timeliness=runner.neutral_timeliness().model_dump(mode="json"),
                 failureCode="wrong_assessment_evidence",
+                timelinessFailureCode="wrong_assessment_evidence",
             )
     payload["digest"] = digest({k: v for k, v in payload.items() if k != "digest"})
     origin = runner.ShadowReviewArtifact.model_validate_json(json.dumps(payload), strict=True)

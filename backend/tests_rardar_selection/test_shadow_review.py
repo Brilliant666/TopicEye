@@ -95,6 +95,7 @@ async def test_ready_preview_6_overall_degraded_static_idempotent(tmp_path, monk
     assert artifact.reviewable and artifact.shadowReviewState == "ready"
     assert artifact.cohortAssessed == 16 and artifact.previewCount == 6
     assert artifact.providerBudget["attempted"] == 0  # Mock calls consume no upstream budget.
+    assert not any(scene == RardarLLMScene.WORTH_SEEING_MEANINGFUL_CHANGE for scene, _messages in double.calls)
     before_calls = len(double.calls)
     repeated = await runner.build_shadow_review(mirror, run, ledger, route_identity="c" * 64, caller=double)
     assert repeated == artifact and len(double.calls) == before_calls
@@ -157,6 +158,93 @@ async def test_zero_select_is_reviewable_empty_no_refill(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_shadow_fails_closed_when_control_has_publishable_value(tmp_path, monkeypatch):
+    class PublishableNegativeControl(ShadowDouble):
+        async def __call__(self, **kwargs):
+            result = await super().__call__(**kwargs)
+            payload = json.loads(kwargs["messages"][1]["content"])
+            if (
+                kwargs["scene"] == RardarLLMScene.WORTH_SEEING_GATE
+                and payload.get("repository") == "negative-control/case-2"
+            ):
+                value = {
+                    "scopeStatus": "in_scope",
+                    "valueVerdict": "strong",
+                    "reasonCandidates": [{"reason": "directly_reusable", "supported": True, "evidenceIds": ["E01"]}],
+                    "counterEvidenceIds": [],
+                    "confidence": "high",
+                }
+                return RardarLLMResult(json.dumps(value), result.metadata)
+            return result
+
+    monkeypatch.setattr(__name__ + ".ShadowDouble", PublishableNegativeControl)
+    with pytest.raises(ShadowIntegrityError, match="shadow_negative_controls_failed"):
+        await prepare(tmp_path, monkeypatch)
+
+
+@pytest.mark.asyncio
+async def test_shadow_out_of_scope_control_requires_out_of_scope_gate_result(tmp_path, monkeypatch):
+    class MisclassifiedOutOfScopeControl(ShadowDouble):
+        async def __call__(self, **kwargs):
+            result = await super().__call__(**kwargs)
+            payload = json.loads(kwargs["messages"][1]["content"])
+            if (
+                kwargs["scene"] == RardarLLMScene.WORTH_SEEING_GATE
+                and payload.get("repository") == "negative-control/case-1"
+            ):
+                value = {
+                    "scopeStatus": "in_scope",
+                    "valueVerdict": "weak",
+                    "reasonCandidates": [],
+                    "counterEvidenceIds": ["E01"],
+                    "confidence": "high",
+                }
+                return RardarLLMResult(json.dumps(value), result.metadata)
+            return result
+
+    monkeypatch.setattr(__name__ + ".ShadowDouble", MisclassifiedOutOfScopeControl)
+    with pytest.raises(ShadowIntegrityError, match="shadow_negative_controls_failed"):
+        await prepare(tmp_path, monkeypatch)
+
+
+@pytest.mark.asyncio
+async def test_shadow_accepts_valid_control_that_is_not_value_publishable(tmp_path, monkeypatch):
+    class MediumConfidenceNegativeControl(ShadowDouble):
+        async def __call__(self, **kwargs):
+            result = await super().__call__(**kwargs)
+            payload = json.loads(kwargs["messages"][1]["content"])
+            if (
+                kwargs["scene"] == RardarLLMScene.WORTH_SEEING_GATE
+                and payload.get("repository") == "negative-control/case-2"
+            ):
+                value = {
+                    "scopeStatus": "in_scope",
+                    "valueVerdict": "strong",
+                    "reasonCandidates": [{"reason": "directly_reusable", "supported": True, "evidenceIds": ["E01"]}],
+                    "counterEvidenceIds": [],
+                    "confidence": "medium",
+                }
+                return RardarLLMResult(json.dumps(value), result.metadata)
+            return result
+
+    monkeypatch.setattr(__name__ + ".ShadowDouble", MediumConfidenceNegativeControl)
+    _mirror, _run, _ledger, _double, artifact, _pool = await prepare(tmp_path, monkeypatch)
+    control = next(row for row in artifact.negativeControls if row["name"] == "identity_or_source_invalid")
+    assert control["passed"] is True
+    assert control["decision"] == "WORTHWHILE_NOT_NOW"
+
+
+@pytest.mark.asyncio
+async def test_shadow_artifact_cannot_mark_failed_control_as_passed(tmp_path, monkeypatch):
+    _mirror, _run, _ledger, _double, artifact, _pool = await prepare(tmp_path, monkeypatch)
+    payload = artifact.model_dump(mode="json")
+    payload["negativeControls"][1]["failure"] = "provider_timeout"
+    payload["digest"] = digest({key: value for key, value in payload.items() if key != "digest"})
+    with pytest.raises(ValidationError, match="shadow negative controls mismatch"):
+        ShadowReviewArtifact.model_validate_json(json.dumps(payload), strict=True)
+
+
+@pytest.mark.asyncio
 async def test_tamper_fail_closed_and_pointer_interruption_preserves_previous(tmp_path, monkeypatch):
     mirror, _run, _ledger, _double, artifact, _pool = await prepare(tmp_path, monkeypatch)
     shadow_serving.install_shadow(mirror, artifact)
@@ -200,6 +288,33 @@ async def test_artifact_audit_rejects_contradictions(tmp_path, monkeypatch, chan
     payload["digest"] = digest({k: v for k, v in payload.items() if k != "digest"})
     with pytest.raises(ValidationError):
         ShadowReviewArtifact.model_validate_json(json.dumps(payload), strict=True)
+
+
+@pytest.mark.asyncio
+async def test_retained_v1_shadow_artifact_digest_ignores_only_versioned_default_fields(tmp_path, monkeypatch):
+    _mirror, _run, _ledger, _double, artifact, _pool = await prepare(tmp_path, monkeypatch)
+    payload = artifact.model_dump(mode="json")
+    payload["policyVersions"].update(
+        evidenceAlias="worth-seeing-evidence-alias-v1",
+        recallPolicy="worth-seeing-recall-v1",
+        packingPolicy="worth-seeing-packing-v2",
+    )
+    payload["policyVersions"].pop("publicationPolicy", None)
+    for assessment in payload["assessments"]:
+        assessment.pop("valueFailureCode")
+        assessment.pop("timelinessFailureCode")
+        assessment.pop("copyFailureCode")
+        for group in ("valueEvidence", "timelinessEvidence", "peerEvidence"):
+            for evidence in assessment[group]:
+                evidence.pop("projectionRule")
+    for context in payload["contexts"]:
+        for evidence in context["evidence"]:
+            evidence.pop("projectionRule")
+    payload["digest"] = digest({key: value for key, value in payload.items() if key != "digest"})
+
+    retained = ShadowReviewArtifact.model_validate_json(json.dumps(payload), strict=True)
+    assert retained.policyVersions["evidenceAlias"] == "worth-seeing-evidence-alias-v1"
+    assert retained.assessments[0].valueEvidence[0].projectionRule == "legacy_unversioned"
 
 
 @pytest.mark.asyncio

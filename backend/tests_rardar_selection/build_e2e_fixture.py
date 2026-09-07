@@ -74,20 +74,15 @@ async def _caller(*, scene, messages, reasoning_effort, cache_identity):
                 "confidence": "high",
             }
     elif scene == RardarLLMScene.WORTH_SEEING_MEANINGFUL_CHANGE:
-        result = {
-            "meaningfulRelease": "yes",
-            "meaningfulUpdate": "no",
-            "evidenceIds": ["T01"],
-            "confidence": "high",
-        }
+        raise AssertionError("the main Selection flow must not require a Meaningful Change call")
     else:
         result = {
             "identitySummaryZh": f"{repository} 是一个提供可组合模块与清晰工程入口的开源开发工具。",
             "whyWorthSeeingZh": "它提供可以直接检查和接入的 SDK、示例与模块边界，适合验证复用价值。",
-            "whyNowZh": "近期发布包含有证据支持的实质能力变化，值得现在重新评估。",
+            "whyNowZh": None,
             "reusableAssets": ["SDK", "适配器"],
             "bestFit": ["需要组合自动化工作流的开发者"],
-            "evidenceIds": ["E01", "T01"],
+            "evidenceIds": ["E01"],
         }
     return RardarLLMResult(json.dumps(result, ensure_ascii=False), _metadata(scene))
 

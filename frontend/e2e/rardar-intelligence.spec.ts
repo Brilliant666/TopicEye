@@ -236,10 +236,11 @@ test('renders one audited unranked worth-seeing stream and immutable static deta
   };
   expect(selection.status).toBe('ready');
   expect(selection.items.length).toBeGreaterThan(0);
-  expect(selection.items.length).toBeLessThanOrEqual(20);
+  expect(selection.items.length).toBeLessThanOrEqual(6);
 
   await page.goto('/discover');
-  await expect(page.getByRole('heading', { name: /此刻真正值得理解的项目/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /值得了解与学习的项目/ })).toBeVisible();
+  await expect(page.getByText(/近期变化只作为可选背景/)).toBeVisible();
   await expect(page.getByRole('heading', { name: '本轮值得看的项目' })).toBeVisible();
   await expect(page.getByTestId('selection-project-card')).toHaveCount(selection.items.length);
   await expect(page.getByRole('navigation', { name: '项目方向' })).toBeVisible();

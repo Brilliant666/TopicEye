@@ -10,7 +10,11 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.integrations.rardar.selection import build_selection, selection_input_digest
+from app.integrations.rardar.selection import (
+    build_selection,
+    default_recall_batch_id,
+    selection_input_digest,
+)
 from app.integrations.rardar.selection_serving import (
     SelectionServingError,
     SelectionServingLoader,
@@ -30,6 +34,7 @@ async def rebuild(
     target: Path,
     *,
     recall_limit: int = 48,
+    recall_batch_id: str | None = None,
     timeout_seconds: int = _DEFAULT_BUILD_TIMEOUT_SECONDS,
     report_stage: StageReporter | None = None,
     force_retryable: bool = False,
@@ -38,6 +43,7 @@ async def rebuild(
     target = target.resolve()
     report("source_validation")
     source = SelectionSourceAdapter.from_config(str(target)).load()
+    recall_batch_id = recall_batch_id or default_recall_batch_id(source)
     cache_root = target / "selection-profile-cache"
     report("route_and_input_digest")
     route_before = await resolve_rardar_route_identity()
@@ -46,6 +52,7 @@ async def rebuild(
         cache_root=cache_root,
         model_route_identity=route_before,
         recall_limit=recall_limit,
+        recall_batch_id=recall_batch_id,
     )
     loader = SelectionServingLoader(target)
     report("idempotence_check")
@@ -103,6 +110,7 @@ async def rebuild(
                 source=source,
                 cache_root=cache_root,
                 recall_limit=recall_limit,
+                recall_batch_id=recall_batch_id,
                 model_route_identity=route_before,
                 force_retryable=force_retryable,
             ),
@@ -137,6 +145,7 @@ async def rebuild(
         "modelCalls": validated.usage.modelCalls,
         "githubRequests": validated.usage.githubRequests,
         "publishedCount": validated.publishedCount,
+        "recallBatchId": validated.recallBatchId,
     }
 
 
@@ -210,6 +219,10 @@ def main() -> int:
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--recall-limit", type=int, default=48, choices=range(30, 61), metavar="30..60")
     parser.add_argument(
+        "--recall-batch-id",
+        help="Stable explicit batch identity; defaults to the current source revision",
+    )
+    parser.add_argument(
         "--timeout-seconds",
         type=int,
         default=_DEFAULT_BUILD_TIMEOUT_SECONDS,
@@ -239,6 +252,7 @@ def main() -> int:
                 rebuild(
                     arguments.target,
                     recall_limit=arguments.recall_limit,
+                    recall_batch_id=arguments.recall_batch_id,
                     timeout_seconds=arguments.timeout_seconds,
                     report_stage=report_stage,
                     force_retryable=arguments.retry_retryable_now,

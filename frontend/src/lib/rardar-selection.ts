@@ -80,6 +80,7 @@ export type SelectionEvidence = {
   sourceRevision: string;
   excerpt: string;
   githubRepositoryId: number;
+  projectionRule?: string;
 };
 
 export type SelectionProjectDetail = {
@@ -266,6 +267,7 @@ function parseEvidence(value: unknown, repositoryId: number): SelectionEvidence 
     || typeof value.sourcePath !== 'string'
     || typeof value.sourceRevision !== 'string'
     || typeof value.excerpt !== 'string'
+    || (value.projectionRule !== undefined && typeof value.projectionRule !== 'string')
     || value.githubRepositoryId !== repositoryId) {
     throw new Error('rardar_selection_detail_invalid');
   }

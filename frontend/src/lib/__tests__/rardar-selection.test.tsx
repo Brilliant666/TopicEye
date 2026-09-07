@@ -260,6 +260,8 @@ describe('Rardar worth-seeing Selection', () => {
     const html = renderToStaticMarkup(
       <RardarSelectionPage result={{ kind: 'published', selection }} />,
     );
+    expect(html).toContain('值得了解与学习的项目');
+    expect(html).toContain('近期变化只作为可选背景');
     expect(html).toContain('本轮值得看的项目');
     expect(html).toContain(card.repository);
     expect(html).toContain('为什么值得看');

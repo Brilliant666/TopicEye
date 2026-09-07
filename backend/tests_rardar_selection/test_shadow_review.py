@@ -95,6 +95,7 @@ async def test_ready_preview_6_overall_degraded_static_idempotent(tmp_path, monk
     assert artifact.reviewable and artifact.shadowReviewState == "ready"
     assert artifact.cohortAssessed == 16 and artifact.previewCount == 6
     assert artifact.providerBudget["attempted"] == 0  # Mock calls consume no upstream budget.
+    assert not any(scene == RardarLLMScene.WORTH_SEEING_MEANINGFUL_CHANGE for scene, _messages in double.calls)
     before_calls = len(double.calls)
     repeated = await runner.build_shadow_review(mirror, run, ledger, route_identity="c" * 64, caller=double)
     assert repeated == artifact and len(double.calls) == before_calls
@@ -200,6 +201,33 @@ async def test_artifact_audit_rejects_contradictions(tmp_path, monkeypatch, chan
     payload["digest"] = digest({k: v for k, v in payload.items() if k != "digest"})
     with pytest.raises(ValidationError):
         ShadowReviewArtifact.model_validate_json(json.dumps(payload), strict=True)
+
+
+@pytest.mark.asyncio
+async def test_retained_v1_shadow_artifact_digest_ignores_only_versioned_default_fields(tmp_path, monkeypatch):
+    _mirror, _run, _ledger, _double, artifact, _pool = await prepare(tmp_path, monkeypatch)
+    payload = artifact.model_dump(mode="json")
+    payload["policyVersions"].update(
+        evidenceAlias="worth-seeing-evidence-alias-v1",
+        recallPolicy="worth-seeing-recall-v1",
+        packingPolicy="worth-seeing-packing-v2",
+    )
+    payload["policyVersions"].pop("publicationPolicy", None)
+    for assessment in payload["assessments"]:
+        assessment.pop("valueFailureCode")
+        assessment.pop("timelinessFailureCode")
+        assessment.pop("copyFailureCode")
+        for group in ("valueEvidence", "timelinessEvidence", "peerEvidence"):
+            for evidence in assessment[group]:
+                evidence.pop("projectionRule")
+    for context in payload["contexts"]:
+        for evidence in context["evidence"]:
+            evidence.pop("projectionRule")
+    payload["digest"] = digest({key: value for key, value in payload.items() if key != "digest"})
+
+    retained = ShadowReviewArtifact.model_validate_json(json.dumps(payload), strict=True)
+    assert retained.policyVersions["evidenceAlias"] == "worth-seeing-evidence-alias-v1"
+    assert retained.assessments[0].valueEvidence[0].projectionRule == "legacy_unversioned"
 
 
 @pytest.mark.asyncio

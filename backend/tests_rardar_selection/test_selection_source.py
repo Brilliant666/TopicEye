@@ -67,7 +67,7 @@ def test_corrupt_capture_or_today_hash_fails_before_pointer_change(tmp_path: Pat
     assert (tmp_path / "selection-source/current.json").read_bytes() == pointer
 
 
-def test_degraded_phase_gap_is_allowed_but_short_window_is_rejected(tmp_path: Path) -> None:
+def test_degraded_phase_gap_and_short_selection_window_are_allowed(tmp_path: Path) -> None:
     del tmp_path
     payload = _payload()
     payload["captures"].pop(4)
@@ -76,8 +76,8 @@ def test_degraded_phase_gap_is_allowed_but_short_window_is_rejected(tmp_path: Pa
 
     payload = _payload()
     payload["captures"] = payload["captures"][-13:]
-    with pytest.raises(SelectionSourceError, match="26 to 72"):
-        build_selection_source(json.dumps(payload).encode())
+    short = build_selection_source(json.dumps(payload).encode())
+    assert short.source_observation_set_id.startswith("observation-v1-")
 
 
 def test_loader_rejects_corruption_and_extra_files(tmp_path: Path) -> None:

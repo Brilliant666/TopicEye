@@ -27,6 +27,7 @@ async def main() -> None:
     parser.add_argument("--mirror", type=Path, required=True)
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--run-id", required=True)
+    parser.add_argument("--recall-batch-id")
     args = parser.parse_args()
     if settings.is_production:
         parser.error("Local Shadow is forbidden in production")
@@ -37,7 +38,7 @@ async def main() -> None:
         parser.error("Shadow data and budget must stay outside the checkout")
     budget_path = args.run_dir / "provider-budget.json"
     if args.action == "freeze":
-        source, cohort = freeze(args.mirror, args.run_dir)
+        source, cohort = freeze(args.mirror, args.run_dir, args.recall_batch_id)
         print(json.dumps({"sourceDigest": source["digest"], "cohortDigest": cohort["digest"], "providerCalls": 0}))
     elif args.action == "initialize-budget":
         # Explicit operator action, never called by run or any child.

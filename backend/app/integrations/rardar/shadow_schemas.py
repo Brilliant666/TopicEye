@@ -25,6 +25,29 @@ from app.integrations.rardar.selection_schemas import (
 from app.integrations.rardar.serving_schemas import OfficialProjectProfile, ProjectEvidenceProjection
 from app.services.llm.provider_budget import digest
 
+_LEGACY_EVIDENCE_ALIAS_VERSION = "worth-seeing-evidence-alias-v1"
+
+
+def _artifact_digest_payload(artifact: ShadowReviewArtifact) -> dict[str, Any]:
+    payload = artifact.model_dump(mode="json", exclude={"digest"})
+    if artifact.policyVersions.get("evidenceAlias") != _LEGACY_EVIDENCE_ALIAS_VERSION:
+        return payload
+
+    # The v1 digest predates provenance on projected evidence and the split
+    # Value/Timeliness/Copy failure classification. Project the parsed model
+    # back to that exact version before authenticating a retained artifact.
+    for assessment in payload["assessments"]:
+        assessment.pop("valueFailureCode", None)
+        assessment.pop("timelinessFailureCode", None)
+        assessment.pop("copyFailureCode", None)
+        for group in ("valueEvidence", "timelinessEvidence", "peerEvidence"):
+            for evidence in assessment[group]:
+                evidence.pop("projectionRule", None)
+    for context in payload["contexts"]:
+        for evidence in context["evidence"]:
+            evidence.pop("projectionRule", None)
+    return payload
+
 
 class ShadowReviewArtifact(StrictSelectionModel):
     schemaVersion: Literal[1]
@@ -67,7 +90,7 @@ class ShadowReviewArtifact(StrictSelectionModel):
 
     @model_validator(mode="after")
     def audit_contract(self):
-        if self.digest != digest(self.model_dump(mode="json", exclude={"digest"})):
+        if self.digest != digest(_artifact_digest_payload(self)):
             raise ValueError("shadow artifact digest mismatch")
         names = [row.get("name") for row in self.negativeControls]
         if len(names) != self.negativeControlCount or len(names) != len(set(names)):
@@ -159,7 +182,7 @@ class ShadowReviewArtifact(StrictSelectionModel):
                 or context.selectionEvidenceDigest != assessment.selectionEvidenceDigest
                 or context.evidence
                 != assessment.valueEvidence + assessment.timelinessEvidence + assessment.peerEvidence
-                or assessment.semanticDecision != "SELECT_NOW"
+                or not assessment.value_is_publishable()
             ):
                 raise ValueError("shadow detail evidence mismatch")
         ready = (
@@ -233,7 +256,6 @@ class ShadowReviewArtifact(StrictSelectionModel):
             self.audit.get("meaningfulChangeBindingFailure") != systemic
             or self.audit.get("rejectedMeaningfulResponses") != sum(rejected.values())
             or self.audit.get("evidenceViolations") != 0
-            or (systemic and not self.audit.get("systemicProviderFailure"))
         ):
             raise ValueError("shadow meaningful failure accounting mismatch")
         origin = self.audit.get("originBudget", {})

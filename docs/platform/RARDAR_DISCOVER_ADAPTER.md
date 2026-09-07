@@ -7,7 +7,8 @@ The retained legacy momentum projection reads `TrendingDiscoverArtifact` v1,
 v2 and v3 for diagnostics and Shadow comparison. The active local `/discover`
 product reads a separately validated, hash-bound mirror of Observation captures
 and the authoritative Today artifact, then builds an evidence-bound, unranked
-“worth seeing now” Selection outside Today Top 20. Production Discover is not a
+Selection of projects worth understanding, learning from or reusing outside
+Today Top 20. Production Discover is not a
 prerequisite. Rardar remains the sole fact producer; TopicEye owns Selection
 semantics and never rewrites an Observation, Today fact, Star value or
 eligibility decision.
@@ -23,13 +24,14 @@ Runtime consumption never depends on a Rardar checkout.
 
 The calibrated v3 product contract is documented in
 [`RARDAR_DISCOVER_WORTH_SEEING_MODEL_V1.md`](../product/RARDAR_DISCOVER_WORTH_SEEING_MODEL_V1.md):
-Discover is an evidence-bound “worth seeing now” selection outside Today Top
-20, with no public numeric rank. Producer momentum remains an
-immutable auxiliary Timeliness fact; it is excluded from the Value payload and
-cannot make weak value strong. TopicEye must assess Scope, momentum-blind Value,
-and Timeliness separately. A deterministic matrix owns the semantic decision,
-fixed precedence owns Primary Reason, and peer context may affect only duplicate
-packing. The Scope/Value Gate uses `prompt_json` plus strict local parsing,
+Discover is an evidence-bound selection outside Today Top 20, with no public
+numeric rank. Producer momentum remains optional auxiliary context; it is
+excluded from the Value payload and cannot make weak value strong. TopicEye
+requires Scope and momentum-blind Value; Timeliness is optional and cannot
+veto, admit or reorder a project. A deterministic matrix remains as compatible
+`semanticDecision` history, while strong/high valid Value owns publication
+eligibility. Fixed precedence owns Primary Reason, and peer context may affect
+only duplicate packing. The Scope/Value Gate uses `prompt_json` plus strict local parsing,
 Schema validation and repository-bound Evidence Aliases. Model output cannot
 own the final decision, primary reason, public order or publication fallback.
 Production activation remains unauthorized.
@@ -126,22 +128,30 @@ source hash before atomically activating its own pointer. The Selection builder
 loads that validated source and forms the complete latest-capture universe. It
 excludes only Today's published Top 20 numeric IDs and invalid, archived,
 disabled, forked or incomplete identities; exact rank 21+ remains eligible. Six
-deterministic channels recall 30–60 candidates. Momentum-only recall is capped
-at 40%, and no aggregate score exists.
+deterministic channels recall 30–60 candidates. Each build records an explicit
+stable batch identity; hash ordering within a channel is invariant to input or
+display-name order, while different explicit batches rotate opportunity. Page
+reads never advance the batch. Momentum-only recall is capped at 40%, and no
+aggregate score exists.
 
 Each recalled project receives a bounded evidence package from Profile Cache
-v2 and, only when missing, GitHub README/tree/release endpoints. Cache identity
+v2 and, only when missing, GitHub README/tree endpoints. Cache identity
 is based on the static evidence content and relevant derivation/model versions,
 not Observation generation, Star, rank or momentum. Equivalent healthy content
 is rebound to the current evidence aliases and Selection provenance without a
 GitHub or profile-model call. A true miss uses the established profile builder;
 every model call remains inside the artifact's shared 120-call limit.
 Repository content is untrusted text, never executable input. Value evidence
-uses `E##`, timeliness uses `T##`, and peer packing context uses `P##`; aliases
-are verified against the same numeric repository ID. The Value payload is
-scanned after serialization and rejects momentum/rank/Observation language.
-Format-only failures get at most one retry; all structural or evidence failures
-become `UNCERTAIN`, never Star fallback.
+uses `E##`, retained Timeliness uses `T##`, and peer packing context uses
+`P##`; aliases are verified against the same numeric repository ID. Value
+projection removes explicit current popularity/rank/Observation facts while
+retaining legitimate technical uses of terms such as window, delta, growth,
+recent and Star. Every excerpt records its source revision and projection rule.
+Format-only failures get at most one retry. Scope/Value, identity, structural or
+Value-evidence failures remain ineligible, never Star fallback. Timeliness-only
+absence or failure is classified separately and does not change a complete
+strong/high Value result. Stable de-duplication and capacity publish at most
+six without Timeliness ordering or a composite score.
 
 The immutable store is repository-external:
 

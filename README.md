@@ -214,14 +214,15 @@ python -m scripts.audit_rardar_serving_content --target "$env:LOCALAPPDATA\Topic
 Pop-Location
 ```
 
-`/discover` is a local Shadow “worth seeing now” selection outside Today Top
-20. It starts from a locally mirrored, hash-verified bundle of Rardar
-Observation captures and the authoritative Today artifact, keeps exact rank
-21+ eligible, and uses six deterministic recall channels before a
-momentum-blind, evidence-bound Value Gate. Timeliness is evaluated separately;
-a fixed matrix owns the semantic decision and a deterministic reason
-round-robin owns display order. Star and short-window growth remain auxiliary
-facts and cannot make weak value strong.
+`/discover` is a local Shadow selection of projects worth understanding,
+learning from or reusing outside Today Top 20. It starts from a locally
+mirrored, hash-verified bundle of Rardar Observation captures and the
+authoritative Today artifact, keeps exact rank 21+ eligible, and uses six
+deterministic recall channels with an explicit stable batch identity. The
+momentum-blind, evidence-bound Value Gate alone determines eligibility;
+Timeliness is optional context and cannot veto, admit or reorder a project.
+Star and short-window growth remain auxiliary facts and cannot make weak value
+strong.
 
 The page is one unranked stream with category and primary-reason filters in the
 URL. Project cards and details reuse a cached canonical profile, or use bounded

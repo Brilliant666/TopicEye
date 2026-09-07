@@ -38,7 +38,7 @@ def projection(artifact: ShadowReviewArtifact) -> SelectionApiResponse:
         primaryReasonCounts=dict(Counter(card.primaryReason for card in cards)),
         coverageLabelZh="这是从已就绪画像中冻结的 16 项本地体验样本，不是全部候选的最终精选，也不是 GitHub 全站排名。",
         candidateCount=artifact.fullCandidateUniverseCount,
-        selectedCount=artifact.semanticDecisionCounts["SELECT_NOW"],
+        selectedCount=sum(item.value_is_publishable() for item in artifact.assessments),
         publishedCount=len(cards),
         suppressedCount=sum(a.publicationDisposition.startswith("suppress_") for a in artifact.assessments),
         provenance={

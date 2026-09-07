@@ -290,8 +290,8 @@ def _validate_facts(files: dict[str, bytes]) -> dict[str, Any]:
             raise SelectionSourceError("rardar_selection_source_invalid", "Observation phases are not aligned")
         phase_gaps = phase_gaps or gap != 7200
     window_hours = (capture_pairs[-1][0] - capture_pairs[0][0]).total_seconds() / 3600
-    if window_hours < 26 or window_hours > 72:
-        raise SelectionSourceError("rardar_selection_source_invalid", "Observation window must cover 26 to 72 hours")
+    if window_hours <= 0 or window_hours > 72:
+        raise SelectionSourceError("rardar_selection_source_invalid", "Observation window must cover 2 to 72 hours")
 
     today, generation, explosion_sha, top20_digest, today_capture_digests = _validate_today(files)
     latest = capture_pairs[-1][1]

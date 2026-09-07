@@ -176,8 +176,8 @@ function SelectionHero({ count, latestCaptureAt }: { count: number; latestCaptur
     <section className={styles.selectionHero} data-testid="selection-hero">
       <div>
         <p className={styles.eyebrow}>Discover · Worth seeing</p>
-        <h1>Today 之外，找到<span>此刻真正值得理解的项目</span></h1>
-        <p>从 Rardar 已验证候选中，分别判断长期价值与为什么是现在；增长只作为时机辅助事实，AI 不修改 Rardar 事实。</p>
+        <h1>Today 之外，找到<span>值得了解与学习的项目</span></h1>
+        <p>从 Rardar 已验证候选中判断项目用途与查看价值；近期变化只作为可选背景，不决定项目能否展示，AI 不修改 Rardar 事实。</p>
         <div className={styles.selectionHeroPills}>
           <span><Boxes size={14} /> {count} 个本地精选</span>
           <span><ShieldCheck size={14} /> 证据绑定 · 无公开排名</span>

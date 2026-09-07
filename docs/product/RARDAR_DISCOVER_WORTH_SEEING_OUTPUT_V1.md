@@ -23,7 +23,9 @@ profile/evidence revision
 README blob SHA
 tree revision
 release revision or explicit absence
+explicit recall batch identity
 scope/value/timeliness/reason/packing policy versions
+publication policy version
 value prompt + schema + scene identity
 timeliness prompt + schema + scene identity
 near-duplicate context digest
@@ -35,15 +37,13 @@ The canonical digest of those immutable inputs is
 `selectionEvidenceDigest`. Numeric GitHub repository ID is identity;
 repository name is display data.
 
-The independent version identities are: Scope/Value Prompt, Scope/Value
-Schema, Meaningful Change Prompt, Meaningful Change Schema, Reason Policy,
-Timeliness Policy, Decision Matrix, Evidence Alias, Packing Policy, Protocol
-Mode, and Retry Policy. A cache key includes all of them, the numeric repository
-ID, evidence digest, canonical Profile revision, peer-context digest, scene,
-and model route identity. Last-known-good reuse is allowed only when the entire
-`selectionEvidenceDigest` is exactly equal; README, tree, release evidence,
-prompt, schema, policy, protocol, retry, packing, or route changes invalidate
-the result.
+The independent version identities include Scope/Value Prompt and Schema,
+Meaningful Change Prompt and Schema, Reason, Timeliness, Decision,
+Publication, Evidence Alias, Recall and Packing policies, Protocol Mode and
+Retry Policy. A build also records one validated `recallBatchId`. The same
+source and batch are deterministic; a different explicit batch rotates recall
+opportunity without page GETs advancing state. Last-known-good assessment reuse
+still requires its complete bound evidence and policy identity.
 
 ## Minimal Scope + Value Gate v3
 
@@ -58,9 +58,13 @@ object has exactly:
 | `counterEvidenceIds` | same-repository Evidence Alias subset |
 | `confidence` | `high`, `medium`, `low` |
 
-The payload and prompt must pass a deny-list test for all popularity,
-Observation, Today, ranking, window, delta, momentum, first-seen, release-date,
-and recent-activity fields and their natural-language equivalents. It cannot
+The payload and prompt exclude concrete popularity facts: current Stars/forks,
+observed growth, rank, popularity endorsements, Observation timestamps and
+Today membership. This is not a deny-list for technical words: window
+management, delta encoding, incremental/growth analysis, newly added data,
+Star-collection tools and matching paths remain valid when they describe the
+project's function. Each projected alias records its source revision and
+projection rule. The Gate cannot
 emit a final decision, why-now, rank, score, growth prediction, duplicate
 packing, or user-facing copy. `whyWorthSeeingZh`, `whyNowZh`, reusable assets,
 and best-fit copy are separate post-decision outputs and cannot affect the
@@ -78,9 +82,10 @@ document or implementation may claim native complete-Schema enforcement.
 
 ## Timeliness result
 
-Most Timeliness signals are computed from verified facts. A separate model
-micro-call is made only when bounded release notes or revision-delta evidence
-exists. Its complete output is:
+Timeliness is optional auxiliary context. The normal main and Shadow build do
+not fetch release evidence or require a Meaningful Change call. Retained
+historical/recovery flows may validate an already-bound v1 Timeliness package;
+when such bounded release or revision evidence exists, its output is:
 
 | Field | Type and invariant |
 |---|---|
@@ -103,7 +108,7 @@ The service, never the model, computes:
 | `semanticDecision` | fixed Scope + Value + Timeliness matrix |
 | `primaryReason` | first supported candidate in fixed v3 precedence |
 | `supportingReasons` | at most 2 remaining supported candidates |
-| `publicationDisposition` | `publish`, `hold`, `suppress_duplicate`, `suppress_capacity`, `not_eligible` |
+| `publicationDisposition` | Value eligibility followed by stable de-duplication and capacity |
 | `nearDuplicateGroup` | deterministic/bounded peer comparison only |
 
 The v3 Primary Reason precedence is:
@@ -132,7 +137,7 @@ Duplicate and not-timely are not reject reasons. A duplicate may retain
 `semanticDecision=SELECT_NOW` with
 `publicationDisposition=suppress_duplicate`.
 
-The complete semantic projection is fail-closed:
+The retained semantic projection is fail-closed and remains readable:
 
 ```text
 scopeStatus=out_of_scope                                      -> REJECT
@@ -150,11 +155,19 @@ any structure, schema, source, or evidence-integrity failure -> UNCERTAIN
 
 There is no Star, momentum, attention, rank, or next-candidate fallback.
 
+For new artifacts, publication eligibility is deliberately independent of that
+diagnostic matrix. It requires `in_scope`, `strong`, `high`, a complete valid
+Gate, and a supported Primary Reason bound to legal same-repository `E##`
+aliases. A Scope/Value, identity, structure or Value-evidence failure stays
+ineligible. A separately classified Timeliness absence, uncertainty or failure
+cannot veto eligibility or alter order. Packing is stable, has no composite
+score, and publishes at most six items.
+
 ## Evidence Alias contract
 
 Every allow-list entry receives a short `E01`… or `T01`… alias and records its
-full evidence reference, source type, source path, source revision, and bounded
-excerpt. The model emits aliases only. Local code maps them back after proving
+full evidence reference, source type, source path, source revision, bounded
+excerpt and versioned projection rule. The model emits aliases only. Local code maps them back after proving
 the alias exists and belongs to the same repository, source revision, and
 assessment. Timeliness aliases are forbidden from Value; Value aliases cannot
 contain momentum facts; peer refs may support packing only and can never prove
@@ -236,17 +249,19 @@ The cache key also includes the full evidence and policy digests. Any source,
 policy, schema, prompt, protocol, retry, route, packing, or peer-context change
 creates a new key.
 
-Invalid JSON, schema drift, timeout, provider error, invalid aliases, insufficient
-confidence, or evidence failure yields `UNCERTAIN` and no new publication.
+Invalid Value JSON, schema drift, timeout, provider error, invalid aliases,
+insufficient Value confidence, or Value evidence failure yields `UNCERTAIN`
+and no new publication. Value, Timeliness and Copy failures are classified
+separately; only the Value/identity/structure classes affect eligibility.
 Protocol, transport, timeout, evidence, and semantic failures are never repaired
 by another model or coercion. It never invokes an attention-based fallback. A
 prior result may be reused only for an identical complete digest.
 
 ## Card and detail projection
 
-Public cards may show canonical identity, bounded Chinese value, localized
-Primary Reason, strong why-now, category, product form, and a small
-producer-owned momentum fact. They do not show model score, public rank,
+Public cards lead with canonical identity, bounded Chinese value and localized
+Primary Reason. A verified why-now or small producer-owned momentum fact is
+optional secondary context. Cards do not show model score, public rank,
 confidence, or reject reasons.
 
 The detail route reads the canonical Profile plus a separate versioned

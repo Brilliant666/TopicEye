@@ -61,6 +61,13 @@ class SelectionEvidenceAlias(StrictSelectionModel):
     sourceRevision: str = Field(min_length=1, max_length=200)
     excerpt: str = Field(min_length=1, max_length=1600)
     githubRepositoryId: int = Field(gt=0)
+    projectionRule: Literal[
+        "legacy_unversioned",
+        "verbatim_safe",
+        "bounded_verbatim",
+        "popularity_sentences_removed",
+        "bounded_after_popularity_removal",
+    ] = "legacy_unversioned"
 
 
 class SelectionReasonCandidate(StrictSelectionModel):
@@ -255,6 +262,9 @@ class SelectionAssessment(StrictSelectionModel):
         | None
     ) = None
     failureCode: str | None = Field(default=None, max_length=80)
+    valueFailureCode: str | None = Field(default=None, max_length=80)
+    timelinessFailureCode: str | None = Field(default=None, max_length=80)
+    copyFailureCode: str | None = Field(default=None, max_length=80)
     gateAttempts: int = Field(ge=0, le=2)
     meaningfulChangeAttempts: int = Field(ge=0, le=2)
     copyAttempts: int = Field(ge=0, le=2)
@@ -264,12 +274,30 @@ class SelectionAssessment(StrictSelectionModel):
     productFormsZh: list[str] = Field(max_length=3)
     displayOrder: int | None = Field(default=None, ge=1, le=20)
 
+    def value_is_publishable(self) -> bool:
+        if self.gate is None or self.primaryReason is None or self.valueFailureCode is not None:
+            return False
+        if self.failureCode is not None and self.failureCode not in {
+            self.timelinessFailureCode,
+            self.copyFailureCode,
+        }:
+            # A retained artifact with only the historical combined failure is
+            # ambiguous and therefore remains fail closed.
+            return False
+        if self.gate.scopeStatus != "in_scope" or self.gate.valueVerdict != "strong" or self.gate.confidence != "high":
+            return False
+        supported = {reason.reason for reason in self.gate.reasonCandidates if reason.supported and reason.evidenceIds}
+        return self.primaryReason in supported
+
     @model_validator(mode="after")
     def validate_projection(self) -> SelectionAssessment:
         if self.semanticDecision in {"SELECT_NOW", "WORTHWHILE_NOT_NOW"} and self.primaryReason is None:
             raise ValueError("positive decisions require a primary reason")
-        if self.publicationDisposition == "publish" and self.semanticDecision != "SELECT_NOW":
-            raise ValueError("only SELECT_NOW may publish")
+        if self.publicationDisposition == "publish" and not self.value_is_publishable():
+            raise ValueError("only a complete strong value assessment may publish")
+        split_failures = (self.valueFailureCode, self.timelinessFailureCode, self.copyFailureCode)
+        if any(split_failures) and self.failureCode != next(value for value in split_failures if value is not None):
+            raise ValueError("split failure classification is inconsistent")
         if self.copyResult is not None and self.publicationDisposition != "publish":
             raise ValueError("user copy belongs only to published items")
         if (self.publicationDisposition == "publish") != (self.displayOrder is not None):
@@ -386,6 +414,7 @@ class SelectionArtifact(StrictSelectionModel):
     sourceCaptureDigests: dict[str, str] = Field(min_length=2, max_length=40)
     sourceCaptureInventoryDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
     latestCaptureId: str = Field(min_length=2, max_length=160)
+    recallBatchId: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
     latestCaptureAt: AwareDatetime
     sourceWindowStart: AwareDatetime
     sourceWindowEnd: AwareDatetime
@@ -475,6 +504,10 @@ class SelectionArtifact(StrictSelectionModel):
         orders = sorted(item.displayOrder for item in self.assessments if item.displayOrder is not None)
         if orders != list(range(1, self.publishedCount + 1)):
             raise ValueError("display orders must be contiguous")
+        if self.contractVersions.get("recallPolicy") == "worth-seeing-recall-v2" and self.recallBatchId is None:
+            raise ValueError("selection recall batch identity is missing")
+        if self.contractVersions.get("packingPolicy") == "worth-seeing-packing-v3" and self.publishedCount > 6:
+            raise ValueError("value-first preview capacity exceeded")
         if self.profileCacheIdentityVersion == 2:
             required = (
                 self.sourceFactDigest,

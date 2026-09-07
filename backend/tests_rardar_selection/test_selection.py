@@ -35,6 +35,7 @@ from app.integrations.rardar.selection import (
     build_candidate_universe,
     build_selection,
     recall_candidates,
+    selection_input_digest,
     semantic_decision,
 )
 from app.integrations.rardar.selection_schemas import (
@@ -1769,6 +1770,18 @@ async def test_rebuild_cache_verification_traverses_caches_without_republishing(
     store = target / "discover-worth-seeing"
     pointer_before = (store / "current.json").read_bytes()
     generations_before = sorted(path.name for path in (store / "generations").iterdir())
+    active = SelectionServingLoader(target).validate_generation()
+    cache_marker = target / "selection-profile-cache" / "cache-verification-marker.json"
+    cache_marker.write_text("{}", encoding="utf-8")
+    changed_cache_input = selection_input_digest(
+        source,
+        cache_root=target / "selection-profile-cache",
+        model_route_identity=route_identity,
+        recall_limit=30,
+        recall_batch_id=batch_id,
+        process_candidate_ids=identifiers,
+    )
+    assert changed_cache_input != active.inputDigest
 
     class ProviderMustNotRun:
         calls = 0
@@ -1795,6 +1808,17 @@ async def test_rebuild_cache_verification_traverses_caches_without_republishing(
     assert replay["gateCacheHits"] == 6
     assert replay["copyCacheHits"] == replay["publishedCount"]
     assert forbidden.calls == 0
+    assert (
+        rebuild_module._cache_replay_binding_mismatches(
+            active,
+            active.model_copy(update={"inputDigest": changed_cache_input}),
+        )
+        == []
+    )
+    assert rebuild_module._cache_replay_binding_mismatches(
+        active,
+        active.model_copy(update={"modelRouteIdentity": "2" * 64}),
+    ) == ["modelRouteIdentity"]
     assert (store / "current.json").read_bytes() == pointer_before
     assert sorted(path.name for path in (store / "generations").iterdir()) == generations_before
 

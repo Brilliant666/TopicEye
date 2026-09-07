@@ -30,6 +30,29 @@ StageReporter = Callable[[str], None]
 _DEFAULT_BUILD_TIMEOUT_SECONDS = 7200
 
 
+def _cache_replay_binding_mismatches(active, replay) -> list[str]:
+    """Compare stable evidence/result bindings, not the mutable cache inventory."""
+
+    fields = (
+        "sourceObservationSetId",
+        "todayGenerationId",
+        "sourceFactDigest",
+        "profileRevisionSetDigest",
+        "profileBindingSetDigest",
+        "assessmentResultDigest",
+        "modelRouteIdentity",
+        "contractVersions",
+        "protocolMode",
+        "candidateUniverseVersion",
+        "recallBatchId",
+        "executionMode",
+        "recalledCandidateIds",
+        "processedCandidateIds",
+        "unprocessedCandidateIds",
+    )
+    return [field for field in fields if getattr(active, field) != getattr(replay, field)]
+
+
 def _cache_replay_hits(artifact) -> tuple[int, int, int]:
     profile_hits = sum(item.profileCacheState == "hit" for item in artifact.assessments)
     gate_hits = sum(item.gate is not None and item.gateCacheHit for item in artifact.assessments)
@@ -166,18 +189,7 @@ async def rebuild(
                 "rardar_selection_cache_verification_requires_current",
                 "Cache verification requires a validated current Selection",
             ) from exc
-        comparable = (
-            "inputDigest",
-            "sourceFactDigest",
-            "profileRevisionSetDigest",
-            "profileBindingSetDigest",
-            "assessmentResultDigest",
-            "executionMode",
-            "recalledCandidateIds",
-            "processedCandidateIds",
-            "unprocessedCandidateIds",
-        )
-        if any(getattr(built.artifact, field) != getattr(active, field) for field in comparable):
+        if _cache_replay_binding_mismatches(active, built.artifact):
             raise SelectionServingError(
                 "rardar_selection_cache_verification_mismatch",
                 "Per-project cache replay did not reproduce the active Selection inputs and results",

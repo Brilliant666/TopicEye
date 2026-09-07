@@ -1,11 +1,11 @@
 # =============================================================================
-# TopicEye CI — PR 轻量门禁（GitHub）+ 全量测试本地执行
+# TopicEye CI — PR 门禁（GitHub）+ 按风险补充本地验证
 # =============================================================================
-# pull_request 触发轻量作业（类型检查 / 前端单测 / lint / 分层 / 安全扫描），
-# 保证 PR 阶段有真实门禁。高成本的 PostgreSQL 全量测试不在 GitHub 跑：
-# 本地执行 `make test-backend`（backend/scripts/test_full_local.sh，
-# 一次性 PG 容器跑在 127.0.0.1:5433，不占用开发栈）。
-# workflow_dispatch 保留用于合并后在 main 上手动复验轻量作业。
+# pull_request 触发类型检查、前端单测、增量 lint、分层、安全、Rardar
+# adapter，以及带 PostgreSQL 的完整 backend/tests + Rardar 控制回归。
+# `make test-backend` 保留为需要本地复现或高风险改动时的隔离 PG 入口，
+# 不是每个低风险或纯文档改动都要重复执行的固定步骤。
+# workflow_dispatch 用于在 main 上对指定提交手动复验同一组作业。
 # =============================================================================
 
 name: CI

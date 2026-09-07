@@ -1,7 +1,7 @@
 # TopicEye — 创作者选题雷达
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![CI](https://github.com/fxbin/TopicEye/actions/workflows/ci.yml/badge.svg)](https://github.com/fxbin/TopicEye/actions/workflows/ci.yml)
+[![CI](https://github.com/Brilliant666/TopicEye/actions/workflows/ci.yml/badge.svg)](https://github.com/Brilliant666/TopicEye/actions/workflows/ci.yml)
 [![Backend: FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![Frontend: Next.js](https://img.shields.io/badge/Frontend-Next.js_16-black.svg)](https://nextjs.org/)
 
@@ -177,7 +177,7 @@ api/v1/ ──► services/ ──► repositories/ ──► models/ ──► 
 使用 [docker-compose.prod.yml](docker-compose.prod.yml)：代码 bake 进镜像，无热重载，带 healthcheck / 资源限制，默认走 Postgres。
 
 ```bash
-git clone https://github.com/fxbin/TopicEye.git
+git clone https://github.com/Brilliant666/TopicEye.git
 cd TopicEye
 docker compose -f docker-compose.prod.yml up -d --build
 ```
@@ -190,15 +190,16 @@ docker compose -f docker-compose.prod.yml up -d --build
 ### 方式 B — Docker Compose（开发模式，热重载）
 
 ```bash
-git clone https://github.com/fxbin/TopicEye.git
+git clone https://github.com/Brilliant666/TopicEye.git
 cd TopicEye
 docker compose up -d
 ```
 
-端口同上。源码改动自动重载。PostgreSQL 通过 `postgres` profile 按需启用：
+端口同上，源码改动自动重载。PostgreSQL 属于默认 Compose 栈，后端会等待其
+健康检查。只启动数据库时使用：
 
 ```bash
-docker compose --profile postgres up -d
+docker compose up -d postgres
 ```
 
 ### 方式 C — 本地开发（不用 Docker）
@@ -266,15 +267,18 @@ curl -X POST http://127.0.0.1:8102/api/v1/sources/1/sync
 
 项目使用 Conventional Commits（`feat(auth): ...`、`fix(cache): ...`）。完整工作流见 [CONTRIBUTING.md](CONTRIBUTING.md)，本仓库强制执行的提交规范与分层规则见 [AGENTS.md](AGENTS.md)。
 
-CI 在每个 PR 上跑轻量门禁：
+CI 在每个 PR 上运行以下门禁：
 
 - **前端类型检查**：`tsc --noEmit`。
 - **前端单测 + 覆盖率门禁**：限定在 `src/lib` 纯逻辑模块。
 - **Lint**：`ruff` 只检查 PR 中变更的 Python 文件（渐进式，不一次性扫历史）。
 - **分层检查**：AST 强制 `api → service → repo` 单向依赖；外加依赖安全扫描。
+- **Rardar adapter 合同**，以及使用 PostgreSQL 服务的**完整后端与 Rardar
+  控制回归**。
 
-全量 PostgreSQL 测试不在 GitHub 上跑：本地执行 `make test-backend`
-（在 5433 端口起一次性 postgres:16-alpine 容器，跑完即删）。
+本地复现或高风险后端修改可执行 `make test-backend`：它会在 5433 端口启动
+一次性 `postgres:16-alpine`，测试后删除。按 [AGENTS.md](AGENTS.md) 的风险比例
+选择验证；无相关输入变化时，不把重复全量测试作为每项任务的默认步骤。
 
 ## 贡献
 

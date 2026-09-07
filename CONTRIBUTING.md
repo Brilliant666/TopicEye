@@ -5,25 +5,14 @@ Thanks for your interest in contributing! TopicEye is built for content creators
 ## Quick start (5 minutes)
 
 ```bash
-git clone https://github.com/fxbin/TopicEye.git
-cd TopicEye/backend
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-
-# SQLite is the default database — no extra setup needed.
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8102 --reload
+git clone https://github.com/Brilliant666/TopicEye.git
+cd TopicEye
+docker compose up --build
 ```
 
-In another terminal:
-
-```bash
-cd TopicEye/frontend
-npm install
-npm run dev
-```
-
-Open http://localhost:3000. The first run will seed default categories and (if you enable it) an admin account.
+Open http://localhost:3000. This development stack includes PostgreSQL, the
+backend and the frontend. See the root README for the no-Docker setup, which
+requires a PostgreSQL `DATABASE_URL`.
 
 ## Project layout
 
@@ -72,12 +61,21 @@ cd backend
 python -m py_compile $(git diff --name-only --cached | grep '\.py$')
 python -m pytest tests/path/to/your_test.py -q
 
-# Frontend — type check (don't run `npm run lint`, it's broken under current Next.js)
+# Frontend — changed-file ESLint + type check
+cd frontend && npx eslint path/to/changed-file.tsx
 cd frontend && npx tsc --noEmit
 
 # Shell scripts
 bash -n path/to/script.sh
 ```
+
+Use `make test-backend` when the change needs the complete local backend
+regression against a disposable PostgreSQL instance. The GitHub workflow also
+runs the complete backend regression for the Rardar control job; do not repeat
+an unchanged full run without a relevant risk or failure to investigate.
+`cd frontend && npm run lint` runs ESLint over the whole frontend, but CI does
+not require a full-tree lint pass. Use it when the change scope warrants it;
+otherwise use the changed-file command above.
 
 Inspect your staged diff:
 
@@ -149,7 +147,7 @@ If you want to add a provider beyond Google / GitHub (e.g. Microsoft, Apple), th
 
 ## Code style
 
-- **Backend:** Follow the existing async SQLAlchemy 2.0 style (`Mapped` / `mapped_column`). Reuse `retry_sqlite_locked` for DB writes. Keep routers thin — business logic goes in `services/`.
+- **Backend:** Follow the existing async SQLAlchemy 2.0 style (`Mapped` / `mapped_column`) and PostgreSQL transaction boundaries. Keep routers thin — business logic goes in `services/`.
 - **Frontend:** Self-built UI components (`components/ui.tsx` exports `Button`, `Panel`, `Badge`, `cx`). No third-party UI library. Tailwind v4. `lucide-react` for icons.
 - **No new heavy dependencies without discussion.** The project is deliberately lean.
 

@@ -14,7 +14,7 @@
 docker compose up -d --build
 # 浏览器：http://localhost:3000
 # API：http://localhost:8000/docs
-# PG: 5432 (需 docker compose --profile postgres up -d)
+# PG: 5432（默认 Compose 栈；仅启动数据库可用 docker compose up -d postgres）
 ```
 
 ⚠️ **开发配置不要用于生产**——`--reload` 会因代码改动反复触发服务重启，
@@ -363,16 +363,20 @@ docker compose -f docker-compose.prod.yml exec backend alembic current
 
 ## 8. CI/CD
 
-`.github/workflows/ci.yml` 在 PR 上跑 5 个轻量门禁 job：
+`.github/workflows/ci.yml` 在 PR 上跑 7 个门禁 job：
 
 1. `frontend-types`：npx tsc --noEmit
 2. `frontend-tests`：vitest + 覆盖率门禁
 3. `backend-lint`：ruff check + format check（针对 PR 变更文件，阻断式）
 4. `backend-layering`：API 分层 AST 检查（api → service → repo 单向依赖）
-5. `security-scan`：pip-audit + npm audit（阻断式）
+5. `rardar-adapter-tests`：跨仓库来源与 fail-closed adapter 合同
+6. `rardar-llm-control-tests`：PostgreSQL migration、完整 `backend/tests` 与
+   Rardar LLM / Selection 控制回归
+7. `security-scan`：pip-audit + npm audit（阻断式）
 
-全量 PostgreSQL 测试不在 GitHub 跑（成本高）：本地执行 `make test-backend`
-（一次性 postgres:16-alpine 容器跑在 127.0.0.1:5433，不占用开发栈，跑完即删）。
+本地复现或高风险后端修改可执行 `make test-backend`，在
+127.0.0.1:5433 启动一次性 PostgreSQL，跑完即删。纯文档或无关改动按
+`AGENTS.md` 选择最小相关检查，不重复无关全量套件。
 
 ---
 

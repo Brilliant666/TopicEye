@@ -109,9 +109,12 @@ class ShadowReviewArtifact(StrictSelectionModel):
         if self.negativeControlViolations != violations or any(
             row.get("passed")
             and (
-                row.get("decision") != "REJECT"
-                if row["name"] == "out_of_product_scope"
-                else row.get("decision") not in {"REJECT", "UNCERTAIN"}
+                row.get("failure") is not None
+                or (
+                    row.get("decision") != "REJECT"
+                    if row["name"] == "out_of_product_scope"
+                    else row.get("decision") not in {"REJECT", "UNCERTAIN", "WORTHWHILE_NOT_NOW"}
+                )
             )
             for row in self.negativeControls
         ):

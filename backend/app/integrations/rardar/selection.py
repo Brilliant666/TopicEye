@@ -49,6 +49,7 @@ from app.integrations.rardar.selection_schemas import (
     SelectionTimeliness,
     SelectionUsageSummary,
     SemanticDecision,
+    value_gate_is_publishable,
 )
 from app.integrations.rardar.selection_source import LoadedSelectionSource
 from app.integrations.rardar.serving_profiles import ProfileBuildResult, build_official_profiles
@@ -1334,6 +1335,19 @@ def negative_control_cases() -> tuple[tuple[str, str], ...]:
     )
 
 
+def _negative_control_passed(
+    name: str,
+    gate: SelectionGateResult | None,
+    failure: str | None,
+) -> bool:
+    if gate is None or failure is not None:
+        return False
+    if name == "out_of_product_scope":
+        return gate.scopeStatus == "out_of_scope"
+    primary, _supporting = _primary_reason(gate)
+    return not value_gate_is_publishable(gate, primary, failure)
+
+
 async def _negative_controls(usage: _Usage, caller: LLMCaller) -> list[str]:
     failures: list[str] = []
     for index, (name, text) in enumerate(negative_control_cases(), 1):
@@ -1349,17 +1363,7 @@ async def _negative_controls(usage: _Usage, caller: LLMCaller) -> list[str]:
             )
         ]
         gate, _attempts, failure = await _run_gate(candidate, evidence, usage, caller)
-        neutral = SelectionTimeliness(
-            verdict="none",
-            confidence="high",
-            reasonCodes=["no_strong_why_now"],
-            evidenceIds=[],
-            meaningfulChange=None,
-            strongSignals=[],
-            weakSignals=[],
-        )
-        decision = semantic_decision(gate, neutral, failure)
-        if decision == "SELECT_NOW" or (name == "out_of_product_scope" and decision != "REJECT"):
+        if not _negative_control_passed(name, gate, failure):
             failures.append(name)
     return failures
 

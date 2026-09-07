@@ -365,8 +365,10 @@ run semantic decision before packing and user copy, and provide no Star,
 momentum, model-failure, or capacity refill fallback. It must include a fixed
 negative-control set covering `out_of_product_scope`,
 `identity_or_source_invalid`, `marketing_only`, `popularity_only`,
-`weak_evidence`, and `not_reusable_or_actionable`, none of which may publish as
-`SELECT_NOW`. Any future blind-evaluation claim requires a new unseen set.
+`weak_evidence`, and `not_reusable_or_actionable`, none of which may satisfy the
+current value-publication eligibility contract. Invalid structure, invalid
+evidence, or a failed call does not complete a control. Any future blind-evaluation
+claim requires a new unseen set.
 Production writes, Production Discover activation, and page deployment require
 later independent authorization.
 

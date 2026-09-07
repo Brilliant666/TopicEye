@@ -104,6 +104,20 @@ class SelectionGateResult(StrictSelectionModel):
         return self
 
 
+def value_gate_is_publishable(
+    gate: SelectionGateResult | None,
+    primary_reason: PrimaryReason | None,
+    value_failure_code: str | None,
+) -> bool:
+    """Evaluate value eligibility before packing, independently of timeliness."""
+    if gate is None or primary_reason is None or value_failure_code is not None:
+        return False
+    if gate.scopeStatus != "in_scope" or gate.valueVerdict != "strong" or gate.confidence != "high":
+        return False
+    supported = {reason.reason for reason in gate.reasonCandidates if reason.supported and reason.evidenceIds}
+    return primary_reason in supported
+
+
 class MeaningfulChangeResult(StrictSelectionModel):
     meaningfulRelease: Literal["yes", "no", "uncertain"]
     meaningfulUpdate: Literal["yes", "no", "uncertain"]
@@ -275,19 +289,14 @@ class SelectionAssessment(StrictSelectionModel):
     displayOrder: int | None = Field(default=None, ge=1, le=20)
 
     def value_is_publishable(self) -> bool:
-        if self.gate is None or self.primaryReason is None or self.valueFailureCode is not None:
+        if not value_gate_is_publishable(self.gate, self.primaryReason, self.valueFailureCode):
             return False
-        if self.failureCode is not None and self.failureCode not in {
+        # A retained artifact with only the historical combined failure is
+        # ambiguous and therefore remains fail closed.
+        return self.failureCode is None or self.failureCode in {
             self.timelinessFailureCode,
             self.copyFailureCode,
-        }:
-            # A retained artifact with only the historical combined failure is
-            # ambiguous and therefore remains fail closed.
-            return False
-        if self.gate.scopeStatus != "in_scope" or self.gate.valueVerdict != "strong" or self.gate.confidence != "high":
-            return False
-        supported = {reason.reason for reason in self.gate.reasonCandidates if reason.supported and reason.evidenceIds}
-        return self.primaryReason in supported
+        }
 
     @model_validator(mode="after")
     def validate_projection(self) -> SelectionAssessment:

@@ -158,6 +158,93 @@ async def test_zero_select_is_reviewable_empty_no_refill(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_shadow_fails_closed_when_control_has_publishable_value(tmp_path, monkeypatch):
+    class PublishableNegativeControl(ShadowDouble):
+        async def __call__(self, **kwargs):
+            result = await super().__call__(**kwargs)
+            payload = json.loads(kwargs["messages"][1]["content"])
+            if (
+                kwargs["scene"] == RardarLLMScene.WORTH_SEEING_GATE
+                and payload.get("repository") == "negative-control/case-2"
+            ):
+                value = {
+                    "scopeStatus": "in_scope",
+                    "valueVerdict": "strong",
+                    "reasonCandidates": [{"reason": "directly_reusable", "supported": True, "evidenceIds": ["E01"]}],
+                    "counterEvidenceIds": [],
+                    "confidence": "high",
+                }
+                return RardarLLMResult(json.dumps(value), result.metadata)
+            return result
+
+    monkeypatch.setattr(__name__ + ".ShadowDouble", PublishableNegativeControl)
+    with pytest.raises(ShadowIntegrityError, match="shadow_negative_controls_failed"):
+        await prepare(tmp_path, monkeypatch)
+
+
+@pytest.mark.asyncio
+async def test_shadow_out_of_scope_control_requires_out_of_scope_gate_result(tmp_path, monkeypatch):
+    class MisclassifiedOutOfScopeControl(ShadowDouble):
+        async def __call__(self, **kwargs):
+            result = await super().__call__(**kwargs)
+            payload = json.loads(kwargs["messages"][1]["content"])
+            if (
+                kwargs["scene"] == RardarLLMScene.WORTH_SEEING_GATE
+                and payload.get("repository") == "negative-control/case-1"
+            ):
+                value = {
+                    "scopeStatus": "in_scope",
+                    "valueVerdict": "weak",
+                    "reasonCandidates": [],
+                    "counterEvidenceIds": ["E01"],
+                    "confidence": "high",
+                }
+                return RardarLLMResult(json.dumps(value), result.metadata)
+            return result
+
+    monkeypatch.setattr(__name__ + ".ShadowDouble", MisclassifiedOutOfScopeControl)
+    with pytest.raises(ShadowIntegrityError, match="shadow_negative_controls_failed"):
+        await prepare(tmp_path, monkeypatch)
+
+
+@pytest.mark.asyncio
+async def test_shadow_accepts_valid_control_that_is_not_value_publishable(tmp_path, monkeypatch):
+    class MediumConfidenceNegativeControl(ShadowDouble):
+        async def __call__(self, **kwargs):
+            result = await super().__call__(**kwargs)
+            payload = json.loads(kwargs["messages"][1]["content"])
+            if (
+                kwargs["scene"] == RardarLLMScene.WORTH_SEEING_GATE
+                and payload.get("repository") == "negative-control/case-2"
+            ):
+                value = {
+                    "scopeStatus": "in_scope",
+                    "valueVerdict": "strong",
+                    "reasonCandidates": [{"reason": "directly_reusable", "supported": True, "evidenceIds": ["E01"]}],
+                    "counterEvidenceIds": [],
+                    "confidence": "medium",
+                }
+                return RardarLLMResult(json.dumps(value), result.metadata)
+            return result
+
+    monkeypatch.setattr(__name__ + ".ShadowDouble", MediumConfidenceNegativeControl)
+    _mirror, _run, _ledger, _double, artifact, _pool = await prepare(tmp_path, monkeypatch)
+    control = next(row for row in artifact.negativeControls if row["name"] == "identity_or_source_invalid")
+    assert control["passed"] is True
+    assert control["decision"] == "WORTHWHILE_NOT_NOW"
+
+
+@pytest.mark.asyncio
+async def test_shadow_artifact_cannot_mark_failed_control_as_passed(tmp_path, monkeypatch):
+    _mirror, _run, _ledger, _double, artifact, _pool = await prepare(tmp_path, monkeypatch)
+    payload = artifact.model_dump(mode="json")
+    payload["negativeControls"][1]["failure"] = "provider_timeout"
+    payload["digest"] = digest({key: value for key, value in payload.items() if key != "digest"})
+    with pytest.raises(ValidationError, match="shadow negative controls mismatch"):
+        ShadowReviewArtifact.model_validate_json(json.dumps(payload), strict=True)
+
+
+@pytest.mark.asyncio
 async def test_tamper_fail_closed_and_pointer_interruption_preserves_previous(tmp_path, monkeypatch):
     mirror, _run, _ledger, _double, artifact, _pool = await prepare(tmp_path, monkeypatch)
     shadow_serving.install_shadow(mirror, artifact)

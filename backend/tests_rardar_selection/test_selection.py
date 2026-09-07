@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from app.integrations.rardar import selection_serving as serving_module
 from app.integrations.rardar.selection import (
     BuiltSelection,
+    SelectionBuildError,
     _gate_payload,
     _negative_controls,
     _pack,
@@ -52,6 +53,7 @@ from app.integrations.rardar.selection_serving import (
 )
 from app.services.rardar_intelligence import load_selection_snapshot
 from app.services.rardar_llm_control import (
+    RardarLLMError,
     RardarLLMMetadata,
     RardarLLMResult,
     RardarLLMScene,
@@ -150,6 +152,41 @@ class ModelDouble:
                 "evidenceIds": evidence_ids,
             }
         return RardarLLMResult(json.dumps(value, ensure_ascii=False), _metadata(scene))
+
+
+class NegativeControlDouble(ModelDouble):
+    def __init__(self, mode: str, *, repository: str = "negative-control/case-2") -> None:
+        super().__init__()
+        self.mode = mode
+        self.repository = repository
+
+    async def __call__(self, *, scene, messages, reasoning_effort, cache_identity):
+        payload = json.loads(messages[1]["content"])
+        if scene != RardarLLMScene.WORTH_SEEING_GATE or payload.get("repository") != self.repository:
+            return await super().__call__(
+                scene=scene,
+                messages=messages,
+                reasoning_effort=reasoning_effort,
+                cache_identity=cache_identity,
+            )
+        self.calls.append((scene, messages))
+        if self.mode == "provider_failure":
+            raise RardarLLMError("rardar_llm_timeout", classification="timeout")
+        if self.mode == "invalid_structure":
+            return RardarLLMResult('{"scopeStatus":"in_scope"}', _metadata(scene))
+        evidence_ids = ["E99"] if self.mode == "invalid_evidence" else ["E01"]
+        value = {
+            "scopeStatus": "in_scope",
+            "valueVerdict": "strong" if self.mode != "wrong_scope" else "weak",
+            "reasonCandidates": (
+                [{"reason": "directly_reusable", "supported": True, "evidenceIds": evidence_ids}]
+                if self.mode != "wrong_scope"
+                else []
+            ),
+            "counterEvidenceIds": [],
+            "confidence": "high",
+        }
+        return RardarLLMResult(json.dumps(value), _metadata(scene))
 
 
 def _github_transport(request: httpx.Request) -> httpx.Response:
@@ -670,6 +707,36 @@ async def test_fixed_negative_controls_never_select_and_out_of_scope_rejects() -
     failures = await _negative_controls(_Usage(), double)
     assert failures == []
     assert len(double.calls) == 6
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["publishable", "invalid_structure", "invalid_evidence", "provider_failure"])
+async def test_negative_control_requires_valid_non_publishable_value_result(mode: str) -> None:
+    failures = await _negative_controls(_Usage(), NegativeControlDouble(mode))
+    assert failures == ["identity_or_source_invalid"]
+
+
+@pytest.mark.asyncio
+async def test_out_of_scope_control_requires_out_of_scope_gate_result() -> None:
+    failures = await _negative_controls(
+        _Usage(),
+        NegativeControlDouble("wrong_scope", repository="negative-control/case-1"),
+    )
+    assert failures == ["out_of_product_scope"]
+
+
+@pytest.mark.asyncio
+async def test_build_selection_fails_closed_when_control_has_publishable_value(tmp_path: Path) -> None:
+    target, source = _source(tmp_path)
+    async with _client() as client:
+        with pytest.raises(SelectionBuildError) as raised:
+            await build_selection(
+                source=source,
+                cache_root=target / "selection-profile-cache",
+                caller=NegativeControlDouble("publishable"),
+                github_client=client,
+            )
+    assert raised.value.code == "rardar_selection_negative_control_failed"
 
 
 @pytest.mark.asyncio

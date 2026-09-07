@@ -26,6 +26,7 @@ from app.integrations.rardar.selection import (
     _contract_versions,
     _copy,
     _negative_control_candidate,
+    _negative_control_passed,
     _pack,
     _primary_reason,
     _run_gate,
@@ -223,11 +224,7 @@ async def _build_shadow_review(
                     SelectionGateResult,
                 )
             decision = semantic_decision(gate, neutral_timeliness(), failure)
-            passed = (
-                gate is not None
-                and failure is None
-                and (decision == "REJECT" if name == "out_of_product_scope" else decision in {"REJECT", "UNCERTAIN"})
-            )
+            passed = _negative_control_passed(name, gate, failure)
             controls.append(
                 {"name": name, "decision": decision, "passed": passed, "attempts": attempts, "failure": failure}
             )
@@ -575,14 +572,16 @@ async def build_shadow_review(
                     else None
                 )
                 decision = semantic_decision(gate, neutral_timeliness(), receipt["failure"])
-                passed = (
-                    gate is not None
-                    and receipt["failure"] is None
-                    and (
-                        decision == "REJECT" if name == "out_of_product_scope" else decision in {"REJECT", "UNCERTAIN"}
-                    )
+                passed = _negative_control_passed(name, gate, receipt["failure"])
+                controls.append(
+                    {
+                        "name": name,
+                        "decision": decision,
+                        "passed": passed,
+                        "attempts": receipt["attempts"],
+                        "failure": receipt["failure"],
+                    }
                 )
-                controls.append({"name": name, "decision": decision, "passed": passed})
             now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
             payload = {
                 "schemaVersion": 1,

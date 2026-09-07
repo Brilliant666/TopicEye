@@ -23,6 +23,10 @@ changed. Real application Provider calls are zero.
   retained `semanticDecision` remains readable but is not a new-publication
   gate. Timeliness is optional, cannot change membership or order, and the
   ordinary main/Shadow path makes no Meaningful Change call.
+- Main and Shadow apply that same pre-packing Value eligibility to fixed
+  negative controls. A publishable result fails the control; malformed output,
+  invalid evidence and failed calls cannot count as completed controls, and the
+  out-of-scope fixture must explicitly return `out_of_scope`.
 - Candidate observation histories shorter than 26 hours remain eligible for
   Value evaluation; `observedStarDelta` is `null` until the complete window is
   available. Today's exact 24-hour contract is unchanged.

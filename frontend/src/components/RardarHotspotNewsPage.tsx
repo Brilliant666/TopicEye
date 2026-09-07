@@ -1,10 +1,9 @@
-'use client';
-
-import { useState } from 'react';
+import Link from 'next/link';
 import {
   AlertTriangle,
   ArrowUpRight,
   Clock3,
+  MessageCircle,
   Newspaper,
   RadioTower,
   RefreshCw,
@@ -12,15 +11,15 @@ import {
 } from 'lucide-react';
 
 import {
-  filterHotspotNews,
+  type HotspotContentType,
   type HotspotNewsLoadResult,
+  type HotspotNewsResponse,
+  type HotspotSourceKind,
   type HotspotSourceStatus,
 } from '@/lib/rardar-hotspot-news';
 import styles from './RardarFoundation.module.css';
 
 export default function RardarHotspotNewsPage({ result }: { result: HotspotNewsLoadResult }) {
-  const [sourceKey, setSourceKey] = useState<string | null>(null);
-
   if (result.kind === 'error') {
     return (
       <div className={`${styles.page} ${styles.newsPage}`} data-rardar-route="/news">
@@ -34,41 +33,14 @@ export default function RardarHotspotNewsPage({ result }: { result: HotspotNewsL
   }
 
   const news = result.news;
-  const visibleItems = filterHotspotNews(news.items, sourceKey);
   return (
     <div className={`${styles.page} ${styles.newsPage}`} data-rardar-route="/news">
       <NewsHero syncedAt={news.syncedAt} status={news.status} />
 
-      <section className={styles.newsSourcePanel} aria-label="资讯来源状态">
-        <div className={styles.newsSourceHeading}>
-          <div>
-            <p className={styles.eyebrow}>Sources</p>
-            <h2>公开技术信源</h2>
-          </div>
-          <span><ShieldCheck size={15} /> 页面只读取已保存内容 · 0 次模型调用</span>
-        </div>
-        <div className={styles.newsFilters} aria-label="按来源筛选">
-          <button type="button" aria-pressed={sourceKey === null} onClick={() => setSourceKey(null)}>
-            全部 <span>{news.items.length}</span>
-          </button>
-          {news.sources.map((source) => (
-            <button
-              type="button"
-              key={source.key}
-              aria-pressed={sourceKey === source.key}
-              onClick={() => setSourceKey(source.key)}
-            >
-              {source.name} <span>{source.itemCount}</span>
-              <i data-status={source.status}>{sourceStatusLabel(source.status)}</i>
-            </button>
-          ))}
-        </div>
-      </section>
-
       {news.status === 'degraded' && (
         <section className={styles.newsWarning} role="status">
           <AlertTriangle size={18} aria-hidden="true" />
-          部分来源同步失败；以下仍是最近一次成功保存的内容，原文入口保持可用。
+          部分来源同步失败；以下仍是最近一次成功保存的内容，其他来源和原文入口保持可用。
         </section>
       )}
       {news.status === 'stale' && (
@@ -77,19 +49,26 @@ export default function RardarHotspotNewsPage({ result }: { result: HotspotNewsL
         </section>
       )}
 
+      <NewsBrowseControls news={news} />
+
       <div className={styles.newsSectionHeading}>
-        <div><h2>技术资讯时间线</h2><p>按原始发布时间或更新时间组织；这不是“全网最热”排名。</p></div>
-        <span>{sourceKey ? `筛选后 ${visibleItems.length} 条` : `已保存 ${news.items.length} 条`}</span>
+        <div>
+          <h2>{news.sort === 'balanced' ? '综合浏览' : '最新时间线'}</h2>
+          <p>{news.sort === 'balanced' ? '在相近时间内分散来源，避免单一高频源连续占屏；不改变文章事实。' : '严格按可依据的文章、更新或讨论时间倒序；这不是全网热度排名。'}</p>
+        </div>
+        <span>符合条件 {news.totalItems} 条 · 第 {news.page}/{news.totalPages} 页</span>
       </div>
 
-      {visibleItems.length > 0 ? (
+      {news.items.length > 0 ? (
         <section className={styles.newsTimeline} aria-label="热点资讯列表">
-          {visibleItems.map((item) => (
+          {news.items.map((item) => (
             <article className={styles.newsCard} key={item.url}>
               <div className={styles.newsCardMeta}>
-                <span><RadioTower size={13} /> {item.sourceName}</span>
+                <span><RadioTower size={13} /> {item.publisherName}</span>
+                <b>{item.topicLabel}</b>
+                <b>{contentTypeLabel(item.contentType)}</b>
                 <time dateTime={item.publishedAt || undefined}>
-                  {item.publishedAt ? `发布于 ${formatNewsTime(item.publishedAt)}` : '发布时间未知'}
+                  {item.publishedAt ? `发布于 ${formatNewsTime(item.publishedAt)}` : '原始发布时间未知'}
                 </time>
                 {item.updatedAt && item.updatedAt !== item.publishedAt && (
                   <time dateTime={item.updatedAt}>更新于 {formatNewsTime(item.updatedAt)}</time>
@@ -97,8 +76,24 @@ export default function RardarHotspotNewsPage({ result }: { result: HotspotNewsL
               </div>
               <h3>{item.title}</h3>
               <p className={item.summary ? styles.newsSummary : styles.newsSummaryMissing}>
-                {item.summary || 'Feed 未提供可验证摘要，请打开原文核对完整内容。'}
+                {item.summary || '来源未提供可验证摘要，请打开原文核对完整内容。'}
               </p>
+              <div className={styles.newsDiscoveries}>
+                {item.discoveryChannels.map((channel) => (
+                  <span key={channel.key}>
+                    经 {channel.name} 发现
+                    {channel.rank ? ` · 平台第 ${channel.rank}` : ''}
+                    {channel.points !== null ? ` · ${channel.points} points` : ''}
+                    {channel.comments !== null ? ` · ${channel.comments} 评论` : ''}
+                    {channel.discussionAt ? ` · 讨论于 ${formatNewsTime(channel.discussionAt)}` : ''}
+                    {channel.discussionUrl && (
+                      <a href={channel.discussionUrl} target="_blank" rel="noreferrer">
+                        <MessageCircle size={13} /> 查看讨论
+                      </a>
+                    )}
+                  </span>
+                ))}
+              </div>
               <footer>
                 <small>获取于 {formatNewsTime(item.fetchedAt)}</small>
                 <a href={item.url} target="_blank" rel="noreferrer">
@@ -113,26 +108,100 @@ export default function RardarHotspotNewsPage({ result }: { result: HotspotNewsL
           {result.kind === 'not_synced' ? (
             <><RefreshCw size={24} /><div><h2>热点资讯尚未同步</h2><p>运行本地 refresh-news 命令后，这里会读取真实保存结果。</p></div></>
           ) : (
-            <><Newspaper size={24} /><div><h2>该来源暂无已保存内容</h2><p>这不代表源站没有资讯；请检查来源状态或稍后刷新。</p></div></>
+            <><Newspaper size={24} /><div><h2>当前筛选暂无已保存内容</h2><p>这不代表源站没有资讯；可清除筛选或检查来源状态。</p></div></>
           )}
         </section>
       )}
+
+      <NewsPagination news={news} />
+
+      <section className={styles.newsSourcePanel} aria-label="资讯来源状态">
+        <div className={styles.newsSourceHeading}>
+          <div><p className={styles.eyebrow}>Source health</p><h2>同步与来源状态</h2></div>
+          <span><ShieldCheck size={15} /> 页面只读取已保存内容 · 本轮 0 次模型调用</span>
+        </div>
+        <div className={styles.newsSourceGrid}>
+          {news.sources.map((source) => (
+            <a key={source.key} href={source.homepageUrl} target="_blank" rel="noreferrer">
+              <span>{source.name}<small>{sourceKindLabel(source.kind)}</small></span>
+              <i data-status={source.status}>{sourceStatusLabel(source.status)} · {source.itemCount} 条</i>
+            </a>
+          ))}
+        </div>
+      </section>
     </div>
   );
+}
+
+function NewsBrowseControls({ news }: { news: HotspotNewsResponse }) {
+  return (
+    <section className={styles.newsBrowsePanel} aria-label="资讯浏览方式">
+      <div className={styles.newsModeSwitch}>
+        <Link aria-current={news.sort === 'balanced' ? 'page' : undefined} href={newsHref(news, { sort: 'balanced', page: 1 })}>综合</Link>
+        <Link aria-current={news.sort === 'latest' ? 'page' : undefined} href={newsHref(news, { sort: 'latest', page: 1 })}>最新</Link>
+      </div>
+      <div className={styles.newsFilterGroup}>
+        <strong>来源</strong>
+        <div className={styles.newsFilters}>
+          <Link aria-current={news.selectedSource === null ? 'page' : undefined} href={newsHref(news, { source: null, page: 1 })}>全部 <span>{news.sourceScopeItemCount}</span></Link>
+          {news.sources.map((source) => (
+            <Link key={source.key} aria-current={news.selectedSource === source.key ? 'page' : undefined} href={newsHref(news, { source: source.key, page: 1 })}>
+              {source.name} <span>{source.itemCount}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+      <div className={styles.newsFilterGroup}>
+        <strong>主题</strong>
+        <div className={styles.newsFilters}>
+          <Link aria-current={news.selectedTopic === null ? 'page' : undefined} href={newsHref(news, { topic: null, page: 1 })}>全部 <span>{news.topicScopeItemCount}</span></Link>
+          {news.topics.map((topic) => (
+            <Link key={topic.key} aria-current={news.selectedTopic === topic.key ? 'page' : undefined} href={newsHref(news, { topic: topic.key, page: 1 })}>
+              {topic.label} <span>{topic.itemCount}</span>
+            </Link>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function NewsPagination({ news }: { news: HotspotNewsResponse }) {
+  if (news.totalPages <= 1) return null;
+  return (
+    <nav className={styles.newsPagination} aria-label="资讯分页">
+      {news.page > 1 ? <Link href={newsHref(news, { page: news.page - 1 })}>上一页</Link> : <span>上一页</span>}
+      <small>第 {news.page} / {news.totalPages} 页</small>
+      {news.page < news.totalPages ? <Link href={newsHref(news, { page: news.page + 1 })}>下一页</Link> : <span>下一页</span>}
+    </nav>
+  );
+}
+
+function newsHref(news: HotspotNewsResponse, changes: { source?: string | null; topic?: string | null; sort?: 'balanced' | 'latest'; page?: number }): string {
+  const source = changes.source === undefined ? news.selectedSource : changes.source;
+  const topic = changes.topic === undefined ? news.selectedTopic : changes.topic;
+  const sort = changes.sort ?? news.sort;
+  const page = changes.page ?? news.page;
+  const params = new URLSearchParams();
+  if (source) params.set('source', source);
+  if (topic) params.set('topic', topic);
+  if (sort !== 'balanced') params.set('sort', sort);
+  if (page > 1) params.set('page', String(page));
+  return params.size ? `/news?${params}` : '/news';
 }
 
 function NewsHero({ syncedAt, status }: { syncedAt: string | null; status: string }) {
   return (
     <section className={styles.newsHero}>
       <div>
-        <p className={styles.eyebrow}>Hotspot News · Verified Sources</p>
-        <h1>发生了什么，<span>从原始来源开始。</span></h1>
-        <p>聚合少量公开技术信源的真实更新，用 Feed 内容快速理解变化，并保留可核对的原文入口。英文条目首版保留原文，尚未调用模型翻译。</p>
+        <p className={styles.eyebrow}>Hotspot News · 多渠道科技资讯</p>
+        <h1>先看发生了什么，<span>再回到原始来源。</span></h1>
+        <p>汇集官方更新、科技报道与社区讨论，覆盖软件、云与数据、安全、硬件、科研和 AI；按真实时间与发现渠道组织，不伪装成全网统一排名。</p>
       </div>
       <dl>
         <div><dt>同步状态</dt><dd>{newsStatusLabel(status)}</dd></div>
         <div><dt>最近同步</dt><dd>{syncedAt ? formatNewsTime(syncedAt) : '尚未同步'}</dd></div>
-        <div><dt>内容处理</dt><dd>Feed 原文摘要 · 未调用 AI</dd></div>
+        <div><dt>阅读原则</dt><dd>来源可核对 · 时间不补造</dd></div>
       </dl>
     </section>
   );
@@ -140,6 +209,14 @@ function NewsHero({ syncedAt, status }: { syncedAt: string | null; status: strin
 
 function sourceStatusLabel(status: HotspotSourceStatus): string {
   return { healthy: '正常', stale: '过期', failed: '失败', not_synced: '未同步' }[status];
+}
+
+function sourceKindLabel(kind: HotspotSourceKind): string {
+  return { official: '官方', media: '科技媒体', community: '社区', aggregate: '聚合' }[kind];
+}
+
+function contentTypeLabel(type: HotspotContentType): string {
+  return { official_update: '官方更新', report: '报道', research: '研究', community_discussion: '社区讨论', uncategorized: '未分类' }[type];
 }
 
 function newsStatusLabel(status: string): string {

@@ -125,6 +125,7 @@ function Assert-RecordedRuntime([object]$State, [string]$Head, [string]$DataMode
 
 function Write-StateAtomically([object]$State) {
     $temporary = Join-Path $RuntimeRoot ("runtime.json.{0}.{1}.tmp" -f $PID, [Guid]::NewGuid().ToString("N"))
+    $backup = Join-Path $RuntimeRoot ("runtime.json.{0}.{1}.bak" -f $PID, [Guid]::NewGuid().ToString("N"))
     try {
         $json = $State | ConvertTo-Json -Depth 8
         [System.IO.File]::WriteAllText($temporary, $json, [System.Text.UTF8Encoding]::new($false))
@@ -138,13 +139,16 @@ function Write-StateAtomically([object]$State) {
             throw "Runtime state verification failed before publication."
         }
         if (Test-Path -LiteralPath $StatePath -PathType Leaf) {
-            [System.IO.File]::Replace($temporary, $StatePath, $null)
+            [System.IO.File]::Replace($temporary, $StatePath, $backup)
         } else {
             [System.IO.File]::Move($temporary, $StatePath)
         }
     } finally {
         if (Test-Path -LiteralPath $temporary) {
             Remove-Item -LiteralPath $temporary -Force
+        }
+        if (Test-Path -LiteralPath $backup) {
+            Remove-Item -LiteralPath $backup -Force
         }
     }
 }

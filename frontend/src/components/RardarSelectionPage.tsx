@@ -99,6 +99,14 @@ export default function RardarSelectionPage({ result }: { result: SelectionLoadR
           <p>仍展示最近一次完整验证的 Selection；不会用旧 momentum 列表或实时请求补齐。</p>
         </section>
       )}
+      {selection.executionMode === 'small_batch' && selection.shadowReviewState == null && (
+        <section className={styles.selectionState} data-testid="selection-small-batch">
+          <Radar size={22} />
+          <h2>本地小批量真实验证</h2>
+          <p>本轮从稳定宽召回 {selection.recallCount} 项中固定处理 {selection.processedCount} 项；其余 {selection.unprocessedCount} 项明确未处理，不代表候选全集已完成精选。</p>
+          <span>{selection.profileReadyCount}/{selection.processedCount} 项画像就绪 · {selection.publishedCount} 项可查看</span>
+        </section>
+      )}
       {selection.shadowReviewState != null && (
         <section className={styles.selectionState} data-testid="selection-shadow-review">
           <Radar size={22} />

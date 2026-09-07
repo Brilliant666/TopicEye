@@ -57,6 +57,9 @@ const selection: SelectionResponse = {
   currentGeneration: 'selection-generation-1',
   latestAttemptGeneration: 'selection-generation-1',
   recallCount: 1,
+  executionMode: 'full',
+  processedCount: 1,
+  unprocessedCount: 0,
   profileReadyCount: 1,
   profileReboundCount: 0,
   profileRebuiltCount: 1,
@@ -122,6 +125,38 @@ describe('Rardar worth-seeing Selection', () => {
     expect(html).toContain('Provider 28/40');
     expect(html).not.toContain('上一份健康精选');
     expect(html).toContain('selectionGeneration=shadow-123');
+  });
+
+  it('renders truthful small-batch coverage and keeps legacy responses compatible', () => {
+    const smallBatch = parseSelectionResponse({
+      ...selection,
+      executionMode: 'small_batch',
+      recallCount: 48,
+      processedCount: 6,
+      unprocessedCount: 42,
+      profileReadyCount: 6,
+    });
+    const html = renderToStaticMarkup(
+      <RardarSelectionPage result={{ kind: 'published', selection: smallBatch }} />,
+    );
+    expect(html).toContain('本地小批量真实验证');
+    expect(html).toContain('宽召回 48 项中固定处理 6 项');
+    expect(html).toContain('其余 42 项明确未处理');
+    expect(() => parseSelectionResponse({ ...smallBatch, unprocessedCount: 41 })).toThrow(
+      'rardar_selection_small_batch_invalid',
+    );
+
+    const {
+      executionMode: _executionMode,
+      processedCount: _processedCount,
+      unprocessedCount: _unprocessedCount,
+      ...legacy
+    } = selection;
+    expect(parseSelectionResponse(legacy)).toMatchObject({
+      executionMode: 'full',
+      processedCount: 1,
+      unprocessedCount: 0,
+    });
   });
 
   it('distinguishes an empty completed cohort from incomplete full selection', () => {

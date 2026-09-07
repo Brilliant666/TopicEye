@@ -9,6 +9,9 @@ from pathlib import Path
 import pytest
 
 from app.services.llm.provider_budget import (
+    LEGACY_STAGES,
+    LIMIT,
+    TASK_ID,
     ProviderBudgetError,
     ProviderBudgetLedger,
     budget_stage,
@@ -20,8 +23,20 @@ def ledger_at(tmp_path: Path) -> ProviderBudgetLedger:
     return ProviderBudgetLedger.initialize(tmp_path / "run-1" / "provider-budget.json", "run-1")
 
 
+def configure(monkeypatch, ledger: ProviderBudgetLedger) -> None:
+    monkeypatch.setenv("RARDAR_LLM_TASK_ID", ledger.task_id)
+    monkeypatch.setenv("RARDAR_LLM_RUN_ID", ledger.run_id)
+    monkeypatch.setenv("RARDAR_LLM_BUDGET_PATH", str(ledger.path))
+    monkeypatch.setenv("RARDAR_LLM_BUDGET_LIMIT", str(ledger.limit))
+
+
 def test_missing_and_invalid_environment_fail_closed(monkeypatch, tmp_path):
-    for name in ("RARDAR_LLM_RUN_ID", "RARDAR_LLM_BUDGET_PATH", "RARDAR_LLM_BUDGET_LIMIT"):
+    for name in (
+        "RARDAR_LLM_TASK_ID",
+        "RARDAR_LLM_RUN_ID",
+        "RARDAR_LLM_BUDGET_PATH",
+        "RARDAR_LLM_BUDGET_LIMIT",
+    ):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(ProviderBudgetError, match="missing"):
         execution_budget("rardar_worth_seeing_gate")
@@ -131,3 +146,81 @@ def test_execution_concurrency_is_one(tmp_path):
     ):
         pytest.fail("must not execute concurrently")
     assert ledger.snapshot()["attempted"] == 1
+
+
+def test_legacy_ledger_registration_and_replay_remain_compatible(tmp_path):
+    ledger = ledger_at(tmp_path)
+    registry = tmp_path / "shadow-convergence-budget-registration.json"
+    assert json.loads(registry.read_bytes()) == {
+        "taskId": TASK_ID,
+        "runId": "run-1",
+        "path": str(ledger.path),
+    }
+    assert not (ledger.path.parent / "provider-budget-registration.json").exists()
+    legacy_snapshot = json.loads(ledger.path.read_bytes())
+    assert set(legacy_snapshot["stageBreakdown"]) == LEGACY_STAGES
+    resumed = ProviderBudgetLedger(ledger.path, ledger.run_id)
+    assert resumed.snapshot()["taskId"] == TASK_ID
+    assert resumed.snapshot()["limit"] == LIMIT
+    assert "project_profile" not in resumed.snapshot()["stageBreakdown"]
+    with pytest.raises(ProviderBudgetError, match="stage_invalid"):
+        resumed.record("reserved", "project_profile")
+
+
+def test_new_task_ledgers_are_isolated_from_legacy_registration(tmp_path):
+    legacy = ledger_at(tmp_path)
+    first = ProviderBudgetLedger.initialize(
+        tmp_path / "incremental-1" / "provider-budget.json",
+        "incremental-1",
+        task_id="RARDAR-DISCOVER-INCREMENTAL-REAL-RUN-01",
+        limit=7,
+    )
+    second = ProviderBudgetLedger.initialize(
+        tmp_path / "incremental-2" / "provider-budget.json",
+        "incremental-2",
+        task_id="RARDAR-DISCOVER-INCREMENTAL-REAL-RUN-02",
+        limit=9,
+    )
+    assert legacy.registry == tmp_path / "shadow-convergence-budget-registration.json"
+    assert first.registry == first.path.parent / "provider-budget-registration.json"
+    assert second.registry == second.path.parent / "provider-budget-registration.json"
+    assert first.registry != second.registry != legacy.registry
+    assert first.snapshot()["remaining"] == 7
+    assert second.snapshot()["remaining"] == 9
+
+
+def test_configured_task_maps_project_profile_and_honours_stage(monkeypatch, tmp_path):
+    ledger = ProviderBudgetLedger.initialize(
+        tmp_path / "incremental" / "provider-budget.json",
+        "incremental",
+        task_id="RARDAR-DISCOVER-INCREMENTAL-REAL-RUN-01",
+    )
+    configure(monkeypatch, ledger)
+    resolved, stage = execution_budget("rardar_project_profile")
+    assert resolved.snapshot()["taskId"] == ledger.task_id
+    assert stage == "project_profile"
+    with resolved.execution(stage):
+        pass
+    with budget_stage("profile_translation"):
+        resolved, stage = execution_budget("rardar_project_profile")
+        assert resolved.snapshot()["taskId"] == ledger.task_id
+        assert stage == "profile_translation"
+        with resolved.execution(stage):
+            pass
+    summary = ledger.snapshot()
+    assert summary["stageBreakdown"]["project_profile"] == 1
+    assert summary["stageBreakdown"]["profile_translation"] == 1
+
+
+def test_configured_task_identity_must_match_ledger(monkeypatch, tmp_path):
+    ledger = ProviderBudgetLedger.initialize(
+        tmp_path / "incremental" / "provider-budget.json",
+        "incremental",
+        task_id="RARDAR-DISCOVER-INCREMENTAL-REAL-RUN-01",
+    )
+    configure(monkeypatch, ledger)
+    before = (ledger.path.read_bytes(), ledger.events.read_bytes(), ledger.registry.read_bytes())
+    monkeypatch.setenv("RARDAR_LLM_TASK_ID", "RARDAR-DISCOVER-INCREMENTAL-REAL-RUN-WRONG")
+    with pytest.raises(ProviderBudgetError):
+        execution_budget("rardar_project_profile")
+    assert (ledger.path.read_bytes(), ledger.events.read_bytes(), ledger.registry.read_bytes()) == before

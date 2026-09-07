@@ -84,6 +84,8 @@ RETRY_POLICY_VERSION = "format-only-retry-v1"
 PROFILE_EVIDENCE_POLICY_VERSION = "evidence-content-profile-cache-v2"
 ACTIVATION_POLICY_VERSION = "worth-seeing-activation-v2"
 SYSTEMIC_FAILURE_POLICY_VERSION = "worth-seeing-systemic-failure-v1"
+SMALL_BATCH_POLICY_VERSION = "worth-seeing-small-batch-v1"
+RESULT_CACHE_VERSION = "worth-seeing-result-cache-v1"
 
 _MAX_RECALL = 48
 _MAX_MODEL_CALLS = 120
@@ -339,6 +341,8 @@ def _contract_versions() -> dict[str, str]:
         "profileEvidencePolicy": PROFILE_EVIDENCE_POLICY_VERSION,
         "activationPolicy": ACTIVATION_POLICY_VERSION,
         "systemicFailurePolicy": SYSTEMIC_FAILURE_POLICY_VERSION,
+        "smallBatchPolicy": SMALL_BATCH_POLICY_VERSION,
+        "resultCache": RESULT_CACHE_VERSION,
         "routingGroup": "rardar",
     }
 
@@ -407,6 +411,137 @@ def _atomic_cache_json(path: Path, payload: dict[str, Any]) -> None:
         raise
 
 
+class _SelectionResultCache:
+    """Durable successful model results bound to exact validated inputs.
+
+    This cache is deliberately separate from immutable Selection generations.
+    Only a strictly validated successful result is reusable; failures and
+    interrupted writes never become negative product judgments.
+    """
+
+    def __init__(self, cache_root: Path, model_route_identity: str) -> None:
+        self.root = cache_root / "selection-result-cache-v1"
+        self.model_route_identity = model_route_identity
+
+    def _identity(
+        self,
+        *,
+        scene: RardarLLMScene,
+        effort: ReasoningEffort,
+        payload: dict[str, Any],
+        schema_digest: str,
+        cache_identity: str,
+    ) -> str:
+        return _sha(
+            _canonical_bytes(
+                {
+                    "cacheVersion": RESULT_CACHE_VERSION,
+                    "scene": scene.value,
+                    "reasoningEffort": effort.value,
+                    "payload": payload,
+                    "schemaDigest": schema_digest,
+                    "cacheIdentity": cache_identity,
+                    "modelRouteIdentity": self.model_route_identity,
+                }
+            )
+        )
+
+    def load(
+        self,
+        *,
+        scene: RardarLLMScene,
+        effort: ReasoningEffort,
+        payload: dict[str, Any],
+        schema_digest: str,
+        cache_identity: str,
+        response_model: type[BaseModel],
+    ) -> BaseModel | None:
+        identity = self._identity(
+            scene=scene,
+            effort=effort,
+            payload=payload,
+            schema_digest=schema_digest,
+            cache_identity=cache_identity,
+        )
+        path = self.root / scene.value / f"{identity}.json"
+        try:
+            info = os.lstat(path)
+        except FileNotFoundError:
+            return None
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or stat.S_ISLNK(info.st_mode)
+            or bool(getattr(info, "st_file_attributes", 0) & 0x400)
+            or getattr(info, "st_nlink", 1) != 1
+            or info.st_size > 2 * 1024 * 1024
+        ):
+            raise SelectionBuildError("rardar_selection_result_cache_invalid", "Selection result cache is unsafe")
+        try:
+            raw = path.read_bytes()
+            after = os.lstat(path)
+            if (
+                info.st_dev,
+                info.st_ino,
+                info.st_size,
+                info.st_mtime_ns,
+                getattr(info, "st_nlink", 1),
+                getattr(info, "st_file_attributes", 0),
+            ) != (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+                getattr(after, "st_nlink", 1),
+                getattr(after, "st_file_attributes", 0),
+            ):
+                raise ValueError()
+            saved = json.loads(raw)
+            claimed = saved.pop("digest")
+            if (
+                saved.get("schemaVersion") != 1
+                or saved.get("cacheVersion") != RESULT_CACHE_VERSION
+                or saved.get("identity") != identity
+                or saved.get("scene") != scene.value
+                or saved.get("modelRouteIdentity") != self.model_route_identity
+                or claimed != _sha(_canonical_bytes(saved))
+            ):
+                raise ValueError()
+            return response_model.model_validate(saved["value"], strict=True)
+        except (OSError, KeyError, TypeError, ValueError, ValidationError):
+            raise SelectionBuildError(
+                "rardar_selection_result_cache_invalid",
+                "Selection result cache failed strict validation",
+            ) from None
+
+    def store(
+        self,
+        value: BaseModel,
+        *,
+        scene: RardarLLMScene,
+        effort: ReasoningEffort,
+        payload: dict[str, Any],
+        schema_digest: str,
+        cache_identity: str,
+    ) -> None:
+        identity = self._identity(
+            scene=scene,
+            effort=effort,
+            payload=payload,
+            schema_digest=schema_digest,
+            cache_identity=cache_identity,
+        )
+        saved: dict[str, Any] = {
+            "schemaVersion": 1,
+            "cacheVersion": RESULT_CACHE_VERSION,
+            "identity": identity,
+            "scene": scene.value,
+            "modelRouteIdentity": self.model_route_identity,
+            "value": value.model_dump(mode="json"),
+        }
+        saved["digest"] = _sha(_canonical_bytes(saved))
+        _atomic_cache_json(self.root / scene.value / f"{identity}.json", saved)
+
+
 def _source_identities(source: LoadedSelectionSource, universe: list[SelectionCandidateFacts]) -> dict[str, Any]:
     captures = {str(capture["captureId"]): _sha(_canonical_bytes(capture)) for capture in source.captures}
     return {
@@ -425,6 +560,7 @@ def selection_input_digest(
     model_route_identity: str,
     recall_limit: int,
     recall_batch_id: str | None = None,
+    process_candidate_ids: tuple[int, ...] | None = None,
 ) -> str:
     recall_batch_id = recall_batch_id or default_recall_batch_id(source)
     _validate_recall_batch_id(recall_batch_id)
@@ -444,6 +580,8 @@ def selection_input_digest(
                 "modelRouteIdentity": model_route_identity,
                 "recallLimit": recall_limit,
                 "recallBatchId": recall_batch_id,
+                "executionMode": "small_batch" if process_candidate_ids is not None else "full",
+                "processCandidateIds": list(process_candidate_ids or ()),
                 "candidateUniverseVersion": UNIVERSE_VERSION,
                 "contracts": _contract_versions(),
             }
@@ -687,6 +825,39 @@ def recall_candidates(
     return selected
 
 
+def _processing_candidates(
+    recalled: list[SelectionCandidateFacts],
+    process_candidate_ids: tuple[int, ...] | None,
+) -> list[SelectionCandidateFacts]:
+    if process_candidate_ids is None:
+        return recalled
+    if (
+        len(process_candidate_ids) != 6
+        or len(set(process_candidate_ids)) != 6
+        or any(
+            not isinstance(identifier, int) or isinstance(identifier, bool) or identifier <= 0
+            for identifier in process_candidate_ids
+        )
+    ):
+        raise SelectionBuildError(
+            "rardar_selection_small_batch_invalid",
+            "Small-batch execution requires exactly six unique numeric repository IDs",
+        )
+    positions = {candidate.githubRepositoryId: index for index, candidate in enumerate(recalled)}
+    if any(identifier not in positions for identifier in process_candidate_ids):
+        raise SelectionBuildError(
+            "rardar_selection_small_batch_not_recalled",
+            "Every small-batch project must belong to the frozen recall batch",
+        )
+    if list(process_candidate_ids) != sorted(process_candidate_ids, key=positions.__getitem__):
+        raise SelectionBuildError(
+            "rardar_selection_small_batch_order_invalid",
+            "Small-batch projects must preserve the stable recall order",
+        )
+    by_identifier = {candidate.githubRepositoryId: candidate for candidate in recalled}
+    return [by_identifier[identifier] for identifier in process_candidate_ids]
+
+
 def _profile_project(candidate: SelectionCandidateFacts, rank: int) -> ExactExplosionProject:
     baseline = max(0, candidate.totalStars - max(candidate.observedStarDelta or 0, 0))
     return ExactExplosionProject.model_validate(
@@ -835,9 +1006,36 @@ async def _prompt_json(
     caller: LLMCaller,
     format_retry: bool = True,
     cache_identity: str | None = None,
+    result_cache: _SelectionResultCache | None = None,
+    provider_calls_allowed: bool = True,
+    result_validator: Callable[[BaseModel], str | None] | None = None,
 ) -> tuple[BaseModel | None, int, str | None]:
     schema = response_model.model_json_schema()
     schema_digest = _sha(_canonical_bytes(schema))
+    cache_identity = cache_identity or schema_digest
+    if result_cache is not None:
+        cached = result_cache.load(
+            scene=scene,
+            effort=effort,
+            payload=payload,
+            schema_digest=schema_digest,
+            cache_identity=cache_identity,
+            response_model=response_model,
+        )
+        if cached is not None:
+            cached_failure = result_validator(cached) if result_validator is not None else None
+            if cached_failure is not None:
+                raise SelectionBuildError(
+                    "rardar_selection_result_cache_invalid",
+                    "Selection result cache failed semantic validation",
+                )
+            usage.cache_hits += 1
+            budget = execution_budget(scene.value) if caller is call_rardar_prompt_json else None
+            if budget is not None:
+                budget[0].record("cache_hit", budget[1])
+            return cached, 0, None
+    if not provider_calls_allowed:
+        return None, 0, "provider_calls_disabled"
     base_messages = [
         {
             "role": "system",
@@ -874,12 +1072,25 @@ async def _prompt_json(
                     scene=scene,
                     messages=messages,
                     reasoning_effort=effort,
-                    cache_identity=cache_identity or schema_digest,
+                    cache_identity=cache_identity,
                 )
             usage.record(result)
             raw = result.content
             parsed = loads_strict_json(raw)
-            return response_model.model_validate(parsed, strict=True), attempts, None
+            validated = response_model.model_validate(parsed, strict=True)
+            semantic_failure = result_validator(validated) if result_validator is not None else None
+            if semantic_failure is not None:
+                return None, attempts, semantic_failure
+            if result_cache is not None:
+                result_cache.store(
+                    validated,
+                    scene=scene,
+                    effort=effort,
+                    payload=payload,
+                    schema_digest=schema_digest,
+                    cache_identity=cache_identity,
+                )
+            return validated, attempts, None
         except RardarLLMError as exc:
             if exc.classification == "budget":
                 if exc.code == "provider_operation_attempt_limit":
@@ -934,9 +1145,21 @@ async def _run_gate(
     caller: LLMCaller,
     *,
     format_retry: bool = True,
+    result_cache: _SelectionResultCache | None = None,
+    provider_calls_allowed: bool = True,
 ) -> tuple[SelectionGateResult | None, int, str | None]:
     if not evidence:
         return None, 0, "weak_evidence"
+    aliases = {item.evidenceId for item in evidence}
+
+    def validate_result(value: BaseModel) -> str | None:
+        gate = SelectionGateResult.model_validate(value, strict=True)
+        if not set(gate.counterEvidenceIds).issubset(aliases):
+            return "invalid_evidence_alias"
+        if any(not set(reason.evidenceIds).issubset(aliases) for reason in gate.reasonCandidates):
+            return "invalid_evidence_alias"
+        return None
+
     value, attempts, failure = await _prompt_json(
         scene=RardarLLMScene.WORTH_SEEING_GATE,
         effort=ReasoningEffort.HIGH,
@@ -945,16 +1168,13 @@ async def _run_gate(
         usage=usage,
         caller=caller,
         format_retry=format_retry,
+        result_cache=result_cache,
+        provider_calls_allowed=provider_calls_allowed,
+        result_validator=validate_result,
     )
     if value is None:
         return None, attempts, failure
     gate = SelectionGateResult.model_validate(value, strict=True)
-    aliases = {item.evidenceId for item in evidence}
-    if not set(gate.counterEvidenceIds).issubset(aliases):
-        return None, attempts, "invalid_evidence_alias"
-    for reason in gate.reasonCandidates:
-        if not set(reason.evidenceIds).issubset(aliases):
-            return None, attempts, "invalid_evidence_alias"
     return gate, attempts, None
 
 
@@ -1348,7 +1568,13 @@ def _negative_control_passed(
     return not value_gate_is_publishable(gate, primary, failure)
 
 
-async def _negative_controls(usage: _Usage, caller: LLMCaller) -> list[str]:
+async def _negative_controls(
+    usage: _Usage,
+    caller: LLMCaller,
+    *,
+    result_cache: _SelectionResultCache | None = None,
+    provider_calls_allowed: bool = True,
+) -> list[str]:
     failures: list[str] = []
     for index, (name, text) in enumerate(negative_control_cases(), 1):
         candidate = _negative_control_candidate(index, text)
@@ -1362,7 +1588,15 @@ async def _negative_controls(usage: _Usage, caller: LLMCaller) -> list[str]:
                 githubRepositoryId=candidate.githubRepositoryId,
             )
         ]
-        gate, _attempts, failure = await _run_gate(candidate, evidence, usage, caller)
+        with budget_stage("negative_control"):
+            gate, _attempts, failure = await _run_gate(
+                candidate,
+                evidence,
+                usage,
+                caller,
+                result_cache=result_cache,
+                provider_calls_allowed=provider_calls_allowed,
+            )
         if not _negative_control_passed(name, gate, failure):
             failures.append(name)
     return failures
@@ -1375,6 +1609,8 @@ async def _copy(
     caller: LLMCaller,
     *,
     format_retry: bool = True,
+    result_cache: _SelectionResultCache | None = None,
+    provider_calls_allowed: bool = True,
 ) -> tuple[SelectionCopyResult | None, int]:
     payload = {
         "task": (
@@ -1389,6 +1625,16 @@ async def _copy(
         "promptVersion": COPY_PROMPT_VERSION,
         "schemaVersion": COPY_SCHEMA_VERSION,
     }
+    aliases = {item.evidenceId for item in assessment.valueEvidence + assessment.timelinessEvidence}
+
+    def validate_result(value: BaseModel) -> str | None:
+        copy = SelectionCopyResult.model_validate(value, strict=True)
+        if assessment.timeliness.verdict != "strong" and copy.whyNowZh is not None:
+            return "copy_why_now_unsupported"
+        if not set(copy.evidenceIds).issubset(aliases):
+            return "invalid_evidence_alias"
+        return None
+
     value, attempts, _failure = await _prompt_json(
         scene=RardarLLMScene.WORTH_SEEING_COPY,
         effort=ReasoningEffort.MEDIUM,
@@ -1397,15 +1643,13 @@ async def _copy(
         usage=usage,
         caller=caller,
         format_retry=format_retry,
+        result_cache=result_cache,
+        provider_calls_allowed=provider_calls_allowed,
+        result_validator=validate_result,
     )
     if value is None:
         return None, attempts
     copy = SelectionCopyResult.model_validate(value, strict=True)
-    if assessment.timeliness.verdict != "strong" and copy.whyNowZh is not None:
-        return None, attempts
-    aliases = {item.evidenceId for item in assessment.valueEvidence + assessment.timelinessEvidence}
-    if not set(copy.evidenceIds).issubset(aliases):
-        return None, attempts
     return copy, attempts
 
 
@@ -1419,6 +1663,8 @@ async def build_selection(
     recall_batch_id: str | None = None,
     model_route_identity: str | None = None,
     force_retryable: bool = False,
+    process_candidate_ids: tuple[int, ...] | None = None,
+    provider_calls_allowed: bool = True,
 ) -> BuiltSelection:
     if caller is call_rardar_prompt_json:
         execution_budget(RardarLLMScene.WORTH_SEEING_GATE.value)
@@ -1435,15 +1681,22 @@ async def build_selection(
     recall_batch_id = recall_batch_id or default_recall_batch_id(source)
     _validate_recall_batch_id(recall_batch_id)
     recalled = recall_candidates(universe, recall_limit, batch_id=recall_batch_id)
+    processed = _processing_candidates(recalled, process_candidate_ids)
     usage = _Usage()
-    negative_failures = await _negative_controls(usage, caller)
+    result_cache = _SelectionResultCache(cache_root, model_route_identity)
+    negative_failures = await _negative_controls(
+        usage,
+        caller,
+        result_cache=result_cache,
+        provider_calls_allowed=provider_calls_allowed,
+    )
     if negative_failures:
         raise SelectionBuildError(
             "rardar_selection_negative_control_failed",
             f"Negative controls failed: {','.join(negative_failures)}",
         )
 
-    profile_projects = [_profile_project(candidate, index) for index, candidate in enumerate(recalled, 1)]
+    profile_projects = [_profile_project(candidate, index) for index, candidate in enumerate(processed, 1)]
     owned_client = github_client is None
     if github_client is None:
         github_client = httpx.AsyncClient(
@@ -1458,14 +1711,15 @@ async def build_selection(
             profile_projects,
             source.source_observation_set_id,
             cache_root,
-            translate_top=recall_limit,
-            concurrency=4,
+            translate_top=len(processed),
+            concurrency=1 if process_candidate_ids is not None else 4,
             client=github_client,
-            allow_model_generation=caller is call_rardar_prompt_json,
+            allow_model_generation=caller is call_rardar_prompt_json and provider_calls_allowed,
             model_route_identity=model_route_identity,
             force_retryable=force_retryable,
         )
         usage.model_calls += profiles.translation_calls
+        usage.cache_hits += profiles.translation_cache_hits
         if usage.model_calls > _MAX_MODEL_CALLS:
             raise SelectionBuildError(
                 "rardar_selection_model_budget_exhausted",
@@ -1473,7 +1727,7 @@ async def build_selection(
             )
         assessments: list[SelectionAssessment] = []
         release_requests = 0
-        for candidate in recalled:
+        for candidate in processed:
             collected = profiles.profiles[candidate.githubRepositoryId]
             unresolved_profile_failure = any(not failure.resolved for failure in collected.generation_failures)
             if (
@@ -1488,8 +1742,17 @@ async def build_selection(
             else:
                 try:
                     value_evidence = _value_evidence(candidate, collected)
-                    gate, gate_attempts, gate_failure = await _run_gate(candidate, value_evidence, usage, caller)
+                    gate, gate_attempts, gate_failure = await _run_gate(
+                        candidate,
+                        value_evidence,
+                        usage,
+                        caller,
+                        result_cache=result_cache,
+                        provider_calls_allowed=provider_calls_allowed,
+                    )
                 except SelectionBuildError as exc:
+                    if exc.code != "value_momentum_leakage":
+                        raise
                     value_evidence = []
                     gate = None
                     gate_attempts = 0
@@ -1552,9 +1815,12 @@ async def build_selection(
                     valueFailureCode=gate_failure,
                     timelinessFailureCode=timeliness_failure,
                     gateAttempts=gate_attempts,
+                    gateCacheHit=gate_attempts == 0 and gate is not None,
                     meaningfulChangeAttempts=change_attempts,
                     copyAttempts=0,
+                    copyCacheHit=False,
                     copyResult=None,
+                    profileCacheState=collected.profile_cache_state,
                     category=_category(candidate, collected),
                     categorySource="research_derived",
                     productFormsZh=list(collected.profile.productFormsZh[:3]),
@@ -1599,8 +1865,25 @@ async def build_selection(
                 copied.append(assessment)
                 continue
             collected = profiles.profiles[assessment.candidate.githubRepositoryId]
-            copy, attempts = await _copy(assessment, collected, usage, caller)
-            copied.append(assessment.model_copy(update={"copyResult": copy, "copyAttempts": attempts}))
+            copy, attempts = await _copy(
+                assessment,
+                collected,
+                usage,
+                caller,
+                result_cache=result_cache,
+                provider_calls_allowed=provider_calls_allowed,
+            )
+            copied.append(
+                assessment.model_copy(
+                    update={
+                        "copyResult": copy,
+                        "copyAttempts": attempts,
+                        "copyCacheHit": attempts == 0 and copy is not None,
+                        "copyFailureCode": None if copy is not None else "copy_unavailable",
+                        "failureCode": assessment.failureCode or (None if copy is not None else "copy_unavailable"),
+                    }
+                )
+            )
     finally:
         if owned_client:
             await github_client.aclose()
@@ -1613,6 +1896,7 @@ async def build_selection(
         model_route_identity=model_route_identity,
         recall_limit=recall_limit,
         recall_batch_id=recall_batch_id,
+        process_candidate_ids=process_candidate_ids,
     )
     source_fact_digest = _sha(
         _canonical_bytes(
@@ -1625,6 +1909,8 @@ async def build_selection(
                 "todayExplosionSha256": source.today_explosion_sha256,
                 "recallLimit": recall_limit,
                 "recallBatchId": recall_batch_id,
+                "executionMode": "small_batch" if process_candidate_ids is not None else "full",
+                "processCandidateIds": list(process_candidate_ids or ()),
                 **identities,
             }
         )
@@ -1645,7 +1931,26 @@ async def build_selection(
             }
         )
     )
-    assessment_result_digest = _sha(_canonical_bytes([item.model_dump(mode="json") for item in copied]))
+    assessment_result_digest = _sha(
+        _canonical_bytes(
+            [
+                {
+                    key: value
+                    for key, value in item.model_dump(mode="json").items()
+                    if key
+                    not in {
+                        "gateAttempts",
+                        "meaningfulChangeAttempts",
+                        "copyAttempts",
+                        "gateCacheHit",
+                        "copyCacheHit",
+                        "profileCacheState",
+                    }
+                }
+                for item in copied
+            ]
+        )
+    )
     failure_resolution_digest = _sha(
         _canonical_bytes(
             {
@@ -1695,7 +2000,7 @@ async def build_selection(
         for item in copied
     )
     unresolved_count = len(copied) - semantic_resolved_count
-    profile_coverage = profile_ready_count / len(recalled) if recalled else 1.0
+    profile_coverage = profile_ready_count / len(processed) if processed else 1.0
     assessment_coverage = gate_assessed_count / profile_ready_count if profile_ready_count else 0.0
     failure_histogram = {
         code: sum(item.failureCode == code for item in copied)
@@ -1707,7 +2012,7 @@ async def build_selection(
             retryable_histogram[collected.profile_failure_code] = (
                 retryable_histogram.get(collected.profile_failure_code, 0) + 1
             )
-    systemic_threshold = max(5, math.ceil(len(recalled) * 0.20))
+    systemic_threshold = max(5, math.ceil(len(processed) * 0.20))
     systemic_failure_codes = sorted(code for code, count in retryable_histogram.items() if count >= systemic_threshold)
     published_count = sum(item.publicationDisposition == "publish" for item in copied)
     healthy_gate = (
@@ -1715,6 +2020,10 @@ async def build_selection(
         and gate_assessed_count == profile_ready_count
         and not systemic_failure_codes
         and not negative_failures
+        and (
+            process_candidate_ids is None
+            or all(item.publicationDisposition != "publish" or item.copyResult is not None for item in copied)
+        )
     )
     if published_count > 0 and healthy_gate:
         activation_state = "ready"
@@ -1722,7 +2031,7 @@ async def build_selection(
         published_count == 0
         and healthy_gate
         and profile_retryable_failure_count == 0
-        and semantic_resolved_count == len(recalled)
+        and semantic_resolved_count == len(processed)
     ):
         activation_state = "empty"
     else:
@@ -1805,8 +2114,28 @@ async def build_selection(
         "currentEligible": activation_state in {"ready", "empty"},
         "latestAttemptGeneration": generation_id,
     }
-    base["payloadDigest"] = _sha(_canonical_bytes(base))
-    artifact = SelectionArtifact.model_validate(base, strict=True)
+    if process_candidate_ids is not None:
+        processed_ids = {item.githubRepositoryId for item in processed}
+        base.update(
+            {
+                "executionMode": "small_batch",
+                "recalledCandidateIds": [item.githubRepositoryId for item in recalled],
+                "processedCandidateIds": [item.githubRepositoryId for item in processed],
+                "unprocessedCandidateIds": [
+                    item.githubRepositoryId for item in recalled if item.githubRepositoryId not in processed_ids
+                ],
+                "processedCount": len(processed),
+            }
+        )
+    # Calculate the digest from the schema-normalized payload.  Pydantic fills
+    # backward-compatible defaults (including execution telemetry) during
+    # validation, so hashing the pre-validation mapping would produce bytes
+    # that the serving loader can never reproduce.
+    base["payloadDigest"] = "0" * 64
+    normalized = SelectionArtifact.model_validate(base, strict=True).model_dump(mode="python")
+    normalized.pop("payloadDigest")
+    normalized["payloadDigest"] = _sha(_canonical_bytes(normalized))
+    artifact = SelectionArtifact.model_validate(normalized, strict=True)
     return BuiltSelection(artifact=artifact, profiles=profiles, raw_bytes=_canonical_bytes(artifact))
 
 

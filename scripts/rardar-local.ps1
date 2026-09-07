@@ -45,6 +45,14 @@ function Test-Http([string]$Url) {
     }
 }
 
+function Get-LoopbackListenerPid([int]$Port) {
+    $listeners = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)
+    if ($listeners.Count -ne 1 -or $listeners[0].LocalAddress -ne "127.0.0.1") {
+        throw "Expected exactly one loopback listener on port $Port."
+    }
+    return [int]$listeners[0].OwningProcess
+}
+
 function Show-Status {
     $state = Read-State
     $postgresHealthy = (& $PgReady -h 127.0.0.1 -p $PgPort 2>$null) -match "accepting connections"
@@ -53,6 +61,8 @@ function Show-Status {
         PostgreSQL = if ($postgresHealthy) { "healthy" } else { "stopped" }
         Backend = if ($state -and (Test-Process $state.backendPid) -and (Test-Http "http://127.0.0.1:8102/health/live")) { "healthy" } else { "stopped" }
         Frontend = if ($state -and (Test-Process $state.frontendPid) -and (Test-Http "http://127.0.0.1:3000/api/health")) { "healthy" } else { "stopped" }
+        FrontendMode = if ($state -and $state.frontendMode) { $state.frontendMode } else { "unknown" }
+        Head = if ($state -and $state.head) { $state.head } else { "unknown" }
         DataMode = if ($state -and $state.dataMode) { $state.dataMode } elseif ($env:RARDAR_DATA_MODE) { $env:RARDAR_DATA_MODE } else { "real" }
         DataMirror = $MirrorRoot
         DataSynced = if (Test-Path -LiteralPath (Join-Path $MirrorRoot "serving\current.json") -PathType Leaf) { "yes" } else { "no; run rebuild-serving" }
@@ -98,20 +108,44 @@ function Start-Postgres {
             throw "Existing TopicEye local runtime is incomplete: $required"
         }
     }
-    if ((& $PgReady -h 127.0.0.1 -p $PgPort 2>$null) -match "accepting connections") { return }
+    $listeners = @(Get-NetTCPConnection -LocalPort $PgPort -State Listen -ErrorAction SilentlyContinue)
+    if ($listeners.Count -gt 0) {
+        if ($listeners.Count -ne 1 -or $listeners[0].LocalAddress -ne "127.0.0.1") {
+            throw "Existing PostgreSQL listener identity is unclear."
+        }
+        $postgres = Get-CimInstance Win32_Process -Filter "ProcessId = $($listeners[0].OwningProcess)"
+        $expectedExecutable = Join-Path $PgRoot "bin\postgres.exe"
+        if (
+            -not $postgres `
+            -or $postgres.ExecutablePath -ine $expectedExecutable `
+            -or -not $postgres.CommandLine `
+            -or $postgres.CommandLine.Replace("/", "\").IndexOf($PgData, [StringComparison]::OrdinalIgnoreCase) -lt 0
+        ) {
+            throw "Port $PgPort is not owned by the existing TopicEye PostgreSQL runtime."
+        }
+        if (-not ((& $PgReady -h 127.0.0.1 -p $PgPort 2>$null) -match "accepting connections")) {
+            throw "Existing TopicEye PostgreSQL listener is not healthy."
+        }
+        return
+    }
 
     $pidPath = Join-Path $PgData "postmaster.pid"
     if (Test-Path -LiteralPath $pidPath) {
-        $recordedPid = Get-Content -LiteralPath $pidPath -TotalCount 1
-        if (-not (Test-Process $recordedPid)) {
-            Remove-Item -LiteralPath $pidPath -Force
+        $recordedPidText = (Get-Content -LiteralPath $pidPath -TotalCount 1).Trim()
+        $recordedPid = 0
+        if (-not [int]::TryParse($recordedPidText, [ref]$recordedPid) -or $recordedPid -le 0) {
+            throw "Existing PostgreSQL PID record is invalid; it was left unchanged."
+        }
+        if (Test-Process $recordedPid) {
+            throw "Existing PostgreSQL PID is alive without the expected listener; refusing to start a second server."
         }
     }
     $pgLog = Join-Path $ControlRoot "postgres.log"
-    & $PgCtl start -D $PgData -l $pgLog -o "-p $PgPort -h 127.0.0.1" -w
+    & $PgCtl start -D $PgData -l $pgLog -o "-p $PgPort -h 127.0.0.1" -w -t 60
     if ($LASTEXITCODE -ne 0 -or -not ((& $PgReady -h 127.0.0.1 -p $PgPort 2>$null) -match "accepting connections")) {
         throw "Existing TopicEye PostgreSQL could not be started; see $pgLog"
     }
+    $null = Get-LoopbackListenerPid $PgPort
 }
 
 function Resolve-Database {
@@ -167,6 +201,15 @@ function Start-Rardar {
         }
     }
 
+    $head = (& git -C $RepoRoot rev-parse HEAD).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $head) {
+        throw "Could not identify the Runtime source revision."
+    }
+    $dirty = & git -C $RepoRoot status --short --untracked-files=all
+    if ($LASTEXITCODE -ne 0 -or $dirty) {
+        throw "Runtime worktree must be clean before startup."
+    }
+
     Start-Postgres
     $script:DatabaseUser = Resolve-DatabaseUser
     $database = Resolve-Database
@@ -191,6 +234,7 @@ function Start-Rardar {
         RARDAR_PRODUCT_MODE = "true"
         RARDAR_DATA_MODE = $dataMode
         RARDAR_DEMO_DATA_ENABLED = "false"
+        RARDAR_LOCAL_SHADOW_REVIEW = "true"
         RARDAR_INTELLIGENCE_DATA_DIR = $MirrorRoot
         CORS_ORIGINS = "http://127.0.0.1:3000"
         SCHEDULER_ENABLED = "false"
@@ -198,6 +242,9 @@ function Start-Rardar {
         DUCKDB_STARTUP_INIT_ENABLED = "false"
         STARTUP_SEED_ENABLED = "false"
         ADMIN_SEED_ENABLED = "false"
+        RARDAR_LLM_RUN_ID = $null
+        RARDAR_LLM_BUDGET_PATH = $null
+        RARDAR_LLM_BUDGET_LIMIT = $null
         PYTHONUTF8 = "1"
         PYTHONIOENCODING = "utf-8"
     }
@@ -217,18 +264,45 @@ function Start-Rardar {
         # The deeper /health/ready may probe optional DuckDB state and is not a
         # local product startup gate.
         Wait-Http "http://127.0.0.1:8102/health/live" 120
-        $savedProductMode = $env:RARDAR_PRODUCT_MODE
-        $savedBackendUrl = $env:BACKEND_API_URL
-        $env:RARDAR_PRODUCT_MODE = "true"
-        $env:BACKEND_API_URL = "http://127.0.0.1:8102"
+        $savedFrontendEnvironment = @{}
+        $frontendEnvironment = @{
+            NODE_ENV = "production"
+            RARDAR_PRODUCT_MODE = "true"
+            BACKEND_API_URL = "http://127.0.0.1:8102"
+            NEXT_TELEMETRY_DISABLED = "1"
+        }
+        foreach ($name in $frontendEnvironment.Keys) {
+            $savedFrontendEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+            [Environment]::SetEnvironmentVariable($name, $frontendEnvironment[$name], "Process")
+        }
         try {
             $next = Join-Path $FrontendRoot "node_modules\next\dist\bin\next"
-            $frontend = Start-Process -FilePath $Node -ArgumentList @($next, "dev", "--webpack", "--hostname", "127.0.0.1", "--port", "3000") -WorkingDirectory $FrontendRoot -RedirectStandardOutput (Join-Path $RuntimeRoot "frontend.out.log") -RedirectStandardError (Join-Path $RuntimeRoot "frontend.err.log") -WindowStyle Hidden -PassThru
+            Push-Location $FrontendRoot
+            try {
+                & $Node $next build --webpack
+                $buildExitCode = $LASTEXITCODE
+            } finally {
+                Pop-Location
+            }
+            if ($buildExitCode -ne 0) { throw "Rardar production frontend build failed." }
+            if (& git -C $RepoRoot status --short --untracked-files=all) {
+                throw "Runtime source changed while building the frontend."
+            }
+            $routes = Get-Content -LiteralPath (Join-Path $FrontendRoot ".next\routes-manifest.json") -Raw | ConvertFrom-Json
+            $apiRewrite = @($routes.rewrites.afterFiles | Where-Object { $_.source -eq "/api/:path*" })
+            if ($apiRewrite.Count -ne 1 -or $apiRewrite[0].destination -ne "http://127.0.0.1:8102/api/:path*") {
+                throw "Rardar production frontend build has an unexpected backend binding."
+            }
+            $frontendBuildId = (Get-Content -LiteralPath (Join-Path $FrontendRoot ".next\BUILD_ID") -Raw).Trim()
+            $frontend = Start-Process -FilePath $Node -ArgumentList @($next, "start", "--hostname", "127.0.0.1", "--port", "3000") -WorkingDirectory $FrontendRoot -RedirectStandardOutput (Join-Path $RuntimeRoot "frontend.out.log") -RedirectStandardError (Join-Path $RuntimeRoot "frontend.err.log") -WindowStyle Hidden -PassThru
         } finally {
-            $env:RARDAR_PRODUCT_MODE = $savedProductMode
-            $env:BACKEND_API_URL = $savedBackendUrl
+            foreach ($name in $frontendEnvironment.Keys) {
+                [Environment]::SetEnvironmentVariable($name, $savedFrontendEnvironment[$name], "Process")
+            }
         }
         Wait-Http "http://127.0.0.1:3000/api/health" 120
+        $backendListenerPid = Get-LoopbackListenerPid 8102
+        $frontendListenerPid = Get-LoopbackListenerPid 3000
     } catch {
         if ($frontend -and (Test-Process $frontend.Id)) { & taskkill.exe /PID $frontend.Id /T /F | Out-Null }
         if (Test-Process $backend.Id) { & taskkill.exe /PID $backend.Id /T /F | Out-Null }
@@ -236,15 +310,21 @@ function Start-Rardar {
     }
 
     [pscustomobject]@{
-        schemaVersion = 1
+        schemaVersion = 2
         repository = $RepoRoot
         startedAt = (Get-Date).ToUniversalTime().ToString("o")
         backendPid = $backend.Id
+        backendListenerPid = $backendListenerPid
         frontendPid = $frontend.Id
+        frontendListenerPid = $frontendListenerPid
         postgresPort = $PgPort
         database = $database
         dataMode = $dataMode
         dataMirror = $MirrorRoot
+        head = $head
+        frontendMode = "production"
+        frontendBuildId = $frontendBuildId
+        localShadowReview = $true
     } | ConvertTo-Json | Set-Content -LiteralPath $StatePath -Encoding utf8
     Show-Status
 }

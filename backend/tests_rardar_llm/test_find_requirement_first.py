@@ -34,7 +34,9 @@ def test_prompt_excerpts_keep_late_capability_context_bounded_and_original_intac
 
 def test_prompt_disjoint_excerpts_are_not_presented_as_contiguous():
     evidence = material("fixture/project1")
-    evidence.payload["evidenceIndex"]["readme:body:1"] = "search is local. " + "x" * 900 + "Permission requires paid edition." + "x" * 900
+    evidence.payload["evidenceIndex"]["readme:body:1"] = (
+        "search is local. " + "x" * 900 + "Permission requires paid edition." + "x" * 900
+    )
     result = service._find_prompt_evidence(evidence, profile())
     assert "[... omitted; separate source excerpt ...]" in result["evidenceIndex"]["readme:body:1"]
     value = comparison(["fixture/project1"], status="unknown", refs=[])
@@ -255,7 +257,9 @@ def test_supporting_quote_must_actually_occur_in_referenced_body():
 
 @pytest.mark.parametrize("changed", [False, True])
 def test_visible_markdown_link_quote_keeps_factual_words(changed):
-    quote = "the search engine feature is 100% local. This means that it does not run on an external service like Algolia"
+    quote = (
+        "the search engine feature is 100% local. This means that it does not run on an external service like Algolia"
+    )
     evidence = material("fixture/project1")
     evidence.payload["evidenceIndex"]["readme:body:1"] = quote.replace("Algolia", "[Algolia](https://www.algolia.com/)")
     value = comparison(["fixture/project1"])

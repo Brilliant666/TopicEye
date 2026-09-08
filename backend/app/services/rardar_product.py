@@ -564,9 +564,28 @@ def _find_prompt_evidence(material: ProjectEvidence, profile: RequirementProfile
     """Select bounded literal contexts without mutating the original evidence."""
     index = material.payload["evidenceIndex"]
     terms = set(re.findall(r"[a-z][a-z0-9-]{2,}", " ".join(profile.queries).lower()))
-    terms.update({"license", "deploy", "permission", "edition", "search", "retry", "schedule",
-                  "self-host", "kubernetes", "postgres", "enterprise", "community", "docker",
-                  "authentication", "access", "logs", "free", "paid"})
+    terms.update(
+        {
+            "license",
+            "deploy",
+            "permission",
+            "edition",
+            "search",
+            "retry",
+            "schedule",
+            "self-host",
+            "kubernetes",
+            "postgres",
+            "enterprise",
+            "community",
+            "docker",
+            "authentication",
+            "access",
+            "logs",
+            "free",
+            "paid",
+        }
+    )
     pattern = re.compile("|".join(re.escape(term) for term in sorted(terms, key=len, reverse=True)), re.IGNORECASE)
     body = {ref: str(text) for ref, text in index.items() if ref.startswith("readme:body:")}
     candidates: list[tuple[int, int, str, int, int]] = []
@@ -600,8 +619,8 @@ def _find_prompt_evidence(material: ProjectEvidence, profile: RequirementProfile
     return {
         "evidenceIndex": evidence_index,
         "materialScope": "Selected literal README excerpts, at most 4200 characters; omitted text is not negative evidence. "
-                         "Refs retain original source identity; never quote across an omission marker. "
-                         "Capabilities not established here remain unknown; source files were not executed.",
+        "Refs retain original source identity; never quote across an omission marker. "
+        "Capabilities not established here remain unknown; source files were not executed.",
     }
 
 

@@ -72,6 +72,8 @@ for (const identity of ['anonymous', 'admin']) {
         await expect(comparison.getByRole('link', { name: /核对资料/ }).first()).toHaveAttribute('href', /\/blob\/main\/README\.md$/);
         if (count > 1) await expect(comparison.getByText('本次检索的替代方案', { exact: true }).first()).toBeVisible();
       }
+      await comparison.scrollIntoViewIfNeeded();
+      await comparison.screenshot({ path: test.info().outputPath('comparison.png') });
       await page.reload();
       await expect(page.getByRole('heading', { name: `需求与证据对照 · ${count} 个重点方案` })).toBeVisible();
       await page.getByRole('region', { name: '最近需求结果' }).getByRole('button').first().click();

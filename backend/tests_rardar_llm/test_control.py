@@ -633,8 +633,25 @@ async def test_structured_output_fails_closed(control_plane, monkeypatch, raw: s
             schema_version="s1",
         )
     assert error.value.code == "rardar_llm_invalid_output"
+    assert error.value.validation_stage in {"json_parse", "structure"}
+    assert error.value.field_path.startswith("$")
+    assert error.value.validation_type
     if raw:
         assert raw not in str(error.value)
+
+
+def test_schema_diagnostic_redacts_untrusted_extra_property_name():
+    from pydantic import ValidationError
+
+    from app.services.rardar_llm_control import _schema_validation_error
+
+    with pytest.raises(ValidationError) as captured:
+        StrictPayload.model_validate({"title": "private-input", "count": 1, "secret-extra-name": "secret-value"})
+    error = _schema_validation_error(captured.value, StrictPayload)
+    assert error.field_path == "$.<extra-field>"
+    assert error.validation_type == "extra_forbidden"
+    assert "secret" not in repr(vars(error))
+    assert "private-input" not in repr(vars(error))
 
 
 @pytest.mark.asyncio

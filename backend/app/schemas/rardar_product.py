@@ -260,7 +260,7 @@ class FindProjectResponse(StrictProductModel):
     comparison: FindProjectComparison | None = None
     plainComparison: str | None = Field(default=None, max_length=2400)
     errorCode: str | None = Field(default=None, max_length=100)
-    promptVersion: Literal["rardar-find-project-v4"]
+    promptVersion: Literal["rardar-find-project-v4", "rardar-find-project-v5"]
     requirementProfile: RequirementProfile | None = None
     queriedQueries: list[str] = Field(default_factory=list, max_length=3)
     evidenceSources: list[FindEvidenceSource] = Field(default_factory=list, max_length=1000)

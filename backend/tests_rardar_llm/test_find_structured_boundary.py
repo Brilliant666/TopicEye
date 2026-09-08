@@ -26,7 +26,8 @@ async def test_planner_failure_preserves_maximum_length_requirement(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_find_json_reuse_type_survives_real_structured_boundary(monkeypatch):
+@pytest.mark.parametrize("empty_checks", [False, True])
+async def test_find_json_reuse_type_survives_real_structured_boundary(monkeypatch, empty_checks):
     payload = {
         "candidates": [
             {
@@ -46,16 +47,27 @@ async def test_find_json_reuse_type_survives_real_structured_boundary(monkeypatc
         ],
         "overallConclusion": "资料不足，不能确认匹配",
     }
+    if empty_checks:
+        # Minimal synthetic reproduction of B's observed structural failure, not its raw response.
+        payload["candidates"][0]["requirementChecks"] = []
 
     async def provider(*_args, **_kwargs):
         return json.dumps(payload), {"provider": "mock", "model_name": "mock"}
 
     monkeypatch.setattr(control, "call_llm_with_metadata", provider)
-    result = await control.call_rardar_structured(
+    call = control.call_rardar_structured(
         scene=control.RardarLLMScene.FIND_PROJECT_COMPARISON,
         messages=[{"role": "user", "content": "test"}],
         response_model=FindWireComparison,
-        prompt_version="rardar-find-project-v4",
+        prompt_version="rardar-find-project-v5",
         schema_version="rardar-find-project-schema-v3",
     )
+    if empty_checks:
+        with pytest.raises(control.RardarLLMError) as captured:
+            await call
+        assert captured.value.validation_stage == "structure"
+        assert captured.value.field_path == "$.candidates[0].requirementChecks"
+        assert captured.value.validation_type == "too_short"
+        return
+    result = await call
     assert result.value.candidates[0].reuseType == "reference_only"

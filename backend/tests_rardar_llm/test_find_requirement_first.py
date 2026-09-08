@@ -375,7 +375,10 @@ async def test_comparison_keeps_full_index_without_duplicate_payload(monkeypatch
     payload = json.loads(captured[0][1]["content"])
     assert payload["requiredChecks"] == {"c1": "支持全文搜索", "c2": "无需托管服务"}
     assert "requirementProfile" not in payload
-    sent = payload["projectEvidence"]["fixture/project1"]
+    assert "projectEvidence" not in payload
+    assert len(captured[0]) == 3
+    assert captured[0][1]["role"] == captured[0][2]["role"] == "user"
+    sent = json.loads(captured[0][2]["content"])["projectEvidence"]["fixture/project1"]
     assert set(sent) == {"evidenceIndex", "materialScope"}
     assert sent["evidenceIndex"] == material("fixture/project1").payload["evidenceIndex"]
     assert any(row.text == BODY for row in result.evidenceSources)
@@ -411,7 +414,7 @@ def test_wire_expansion_restores_exact_text_without_changing_judgment_or_evidenc
 
 
 @pytest.mark.asyncio
-async def test_application_rejects_missing_wire_condition_and_preserves_candidate(monkeypatch):
+async def test_application_rejects_missing_wire_condition_and_preserves_candidate(monkeypatch, caplog):
     install(monkeypatch, ["fixture/project1"])
 
     async def model(**kwargs):
@@ -431,3 +434,34 @@ async def test_application_rejects_missing_wire_condition_and_preserves_candidat
     assert result.errorCode == "rardar_llm_invalid_output"
     assert result.comparison is None
     assert result.quickCandidates[0].repository == "fixture/project1"
+    assert "operation_id=" in caplog.text
+    assert "stage=condition_coverage" in caplog.text
+    assert "field=$.candidates[0].requirementChecks" in caplog.text
+    assert "团队自托管文档全文搜索" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "defect,stage,path",
+    [
+        ("identity", "repository_identity", "$.candidates[0].repository"),
+        ("refs", "reference_scope", "$.candidates[0].evidenceRefs"),
+        ("coverage", "condition_coverage", "$.candidates[0].requirementChecks"),
+        ("quote", "quote_text", "$.candidates[0].requirementChecks[0].supportingQuote"),
+    ],
+)
+def test_validation_diagnostics_identify_rule_without_visible_model_text(defect, stage, path):
+    value = comparison(["fixture/project1"])
+    if defect == "identity":
+        value.candidates[0].repository = "untrusted/secret"
+    elif defect == "refs":
+        value.candidates[0].evidenceRefs = ["untrusted-secret-ref"]
+    elif defect == "coverage":
+        value.candidates[0].requirementChecks.pop()
+    else:
+        value.candidates[0].requirementChecks[0].supportingQuote = "untrusted-secret-quote"
+    with pytest.raises(RardarLLMError) as captured:
+        service._validate_find_comparison(value, {"fixture/project1": material("fixture/project1")}, profile())
+    error = captured.value
+    assert error.validation_stage == stage
+    assert error.field_path == path
+    assert "untrusted" not in repr(vars(error))

@@ -17,7 +17,7 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from app.services.llm._call_engine import _is_deterministic_request_error, _is_rate_limit_error
+from app.services.llm._call_engine import FindCompletionTimeout, _is_deterministic_request_error, _is_rate_limit_error
 from app.services.llm._model_cache import _model_cache
 from app.services.llm.provider import LlmRouteNotConfiguredError, call_llm_with_metadata
 from app.services.llm.provider_budget import ProviderBudgetError
@@ -47,10 +47,52 @@ class ReasoningEffort(StrEnum):
 class RardarLLMError(RuntimeError):
     """Stable, non-secret error exposed to Rardar business callers."""
 
-    def __init__(self, code: str, *, classification: str | None = None):
+    def __init__(
+        self,
+        code: str,
+        *,
+        classification: str | None = None,
+        validation_stage: str | None = None,
+        field_path: str | None = None,
+        validation_type: str | None = None,
+    ):
         self.code = code
         self.classification = classification
+        self.validation_stage = validation_stage
+        self.field_path = field_path
+        self.validation_type = validation_type
         super().__init__(code)
+
+
+def _schema_validation_error(exc: ValidationError, response_model: type[BaseModel]) -> RardarLLMError:
+    """Keep schema locations/types, never Pydantic's input, context or messages."""
+    known_fields: set[str] = set()
+
+    def collect(node: Any) -> None:
+        if isinstance(node, dict):
+            known_fields.update(node.get("properties", {}))
+            for child in node.values():
+                collect(child)
+        elif isinstance(node, list):
+            for child in node:
+                collect(child)
+
+    collect(response_model.model_json_schema())
+    first = exc.errors(include_input=False, include_context=False, include_url=False)[0]
+    path = "$"
+    for part in first["loc"]:
+        if isinstance(part, int):
+            path += f"[{part}]"
+        else:
+            # Extra property names originate in untrusted output and may contain secrets.
+            path += "." + (part if part in known_fields else "<extra-field>")
+    return RardarLLMError(
+        "rardar_llm_invalid_output",
+        classification="schema_invalid",
+        validation_stage="structure",
+        field_path=path,
+        validation_type=first["type"],
+    )
 
 
 @dataclass(frozen=True)
@@ -157,6 +199,8 @@ def _map_control_error(error: Exception) -> RardarLLMError:
         return RardarLLMError(error.code, classification="budget")
     if isinstance(error, LlmRouteNotConfiguredError):
         return RardarLLMError("rardar_llm_not_configured")
+    if isinstance(error, FindCompletionTimeout):
+        return RardarLLMError("rardar_llm_unavailable", classification=error.classification)
     if isinstance(error, ValueError) or _is_deterministic_request_error(error):
         return RardarLLMError("rardar_llm_request_rejected")
     if isinstance(error, TimeoutError | asyncio.TimeoutError) or "timeout" in str(error).casefold():
@@ -292,9 +336,15 @@ async def call_rardar_structured(
         value = response_model.model_validate(parsed, strict=True)
     except StrictJSONError as exc:
         classification = "empty" if "empty" in str(exc).casefold() else "invalid_json"
-        raise RardarLLMError("rardar_llm_invalid_output", classification=classification) from None
-    except ValidationError:
-        raise RardarLLMError("rardar_llm_invalid_output", classification="schema_invalid") from None
+        raise RardarLLMError(
+            "rardar_llm_invalid_output",
+            classification=classification,
+            validation_stage="json_parse",
+            field_path="$",
+            validation_type=classification,
+        ) from None
+    except ValidationError as exc:
+        raise _schema_validation_error(exc, response_model) from None
     except Exception as exc:
         raise _map_control_error(exc) from None
     return RardarStructuredResult(

@@ -154,6 +154,8 @@ async def collect_project_evidence(
     artifact_facts: dict[str, Any],
     *,
     client: httpx.AsyncClient | None = None,
+    include_readme_body: bool = False,
+    readme_only: bool = False,
 ) -> ProjectEvidence:
     """Collect at most four public GitHub API responses; never clone or execute code."""
 
@@ -163,6 +165,8 @@ async def collect_project_evidence(
             "description": artifact_facts.get("description"),
             "pushedAt": artifact_facts.get("pushedAt"),
             "licenseSpdxId": artifact_facts.get("licenseSpdxId"),
+            "includeReadmeBody": include_readme_body,
+            "readmeOnly": readme_only,
         }
     )
     cache_key = (repository.lower(), revision)
@@ -190,11 +194,11 @@ async def collect_project_evidence(
     tree_items: list[dict[str, str]] = []
     release: dict[str, Any] | None = None
     try:
-        metadata_response = await _get(client, f"/repos/{repository}")
+        metadata_response = None if readme_only else await _get(client, f"/repos/{repository}")
         if metadata_response:
             metadata = _json_object(metadata_response) or {}
 
-        tree_response = await _get(client, f"/repos/{repository}/contents")
+        tree_response = None if readme_only else await _get(client, f"/repos/{repository}/contents")
         if tree_response and len(tree_response.content) <= _README_RESPONSE_MAX_BYTES:
             try:
                 tree_payload = tree_response.json()
@@ -235,7 +239,7 @@ async def collect_project_evidence(
                 readme_text = None
                 readme_path = None
 
-        release_response = await _get(client, f"/repos/{repository}/releases/latest")
+        release_response = None if readme_only else await _get(client, f"/repos/{repository}/releases/latest")
         if release_response:
             release = _json_object(release_response)
     finally:
@@ -258,6 +262,13 @@ async def collect_project_evidence(
         if readme_path:
             path_refs["readme:introduction"] = readme_path
     heading_occurrences: dict[str, int] = {}
+    if include_readme_body and readme_text:
+        # Find needs actual capability statements, not merely section headings.
+        for index, offset in enumerate(range(0, len(readme_text), 2000)):
+            reference = f"readme:body:{index + 1}"
+            allowed_refs.add(reference)
+            evidence_index[reference] = readme_text[offset : offset + 2000]
+            path_refs[reference] = readme_path or "README.md"
     for heading in headings:
         allowed_refs.add(heading["ref"])
         if readme_path:
@@ -337,7 +348,7 @@ async def collect_project_evidence(
         "latestRelease": release_summary,
         "evidenceIndex": evidence_index,
         "collectionLimits": {
-            "githubRequests": 4,
+            "githubRequests": 1 if readme_only else 4,
             "readmeChars": _README_MAX_CHARS,
             "treeItems": _TREE_MAX_ITEMS,
             "releaseCount": 1,

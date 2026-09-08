@@ -165,17 +165,57 @@ class QuickProjectCandidate(StrictProductModel):
     htmlUrl: HttpUrl
     preliminaryMatch: str = Field(min_length=2, max_length=400)
     dataState: Literal["github_live", "local_demo"]
+    isProvided: bool = False
+    pushedAt: AwareDatetime | None = None
+    evidenceState: Literal["ready", "metadata_only", "not_analyzed"] = "not_analyzed"
+
+
+class RequirementProfile(StrictProductModel):
+    purpose: str = Field(min_length=2, max_length=1200)
+    mustHave: list[str] = Field(min_length=1, max_length=8)
+    preferences: list[str] = Field(default_factory=list, max_length=6)
+    exclusions: list[str] = Field(default_factory=list, max_length=6)
+    queries: list[str] = Field(min_length=1, max_length=3)
+
+    @field_validator("queries")
+    @classmethod
+    def _safe_queries(cls, values: list[str]) -> list[str]:
+        for value in values:
+            if not re.fullmatch(r"[A-Za-z0-9 _+.#-]{2,120}", value):
+                raise ValueError("queries must be bounded plain search terms, not URLs or qualifiers")
+        return list(dict.fromkeys(values))
+
+
+class RequirementCheck(StrictProductModel):
+    requirement: str = Field(min_length=1, max_length=1200)
+    status: Literal["supported", "not_supported", "unknown"]
+    reason: str = Field(min_length=2, max_length=700)
+    evidenceRefs: list[str] = Field(default_factory=list, max_length=5)
+    supportingQuote: str = Field(default="", max_length=700)
+
+
+class FindEvidenceSource(StrictProductModel):
+    repository: str
+    ref: str
+    url: HttpUrl
+    text: str
+    kind: Literal["readme", "metadata", "static"]
 
 
 class ComparedProject(StrictProductModel):
     repository: str = Field(pattern=_REPOSITORY.pattern)
     whatItDoes: str = Field(min_length=2, max_length=500)
     whyMatched: str = Field(min_length=2, max_length=700)
-    reusableParts: list[str] = Field(min_length=1, max_length=5)
-    integrationCost: Literal["low", "medium", "high"]
-    risks: list[str] = Field(min_length=1, max_length=5)
+    reusableParts: list[str] = Field(default_factory=list, max_length=5)
+    integrationCost: Literal["low", "medium", "high", "unknown"]
+    risks: list[str] = Field(default_factory=list, max_length=5)
     recommendation: str = Field(min_length=2, max_length=700)
-    reuseType: ReuseType
+    # Strict Python validation receives decoded JSON strings, not Enum instances.
+    reuseType: Literal[
+        "whole_product", "module_library", "provider_connector", "workflow", "reference_only", "not_recommended"
+    ]
+    requirementChecks: list[RequirementCheck] = Field(min_length=1, max_length=20)
+    evidenceRefs: list[str] = Field(min_length=1, max_length=8)
 
     @field_validator("reusableParts", "risks")
     @classmethod
@@ -186,7 +226,26 @@ class ComparedProject(StrictProductModel):
 
 
 class FindProjectComparison(StrictProductModel):
-    candidates: list[ComparedProject] = Field(min_length=3, max_length=3)
+    candidates: list[ComparedProject] = Field(default_factory=list, max_length=3)
+    overallConclusion: str = Field(min_length=2, max_length=900)
+
+
+class FindConditionCheck(StrictProductModel):
+    """Model-only wire shape; requirement text is already known by the application."""
+
+    conditionId: str = Field(pattern=r"^c[1-9][0-9]?$")
+    status: Literal["supported", "not_supported", "unknown"]
+    reason: str = Field(min_length=2, max_length=700)
+    evidenceRefs: list[str] = Field(default_factory=list, max_length=5)
+    supportingQuote: str = Field(default="", max_length=700)
+
+
+class FindWireProject(ComparedProject):
+    requirementChecks: list[FindConditionCheck] = Field(min_length=1, max_length=20)
+
+
+class FindWireComparison(StrictProductModel):
+    candidates: list[FindWireProject] = Field(default_factory=list, max_length=3)
     overallConclusion: str = Field(min_length=2, max_length=900)
 
 
@@ -201,7 +260,10 @@ class FindProjectResponse(StrictProductModel):
     comparison: FindProjectComparison | None = None
     plainComparison: str | None = Field(default=None, max_length=2400)
     errorCode: str | None = Field(default=None, max_length=100)
-    promptVersion: Literal["rardar-find-project-v1"]
+    promptVersion: Literal["rardar-find-project-v4", "rardar-find-project-v5"]
+    requirementProfile: RequirementProfile | None = None
+    queriedQueries: list[str] = Field(default_factory=list, max_length=3)
+    evidenceSources: list[FindEvidenceSource] = Field(default_factory=list, max_length=1000)
     model: str | None = Field(default=None, max_length=200)
     provider: str | None = Field(default=None, max_length=100)
     cacheHit: bool = False

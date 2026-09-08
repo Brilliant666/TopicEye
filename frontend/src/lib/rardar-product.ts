@@ -68,6 +68,8 @@ export type QuickProjectCandidate = {
   htmlUrl: string;
   preliminaryMatch: string;
   dataState: 'github_live' | 'local_demo';
+  isProvided: boolean;
+  evidenceState: 'ready' | 'metadata_only' | 'not_analyzed';
 };
 
 export type FindProjectResponse = {
@@ -76,6 +78,9 @@ export type FindProjectResponse = {
   searchState: 'github_live' | 'limited' | 'demo';
   coverageLabel: string;
   sources: string[];
+  requirementProfile: { purpose: string; mustHave: string[]; preferences: string[]; exclusions: string[]; queries: string[] };
+  queriedQueries: string[];
+  evidenceSources: Array<{ repository: string; ref: string; url: string; text: string; kind: string }>;
   quickCandidates: QuickProjectCandidate[];
   aiState: 'ready' | 'plain' | 'unavailable' | 'insufficient_candidates';
   comparison: {
@@ -84,7 +89,9 @@ export type FindProjectResponse = {
       whatItDoes: string;
       whyMatched: string;
       reusableParts: string[];
-      integrationCost: 'low' | 'medium' | 'high';
+      integrationCost: 'low' | 'medium' | 'high' | 'unknown';
+      requirementChecks: Array<{ requirement: string; status: 'supported' | 'not_supported' | 'unknown'; reason: string; evidenceRefs: string[]; supportingQuote?: string }>;
+      evidenceRefs: string[];
       risks: string[];
       recommendation: string;
       reuseType: ReuseType;

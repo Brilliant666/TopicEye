@@ -131,7 +131,7 @@ export default function ModelEvalPage() {
             <AdminPageHeader
               title="AI 引擎工作台"
               icon={BrainCircuit}
-              description="管理内容分析、日报、周刊和分类任务使用的模型，定期做 A/B 测评，保留人工评分作为模型选择依据。"
+              description="管理模型与路由组，查看实际调用用量；A/B 测评是可选操作，会产生模型请求。"
             />
           </div>
           <Button type="button" variant="secondary" onClick={refreshAll} className="w-fit whitespace-nowrap">
@@ -140,6 +140,13 @@ export default function ModelEvalPage() {
           </Button>
         </div>
 
+        <p className="mt-4 text-sm text-gray-600">
+          Rardar 使用启用的 rardar 路由组配置。温度、输出长度是共享模型记录，不是固定产品要求；
+          JSON 输出由调用场景指定，Find 比较另有有界截止配置，不能将模型卡片视为全部出站参数。
+          保存共享记录会影响同组调用，本页查看不会调用模型。
+          {' '}<a className="text-primary underline" href="/admin/prompts">查看只读 Prompt 来源</a>
+          {' · '}<a className="text-primary underline" href="/dashboard">查看调用监控</a>
+        </p>
         <div className="mt-4 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
           <StatTile icon={Layers3} label="模型配置" value={models.length} hint={`${enabledCount} 个启用`} tone="primary" />
           <StatTile icon={KeyRound} label="可测模型" value={runnableCount} hint="具备调用条件" tone="teal" />

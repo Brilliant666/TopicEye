@@ -143,6 +143,98 @@ def _patch_no_wait_retry(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_find_comparison_policy_reaches_wire_and_binds_cache(control_plane, monkeypatch):
+    model_id = await control_plane.add_model(name="find-policy", temperature=0.3, max_tokens=2000)
+    await control_plane.reload_routes()
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        return _response('{"title":"ok","count":1}', kwargs["model"])
+
+    monkeypatch.setattr(_call_engine, "acompletion", completion)
+    monkeypatch.setattr(_call_engine.settings, "RARDAR_FIND_COMPLETION_TIMEOUT_SECONDS", 180)
+    monkeypatch.setattr(_call_engine.settings, "RARDAR_FIND_COMPARISON_MAX_TOKENS", 4096)
+
+    async def compare():
+        with _call_engine.find_comparison_deadline():
+            return await call_rardar_structured(
+                scene=RardarLLMScene.FIND_PROJECT_COMPARISON,
+                messages=[{"role": "user", "content": "JSON test"}],
+                response_model=StrictPayload,
+                prompt_version="mock-v1",
+                schema_version="mock-v1",
+            )
+
+    await compare()
+    assert (calls[-1]["max_tokens"], calls[-1]["timeout"], calls[-1]["temperature"]) == (4096, 180, 0.3)
+    assert calls[-1]["response_format"] == {"type": "json_object"}
+    assert "reasoning_effort" not in calls[-1]
+    assert (await compare()).metadata.cache_hit
+    assert len(calls) == 1
+    monkeypatch.setattr(_call_engine.settings, "RARDAR_FIND_COMPARISON_MAX_TOKENS", 3000)
+    await compare()
+    assert len(calls) == 2 and calls[-1]["max_tokens"] == 3000
+    # A changed actual route invalidates the comparison cache without relying on
+    # manual cache clearing. The explicit model timeout remains a lower cap.
+    route = (await provider._model_cache.get_route_models("rardar"))[0]
+    route.extra_params = {"litellm_params": {"timeout": 30}}
+    await compare()
+    assert len(calls) == 3 and calls[-1]["timeout"] == 30
+    await call_rardar_structured(
+        scene=RardarLLMScene.NEWS_QUICKREAD,
+        messages=[{"role": "user", "content": "JSON news"}],
+        response_model=StrictPayload,
+        prompt_version="mock-v1",
+        schema_version="mock-v1",
+    )
+    assert calls[-1]["max_tokens"] == 2000
+    monkeypatch.setattr(_call_engine.settings, "RARDAR_FIND_COMPARISON_MAX_TOKENS", 1000)
+    with _call_engine.find_comparison_deadline():
+        await provider.call_llm_with_metadata(
+            [{"role": "user", "content": "explicit output"}],
+            max_tokens=8000,
+            scene=RardarLLMScene.FIND_PROJECT_COMPARISON.value,
+            routing_group="rardar",
+            strict_routing_group=True,
+        )
+    assert calls[-1]["max_tokens"] == 1000
+    # The shared persisted model has not changed.
+    async with control_plane.sessions() as session:
+        model = await session.get(LlmModel, model_id)
+        assert model.max_tokens == 2000
+
+
+@pytest.mark.asyncio
+async def test_find_timeout_stops_actual_route_chain(control_plane, monkeypatch):
+    import httpx
+
+    await control_plane.add_model(name="find-first", priority=1)
+    await control_plane.add_model(name="find-second", priority=2)
+    await control_plane.reload_routes()
+    _patch_no_wait_retry(monkeypatch)
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        raise httpx.ReadTimeout("mock timeout")
+
+    monkeypatch.setattr(_call_engine, "acompletion", completion)
+    with _call_engine.find_comparison_deadline(), pytest.raises(RardarLLMError) as captured:
+        await call_rardar_prompt_json(
+            scene=RardarLLMScene.FIND_PROJECT_COMPARISON,
+            messages=[{"role": "user", "content": "mock evidence"}],
+            cache_identity="f" * 64,
+        )
+    assert captured.value.code == "rardar_llm_unavailable"
+    assert captured.value.classification == "sdk_timeout"
+    assert len(calls) == 1
+    logs = await control_plane.logs()
+    assert len(logs) == 1
+    assert logs[0].error_message == "FindCompletionTimeout: sdk_timeout"
+
+
+@pytest.mark.asyncio
 async def test_selection_shared_budget_counts_actual_retry_cache_and_exhaustion(control_plane, monkeypatch, tmp_path):
     from app.services.llm.provider_budget import ProviderBudgetLedger
 
@@ -541,8 +633,25 @@ async def test_structured_output_fails_closed(control_plane, monkeypatch, raw: s
             schema_version="s1",
         )
     assert error.value.code == "rardar_llm_invalid_output"
+    assert error.value.validation_stage in {"json_parse", "structure"}
+    assert error.value.field_path.startswith("$")
+    assert error.value.validation_type
     if raw:
         assert raw not in str(error.value)
+
+
+def test_schema_diagnostic_redacts_untrusted_extra_property_name():
+    from pydantic import ValidationError
+
+    from app.services.rardar_llm_control import _schema_validation_error
+
+    with pytest.raises(ValidationError) as captured:
+        StrictPayload.model_validate({"title": "private-input", "count": 1, "secret-extra-name": "secret-value"})
+    error = _schema_validation_error(captured.value, StrictPayload)
+    assert error.field_path == "$.<extra-field>"
+    assert error.validation_type == "extra_forbidden"
+    assert "secret" not in repr(vars(error))
+    assert "private-input" not in repr(vars(error))
 
 
 @pytest.mark.asyncio

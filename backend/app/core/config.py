@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 DEFAULT_LOCAL_SECRET_KEY = "topiceye-local-dev-secret-change-me"
@@ -188,6 +188,11 @@ class Settings(BaseSettings):
     LLM_WORKER_CONCURRENCY: int = 4
     # 单次运行时调用的硬上限；模型 extra_params.timeout 只能把它调小，不能放大。
     LLM_COMPLETION_TIMEOUT_SECONDS: float = 45.0
+    # Find compares multiple evidence bundles. Keep its deadline isolated from
+    # News/other scenes and bounded below the 300-second browser request limit.
+    RARDAR_FIND_COMPLETION_TIMEOUT_SECONDS: float = Field(default=180.0, ge=0.1, le=180.0)
+    # Comparison output default, not a change to the shared model record.
+    RARDAR_FIND_COMPARISON_MAX_TOKENS: int = Field(default=4096, ge=1, le=4096)
     ANALYSIS_WORKER_CONCURRENCY: int = 3
     ANALYSIS_MAX_ATTEMPTS: int = 5
     ANALYSIS_RETRY_BASE_DELAY_SECONDS: int = 60

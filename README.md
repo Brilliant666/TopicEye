@@ -317,6 +317,34 @@ deep insight is an explicit action on that detail page and uses the saved
 evidence; the single Find Project action safely pre-fills the canonical public
 GitHub URL.
 
+### Find Project：按需求核对公开项目
+
+`/find` 接受自然语言需求和可选公开 GitHub 仓库 URL。一次有界查询规划
+区分用途、必须条件、偏好和排除项；最多三条 GitHub Search 按相关性召回，
+轮流取候选而不按 Star 截断。最多六个项目读取现有安全 GitHub 证据入口的
+有界 README 和静态资料，再针对同一需求给出零至三个重点方案。
+
+每个必须条件及排除约束区分“资料支持 / 资料明确不满足 / 未确认”，并提供
+资料链接；README 声明不等于实际运行验证。提供的仓库不是默认最佳方案；
+未深评候选也不是被证明不合适。没有候选时不补演示仓库，模型不可用时仍
+保留真实召回资料，不用未验证的流畅文本替代结构验证。
+
+相同需求和证据复用现有模型路由缓存（进程内、有 TTL）；Star 等互动变化
+不进入比较输入。浏览、回退和查看本标签页近期结果不发起检索或模型调用。
+页面仅在当前标签页保存最近三组结果，最长 24 小时，可主动清除；它们不
+成为长期用户偏好。验证运行可使用既有持久 Provider 账本，Find 的规划、
+比较和底层重试共用 `find_project` 阶段额度，不借用历史 Shadow / News 账本。
+
+Find 的证据比较单次截止时间由 `RARDAR_FIND_COMPLETION_TIMEOUT_SECONDS`
+控制（默认及上限 120 秒），查询规划仍使用原通用截止时间（默认 45 秒）。
+模型配置的更短 timeout 仍有效；Find 超时不自动重复或切换模型消耗额度，
+日志区分本地截止取消与 SDK 超时，不将其一律归为远端 HTTP 故障。
+外层 Rardar 代理为 300 秒；用户取消不会重新提交模型请求。
+比较输入从已采集 README 中选取有界需求相关上下文，明确标注省略边界；
+未在摘录中找到能力不是“不支持”的证据。页面保留完整已采集材料（每仓库
+最多 12000 字符，并非完整仓库扫描），摘录仍需匹配原始证据；Markdown
+行内链接可按可见文字匹配，但不能改写事实或删除否定词。
+
 `start` starts the existing PostgreSQL cluster when needed, then the backend
 in Rardar product mode and the frontend at `http://127.0.0.1:3000/`. The
 frontend health probe uses `/api/health`, which does not load Rardar data. If no

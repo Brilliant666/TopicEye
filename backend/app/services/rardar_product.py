@@ -560,6 +560,51 @@ def _find_visible_quote(value: str) -> str:
     return " ".join(value.split())
 
 
+def _find_prompt_evidence(material: ProjectEvidence, profile: RequirementProfile) -> dict[str, Any]:
+    """Select bounded literal contexts without mutating the original evidence."""
+    index = material.payload["evidenceIndex"]
+    terms = set(re.findall(r"[a-z][a-z0-9-]{2,}", " ".join(profile.queries).lower()))
+    terms.update({"license", "deploy", "permission", "edition", "search", "retry", "schedule",
+                  "self-host", "kubernetes", "postgres", "enterprise", "community", "docker",
+                  "authentication", "access", "logs", "free", "paid"})
+    pattern = re.compile("|".join(re.escape(term) for term in sorted(terms, key=len, reverse=True)), re.IGNORECASE)
+    body = {ref: str(text) for ref, text in index.items() if ref.startswith("readme:body:")}
+    candidates: list[tuple[int, int, str, int, int]] = []
+    for order, (ref, text) in enumerate(body.items()):
+        if order == 0:
+            candidates.append((2, order, ref, 0, min(len(text), 400)))
+        for match in pattern.finditer(text):
+            start, end = max(0, match.start() - 160), min(len(text), match.end() + 220)
+            score = len({item.group().lower() for item in pattern.finditer(text[start:end])})
+            candidates.append((score, order, ref, start, end))
+    candidates.sort(key=lambda item: (-item[0], item[1], item[3]))
+    selected: dict[str, list[tuple[int, int]]] = {}
+    marker = "\n[... omitted; separate source excerpt ...]\n"
+
+    def render(ref: str, ranges: list[tuple[int, int]]) -> str:
+        return marker.join(body[ref][start:end] for start, end in ranges)
+
+    for _score, _order, ref, start, end in candidates:
+        ranges = sorted([*selected.get(ref, []), (start, end)])
+        merged: list[tuple[int, int]] = []
+        for left, right in ranges:
+            if merged and left <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], right))
+            else:
+                merged.append((left, right))
+        trial = {**selected, ref: merged}
+        if sum(len(render(key, value)) for key, value in trial.items()) <= 4200:
+            selected = trial
+    evidence_index = {ref: text for ref, text in index.items() if ref in {"repository", "description", "license"}}
+    evidence_index.update({ref: render(ref, selected[ref]) for ref in body if ref in selected})
+    return {
+        "evidenceIndex": evidence_index,
+        "materialScope": "Selected literal README excerpts, at most 4200 characters; omitted text is not negative evidence. "
+                         "Refs retain original source identity; never quote across an omission marker. "
+                         "Capabilities not established here remain unknown; source files were not executed.",
+    }
+
+
 def _validate_find_comparison(
     value: FindProjectComparison, evidence: dict[str, ProjectEvidence], profile: RequirementProfile
 ) -> None:
@@ -660,12 +705,8 @@ async def find_projects(
     }
     if not candidates:
         return FindProjectResponse(aiState="insufficient_candidates", **base)
-    # Keep every indexed statement and its reference; omit duplicate intro,
-    # headings, description and empty collection scaffolding from model input.
-    # The original evidence remains intact for validation and the response.
-    facts = {
-        repository: {"evidenceIndex": material.payload["evidenceIndex"]} for repository, material in evidence.items()
-    }
+    # Prompt excerpts are bounded; response sources and validation retain full collected evidence.
+    facts = {repository: _find_prompt_evidence(material, profile) for repository, material in evidence.items()}
     messages = [
         {
             "role": "system",

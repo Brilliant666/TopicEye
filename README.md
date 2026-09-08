@@ -340,7 +340,10 @@ Find 的证据比较单次截止时间由 `RARDAR_FIND_COMPLETION_TIMEOUT_SECOND
 模型配置的更短 timeout 仍有效；Find 超时不自动重复或切换模型消耗额度，
 日志区分本地截止取消与 SDK 超时，不将其一律归为远端 HTTP 故障。
 外层 Rardar 代理为 300 秒；用户取消不会重新提交模型请求。
-比较输入保留完整证据索引，去掉重复简介和空采集字段，引用校验不变。
+比较输入从已采集 README 中选取有界需求相关上下文，明确标注省略边界；
+未在摘录中找到能力不是“不支持”的证据。页面保留完整已采集材料（每仓库
+最多 12000 字符，并非完整仓库扫描），摘录仍需匹配原始证据；Markdown
+行内链接可按可见文字匹配，但不能改写事实或删除否定词。
 
 `start` starts the existing PostgreSQL cluster when needed, then the backend
 in Rardar product mode and the frontend at `http://127.0.0.1:3000/`. The

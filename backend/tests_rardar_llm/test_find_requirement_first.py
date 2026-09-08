@@ -15,6 +15,32 @@ from app.services.rardar_project_evidence import ProjectEvidence
 BODY = "Self-hosted Markdown documentation includes full-text search without hosted services."
 
 
+def test_prompt_excerpts_keep_late_capability_context_bounded_and_original_intact():
+    evidence = material("fixture/project1")
+    index = evidence.payload["evidenceIndex"]
+    for number in range(1, 7):
+        index[f"readme:body:{number}"] = "Unrelated introduction. " * 85
+    tail = "Deployment uses Docker. Community edition does not include granular permission controls; enterprise costs 100 dollars."
+    index["readme:body:6"] += tail
+    original = json.dumps(evidence.payload, sort_keys=True)
+    result = service._find_prompt_evidence(evidence, profile())
+    excerpts = result["evidenceIndex"]
+    assert tail in excerpts["readme:body:6"]
+    assert sum(len(value) for key, value in excerpts.items() if key.startswith("readme:body:")) <= 4200
+    assert "remain unknown" in result["materialScope"]
+    assert json.dumps(evidence.payload, sort_keys=True) == original
+    assert result == service._find_prompt_evidence(evidence, profile())
+
+
+def test_prompt_disjoint_excerpts_are_not_presented_as_contiguous():
+    evidence = material("fixture/project1")
+    evidence.payload["evidenceIndex"]["readme:body:1"] = "search is local. " + "x" * 900 + "Permission requires paid edition." + "x" * 900
+    result = service._find_prompt_evidence(evidence, profile())
+    assert "[... omitted; separate source excerpt ...]" in result["evidenceIndex"]["readme:body:1"]
+    value = comparison(["fixture/project1"], status="unknown", refs=[])
+    service._validate_find_comparison(value, {"fixture/project1": evidence}, profile())
+
+
 def profile():
     return RequirementProfile(
         purpose="团队文档站", mustHave=["支持全文搜索"], exclusions=["无需托管服务"], queries=["markdown documentation"]
@@ -335,6 +361,6 @@ async def test_comparison_keeps_full_index_without_duplicate_payload(monkeypatch
     payload = json.loads(captured[0][1]["content"])
     assert payload["requiredChecks"] == profile().mustHave + profile().exclusions
     sent = payload["projectEvidence"]["fixture/project1"]
-    assert set(sent) == {"evidenceIndex"}
+    assert set(sent) == {"evidenceIndex", "materialScope"}
     assert sent["evidenceIndex"] == material("fixture/project1").payload["evidenceIndex"]
     assert any(row.text == BODY for row in result.evidenceSources)

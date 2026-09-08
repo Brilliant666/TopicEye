@@ -31,6 +31,7 @@ LEGACY_STAGES = {
 STAGES = LEGACY_STAGES | {"project_profile", "profile_translation", "news_quickread"}
 _stage: ContextVar[str | None] = ContextVar("rardar_budget_stage", default=None)
 _single_attempt: ContextVar[list[int] | None] = ContextVar("rardar_single_attempt", default=None)
+_news_budget: ContextVar[ProviderBudgetLedger | None] = ContextVar("rardar_news_budget", default=None)
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
 
 
@@ -361,8 +362,23 @@ class ProviderBudgetLedger:
                 self.record("succeeded", stage, identifier)
 
 
+@contextmanager
+def news_execution_budget(ledger: ProviderBudgetLedger):
+    """Bind one news operation without mutating shared process environment."""
+    ledger.snapshot()
+    token = _news_budget.set(ledger)
+    try:
+        yield
+    finally:
+        _news_budget.reset(token)
+
+
 def execution_budget(scene: str) -> tuple[ProviderBudgetLedger, str] | None:
     """Selection requires a ledger. With one attached, all Rardar calls share it."""
+    explicit_news = _news_budget.get()
+    if explicit_news is not None and scene == "rardar_news_quickread":
+        explicit_news.snapshot()
+        return explicit_news, "news_quickread"
     guarded = scene.startswith("rardar_worth_seeing_")
     configured = any(
         os.environ.get(name)

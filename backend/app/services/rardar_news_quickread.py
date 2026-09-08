@@ -29,6 +29,7 @@ from app.services.rardar_llm_control import (
     call_rardar_structured,
     resolve_rardar_route_identity,
 )
+from app.services.rardar_news_operation_lock import news_writer
 
 QUICK_READ_MARKER = "rardarHotspotNewsQuickRead"
 QUICK_READ_FAILURE_MARKER = "rardarHotspotNewsQuickReadFailure"
@@ -220,6 +221,27 @@ async def enhance_hotspot_news(
     caller: StructuredCaller = call_rardar_structured,
     route_resolver: RouteResolver = resolve_rardar_route_identity,
     material_loader: MaterialLoader = _load_material,
+    frozen_page: Any | None = None,
+) -> HotspotNewsEnhanceResult:
+    with news_writer():
+        return await _enhance_hotspot_news(
+            db,
+            item_limit=item_limit,
+            caller=caller,
+            route_resolver=route_resolver,
+            material_loader=material_loader,
+            frozen_page=frozen_page,
+        )
+
+
+async def _enhance_hotspot_news(
+    db: AsyncSession,
+    *,
+    item_limit: int,
+    caller: StructuredCaller,
+    route_resolver: RouteResolver,
+    material_loader: MaterialLoader,
+    frozen_page: Any | None,
 ) -> HotspotNewsEnhanceResult:
     """Enhance at most one balanced page; this never refreshes news sources."""
     if isinstance(item_limit, bool) or item_limit < 1 or item_limit > 40:
@@ -227,7 +249,10 @@ async def enhance_hotspot_news(
     started_at = datetime.now(UTC)
     route_identity = await route_resolver()
     ledger, before_budget = _budget_snapshot()
-    page, _ = await load_hotspot_news(db, sort="balanced", page=1, page_size=item_limit)
+    if frozen_page is None:
+        page, _ = await load_hotspot_news(db, sort="balanced", page=1, page_size=item_limit)
+    else:
+        page = frozen_page
     repository = RardarHotspotNewsRepository(db)
     rows = await repository.list_items_by_ids(item_ids=[item.id for item in page.items])
     rows_by_id = {item.id: item for item in rows}

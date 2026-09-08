@@ -1,6 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/providers/AppProvider', () => ({ useAuthContext: () => ({ currentUser: null, authLoading: false }) }));
+
 import RardarHotspotNewsPage from '@/components/RardarHotspotNewsPage';
 import {
   loadHotspotNews,

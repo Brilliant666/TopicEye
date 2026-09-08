@@ -191,7 +191,28 @@ Discover evaluation, or model call:
 powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 refresh-news
 ```
 
-Chinese quick-read is a separate, explicitly budgeted local step. Initialize a
+For daily use, sign in as an administrator and use the operation panel on
+`/news`: **更新资讯** fetches only configured public sources with no model call;
+**补充中文速读** shows the current page scope and server request cap before an
+explicit confirmation. The server freezes that page, manages a new durable
+budget internally, and exposes status/results after navigation or reload.
+Ordinary GET requests never start work. Anonymous and non-admin POST requests
+are rejected; cookie POST requests must also pass the configured-origin check.
+
+The local-only runner reuses the same business functions as the CLI and an OS
+writer lock serializes refresh/enhancement across both entries. Repeated clicks
+during a run return the active operation; retries with the same request key do
+not allocate another budget. Interrupted runs are shown as interrupted, not
+automatically resumed. Completed content stays saved. The server-only
+`RARDAR_NEWS_REQUEST_LIMIT` defaults to 12 requests per explicit enhancement;
+the browser cannot change it. A single operation is bounded to 30 minutes and
+one page (18 items). State and budget journals live outside the checkout under
+`%LOCALAPPDATA%/TopicEye/news-operations/<database-hash>/` on Windows, or
+`~/.local/state/TopicEye/news-operations/<database-hash>/` elsewhere. Historical
+research and quick-read ledgers are never reused. No scheduler is added.
+
+The existing CLI remains available for operators. Chinese quick-read is a
+separate, explicitly budgeted local step. Initialize a
 durable run budget once, then reuse the same path and run ID for retries or
 cache verification:
 

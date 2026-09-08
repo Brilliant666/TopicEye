@@ -33,6 +33,7 @@ from app.schemas.rardar_hotspot_news import (
 )
 from app.services._error_redaction import redact_source_sync_error
 from app.services.content_summary import clean_content_summary
+from app.services.rardar_news_operation_lock import news_writer
 from app.services.scraper_http import build_scraper_client_kwargs
 from app.services.scrapers.rss import RSSScraper
 from app.services.trending_scrapers._hackernews import HackerNewsTrending
@@ -708,6 +709,15 @@ async def refresh_hotspot_news(
     db: AsyncSession,
     *,
     definitions: tuple[HotspotNewsSourceDefinition, ...] = HOTSPOT_NEWS_SOURCES,
+) -> HotspotNewsRefreshResult:
+    with news_writer():
+        return await _refresh_hotspot_news(db, definitions=definitions)
+
+
+async def _refresh_hotspot_news(
+    db: AsyncSession,
+    *,
+    definitions: tuple[HotspotNewsSourceDefinition, ...],
 ) -> HotspotNewsRefreshResult:
     """Refresh selected public sources sequentially without any model calls."""
     started_at = datetime.now(UTC)

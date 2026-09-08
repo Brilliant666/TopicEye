@@ -18,6 +18,7 @@ import {
   type HotspotSourceStatus,
 } from '@/lib/rardar-hotspot-news';
 import styles from './RardarFoundation.module.css';
+import RardarNewsOperations from './RardarNewsOperations';
 
 export default function RardarHotspotNewsPage({ result }: { result: HotspotNewsLoadResult }) {
   if (result.kind === 'error') {
@@ -37,6 +38,7 @@ export default function RardarHotspotNewsPage({ result }: { result: HotspotNewsL
   return (
     <div className={`${styles.page} ${styles.newsPage}`} data-rardar-route="/news">
       <NewsHero syncedAt={news.syncedAt} status={news.status} />
+      <RardarNewsOperations source={news.selectedSource} topic={news.selectedTopic} sort={news.sort} page={news.page} itemCount={news.itemCount} />
 
       {news.status === 'degraded' && (
         <section className={styles.newsWarning} role="status">
@@ -46,7 +48,7 @@ export default function RardarHotspotNewsPage({ result }: { result: HotspotNewsL
       )}
       {news.status === 'stale' && (
         <section className={styles.newsWarning} role="status">
-          <Clock3 size={18} aria-hidden="true" /> 已保存内容超过 24 小时未刷新，请显式运行资讯刷新命令。
+          <Clock3 size={18} aria-hidden="true" /> 已保存内容超过 24 小时未刷新，管理员可通过资讯更新入口同步。
         </section>
       )}
 
@@ -121,7 +123,7 @@ export default function RardarHotspotNewsPage({ result }: { result: HotspotNewsL
       ) : (
         <section className={styles.newsEmpty} role="status">
           {result.kind === 'not_synced' ? (
-            <><RefreshCw size={24} /><div><h2>热点资讯尚未同步</h2><p>运行本地 refresh-news 命令后，这里会读取真实保存结果。</p></div></>
+            <><RefreshCw size={24} /><div><h2>热点资讯尚未同步</h2><p>管理员点击更新资讯后，这里会读取真实保存结果。</p></div></>
           ) : (
             <><Newspaper size={24} /><div><h2>当前筛选暂无已保存内容</h2><p>这不代表源站没有资讯；可清除筛选或检查来源状态。</p></div></>
           )}

@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     # Explicit local-development fallback.  It is never consulted in
     # production and must never be mistaken for an audited generation.
     RARDAR_DEMO_DATA_ENABLED: bool = False
+    # Server-owned per-operation cap; never accepted from a browser request.
+    RARDAR_NEWS_REQUEST_LIMIT: int = 12
 
     # ── Database ──
     # 留空则启动时报错；本地开发请在 .env 中设置（参考 .env.example）。

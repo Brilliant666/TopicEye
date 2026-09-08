@@ -7,6 +7,8 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.auth import get_current_admin_user
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.product_profile import is_rardar_product
 from app.integrations.rardar import ExplosionBoardResponse, RardarArtifactError
@@ -14,6 +16,7 @@ from app.integrations.rardar.discover_serving_schemas import DiscoverApiResponse
 from app.integrations.rardar.selection_schemas import SelectionApiResponse, SelectionProjectDetail
 from app.integrations.rardar.serving_schemas import ServingProjectDetail, ServingTodaySnapshot
 from app.schemas.rardar_hotspot_news import HotspotNewsResponse
+from app.schemas.rardar_news_operations import NewsOperationRequest
 from app.schemas.rardar_product import (
     FindProjectRequest,
     FindProjectResponse,
@@ -21,6 +24,7 @@ from app.schemas.rardar_product import (
     ProjectExplanationResponse,
     ProjectInsightRequest,
 )
+from app.services import rardar_news_operations as news_operations
 from app.services.rardar_hotspot_news import load_hotspot_news
 from app.services.rardar_intelligence import (
     load_discover_project_detail,
@@ -96,6 +100,54 @@ async def hotspot_news(
         return cached
     _cache_headers(response, etag)
     return snapshot
+
+
+@router.get("/hotspot-news/operations")
+async def news_operation_status(response: Response, _admin=Depends(get_current_admin_user)):
+    if not is_rardar_product() or settings.is_production:
+        raise HTTPException(status_code=404, detail="Not found")
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "requestLimit": news_operations.request_limit(),
+        "pageSize": 18,
+        "latest": news_operations.latest_operation(),
+    }
+
+
+@router.get("/hotspot-news/operations/{operation_id}")
+async def news_operation_detail(operation_id: str, response: Response, _admin=Depends(get_current_admin_user)):
+    if not is_rardar_product() or settings.is_production:
+        raise HTTPException(status_code=404, detail="Not found")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        operation = news_operations.get_operation(operation_id)
+    except ValueError:
+        operation = None
+    if operation is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return operation
+
+
+@router.post("/hotspot-news/operations", status_code=202)
+async def news_operation_start(
+    payload: NewsOperationRequest,
+    request: Request,
+    response: Response,
+    admin=Depends(get_current_admin_user),
+):
+    if not is_rardar_product() or settings.is_production:
+        raise HTTPException(status_code=404, detail="Not found")
+    # Cookie auth needs an explicit same-origin browser request. Bearer clients
+    # retain the existing CLI/API authentication contract; localhost is not auth.
+    if not request.headers.get("authorization"):
+        origin = request.headers.get("origin")
+        if origin not in settings.cors_origins or request.headers.get("sec-fetch-site") == "cross-site":
+            raise HTTPException(status_code=403, detail="news_origin_rejected")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await news_operations.start_operation(payload, user_id=admin.id)
+    except (ValueError, news_operations.ProviderBudgetError):
+        raise HTTPException(status_code=409, detail="news_operation_unavailable") from None
 
 
 @router.get("/today", response_model=ServingTodaySnapshot)

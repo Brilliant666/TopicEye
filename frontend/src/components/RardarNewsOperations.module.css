@@ -1,0 +1,16 @@
+.panel { border: 1px solid #dbe5f4; border-radius: 18px; padding: 20px; background: #fff; margin: 18px 0; color: #334155; }
+.heading { display: flex; justify-content: space-between; align-items: center; gap: 18px; flex-wrap: wrap; }
+.heading h2 { font-size: 17px; font-weight: 700; margin: 0 0 6px; }
+.panel p, .login { font-size: 13px; line-height: 1.7; }
+.login { margin: 14px 0; color: #64748b; }
+.login a { color: #2563eb; text-decoration: underline; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.actions button { min-height: 42px; padding: 9px 14px; border: 1px solid #bfdbfe; border-radius: 10px; background: #eff6ff; color: #1d4ed8; font-size: 13px; font-weight: 600; cursor: pointer; }
+.actions button:disabled { opacity: .5; cursor: not-allowed; }
+.actions button:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+.confirm { margin-top: 14px; padding: 14px; background: #fffbeb; border-radius: 10px; }
+.confirm p { margin-bottom: 9px; }
+.result { margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 12px; font-size: 13px; }
+.result summary { cursor: pointer; color: #2563eb; }
+.result ul { margin-top: 8px; max-height: 240px; overflow: auto; line-height: 1.9; }
+@media (max-width: 600px) { .panel { padding: 15px; } .actions { width: 100%; } .actions button { flex: 1; } }

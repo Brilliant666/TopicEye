@@ -553,6 +553,13 @@ def _find_sources(repository: str, evidence: ProjectEvidence) -> list[dict[str, 
     return result
 
 
+def _find_visible_quote(value: str) -> str:
+    # An inline link's label is the visible README text, not an altered claim.
+    # Keep images, all other Markdown, and every word/number/negation unchanged.
+    value = re.sub(r"(?<!!)\[([^\[\]\n]+)\]\(https?://[^\s()]+\)", r"\1", value)
+    return " ".join(value.split())
+
+
 def _validate_find_comparison(
     value: FindProjectComparison, evidence: dict[str, ProjectEvidence], profile: RequirementProfile
 ) -> None:
@@ -576,10 +583,10 @@ def _validate_find_comparison(
                 # A title, repository name, license identifier or section heading is not feature evidence.
                 raise RardarLLMError("rardar_llm_invalid_output")
             if check.status != "unknown":
-                quote_text = " ".join(check.supportingQuote.split())
+                quote_text = _find_visible_quote(check.supportingQuote)
                 index = evidence[item.repository].payload["evidenceIndex"]
                 if len(quote_text) < 8 or not any(
-                    quote_text in " ".join(str(index[ref]).split())
+                    quote_text in _find_visible_quote(str(index[ref]))
                     for ref in check.evidenceRefs
                     if ref.startswith("readme:body:")
                 ):

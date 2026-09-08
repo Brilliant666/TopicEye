@@ -227,6 +227,23 @@ def test_supporting_quote_must_actually_occur_in_referenced_body():
         service._validate_find_comparison(value, {"fixture/project1": material("fixture/project1")}, profile())
 
 
+@pytest.mark.parametrize("changed", [False, True])
+def test_visible_markdown_link_quote_keeps_factual_words(changed):
+    quote = "the search engine feature is 100% local. This means that it does not run on an external service like Algolia"
+    evidence = material("fixture/project1")
+    evidence.payload["evidenceIndex"]["readme:body:1"] = quote.replace("Algolia", "[Algolia](https://www.algolia.com/)")
+    value = comparison(["fixture/project1"])
+    for check in value.candidates[0].requirementChecks:
+        check.supportingQuote = quote.replace("does not run", "does run") if changed else quote
+    if changed:
+        with pytest.raises(RardarLLMError):
+            service._validate_find_comparison(value, {"fixture/project1": evidence}, profile())
+    else:
+        service._validate_find_comparison(value, {"fixture/project1": evidence}, profile())
+        assert value.candidates[0].requirementChecks[0].supportingQuote == quote
+        assert "[Algolia](https://www.algolia.com/)" in evidence.payload["evidenceIndex"]["readme:body:1"]
+
+
 @pytest.mark.asyncio
 async def test_provided_repository_can_be_unknown_and_alternative_ranked_first(monkeypatch):
     install(monkeypatch, [])

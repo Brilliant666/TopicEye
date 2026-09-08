@@ -100,7 +100,7 @@ def test_find_endpoint_returns_facts_when_ai_is_unavailable(monkeypatch) -> None
             sources=[],
             quickCandidates=[],
             aiState="insufficient_candidates",
-            promptVersion="rardar-find-project-v2",
+            promptVersion="rardar-find-project-v3",
         )
 
     monkeypatch.setattr(rardar_api, "find_projects", find)

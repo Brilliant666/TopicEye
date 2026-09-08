@@ -17,7 +17,7 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from app.services.llm._call_engine import _is_deterministic_request_error, _is_rate_limit_error
+from app.services.llm._call_engine import FindCompletionTimeout, _is_deterministic_request_error, _is_rate_limit_error
 from app.services.llm._model_cache import _model_cache
 from app.services.llm.provider import LlmRouteNotConfiguredError, call_llm_with_metadata
 from app.services.llm.provider_budget import ProviderBudgetError
@@ -157,6 +157,8 @@ def _map_control_error(error: Exception) -> RardarLLMError:
         return RardarLLMError(error.code, classification="budget")
     if isinstance(error, LlmRouteNotConfiguredError):
         return RardarLLMError("rardar_llm_not_configured")
+    if isinstance(error, FindCompletionTimeout):
+        return RardarLLMError("rardar_llm_unavailable", classification=error.classification)
     if isinstance(error, ValueError) or _is_deterministic_request_error(error):
         return RardarLLMError("rardar_llm_request_rejected")
     if isinstance(error, TimeoutError | asyncio.TimeoutError) or "timeout" in str(error).casefold():

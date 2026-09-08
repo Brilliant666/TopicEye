@@ -24,6 +24,7 @@ from app.schemas.rardar_product import (
     QuickProjectCandidate,
     RequirementProfile,
 )
+from app.services.llm._call_engine import find_comparison_deadline
 from app.services.llm.strict_json import StrictJSONError, loads_strict_json
 from app.services.rardar_intelligence import (
     load_discover_project_detail,
@@ -42,7 +43,7 @@ from app.utils.prompt_safety import sanitize_prompt_input
 _REPOSITORY = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _PROJECT_PROMPT_VERSION = "rardar-project-insight-v5"
 _PROJECT_SCHEMA_VERSION = "rardar-project-insight-schema-v5"
-_FIND_PROMPT_VERSION = "rardar-find-project-v2"
+_FIND_PROMPT_VERSION = "rardar-find-project-v3"
 _FIND_SCHEMA_VERSION = "rardar-find-project-schema-v2"
 
 
@@ -652,7 +653,12 @@ async def find_projects(
     }
     if not candidates:
         return FindProjectResponse(aiState="insufficient_candidates", **base)
-    facts = {repository: material.payload for repository, material in evidence.items()}
+    # Keep every indexed statement and its reference; omit duplicate intro,
+    # headings, description and empty collection scaffolding from model input.
+    # The original evidence remains intact for validation and the response.
+    facts = {
+        repository: {"evidenceIndex": material.payload["evidenceIndex"]} for repository, material in evidence.items()
+    }
     messages = [
         {
             "role": "system",
@@ -666,7 +672,8 @@ async def find_projects(
                 "每项包含repository,whatItDoes,whyMatched,reusableParts(允许空),integrationCost(low|medium|high|unknown),"
                 "risks(允许空),recommendation,reuseType(whole_product|module_library|provider_connector|workflow|reference_only|not_recommended),"
                 "requirementChecks[{requirement,status,reason,evidenceRefs,supportingQuote}],evidenceRefs。"
-                "每个非unknown检查的supportingQuote必须逐字摘录对应README正文的8到700字符原文，不翻译；unknown可为空。"
+                "每个非unknown检查的supportingQuote必须逐字摘录对应README正文，优先8到180字符的最短充分片段，不翻译；unknown可为空。"
+                "各项中文说明简洁，不重复简介，不复制整段原文，不为填满三个方案扩写。"
                 "未知成本用unknown；不要编造风险或可复用模块。所有引用逐字使用对应项目evidenceIndex中的键。"
                 "若提供仓库在材料中，必须将其纳入比较（可明确not_recommended或unknown），不自动视为匹配；"
                 "同时可比较替代方案；次级候选未深评不等于不适合。"
@@ -688,14 +695,15 @@ async def find_projects(
         },
     ]
     try:
-        result = await call_rardar_structured(
-            scene=RardarLLMScene.FIND_PROJECT_COMPARISON,
-            messages=messages,
-            response_model=FindProjectComparison,
-            prompt_version=_FIND_PROMPT_VERSION,
-            schema_version=_FIND_SCHEMA_VERSION,
-            reasoning_effort=None,
-        )
+        with find_comparison_deadline():
+            result = await call_rardar_structured(
+                scene=RardarLLMScene.FIND_PROJECT_COMPARISON,
+                messages=messages,
+                response_model=FindProjectComparison,
+                prompt_version=_FIND_PROMPT_VERSION,
+                schema_version=_FIND_SCHEMA_VERSION,
+                reasoning_effort=None,
+            )
         _validate_find_comparison(result.value, evidence, profile)
         if request.repositoryUrl:
             provided = _repository_from_url(request.repositoryUrl)

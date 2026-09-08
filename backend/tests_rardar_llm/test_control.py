@@ -143,6 +143,35 @@ def _patch_no_wait_retry(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_find_timeout_stops_actual_route_chain(control_plane, monkeypatch):
+    import httpx
+
+    await control_plane.add_model(name="find-first", priority=1)
+    await control_plane.add_model(name="find-second", priority=2)
+    await control_plane.reload_routes()
+    _patch_no_wait_retry(monkeypatch)
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        raise httpx.ReadTimeout("mock timeout")
+
+    monkeypatch.setattr(_call_engine, "acompletion", completion)
+    with _call_engine.find_comparison_deadline(), pytest.raises(RardarLLMError) as captured:
+        await call_rardar_prompt_json(
+            scene=RardarLLMScene.FIND_PROJECT_COMPARISON,
+            messages=[{"role": "user", "content": "mock evidence"}],
+            cache_identity="f" * 64,
+        )
+    assert captured.value.code == "rardar_llm_unavailable"
+    assert captured.value.classification == "sdk_timeout"
+    assert len(calls) == 1
+    logs = await control_plane.logs()
+    assert len(logs) == 1
+    assert logs[0].error_message == "FindCompletionTimeout: sdk_timeout"
+
+
+@pytest.mark.asyncio
 async def test_selection_shared_budget_counts_actual_retry_cache_and_exhaustion(control_plane, monkeypatch, tmp_path):
     from app.services.llm.provider_budget import ProviderBudgetLedger
 

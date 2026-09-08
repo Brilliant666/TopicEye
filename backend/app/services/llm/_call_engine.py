@@ -14,15 +14,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
+from contextvars import ContextVar
 from typing import Any
 
+import httpx
 from litellm import RateLimitError, acompletion
 from litellm.exceptions import (  # noqa: I001 — litellm 子模块按 ruff isort 规则应与 litellm 同组
     BadRequestError,
     ContentPolicyViolationError,
     ContextWindowExceededError,
     JSONSchemaValidationError,
+    Timeout as LiteLLMTimeout,
     UnprocessableEntityError,
     UnsupportedParamsError,
 )
@@ -47,6 +50,27 @@ from app.services.llm.error_safety import safe_llm_error
 from app.services.llm.provider_budget import ProviderBudgetError, execution_budget
 
 logger = logging.getLogger(__name__)
+
+_FIND_SCENE = "rardar_find_project_comparison"
+_find_comparison_deadline: ContextVar[bool] = ContextVar("find_comparison_deadline", default=False)
+
+
+@contextmanager
+def find_comparison_deadline():
+    """Apply the longer bound only to evidence comparison, not query planning."""
+    token = _find_comparison_deadline.set(True)
+    try:
+        yield
+    finally:
+        _find_comparison_deadline.reset(token)
+
+
+class FindCompletionTimeout(TimeoutError):
+    """A bounded Find attempt ended; do not spend another identical attempt."""
+
+    def __init__(self, classification: str):
+        self.classification = classification
+        super().__init__(classification)
 
 
 def _is_rate_limit_error(exc: Exception) -> bool:
@@ -77,7 +101,9 @@ def _is_deterministic_request_error(exc: Exception) -> bool:
     过滤，也不能缩短超出上下文窗口的输入。将它们计入模型失败会错误地
     冷却健康路由，并在所有模型都拒绝同一请求时打开全局熔断器。
     """
-    if isinstance(exc, ProviderBudgetError):
+    # A Find deadline is not a malformed request, but must also terminate the
+    # shared retry/failover chain rather than silently spending more budget.
+    if isinstance(exc, ProviderBudgetError | FindCompletionTimeout):
         return True
     if isinstance(
         exc,
@@ -92,10 +118,17 @@ def _is_deterministic_request_error(exc: Exception) -> bool:
     return _is_bad_request_error(exc)
 
 
-def _completion_timeout_seconds(configured_timeout: Any = None) -> float:
-    """Return a positive, globally bounded LLM deadline in seconds."""
+def _completion_timeout_seconds(configured_timeout: Any = None, *, scene: str = "general") -> float:
+    """Return a positive deadline bounded by the applicable scene policy."""
     try:
-        hard_cap = max(float(settings.LLM_COMPLETION_TIMEOUT_SECONDS), 0.1)
+        hard_cap = max(
+            float(
+                settings.RARDAR_FIND_COMPLETION_TIMEOUT_SECONDS
+                if scene == _FIND_SCENE and _find_comparison_deadline.get()
+                else settings.LLM_COMPLETION_TIMEOUT_SECONDS
+            ),
+            0.1,
+        )
     except (TypeError, ValueError):
         hard_cap = 45.0
 
@@ -180,7 +213,7 @@ async def _call_llm_single(
     if budget is not None:
         # Every network attempt must pass through our durable reservation.
         kwargs["num_retries"] = 0
-    completion_timeout = _completion_timeout_seconds(kwargs.get("timeout"))
+    completion_timeout = _completion_timeout_seconds(kwargs.get("timeout"), scene=scene)
     # 同时传给 LiteLLM 和 asyncio。前者取消底层 HTTP 请求，后者为每个
     # provider 提供一致的兜底截止时间。
     kwargs["timeout"] = completion_timeout
@@ -204,10 +237,15 @@ async def _call_llm_single(
     try:
         async with acquire_completion_slot(model_config, scene):
             with budget[0].execution(budget[1]) if budget is not None else nullcontext():
-                response = await asyncio.wait_for(
-                    acompletion(**kwargs),
-                    timeout=completion_timeout,
-                )
+                deadline = asyncio.timeout(completion_timeout)
+                try:
+                    async with deadline:
+                        response = await acompletion(**kwargs)
+                except (TimeoutError, LiteLLMTimeout, httpx.TimeoutException) as exc:
+                    if scene == _FIND_SCENE:
+                        classification = "local_completion_deadline" if deadline.expired() else "sdk_timeout"
+                        raise FindCompletionTimeout(classification) from exc
+                    raise
         duration_ms = int((time.monotonic() - start) * 1000)
         content = response.choices[0].message.content
         usage = extract_usage(response)
@@ -251,7 +289,11 @@ async def _call_llm_single(
             scene=scene,
             status="FAILED",
             duration_ms=duration_ms,
-            error_message=safe_llm_error(exc),
+            error_message=(
+                f"FindCompletionTimeout: {exc.classification}"
+                if isinstance(exc, FindCompletionTimeout)
+                else safe_llm_error(exc)
+            ),
         )
         # ── 失败也记录指标 ──
         try:
@@ -275,7 +317,7 @@ def _should_retry(exc: BaseException) -> bool:
 
     BadRequestError (400) 也不重试：内容过滤等确定性错误重试只会浪费时间。
     """
-    if isinstance(exc, RateLimitError) or _is_deterministic_request_error(exc):
+    if isinstance(exc, asyncio.CancelledError | RateLimitError) or _is_deterministic_request_error(exc):
         return False
     return not _is_rate_limit_error(exc)
 

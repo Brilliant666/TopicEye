@@ -296,3 +296,26 @@ async def test_star_change_does_not_change_comparison_cache_input(monkeypatch):
         ) as client:
             await service.find_projects(FindProjectRequest(requirement="团队自托管文档全文搜索"), client=client)
     assert captured[0] == captured[1]
+
+
+@pytest.mark.asyncio
+async def test_comparison_keeps_full_index_without_duplicate_payload(monkeypatch):
+    captured = []
+    install(monkeypatch, ["fixture/project1"], captured=captured)
+
+    async def evidence(repository, facts, **kwargs):
+        value = material(repository)
+        value.payload["readme"] = {"introduction": BODY, "headings": []}
+        value.payload["metadata"] = {"topics": ["irrelevant-to-comparison"]}
+        return value
+
+    monkeypatch.setattr(service, "collect_project_evidence", evidence)
+    async with httpx.AsyncClient(
+        base_url="https://api.github.com",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"items": [repo(1)]})),
+    ) as client:
+        result = await service.find_projects(FindProjectRequest(requirement="团队自托管文档全文搜索"), client=client)
+    sent = json.loads(captured[0][1]["content"])["projectEvidence"]["fixture/project1"]
+    assert set(sent) == {"evidenceIndex"}
+    assert sent["evidenceIndex"] == material("fixture/project1").payload["evidenceIndex"]
+    assert any(row.text == BODY for row in result.evidenceSources)

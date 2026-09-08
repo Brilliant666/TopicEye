@@ -161,7 +161,9 @@ async def test_find_comparison_policy_reaches_wire_and_binds_cache(control_plane
             return await call_rardar_structured(
                 scene=RardarLLMScene.FIND_PROJECT_COMPARISON,
                 messages=[{"role": "user", "content": "JSON test"}],
-                response_model=StrictPayload, prompt_version="mock-v1", schema_version="mock-v1",
+                response_model=StrictPayload,
+                prompt_version="mock-v1",
+                schema_version="mock-v1",
             )
 
     await compare()
@@ -182,15 +184,19 @@ async def test_find_comparison_policy_reaches_wire_and_binds_cache(control_plane
     await call_rardar_structured(
         scene=RardarLLMScene.NEWS_QUICKREAD,
         messages=[{"role": "user", "content": "JSON news"}],
-        response_model=StrictPayload, prompt_version="mock-v1", schema_version="mock-v1",
+        response_model=StrictPayload,
+        prompt_version="mock-v1",
+        schema_version="mock-v1",
     )
     assert calls[-1]["max_tokens"] == 2000
     monkeypatch.setattr(_call_engine.settings, "RARDAR_FIND_COMPARISON_MAX_TOKENS", 1000)
     with _call_engine.find_comparison_deadline():
         await provider.call_llm_with_metadata(
             [{"role": "user", "content": "explicit output"}],
-            max_tokens=8000, scene=RardarLLMScene.FIND_PROJECT_COMPARISON.value,
-            routing_group="rardar", strict_routing_group=True,
+            max_tokens=8000,
+            scene=RardarLLMScene.FIND_PROJECT_COMPARISON.value,
+            routing_group="rardar",
+            strict_routing_group=True,
         )
     assert calls[-1]["max_tokens"] == 1000
     # The shared persisted model has not changed.

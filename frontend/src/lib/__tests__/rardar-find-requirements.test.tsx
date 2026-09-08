@@ -45,5 +45,9 @@ describe('Find requirement-first real component tree', () => {
     const data = response(1); data.aiState = 'unavailable'; data.comparison = null; data.plainComparison = 'unverified model prose';
     const html = renderToStaticMarkup(<FindResults result={data} />);
     expect(html).toContain('owner/repo-0'); expect(html).toContain('目前没有足够依据'); expect(html).not.toContain('unverified model prose');
+    expect(html).toContain('官方 README / 仓库资料（未实测）');
+    expect(html).toContain('Self-host on your server');
+    expect(html).toContain('https://github.com/owner/repo-0/blob/main/README.md');
+    expect(html).toContain('尚未深入分析');
   });
 });

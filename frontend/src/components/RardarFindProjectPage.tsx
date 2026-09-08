@@ -154,14 +154,15 @@ export function FindResults({ result }: { result: FindProjectResponse }) {
       <h2>全部真实召回候选</h2>
       <p className={styles.sourceLine}>未深入分析的候选不是已验证不合适；Star 仅作背景信息。</p>
       <section className={styles.quickGrid} aria-label="找项目快速候选">
-        {result.quickCandidates.map((candidate) => <QuickCandidateCard key={`${candidate.dataState}-${candidate.githubRepositoryId}`} candidate={candidate} />)}
+        {result.quickCandidates.map((candidate) => <QuickCandidateCard key={`${candidate.dataState}-${candidate.githubRepositoryId}`} candidate={candidate} evidenceSources={result.evidenceSources} />)}
       </section>
 
     </div>
   );
 }
 
-function QuickCandidateCard({ candidate }: { candidate: QuickProjectCandidate }) {
+function QuickCandidateCard({ candidate, evidenceSources }: { candidate: QuickProjectCandidate; evidenceSources: FindProjectResponse['evidenceSources'] }) {
+  const materials = evidenceSources.filter((source) => source.repository === candidate.repository && /^https:\/\//.test(source.url)).slice(0, 3);
   return (
     <article className={styles.quickCard}>
       <div className={styles.quickCardTop}>
@@ -179,6 +180,7 @@ function QuickCandidateCard({ candidate }: { candidate: QuickProjectCandidate })
         <div><dt>更新</dt><dd>{formatDate(candidate.updatedAt)}</dd></div>
       </dl>
       <p className={styles.matchReason}><CheckCircle2 size={14} /> {candidate.preliminaryMatch}</p>
+      {materials.length > 0 && <details><summary>官方 README / 仓库资料（未实测）</summary>{materials.map((source) => <div key={source.ref}><a href={source.url} target="_blank" rel="noreferrer">查看来源：{source.kind} ↗</a><p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{source.text.slice(0, 2400)}{source.text.length > 2400 ? '…（完整内容请查看来源）' : ''}</p></div>)}</details>}
     </article>
   );
 }

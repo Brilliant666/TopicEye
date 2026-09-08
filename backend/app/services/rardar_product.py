@@ -711,9 +711,11 @@ def _validate_find_comparison(
                 raise _find_validation_error("reference_scope", check_path + ".evidenceRefs", "body_reference_required")
             if check.status != "unknown":
                 quote_text = _find_visible_quote(check.supportingQuote)
+                literal_quote = " ".join(check.supportingQuote.split())
                 index = evidence[item.repository].payload["evidenceIndex"]
                 if len(quote_text) < 8 or not any(
-                    quote_text in _find_visible_quote(str(index[ref]))
+                    literal_quote in " ".join(str(index[ref]).split())
+                    or quote_text in _find_visible_quote(str(index[ref]))
                     for ref in check.evidenceRefs
                     if ref.startswith("readme:body:")
                 ):

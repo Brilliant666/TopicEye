@@ -264,6 +264,26 @@ def test_supporting_quote_must_actually_occur_in_referenced_body():
         service._validate_find_comparison(value, {"fixture/project1": material("fixture/project1")}, profile())
 
 
+@pytest.mark.parametrize("mutation", [None, "negation", "number"])
+def test_literal_quote_ending_at_markdown_link_label_is_not_rejected(mutation):
+    value = comparison(["fixture/project1"])
+    evidence = material("fixture/project1")
+    text = "Retries do not exceed 100 attempts with [exponential backoff](https://example.org/retries)."
+    check = value.candidates[0].requirementChecks[0]
+    evidence.payload["evidenceIndex"][check.evidenceRefs[0]] += "\n" + text
+    check.supportingQuote = "Retries do not exceed 100 attempts with [exponential backoff]"
+    if mutation:
+        check.supportingQuote = (
+            check.supportingQuote.replace("do not exceed", "do exceed")
+            if mutation == "negation"
+            else check.supportingQuote.replace("100", "200")
+        )
+        with pytest.raises(RardarLLMError):
+            service._validate_find_comparison(value, {"fixture/project1": evidence}, profile())
+    else:
+        service._validate_find_comparison(value, {"fixture/project1": evidence}, profile())
+
+
 @pytest.mark.parametrize("changed", [False, True])
 def test_visible_markdown_link_quote_keeps_factual_words(changed):
     quote = (

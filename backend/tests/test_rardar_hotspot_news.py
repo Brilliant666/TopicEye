@@ -313,6 +313,34 @@ async def test_article_body_identity_ignores_interaction_metadata_but_changes_wi
 
 
 @pytest.mark.asyncio
+async def test_quick_read_stops_after_two_consecutive_matching_provider_errors(db, monkeypatch):
+    definition = HOTSPOT_NEWS_SOURCES[1]
+    calls = 0
+
+    async def fake_fetch(source, source_definition):
+        return _FeedFetchResult(
+            entries=[_entry(url=f"https://example.com/story-{index}", title=f"Report {index}") for index in range(3)],
+            etag=None,
+            last_modified=None,
+            not_modified=False,
+        )
+
+    async def failing_call(**kwargs):
+        nonlocal calls
+        calls += 1
+        raise RardarLLMError("rardar_llm_invalid_output", classification="invalid_output")
+
+    monkeypatch.setattr(news_service, "_fetch_source", fake_fetch)
+    await refresh_hotspot_news(db, definitions=(definition,))
+    result = await enhance_hotspot_news(db, item_limit=3, caller=failing_call, route_resolver=_route)
+
+    assert result.status == "degraded"
+    assert result.considered == 2
+    assert result.failed == 2
+    assert calls == 2
+
+
+@pytest.mark.asyncio
 async def test_304_preserves_saved_rows(db, monkeypatch):
     definition = HOTSPOT_NEWS_SOURCES[0]
     results = [

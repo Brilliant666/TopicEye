@@ -234,6 +234,8 @@ async def enhance_hotspot_news(
     public_by_id = {item.id: item for item in page.items}
     results: list[HotspotNewsEnhanceItemResult] = []
     exhausted = False
+    last_provider_error: str | None = None
+    consecutive_provider_errors = 0
 
     for content_id in [item.id for item in page.items]:
         row = rows_by_id.get(content_id)
@@ -285,6 +287,8 @@ async def enhance_hotspot_news(
                 metadata=generated.metadata,
             )
             await db.commit()
+            last_provider_error = None
+            consecutive_provider_errors = 0
             results.append(
                 HotspotNewsEnhanceItemResult(
                     contentId=row.id,
@@ -309,6 +313,13 @@ async def enhance_hotspot_news(
                 )
             )
             if exhausted:
+                break
+            if exc.code == last_provider_error:
+                consecutive_provider_errors += 1
+            else:
+                last_provider_error = exc.code
+                consecutive_provider_errors = 1
+            if consecutive_provider_errors >= 2:
                 break
 
     after_budget = ledger.snapshot() if ledger is not None else None

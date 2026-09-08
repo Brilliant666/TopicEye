@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.schemas.rardar_product import FindProjectComparison
+from app.schemas.rardar_product import FindWireComparison
 from app.services import rardar_llm_control as control
 
 
@@ -39,7 +39,7 @@ async def test_find_json_reuse_type_survives_real_structured_boundary(monkeypatc
                 "recommendation": "阅读官方文档",
                 "reuseType": "reference_only",
                 "requirementChecks": [
-                    {"requirement": "可自托管", "status": "unknown", "reason": "没有足够资料", "evidenceRefs": []}
+                    {"conditionId": "c1", "status": "unknown", "reason": "没有足够资料", "evidenceRefs": []}
                 ],
                 "evidenceRefs": ["repository"],
             }
@@ -54,8 +54,8 @@ async def test_find_json_reuse_type_survives_real_structured_boundary(monkeypatc
     result = await control.call_rardar_structured(
         scene=control.RardarLLMScene.FIND_PROJECT_COMPARISON,
         messages=[{"role": "user", "content": "test"}],
-        response_model=FindProjectComparison,
-        prompt_version="rardar-find-project-v2",
-        schema_version="rardar-find-project-schema-v2",
+        response_model=FindWireComparison,
+        prompt_version="rardar-find-project-v4",
+        schema_version="rardar-find-project-schema-v3",
     )
     assert result.value.candidates[0].reuseType == "reference_only"

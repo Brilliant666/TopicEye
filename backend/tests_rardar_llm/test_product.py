@@ -10,7 +10,6 @@ from pydantic import ValidationError
 from app.core.config import Settings
 from app.integrations.rardar import RardarArtifactError
 from app.schemas.rardar_product import (
-    FindProjectComparison,
     FindProjectRequest,
     ProjectExplanation,
     ProjectExplanationRequest,
@@ -386,7 +385,7 @@ def _github_item(index: int) -> dict:
 
 @pytest.mark.asyncio
 async def test_find_project_compares_one_real_candidate_without_padding(monkeypatch):
-    from app.schemas.rardar_product import RequirementProfile
+    from app.schemas.rardar_product import FindWireComparison, RequirementProfile
 
     async def handler(request):
         if request.url.path == "/search/repositories":
@@ -400,7 +399,7 @@ async def test_find_project_compares_one_real_candidate_without_padding(monkeypa
             return SimpleNamespace(
                 value=RequirementProfile(purpose="工具", mustHave=["自动化"], queries=["automation"])
             )
-        value = FindProjectComparison.model_validate_json(
+        value = FindWireComparison.model_validate_json(
             json.dumps(
                 {
                     "candidates": [
@@ -415,7 +414,7 @@ async def test_find_project_compares_one_real_candidate_without_padding(monkeypa
                             "reuseType": "reference_only",
                             "requirementChecks": [
                                 {
-                                    "requirement": "自动化",
+                                    "conditionId": "c1",
                                     "status": "unknown",
                                     "reason": "没有获取README正文",
                                     "evidenceRefs": [],

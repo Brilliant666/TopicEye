@@ -7,7 +7,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.rardar_product import FindProjectComparison, FindProjectRequest, RequirementProfile
+from app.schemas.rardar_product import FindProjectComparison, FindProjectRequest, FindWireComparison, RequirementProfile
 from app.services import rardar_product as service
 from app.services.rardar_llm_control import RardarLLMError
 from app.services.rardar_project_evidence import ProjectEvidence
@@ -113,6 +113,15 @@ def comparison(repositories, status="supported", refs=None):
     )
 
 
+def wire_comparison(value):
+    payload = value.model_dump()
+    ids = {text: identity for identity, text in service._find_conditions(profile()).items()}
+    for item in payload["candidates"]:
+        for check in item["requirementChecks"]:
+            check["conditionId"] = ids[check.pop("requirement")]
+    return FindWireComparison.model_validate(payload, strict=True)
+
+
 def install(monkeypatch, chosen, *, failure=False, captured=None):
     async def model(**kwargs):
         if kwargs["response_model"] is RequirementProfile:
@@ -122,7 +131,7 @@ def install(monkeypatch, chosen, *, failure=False, captured=None):
         if failure:
             raise RardarLLMError("rardar_llm_invalid_output")
         return SimpleNamespace(
-            value=comparison(chosen),
+            value=wire_comparison(comparison(chosen)),
             metadata=SimpleNamespace(model_display_name="mock", provider="mock", cache_hit=False),
         )
 
@@ -283,7 +292,8 @@ async def test_provided_repository_can_be_unknown_and_alternative_ranked_first(m
             return SimpleNamespace(value=profile())
         value = comparison(["fixture/project2", "fixture/project1"], status="unknown", refs=[])
         return SimpleNamespace(
-            value=value, metadata=SimpleNamespace(model_display_name="mock", provider="mock", cache_hit=False)
+            value=wire_comparison(value),
+            metadata=SimpleNamespace(model_display_name="mock", provider="mock", cache_hit=False),
         )
 
     monkeypatch.setattr(service, "call_rardar_structured", model)
@@ -363,8 +373,61 @@ async def test_comparison_keeps_full_index_without_duplicate_payload(monkeypatch
     ) as client:
         result = await service.find_projects(FindProjectRequest(requirement="团队自托管文档全文搜索"), client=client)
     payload = json.loads(captured[0][1]["content"])
-    assert payload["requiredChecks"] == profile().mustHave + profile().exclusions
+    assert payload["requiredChecks"] == {"c1": "支持全文搜索", "c2": "无需托管服务"}
+    assert "requirementProfile" not in payload
     sent = payload["projectEvidence"]["fixture/project1"]
     assert set(sent) == {"evidenceIndex", "materialScope"}
     assert sent["evidenceIndex"] == material("fixture/project1").payload["evidenceIndex"]
     assert any(row.text == BODY for row in result.evidenceSources)
+
+
+@pytest.mark.parametrize("defect", ["missing", "duplicate", "unknown_id"])
+def test_wire_conditions_fail_closed_instead_of_synthesizing_judgments(defect):
+    value = wire_comparison(comparison(["fixture/project1"]))
+    checks = value.candidates[0].requirementChecks
+    if defect == "missing":
+        checks.pop()
+    elif defect == "duplicate":
+        checks[1].conditionId = checks[0].conditionId
+    else:
+        checks[1].conditionId = "c99"
+    with pytest.raises(RardarLLMError):
+        service._expand_find_comparison(value, profile())
+
+
+def test_wire_expansion_restores_exact_text_without_changing_judgment_or_evidence():
+    original = comparison(["fixture/project1"])
+    value = wire_comparison(original)
+    expanded = service._expand_find_comparison(value, profile())
+    assert expanded == original
+    service._validate_find_comparison(expanded, {"fixture/project1": material("fixture/project1")}, profile())
+    value.candidates[0].requirementChecks[0].supportingQuote = "Invented feature not in README"
+    with pytest.raises(RardarLLMError):
+        service._validate_find_comparison(
+            service._expand_find_comparison(value, profile()),
+            {"fixture/project1": material("fixture/project1")},
+            profile(),
+        )
+
+
+@pytest.mark.asyncio
+async def test_application_rejects_missing_wire_condition_and_preserves_candidate(monkeypatch):
+    install(monkeypatch, ["fixture/project1"])
+
+    async def model(**kwargs):
+        if kwargs["response_model"] is RequirementProfile:
+            return SimpleNamespace(value=profile())
+        value = wire_comparison(comparison(["fixture/project1"]))
+        value.candidates[0].requirementChecks.pop()
+        return SimpleNamespace(value=value)
+
+    monkeypatch.setattr(service, "call_rardar_structured", model)
+    async with httpx.AsyncClient(
+        base_url="https://api.github.com",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"items": [repo(1)]})),
+    ) as client:
+        result = await service.find_projects(FindProjectRequest(requirement="团队自托管文档全文搜索"), client=client)
+    assert result.aiState == "unavailable"
+    assert result.errorCode == "rardar_llm_invalid_output"
+    assert result.comparison is None
+    assert result.quickCandidates[0].repository == "fixture/project1"

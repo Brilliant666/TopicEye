@@ -230,6 +230,25 @@ class FindProjectComparison(StrictProductModel):
     overallConclusion: str = Field(min_length=2, max_length=900)
 
 
+class FindConditionCheck(StrictProductModel):
+    """Model-only wire shape; requirement text is already known by the application."""
+
+    conditionId: str = Field(pattern=r"^c[1-9][0-9]?$")
+    status: Literal["supported", "not_supported", "unknown"]
+    reason: str = Field(min_length=2, max_length=700)
+    evidenceRefs: list[str] = Field(default_factory=list, max_length=5)
+    supportingQuote: str = Field(default="", max_length=700)
+
+
+class FindWireProject(ComparedProject):
+    requirementChecks: list[FindConditionCheck] = Field(min_length=1, max_length=20)
+
+
+class FindWireComparison(StrictProductModel):
+    candidates: list[FindWireProject] = Field(default_factory=list, max_length=3)
+    overallConclusion: str = Field(min_length=2, max_length=900)
+
+
 class FindProjectResponse(StrictProductModel):
     requirement: str
     repositoryUrl: str | None
@@ -241,7 +260,7 @@ class FindProjectResponse(StrictProductModel):
     comparison: FindProjectComparison | None = None
     plainComparison: str | None = Field(default=None, max_length=2400)
     errorCode: str | None = Field(default=None, max_length=100)
-    promptVersion: Literal["rardar-find-project-v3"]
+    promptVersion: Literal["rardar-find-project-v4"]
     requirementProfile: RequirementProfile | None = None
     queriedQueries: list[str] = Field(default_factory=list, max_length=3)
     evidenceSources: list[FindEvidenceSource] = Field(default_factory=list, max_length=1000)

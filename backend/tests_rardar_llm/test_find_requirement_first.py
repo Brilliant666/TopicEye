@@ -332,7 +332,9 @@ async def test_comparison_keeps_full_index_without_duplicate_payload(monkeypatch
         transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"items": [repo(1)]})),
     ) as client:
         result = await service.find_projects(FindProjectRequest(requirement="团队自托管文档全文搜索"), client=client)
-    sent = json.loads(captured[0][1]["content"])["projectEvidence"]["fixture/project1"]
+    payload = json.loads(captured[0][1]["content"])
+    assert payload["requiredChecks"] == profile().mustHave + profile().exclusions
+    sent = payload["projectEvidence"]["fixture/project1"]
     assert set(sent) == {"evidenceIndex"}
     assert sent["evidenceIndex"] == material("fixture/project1").payload["evidenceIndex"]
     assert any(row.text == BODY for row in result.evidenceSources)

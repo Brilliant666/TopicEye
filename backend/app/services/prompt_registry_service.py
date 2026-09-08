@@ -27,6 +27,41 @@ logger = logging.getLogger(__name__)
 
 _PROMPT_CATALOG: list[dict[str, str]] = [
     {
+        "name": "rardar_find_plan",
+        "scene": "rardar_find_project_comparison",
+        "description": "Find 需求规划；静态系统提示词，用户需求为动态输入。统计按 scene 聚合，不是此版本评测。",
+        "module": "app.services.rardar_product",
+        "attr": "FIND_PLAN_SYSTEM_PROMPT",
+    },
+    {
+        "name": "rardar_find_comparison",
+        "scene": "rardar_find_project_comparison",
+        "description": "Find 有证据的候选比较；需求与仓库材料为动态输入。统计含同 scene 的规划，不是此版本评测。",
+        "module": "app.services.rardar_product",
+        "attr": "FIND_COMPARISON_SYSTEM_PROMPT",
+    },
+    {
+        "name": "rardar_news_quickread",
+        "scene": "rardar_news_quickread",
+        "description": "News 中文速读模板；material_contract 按以下材料分支替换，原文为动态输入。",
+        "module": "app.services.rardar_news_quickread",
+        "attr": "QUICK_READ_SYSTEM_TEMPLATE",
+    },
+    {
+        "name": "rardar_news_title_only",
+        "scene": "rardar_news_quickread",
+        "description": "News 仅标题的材料约束；与速读模板组合，不是独立模型阶段。",
+        "module": "app.services.rardar_news_quickread",
+        "attr": "QUICK_READ_TITLE_CONTRACT",
+    },
+    {
+        "name": "rardar_news_material",
+        "scene": "rardar_news_quickread",
+        "description": "News 摘要或正文的材料约束；与速读模板组合，不是独立模型阶段。",
+        "module": "app.services.rardar_news_quickread",
+        "attr": "QUICK_READ_MATERIAL_CONTRACT",
+    },
+    {
         "name": "analysis_system",
         "scene": "analysis",
         "description": "内容分析系统提示词（中文）",

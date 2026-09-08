@@ -19,9 +19,11 @@ import { adminPromptsApi } from '@/lib/api';
 import type { PromptRegistryItem, PromptDetailResponse } from '@/lib/api';
 import { formatDateTime } from '@/lib/datetime';
 
-const SCENE_FILTERS = ['', 'analysis', 'classification', 'creation_explore', 'creation_focus', 'creation_converge'];
+const SCENE_FILTERS = ['', 'rardar_find_project_comparison', 'rardar_news_quickread', 'analysis', 'classification', 'creation_explore', 'creation_focus', 'creation_converge'];
 
 const SCENE_LABELS: Record<string, string> = {
+  rardar_find_project_comparison: 'Rardar Find',
+  rardar_news_quickread: 'Rardar News 中文速读',
   analysis: '内容分析',
   classification: '内容分类',
   creation_explore: '创作探索',
@@ -85,7 +87,7 @@ export default function PromptsAdminPage() {
       <AdminPageHeader
         title="Prompt 管理"
         icon={ScrollText}
-        description="查看所有 LLM 提示词模板、源码位置和调用统计（只读）"
+        description="查看已登记的源码提示词目录（只读）；动态需求和证据不在目录中。统计按 scene 聚合，不代表单个 Prompt 版本的评测。"
         actions={
           <Button variant="secondary" onClick={fetchPrompts} disabled={loading}>
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
@@ -157,7 +159,7 @@ export default function PromptsAdminPage() {
                       <div className="font-mono text-lg font-black text-primary">
                         {item.stats_7d.call_count_7d}
                       </div>
-                      <div className="text-[10px] text-gray-400">7天调用</div>
+                      <div className="text-[10px] text-gray-400">7天场景调用</div>
                       {item.stats_7d.total_cost_7d > 0 && (
                         <div className="mt-0.5 flex items-center justify-end gap-0.5 text-[10px] text-gray-400">
                           <Coins size={10} />
@@ -208,8 +210,9 @@ export default function PromptsAdminPage() {
               </div>
 
               {/* 30-day stats */}
+              <p className="text-[12px] text-gray-500">以下为同 scene 的全部调用汇总，包含其他模板或版本，不是当前模板版本的独立评测。</p>
               <div className="grid grid-cols-4 gap-3 rounded-sm bg-gray-50 p-3">
-                <StatBox label="30天调用" value={String(detail.stats_30d.call_count)} />
+                <StatBox label="30天场景调用" value={String(detail.stats_30d.call_count)} />
                 <StatBox label="总费用" value={`$${detail.stats_30d.total_cost.toFixed(2)}`} />
                 <StatBox label="输入Token" value={detail.stats_30d.total_input_tokens.toLocaleString()} />
                 <StatBox label="平均耗时" value={`${detail.stats_30d.avg_duration_ms}ms`} />

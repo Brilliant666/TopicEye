@@ -37,6 +37,17 @@ QUICK_READ_FAILURE_MARKER = "rardarHotspotNewsQuickReadFailure"
 QUICK_READ_VERSION = 1
 QUICK_READ_PROMPT_VERSION = "rardar-news-quickread-v1"
 QUICK_READ_SCHEMA_VERSION = "rardar-news-quickread-output-v1"
+QUICK_READ_SYSTEM_TEMPLATE = (
+    "You create a faithful Chinese reading aid for one saved technology-news item. "
+    "Never add facts, numbers, dates, capabilities, causes or conclusions absent from the supplied material. "
+    "Keep phrases such as 'the company announced', 'the author argues', and 'the report says'. "
+    "Hacker News rank, score, comments and discussion are not article evidence. "
+    "{material_contract} Return strict JSON with exactly titleZh and summaryZh."
+)
+QUICK_READ_TITLE_CONTRACT = "Only the original title is available. Translate it faithfully. summaryZh MUST be null."
+QUICK_READ_MATERIAL_CONTRACT = (
+    "Write one to three concise Chinese sentences based only on MATERIAL. Preserve attribution and uncertainty."
+)
 QUICK_READ_TASK_ID = "RARDAR-NEWS-CHINESE-QUICKREAD-01"
 _HAN = re.compile(r"[\u3400-\u9fff]")
 
@@ -135,11 +146,7 @@ def _current_marker(item: ContentItem, *, identity: str) -> dict[str, Any] | Non
 
 
 def _messages(item: ContentItem, material: _Material) -> list[dict[str, Any]]:
-    material_contract = (
-        "Only the original title is available. Translate it faithfully. summaryZh MUST be null."
-        if material.kind == "title_only"
-        else "Write one to three concise Chinese sentences based only on MATERIAL. Preserve attribution and uncertainty."
-    )
+    material_contract = QUICK_READ_TITLE_CONTRACT if material.kind == "title_only" else QUICK_READ_MATERIAL_CONTRACT
     user_payload = {
         "originalTitle": item.title,
         "materialKind": material.kind,
@@ -148,13 +155,7 @@ def _messages(item: ContentItem, material: _Material) -> list[dict[str, Any]]:
     return [
         {
             "role": "system",
-            "content": (
-                "You create a faithful Chinese reading aid for one saved technology-news item. "
-                "Never add facts, numbers, dates, capabilities, causes or conclusions absent from the supplied material. "
-                "Keep phrases such as 'the company announced', 'the author argues', and 'the report says'. "
-                "Hacker News rank, score, comments and discussion are not article evidence. "
-                f"{material_contract} Return strict JSON with exactly titleZh and summaryZh."
-            ),
+            "content": QUICK_READ_SYSTEM_TEMPLATE.format(material_contract=material_contract),
         },
         {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False, separators=(",", ":"))},
     ]

@@ -225,7 +225,7 @@ function NewsHero({ syncedAt, status }: { syncedAt: string | null; status: strin
 }
 
 function sourceStatusLabel(status: HotspotSourceStatus): string {
-  return { healthy: '正常', stale: '过期', failed: '失败', not_synced: '未同步' }[status];
+  return { healthy: '正常', stale: '过期', failed: '失败', not_synced: '未同步', paused: '已暂停采集' }[status];
 }
 
 function sourceKindLabel(kind: HotspotSourceKind): string {

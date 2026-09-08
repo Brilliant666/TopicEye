@@ -149,6 +149,15 @@ const payload: HotspotNewsResponse = {
 };
 
 describe('Rardar Hotspot News', () => {
+  it('accepts paused sources and keeps their previously collected articles readable', () => {
+    const paused = { ...payload, sources: payload.sources.map((source) => ({ ...source, status: 'paused' as const, errorCode: null })) };
+    expect(parseHotspotNewsResponse(paused)).toEqual(paused);
+    const html = renderToStaticMarkup(<RardarHotspotNewsPage result={{ kind: 'published', news: paused }} />);
+    expect(html).toContain('已暂停采集');
+    expect(html).toContain('New processor architecture reaches production');
+    expect(html).toContain('https://arstechnica.com/gadgets/example');
+  });
+
   it('validates paginated source, topic and discovery-channel contracts', () => {
     expect(parseHotspotNewsResponse(payload)).toEqual(payload);
     expect(() => parseHotspotNewsResponse({

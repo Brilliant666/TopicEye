@@ -1,5 +1,5 @@
 export type HotspotNewsStatus = 'ready' | 'degraded' | 'stale' | 'not_synced';
-export type HotspotSourceStatus = 'healthy' | 'stale' | 'failed' | 'not_synced';
+export type HotspotSourceStatus = 'healthy' | 'stale' | 'failed' | 'not_synced' | 'paused';
 export type HotspotSourceKind = 'official' | 'media' | 'community' | 'aggregate';
 export type HotspotContentType = 'official_update' | 'report' | 'research' | 'community_discussion' | 'uncategorized';
 export type HotspotNewsSort = 'balanced' | 'latest';
@@ -132,7 +132,7 @@ function parseSource(value: unknown): HotspotNewsSource {
     || typeof value.name !== 'string' || value.name.length < 1
     || !['official', 'media', 'community', 'aggregate'].includes(String(value.kind))
     || !validPublicUrl(value.homepageUrl)
-    || !['healthy', 'stale', 'failed', 'not_synced'].includes(String(value.status))
+    || !['healthy', 'stale', 'failed', 'not_synced', 'paused'].includes(String(value.status))
     || !validTimestamp(value.lastSyncAt)
     || !validCount(value.itemCount)
     || ![null, 'source_sync_failed'].includes(value.errorCode as null | string)) {

@@ -213,7 +213,9 @@ async def claim_source_sync(
     interval_cutoff = now - timedelta(seconds=max(int(min_interval_seconds), 0))
 
     async def _claim() -> Source | None:
-        result = await db.execute(select(Source).where(Source.id == source_id).with_for_update())
+        result = await db.execute(
+            select(Source).where(Source.id == source_id).with_for_update().execution_options(populate_existing=True)
+        )
         source = result.scalar_one_or_none()
         if source is None:
             return None

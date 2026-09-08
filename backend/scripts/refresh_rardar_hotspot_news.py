@@ -16,7 +16,7 @@ async def _run() -> int:
     async with async_session() as db:
         result = await refresh_hotspot_news(db)
     print(json.dumps(result.model_dump(mode="json"), ensure_ascii=False, sort_keys=True))
-    return 0 if result.status in {"completed", "degraded"} else 2
+    return 0 if result.status in {"completed", "degraded", "paused"} else 2
 
 
 def main() -> int:

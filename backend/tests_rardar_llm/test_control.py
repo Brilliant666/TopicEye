@@ -143,6 +143,63 @@ def _patch_no_wait_retry(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_find_comparison_policy_reaches_wire_and_binds_cache(control_plane, monkeypatch):
+    model_id = await control_plane.add_model(name="find-policy", temperature=0.3, max_tokens=2000)
+    await control_plane.reload_routes()
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        return _response('{"title":"ok","count":1}', kwargs["model"])
+
+    monkeypatch.setattr(_call_engine, "acompletion", completion)
+    monkeypatch.setattr(_call_engine.settings, "RARDAR_FIND_COMPLETION_TIMEOUT_SECONDS", 180)
+    monkeypatch.setattr(_call_engine.settings, "RARDAR_FIND_COMPARISON_MAX_TOKENS", 4096)
+
+    async def compare():
+        with _call_engine.find_comparison_deadline():
+            return await call_rardar_structured(
+                scene=RardarLLMScene.FIND_PROJECT_COMPARISON,
+                messages=[{"role": "user", "content": "JSON test"}],
+                response_model=StrictPayload, prompt_version="mock-v1", schema_version="mock-v1",
+            )
+
+    await compare()
+    assert (calls[-1]["max_tokens"], calls[-1]["timeout"], calls[-1]["temperature"]) == (4096, 180, 0.3)
+    assert calls[-1]["response_format"] == {"type": "json_object"}
+    assert "reasoning_effort" not in calls[-1]
+    assert (await compare()).metadata.cache_hit
+    assert len(calls) == 1
+    monkeypatch.setattr(_call_engine.settings, "RARDAR_FIND_COMPARISON_MAX_TOKENS", 3000)
+    await compare()
+    assert len(calls) == 2 and calls[-1]["max_tokens"] == 3000
+    # A changed actual route invalidates the comparison cache without relying on
+    # manual cache clearing. The explicit model timeout remains a lower cap.
+    route = (await provider._model_cache.get_route_models("rardar"))[0]
+    route.extra_params = {"litellm_params": {"timeout": 30}}
+    await compare()
+    assert len(calls) == 3 and calls[-1]["timeout"] == 30
+    await call_rardar_structured(
+        scene=RardarLLMScene.NEWS_QUICKREAD,
+        messages=[{"role": "user", "content": "JSON news"}],
+        response_model=StrictPayload, prompt_version="mock-v1", schema_version="mock-v1",
+    )
+    assert calls[-1]["max_tokens"] == 2000
+    monkeypatch.setattr(_call_engine.settings, "RARDAR_FIND_COMPARISON_MAX_TOKENS", 1000)
+    with _call_engine.find_comparison_deadline():
+        await provider.call_llm_with_metadata(
+            [{"role": "user", "content": "explicit output"}],
+            max_tokens=8000, scene=RardarLLMScene.FIND_PROJECT_COMPARISON.value,
+            routing_group="rardar", strict_routing_group=True,
+        )
+    assert calls[-1]["max_tokens"] == 1000
+    # The shared persisted model has not changed.
+    async with control_plane.sessions() as session:
+        model = await session.get(LlmModel, model_id)
+        assert model.max_tokens == 2000
+
+
+@pytest.mark.asyncio
 async def test_find_timeout_stops_actual_route_chain(control_plane, monkeypatch):
     import httpx
 

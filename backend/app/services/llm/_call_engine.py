@@ -55,6 +55,16 @@ _FIND_SCENE = "rardar_find_project_comparison"
 _find_comparison_deadline: ContextVar[bool] = ContextVar("find_comparison_deadline", default=False)
 
 
+def find_comparison_policy(scene: str) -> dict[str, float | int] | None:
+    """The isolated comparison defaults; explicit lower deployment limits remain effective."""
+    if scene != _FIND_SCENE or not _find_comparison_deadline.get():
+        return None
+    return {
+        "max_tokens": settings.RARDAR_FIND_COMPARISON_MAX_TOKENS,
+        "timeout": settings.RARDAR_FIND_COMPLETION_TIMEOUT_SECONDS,
+    }
+
+
 @contextmanager
 def find_comparison_deadline():
     """Apply the longer bound only to evidence comparison, not query planning."""

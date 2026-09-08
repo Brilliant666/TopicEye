@@ -31,7 +31,7 @@ def test_find_deadline_is_bounded_and_other_scenes_unchanged(monkeypatch):
     assert engine._completion_timeout_seconds(300) == 45
 
 
-@pytest.mark.parametrize("value", [0, -1, 121, float("inf"), float("nan")])
+@pytest.mark.parametrize("value", [0, -1, 181, float("inf"), float("nan")])
 def test_find_invalid_deadline_rejected(value):
     with pytest.raises(ValidationError):
         Settings(_env_file=None, RARDAR_FIND_COMPLETION_TIMEOUT_SECONDS=value)

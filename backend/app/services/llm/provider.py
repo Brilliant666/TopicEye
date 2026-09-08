@@ -33,6 +33,7 @@ from app.services.llm._call_engine import (
     _is_deterministic_request_error,
     _is_rate_limit_error,
     _parse_reset_time,
+    find_comparison_policy,
 )
 from app.services.llm._failover import _candidate_from_db_model, _failover, _model_key
 from app.services.llm._model_cache import _model_cache
@@ -172,12 +173,41 @@ async def call_llm_with_metadata(
     reasoning_effort = normalize_reasoning_effort(reasoning_effort)
     routing_group = (routing_group or "default").strip() or "default"
 
+    comparison_policy = find_comparison_policy(scene)
+    if comparison_policy is not None:
+        configured_cap = int(comparison_policy["max_tokens"])
+        max_tokens = configured_cap if max_tokens is None else min(max_tokens, configured_cap)
+
     # Strict consumers must distinguish an absent route from an unavailable
     # configured route, even if a stale circuit state happens to be open.
     if strict_routing_group:
         strict_models = await _model_cache.get_route_models(routing_group, fallback_to_any=False)
         if not strict_models:
             raise LlmRouteNotConfiguredError(routing_group)
+
+    if comparison_policy is not None:
+        # Bind cached results to both the scene override and effective route
+        # configuration. Only hashes enter the cache namespace, never credentials.
+        models = strict_models if strict_routing_group else await _model_cache.get_route_models(routing_group)
+        policy_identity = {
+            "caller": cache_identity,
+            "comparison": comparison_policy,
+            "route": [
+                {
+                    "id": model.id,
+                    "provider": model.provider,
+                    "model": model.model_id,
+                    "api_base": model.api_base,
+                    "temperature": model.temperature,
+                    "max_tokens": model.max_tokens,
+                    "extra_params": model.extra_params,
+                }
+                for model in models
+            ],
+        }
+        cache_identity = hashlib.sha256(
+            json.dumps(policy_identity, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        ).hexdigest()
 
     # Circuit breaker: skip LLM call entirely when in OPEN state
     from app.services.llm.circuit_breaker import get_llm_circuit_breaker

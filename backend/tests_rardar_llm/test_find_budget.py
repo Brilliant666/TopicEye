@@ -7,8 +7,10 @@ from app.services.llm.provider_budget import ProviderBudgetError, ProviderBudget
 
 def test_find_retries_and_reopened_ledger_cannot_replenish_budget(tmp_path, monkeypatch):
     ledger = ProviderBudgetLedger.initialize(
-        tmp_path / "find" / "provider-budget.json", "find-acceptance",
-        task_id="RARDAR-FIND-PROJECT-REQUIREMENT-FIRST-01", limit=16,
+        tmp_path / "find" / "provider-budget.json",
+        "find-acceptance",
+        task_id="RARDAR-FIND-PROJECT-REQUIREMENT-FIRST-01",
+        limit=16,
     )
     for name, value in {
         "RARDAR_LLM_TASK_ID": ledger.task_id,

@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -90,7 +91,7 @@ async def _load_material(db: AsyncSession, item: ContentItem, source_key: str) -
         return _Material("title_only", None, _text_digest(item.title))
     try:
         snapshot, _ = await read_or_create_snapshot(db, item)
-    except ArticleReaderError:
+    except (ArticleReaderError, httpx.RequestError):
         return _Material("title_only", None, _text_digest(item.title))
     body = (snapshot.text_content or "").strip()[:6000]
     if len(body) < 60:

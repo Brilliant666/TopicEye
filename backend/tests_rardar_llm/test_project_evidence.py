@@ -24,6 +24,40 @@ def _artifact_facts() -> dict:
 
 
 @pytest.mark.asyncio
+async def test_find_readme_only_reuses_verified_metadata_and_has_separate_cache() -> None:
+    paths = []
+    body = "# Tool\n\nSelf hosted documentation with full text search."
+
+    async def handler(request):
+        paths.append(request.url.path)
+        if request.url.path.endswith("/readme"):
+            return httpx.Response(
+                200,
+                json={"path": "README.md", "encoding": "base64", "content": base64.b64encode(body.encode()).decode()},
+            )
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        evidence = await collect_project_evidence(
+            "fixture/find", _artifact_facts(), client=client, include_readme_body=True, readme_only=True
+        )
+        assert paths == ["/repos/fixture/find/readme"]
+        assert evidence.payload["metadata"]["licenseSpdxId"] == "MIT"
+        assert evidence.payload["metadata"]["pushedAt"] == _artifact_facts()["pushedAt"]
+        assert evidence.payload["evidenceIndex"]["readme:body:1"] == body
+        assert evidence.payload["collectionLimits"]["githubRequests"] == 1
+        cached = await collect_project_evidence(
+            "fixture/find", _artifact_facts(), client=client, include_readme_body=True, readme_only=True
+        )
+        assert cached.cache_hit
+        assert len(paths) == 1
+        full = await collect_project_evidence("fixture/find", _artifact_facts(), client=client)
+        assert not full.cache_hit
+        assert len(paths) == 5
+        assert "readme:body:1" not in full.allowed_refs
+
+
+@pytest.mark.asyncio
 async def test_evidence_is_bounded_prioritizes_chinese_readme_and_caches() -> None:
     requests: list[str] = []
     readme = "# Fixture\n\n这是官方中文项目介绍，提供可组合的开发自动化能力。\n\n## Features\n\n- SDK\n"

@@ -385,130 +385,107 @@ def _github_item(index: int) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_find_project_returns_live_five_and_compares_exact_top_three(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def handler(request: httpx.Request) -> httpx.Response:
+async def test_find_project_compares_one_real_candidate_without_padding(monkeypatch):
+    from app.schemas.rardar_product import RequirementProfile
+
+    async def handler(request):
         if request.url.path == "/search/repositories":
-            return httpx.Response(200, json={"items": [_github_item(index) for index in range(1, 7)]})
+            assert "sort" not in request.url.params
+            assert "stars:" not in request.url.params["q"]
+            return httpx.Response(200, json={"items": [_github_item(1)]})
         return httpx.Response(404)
 
     async def structured(**kwargs):
-        repositories = [f"fixture-owner/project-{index}" for index in range(1, 4)]
+        if kwargs["response_model"] is RequirementProfile:
+            return SimpleNamespace(
+                value=RequirementProfile(purpose="工具", mustHave=["自动化"], queries=["automation"])
+            )
         value = FindProjectComparison.model_validate_json(
             json.dumps(
                 {
                     "candidates": [
                         {
-                            "repository": repository,
-                            "whatItDoes": "提供开发工具能力。",
-                            "whyMatched": "仓库元数据与需求关键词匹配。",
-                            "reusableParts": ["核心模块"],
-                            "integrationCost": "medium",
-                            "risks": ["需要静态检查"],
-                            "recommendation": "先做最小验证。",
-                            "reuseType": "module_library",
+                            "repository": "fixture-owner/project-1",
+                            "whatItDoes": "资料有限",
+                            "whyMatched": "检索候选，功能待确认",
+                            "reusableParts": [],
+                            "integrationCost": "unknown",
+                            "risks": [],
+                            "recommendation": "先读取文档",
+                            "reuseType": "reference_only",
+                            "requirementChecks": [
+                                {
+                                    "requirement": "自动化",
+                                    "status": "unknown",
+                                    "reason": "没有获取README正文",
+                                    "evidenceRefs": [],
+                                }
+                            ],
+                            "evidenceRefs": ["repository"],
                         }
-                        for repository in repositories
                     ],
-                    "overallConclusion": "优先验证前三个真实候选。",
+                    "overallConclusion": "一个候选可供继续核对",
                 }
-            ),
-            strict=True,
+            )
         )
-        assert kwargs["reasoning_effort"] is None
         return SimpleNamespace(value=value, metadata=_metadata())
 
     monkeypatch.setattr(rardar_product, "call_rardar_structured", structured)
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
         response = await rardar_product.find_projects(
-            FindProjectRequest(requirement="我需要一个 Python 视频自动化项目"),
-            _settings(demo=False),
+            FindProjectRequest(requirement="需要自动化工具项目"),
+            _settings(),
             client=client,
         )
-
-    assert response.searchState == "github_live"
-    assert len(response.quickCandidates) == 6
     assert response.aiState == "ready"
-    assert {item.repository for item in response.comparison.candidates} == {
-        item.repository for item in response.quickCandidates[:3]
-    }
-    assert all(item.dataState == "github_live" for item in response.quickCandidates)
+    assert len(response.comparison.candidates) == 1
+    assert len(response.quickCandidates) == 1
+    assert response.comparison.candidates[0].integrationCost == "unknown"
 
 
 @pytest.mark.asyncio
-async def test_find_project_github_failure_uses_labeled_demo_and_keeps_ai_optional(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(403, json={"message": "rate limited"})
+async def test_find_project_github_failure_never_pads_demo(monkeypatch):
+    async def handler(_request):
+        return httpx.Response(403)
 
     async def rejected(**_kwargs):
         raise RardarLLMError("rardar_llm_not_configured")
 
     monkeypatch.setattr(rardar_product, "call_rardar_structured", rejected)
-    monkeypatch.setattr(rardar_product, "call_rardar_llm", rejected)
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
         response = await rardar_product.find_projects(
-            FindProjectRequest(requirement="我想获取抖音主页作品并下载视频"),
+            FindProjectRequest(requirement="需要自动化工具项目"),
             _settings(),
             client=client,
         )
-
-    assert response.searchState == "demo"
-    assert len(response.quickCandidates) >= 5
-    assert all(item.dataState == "local_demo" for item in response.quickCandidates)
-    assert response.aiState == "unavailable"
-    assert "本地演示" in response.coverageLabel
+    assert response.searchState == "limited"
+    assert response.quickCandidates == []
+    assert response.aiState == "insufficient_candidates"
 
 
 @pytest.mark.asyncio
-async def test_find_project_accepts_locally_validated_json_fallback(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def handler(request: httpx.Request) -> httpx.Response:
+async def test_find_project_invalid_output_does_not_fallback_to_unvalidated_text(monkeypatch):
+    async def handler(request):
         if request.url.path == "/search/repositories":
-            return httpx.Response(200, json={"items": [_github_item(index) for index in range(1, 7)]})
+            return httpx.Response(200, json={"items": [_github_item(1)]})
         return httpx.Response(404)
 
     async def rejected(**_kwargs):
         raise RardarLLMError("rardar_llm_invalid_output")
 
-    async def json_response(**_kwargs):
-        return SimpleNamespace(
-            content=json.dumps(
-                {
-                    "candidates": [
-                        {
-                            "repository": f"fixture-owner/project-{index}",
-                            "whatItDoes": "提供视频自动化能力。",
-                            "whyMatched": "仓库事实匹配需求关键词。",
-                            "reusableParts": ["下载模块"],
-                            "integrationCost": "medium",
-                            "risks": ["需要静态检查"],
-                            "recommendation": "先做最小验证。",
-                            "reuseType": "module_library",
-                        }
-                        for index in range(1, 4)
-                    ],
-                    "overallConclusion": "优先验证前三个真实候选。",
-                },
-                ensure_ascii=False,
-            ),
-            metadata=_metadata(),
-        )
+    async def plain(**_kwargs):
+        pytest.fail("Find must not use a plain-text fallback")
 
     monkeypatch.setattr(rardar_product, "call_rardar_structured", rejected)
-    monkeypatch.setattr(rardar_product, "call_rardar_llm", json_response)
+    monkeypatch.setattr(rardar_product, "call_rardar_llm", plain)
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
         response = await rardar_product.find_projects(
-            FindProjectRequest(requirement="我需要一个 Python 视频自动化项目"),
-            _settings(demo=False),
+            FindProjectRequest(requirement="需要Python自动化工具"),
+            _settings(),
             client=client,
         )
-
-    assert response.aiState == "ready"
-    assert response.comparison is not None
-    assert len(response.comparison.candidates) == 3
-    assert {item.reuseType for item in response.comparison.candidates} == {"module_library"}
+    assert response.aiState == "unavailable"
+    assert len(response.quickCandidates) == 1
 
 
 @pytest.mark.parametrize(

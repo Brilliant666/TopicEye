@@ -11,6 +11,20 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 beforeEach(() => { state.user = null; state.request.mockReset(); });
 
 describe('News operator entry', () => {
+  it('describes an all-paused refresh as skipped, retaining content rather than reporting a network failure', () => {
+    const operation: NewsOperation = {
+      id: 'paused', action: 'refresh', status: 'paused', startedAt: '2026-09-09T00:00:00Z', completedAt: '2026-09-09T00:00:01Z',
+      errorCode: null, itemIds: [], requestLimit: 0,
+      result: { providerCalls: 0, sources: [{ key: 'ars-technica', status: 'paused', created: 0, duplicates: 0, retained: 12 }] },
+    };
+    expect(newsOperationLabel(operation.status)).toBe('来源已暂停，未执行采集');
+    const html = renderToStaticMarkup(<NewsOperationResult operation={operation} />);
+    expect(html).toContain('已暂停 1 个来源');
+    expect(html).toContain('已有内容保留');
+    expect(html).toContain('来源失败 0 个');
+    expect(state.request).not.toHaveBeenCalled();
+  });
+
   it('shows login, hides controls for ordinary users, and offers two explicit admin actions', () => {
     const props = { source: null, topic: null, sort: 'balanced' as const, page: 1, itemCount: 18 };
     expect(renderToStaticMarkup(<RardarNewsOperations {...props} />)).toContain('管理员登录');

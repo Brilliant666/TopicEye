@@ -16,7 +16,7 @@ class HotspotNewsSource(_StrictNewsModel):
     name: str = Field(min_length=1, max_length=255)
     kind: Literal["official", "media", "community", "aggregate"]
     homepageUrl: HttpUrl
-    status: Literal["healthy", "stale", "failed", "not_synced"]
+    status: Literal["healthy", "stale", "failed", "not_synced", "paused"]
     lastSyncAt: AwareDatetime | None
     itemCount: int = Field(ge=0)
     errorCode: Literal["source_sync_failed"] | None = None
@@ -88,7 +88,7 @@ class HotspotNewsResponse(_StrictNewsModel):
 
 class HotspotNewsRefreshSourceResult(_StrictNewsModel):
     key: str
-    status: Literal["refreshed", "not_modified", "failed", "busy"]
+    status: Literal["refreshed", "not_modified", "failed", "busy", "paused"]
     fetched: int = Field(ge=0)
     created: int = Field(ge=0)
     duplicates: int = Field(ge=0)
@@ -97,7 +97,7 @@ class HotspotNewsRefreshSourceResult(_StrictNewsModel):
 
 
 class HotspotNewsRefreshResult(_StrictNewsModel):
-    status: Literal["completed", "degraded", "busy"]
+    status: Literal["completed", "degraded", "busy", "paused"]
     startedAt: AwareDatetime
     completedAt: AwareDatetime
     providerCalls: Literal[0] = 0

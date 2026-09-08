@@ -585,7 +585,6 @@ async def _ensure_managed_source(
         source.source_type = expected_type
         source.category = HOTSPOT_NEWS_CATEGORY
         source.sort_order = sort_order
-        source.enabled = True
         source.hidden = True
     return source
 
@@ -733,11 +732,13 @@ async def _refresh_hotspot_news(
             raise RuntimeError("managed_hotspot_source_missing")
         claimed = await SourceRepository(db).claim_sync(source.id, lease_seconds=300)
         if claimed is None:
+            await db.refresh(source)
+            await db.commit()
             retained = await repository.count_items(source_id=source.id)
             results.append(
                 HotspotNewsRefreshSourceResult(
                     key=definition.key,
-                    status="busy",
+                    status="paused" if not source.enabled or source.status == SourceStatus.DISABLED else "busy",
                     fetched=0,
                     created=0,
                     duplicates=0,
@@ -767,11 +768,9 @@ async def _refresh_hotspot_news(
                     fetched_at,
                 )
                 state = "refreshed"
-            claimed.status = SourceStatus.ACTIVE
-            claimed.sync_error = None
-            claimed.last_sync_at = datetime.now(UTC)
-            claimed.updated_at = claimed.last_sync_at
+            await repository.finish_sync(source_id=claimed.id, completed_at=datetime.now(UTC), error=None)
             await db.commit()
+            await db.refresh(claimed)
             retained = await repository.count_items(source_id=claimed.id)
             results.append(
                 HotspotNewsRefreshSourceResult(
@@ -789,11 +788,9 @@ async def _refresh_hotspot_news(
             logger.warning("Rardar Hotspot News source %s failed: %s", definition.key, safe_error)
             failed = await repository.get_source(platform=HOTSPOT_NEWS_PLATFORM, feed_url=definition.feed_url)
             if failed is not None:
-                failed.status = SourceStatus.ERROR
-                failed.sync_error = safe_error
-                failed.last_sync_at = datetime.now(UTC)
-                failed.updated_at = failed.last_sync_at
+                await repository.finish_sync(source_id=failed.id, completed_at=datetime.now(UTC), error=safe_error)
                 await db.commit()
+                await db.refresh(failed)
                 retained = await repository.count_items(source_id=failed.id)
             else:
                 retained = 0
@@ -812,6 +809,8 @@ async def _refresh_hotspot_news(
     failed_count = sum(item.status == "failed" for item in results)
     busy_count = sum(item.status == "busy" for item in results)
     status = "degraded" if failed_count else "busy" if busy_count else "completed"
+    if results and all(item.status == "paused" for item in results):
+        status = "paused"
     return HotspotNewsRefreshResult(
         status=status,
         startedAt=started_at,
@@ -1056,7 +1055,10 @@ async def load_hotspot_news(
             error_code = None
         else:
             last_sync_at = _aware_utc(source.last_sync_at)
-            if source.status == SourceStatus.ERROR:
+            if not source.enabled or source.status == SourceStatus.DISABLED:
+                state = "paused"
+                error_code = None
+            elif source.status == SourceStatus.ERROR:
                 state = "failed"
                 error_code = "source_sync_failed"
             elif last_sync_at is None:

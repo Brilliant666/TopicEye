@@ -199,6 +199,13 @@ budget internally, and exposes status/results after navigation or reload.
 Ordinary GET requests never start work. Anonymous and non-admin POST requests
 are rejected; cookie POST requests must also pass the configured-origin check.
 
+Use **信源管理 → 暂停 / 恢复** to control News collection. Web refresh and
+`refresh-news` honor the same existing Source setting; initialization does not
+re-enable paused sources. Pausing preserves collected articles, Chinese reading
+results and HTTP cache validators. An in-flight fetch may finish without
+overwriting the pause; resume takes effect on the next normal refresh. Paused
+sources are not network failures, and an all-paused refresh reports no collection.
+
 The local-only runner reuses the same business functions as the CLI and an OS
 writer lock serializes refresh/enhancement across both entries. Repeated clicks
 during a run return the active operation; retries with the same request key do

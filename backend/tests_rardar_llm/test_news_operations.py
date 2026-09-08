@@ -107,12 +107,15 @@ class Result:
 
 
 @pytest.mark.asyncio
-async def test_refresh_deduplicates_clicks_and_never_initializes_budget(isolated, monkeypatch):
+@pytest.mark.parametrize("result_status", ["completed", "paused"])
+async def test_refresh_deduplicates_clicks_and_never_initializes_budget(isolated, monkeypatch, result_status):
     release = asyncio.Event()
 
     async def refresh(_db):
         await release.wait()
-        return Result()
+        result = Result()
+        result.status = result_status
+        return result
 
     refresh_mock = AsyncMock(side_effect=refresh)
     monkeypatch.setattr(ops, "refresh_hotspot_news", refresh_mock)
@@ -129,7 +132,7 @@ async def test_refresh_deduplicates_clicks_and_never_initializes_budget(isolated
         release.set()
         await asyncio.gather(*list(ops._tasks))
     refresh_mock.assert_awaited_once()
-    assert ops.get_operation(first["id"])["status"] == "completed"
+    assert ops.get_operation(first["id"])["status"] == result_status
     assert (await ops.start_operation(request, user_id=1))["id"] == first["id"]
     refresh_mock.assert_awaited_once()
 

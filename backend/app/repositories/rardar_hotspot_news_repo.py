@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import ContentItem
-from app.models.source import Source
+from app.models.source import Source, SourceStatus
 
 
 class RardarHotspotNewsRepository:
@@ -27,6 +28,26 @@ class RardarHotspotNewsRepository:
             )
         )
         return result.scalar_one_or_none()
+
+    async def finish_sync(self, *, source_id: int, completed_at: datetime, error: str | None) -> None:
+        """Record fetch health without undoing an administrator's concurrent pause."""
+        await self.db.execute(
+            update(Source)
+            .where(Source.id == source_id)
+            .values(
+                status=case(
+                    (
+                        or_(Source.enabled.is_(False), Source.status == SourceStatus.DISABLED),
+                        SourceStatus.DISABLED.value,
+                    ),
+                    else_=SourceStatus.ERROR.value if error else SourceStatus.ACTIVE.value,
+                ),
+                sync_error=error,
+                last_sync_at=completed_at,
+                updated_at=completed_at,
+            )
+            .execution_options(synchronize_session=False)
+        )
 
     async def list_sources(self, *, platform: str, feed_urls: Sequence[str]) -> list[Source]:
         if not feed_urls:

@@ -184,21 +184,41 @@ powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 start
 
 The Rardar navigation also exposes `/news`, a saved multi-source technology
 timeline spanning official updates, technology reporting and community
-discussion. Refresh it explicitly without running a repository scan, Discover
-evaluation, or model call:
+discussion. Refresh sources explicitly without running a repository scan,
+Discover evaluation, or model call:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 refresh-news
 ```
 
-The command reuses TopicEye's SSRF-guarded clients, conditional HTTP cache
+Chinese quick-read is a separate, explicitly budgeted local step. Initialize a
+durable run budget once, then reuse the same path and run ID for retries or
+cache verification:
+
+```powershell
+$budget = "$env:LOCALAPPDATA\RardarNewsQuickRead\20260908\provider-budget.json"
+pwsh -NoProfile -File .\scripts\rardar-local.ps1 enhance-news `
+  -NewsBudgetPath $budget -NewsRunId quickread-20260908 -NewsBudgetLimit 16 `
+  -NewsItemLimit 18 -InitializeNewsBudget
+
+# Repeat without -InitializeNewsBudget; unchanged items reuse their saved result.
+pwsh -NoProfile -File .\scripts\rardar-local.ps1 enhance-news `
+  -NewsBudgetPath $budget -NewsRunId quickread-20260908 -NewsBudgetLimit 16 -NewsItemLimit 18
+```
+
+The source-refresh command reuses TopicEye's SSRF-guarded clients, conditional HTTP cache
 (`ETag` / `Last-Modified`) and existing PostgreSQL content tables. A failed
 source keeps previously saved items; normal page requests only read that cache.
 Source and topic filters, ordering and pagination run over the complete saved
 result set. `publishedAt`, `updatedAt`, community discussion time and local
 `fetchedAt` remain distinct, and a missing publication time is shown as unknown
-rather than replaced with fetch time. The current path performs no translation
-or AI summarization.
+rather than replaced with fetch time. Quick-read uses the existing Rardar model
+route, strict JSON validation and single-concurrency provider ledger. It stores
+Chinese text as a derived cache bound to the original title/summary and, when
+used, the safely extracted article body. A title-only item can receive a
+faithful title translation but never an invented summary. Normal refresh keeps
+valid derived results; normal page requests never fetch publishers or call a
+model.
 
 `sync-data` reads the configured `rardar-prod` host without changing it and
 independently synchronizes Today and Discover below

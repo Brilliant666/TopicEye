@@ -33,6 +33,15 @@ export type HotspotNewsDiscoveryChannel = {
   comments: number | null;
 };
 
+export type HotspotNewsQuickRead = {
+  state: 'ready' | 'title_only';
+  titleZh: string;
+  summaryZh: string | null;
+  materialKind: 'feed_summary' | 'article_body' | 'title_only';
+  generatedBy: 'ai';
+  generatedAt: string;
+};
+
 export type HotspotNewsItem = {
   id: number;
   title: string;
@@ -49,6 +58,7 @@ export type HotspotNewsItem = {
   updatedAt: string | null;
   fetchedAt: string;
   discoveryChannels: HotspotNewsDiscoveryChannel[];
+  quickRead: HotspotNewsQuickRead | null;
 };
 
 export type HotspotNewsResponse = {
@@ -161,6 +171,21 @@ function parseChannel(value: unknown, sourceKeys: Set<string>): HotspotNewsDisco
   return value as HotspotNewsDiscoveryChannel;
 }
 
+function parseQuickRead(value: unknown): HotspotNewsQuickRead | null {
+  if (value === null) return null;
+  if (!record(value)
+    || !['ready', 'title_only'].includes(String(value.state))
+    || typeof value.titleZh !== 'string' || value.titleZh.length < 1
+    || !nullableString(value.summaryZh)
+    || !['feed_summary', 'article_body', 'title_only'].includes(String(value.materialKind))
+    || value.generatedBy !== 'ai'
+    || !validTimestamp(value.generatedAt, false)
+    || (value.state === 'title_only' && value.summaryZh !== null)) {
+    throw new Error('rardar_hotspot_news_quick_read_invalid');
+  }
+  return value as HotspotNewsQuickRead;
+}
+
 function parseItem(value: unknown, sourceKeys: Set<string>, topicKeys: Set<string>): HotspotNewsItem {
   if (!record(value)
     || !Number.isSafeInteger(value.id) || Number(value.id) <= 0
@@ -178,14 +203,15 @@ function parseItem(value: unknown, sourceKeys: Set<string>, topicKeys: Set<strin
     || !validTimestamp(value.updatedAt)
     || !validTimestamp(value.fetchedAt, false)
     || !Array.isArray(value.discoveryChannels)
-    || value.discoveryChannels.length < 1) {
+    || value.discoveryChannels.length < 1
+    || !('quickRead' in value)) {
     throw new Error('rardar_hotspot_news_item_invalid');
   }
   const channels = value.discoveryChannels.map((channel) => parseChannel(channel, sourceKeys));
   if (new Set(channels.map((channel) => channel.key)).size !== channels.length) {
     throw new Error('rardar_hotspot_news_item_invalid');
   }
-  return { ...value, discoveryChannels: channels } as HotspotNewsItem;
+  return { ...value, discoveryChannels: channels, quickRead: parseQuickRead(value.quickRead) } as HotspotNewsItem;
 }
 
 export function parseHotspotNewsResponse(value: unknown): HotspotNewsResponse {

@@ -33,6 +33,7 @@ export default function RardarHotspotNewsPage({ result }: { result: HotspotNewsL
   }
 
   const news = result.news;
+  const quickReadCount = news.items.filter((item) => item.quickRead !== null).length;
   return (
     <div className={`${styles.page} ${styles.newsPage}`} data-rardar-route="/news">
       <NewsHero syncedAt={news.syncedAt} status={news.status} />
@@ -74,10 +75,24 @@ export default function RardarHotspotNewsPage({ result }: { result: HotspotNewsL
                   <time dateTime={item.updatedAt}>更新于 {formatNewsTime(item.updatedAt)}</time>
                 )}
               </div>
-              <h3>{item.title}</h3>
-              <p className={item.summary ? styles.newsSummary : styles.newsSummaryMissing}>
-                {item.summary || '来源未提供可验证摘要，请打开原文核对完整内容。'}
+              <h3>{item.quickRead?.titleZh || item.title}</h3>
+              {item.quickRead && (
+                <span className={styles.newsAiBadge}>AI 中文速读 · {quickReadMaterialLabel(item.quickRead.materialKind)}</span>
+              )}
+              <p className={(item.quickRead?.summaryZh || item.summary) ? styles.newsSummary : styles.newsSummaryMissing}>
+                {item.quickRead?.summaryZh
+                  || item.summary
+                  || (item.quickRead?.state === 'title_only'
+                    ? '目前仅取得标题，未生成超出材料的事件说明；请打开原文核对。'
+                    : '来源未提供可验证摘要，请打开原文核对完整内容。')}
               </p>
+              {item.quickRead && (
+                <details className={styles.newsOriginal}>
+                  <summary>查看原始标题与来源摘要</summary>
+                  <strong>{item.title}</strong>
+                  <p>{item.summary || '来源未提供摘要。'}</p>
+                </details>
+              )}
               <div className={styles.newsDiscoveries}>
                 {item.discoveryChannels.map((channel) => (
                   <span key={channel.key}>
@@ -118,7 +133,7 @@ export default function RardarHotspotNewsPage({ result }: { result: HotspotNewsL
       <section className={styles.newsSourcePanel} aria-label="资讯来源状态">
         <div className={styles.newsSourceHeading}>
           <div><p className={styles.eyebrow}>Source health</p><h2>同步与来源状态</h2></div>
-          <span><ShieldCheck size={15} /> 页面只读取已保存内容 · 本轮 0 次模型调用</span>
+          <span><ShieldCheck size={15} /> 页面只读取已保存内容 · 本页 {quickReadCount} 条中文速读</span>
         </div>
         <div className={styles.newsSourceGrid}>
           {news.sources.map((source) => (
@@ -217,6 +232,10 @@ function sourceKindLabel(kind: HotspotSourceKind): string {
 
 function contentTypeLabel(type: HotspotContentType): string {
   return { official_update: '官方更新', report: '报道', research: '研究', community_discussion: '社区讨论', uncategorized: '未分类' }[type];
+}
+
+function quickReadMaterialLabel(kind: 'feed_summary' | 'article_body' | 'title_only'): string {
+  return { feed_summary: '依据来源摘要', article_body: '依据公开原文', title_only: '仅翻译标题' }[kind];
 }
 
 function newsStatusLabel(status: string): string {

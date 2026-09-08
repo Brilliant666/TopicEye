@@ -72,3 +72,9 @@ class RardarHotspotNewsRepository:
             )
         )
         return list(result.scalars().all())
+
+    async def list_items_by_ids(self, *, item_ids: Sequence[int]) -> list[ContentItem]:
+        if not item_ids:
+            return []
+        result = await self.db.execute(select(ContentItem).where(ContentItem.id.in_(item_ids)))
+        return list(result.scalars().all())

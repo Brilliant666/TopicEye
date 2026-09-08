@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 import httpx
@@ -23,6 +24,13 @@ from app.services.rardar_hotspot_news import (
     normalize_news_url,
     refresh_hotspot_news,
 )
+from app.services.rardar_llm_control import RardarLLMError, RardarLLMMetadata, RardarStructuredResult
+from app.services.rardar_news_quickread import (
+    QUICK_READ_MARKER,
+    _Material,
+    _QuickReadOutput,
+    enhance_hotspot_news,
+)
 from app.services.trending_scrapers._hackernews import HackerNewsTrending
 
 
@@ -41,6 +49,27 @@ def _entry(
         "updated_at": datetime(2026, 9, 8, 2, 0, tzinfo=UTC),
         "tags": ["API"],
     }
+
+
+def _metadata() -> RardarLLMMetadata:
+    return RardarLLMMetadata(
+        scene="rardar_news_quickread",
+        routing_group="rardar",
+        model_display_name="mock-model",
+        model_id=1,
+        provider="mock",
+        reasoning_effort="medium",
+        prompt_version="rardar-news-quickread-v1",
+        schema_version="rardar-news-quickread-output-v1",
+        latency_ms=1,
+        usage=None,
+        cache_hit=False,
+        result_state="completed",
+    )
+
+
+async def _route() -> str:
+    return "route-v1"
 
 
 def test_normalize_news_url_removes_tracking_but_not_meaningful_query():
@@ -104,6 +133,211 @@ async def test_refresh_is_zero_model_deduplicated_and_truthful(db, monkeypatch):
     assert loaded.items[0].updatedAt == datetime(2026, 9, 8, 2, 0, tzinfo=UTC)
     assert loaded.items[0].publisherName == definition.name
     assert loaded.items[0].discoveryChannels[0].key == definition.key
+    assert loaded.items[0].quickRead is None
+
+
+@pytest.mark.asyncio
+async def test_quick_read_preserves_raw_facts_survives_refresh_and_reuses_content_cache(db, monkeypatch):
+    definition = HOTSPOT_NEWS_SOURCES[1]
+    calls = 0
+
+    async def fake_fetch(source, source_definition):
+        return _FeedFetchResult(entries=[_entry()], etag=None, last_modified=None, not_modified=False)
+
+    async def fake_call(**kwargs):
+        nonlocal calls
+        calls += 1
+        return RardarStructuredResult(
+            value=_QuickReadOutput(
+                titleZh="平台推出一项具体变更",
+                summaryZh="GitHub 表示，该 API 现在提供一项有边界且有文档说明的能力。",
+            ),
+            metadata=_metadata(),
+        )
+
+    monkeypatch.setattr(news_service, "_fetch_source", fake_fetch)
+    await refresh_hotspot_news(db, definitions=(definition,))
+    before = (await db.execute(select(ContentItem))).scalar_one()
+    raw = (before.title, before.summary, before.url, before.published_at, before.crawled_at)
+
+    first = await enhance_hotspot_news(db, item_limit=1, caller=fake_call, route_resolver=_route)
+    await refresh_hotspot_news(db, definitions=(definition,))
+    second = await enhance_hotspot_news(db, item_limit=1, caller=fake_call, route_resolver=_route)
+    after = (await db.execute(select(ContentItem))).scalar_one()
+    loaded, _ = await load_hotspot_news(db)
+
+    assert first.enhanced == 1
+    assert second.cacheHits == 1
+    assert calls == 1
+    assert (after.title, after.summary, after.url, after.published_at, after.crawled_at) == raw
+    assert loaded.items[0].title == raw[0]
+    assert loaded.items[0].summary == raw[1]
+    assert loaded.items[0].quickRead is not None
+    assert loaded.items[0].quickRead.titleZh == "平台推出一项具体变更"
+    assert loaded.items[0].quickRead.materialKind == "feed_summary"
+
+
+@pytest.mark.asyncio
+async def test_title_only_hn_never_uses_discussion_facts_or_accepts_an_invented_summary(db, monkeypatch):
+    definition = HOTSPOT_NEWS_SOURCES[-1]
+    captured = ""
+
+    async def fake_fetch(source, source_definition):
+        entry = _entry(
+            url="https://news.ycombinator.com/item?id=42",
+            title="Ask HN: A title-only systems question",
+            summary="",
+        )
+        entry.update(
+            published_at=None,
+            updated_at=None,
+            discussion_at=datetime(2026, 9, 8, 3, 0, tzinfo=UTC),
+            discussion_url="https://news.ycombinator.com/item?id=42",
+            rank=3,
+            points=188,
+            comments=42,
+        )
+        return _FeedFetchResult(entries=[entry], etag=None, last_modified=None, not_modified=False)
+
+    async def bad_call(**kwargs):
+        nonlocal captured
+        captured = json.dumps(kwargs["messages"], ensure_ascii=False)
+        return RardarStructuredResult(
+            value=_QuickReadOutput(titleZh="Ask HN：一个仅有标题的系统问题", summaryZh="这是编造的说明。"),
+            metadata=_metadata(),
+        )
+
+    monkeypatch.setattr(news_service, "_fetch_source", fake_fetch)
+    await refresh_hotspot_news(db, definitions=(definition,))
+    result = await enhance_hotspot_news(db, item_limit=1, caller=bad_call, route_resolver=_route)
+    row = (await db.execute(select(ContentItem))).scalar_one()
+    loaded, _ = await load_hotspot_news(db)
+
+    assert result.failed == 1
+    assert loaded.items[0].quickRead is None
+    assert QUICK_READ_MARKER not in row.tags
+    material_payload = json.loads(json.loads(captured)[1]["content"])
+    assert set(material_payload) == {"originalTitle", "materialKind", "material"}
+    assert material_payload["materialKind"] == "title_only"
+    assert material_payload["material"] is None
+
+    async def title_translation(**kwargs):
+        return RardarStructuredResult(
+            value=_QuickReadOutput(titleZh="Ask HN：一个仅有标题的系统问题", summaryZh=None),
+            metadata=_metadata(),
+        )
+
+    retried = await enhance_hotspot_news(db, item_limit=1, caller=title_translation, route_resolver=_route)
+    loaded, _ = await load_hotspot_news(db)
+    assert retried.enhanced == 1
+    assert loaded.items[0].quickRead is not None
+    assert loaded.items[0].quickRead.state == "title_only"
+    assert loaded.items[0].quickRead.summaryZh is None
+
+
+@pytest.mark.asyncio
+async def test_failed_re_enhancement_keeps_last_good_derived_record_but_never_serves_it_as_current(db, monkeypatch):
+    definition = HOTSPOT_NEWS_SOURCES[1]
+
+    async def fake_fetch(source, source_definition):
+        return _FeedFetchResult(entries=[_entry()], etag=None, last_modified=None, not_modified=False)
+
+    async def success(**kwargs):
+        return RardarStructuredResult(
+            value=_QuickReadOutput(titleZh="一项平台变更", summaryZh="来源摘要称 API 提供了一项新能力。"),
+            metadata=_metadata(),
+        )
+
+    async def failure(**kwargs):
+        raise RardarLLMError("rardar_llm_unavailable", classification="timeout")
+
+    monkeypatch.setattr(news_service, "_fetch_source", fake_fetch)
+    await refresh_hotspot_news(db, definitions=(definition,))
+    await enhance_hotspot_news(db, item_limit=1, caller=success, route_resolver=_route)
+    row = (await db.execute(select(ContentItem))).scalar_one()
+    good = dict(row.tags[QUICK_READ_MARKER])
+    row.title = "A materially changed title"
+    await db.commit()
+
+    result = await enhance_hotspot_news(db, item_limit=1, caller=failure, route_resolver=_route)
+    await db.refresh(row)
+    loaded, _ = await load_hotspot_news(db)
+
+    assert result.failed == 1
+    assert row.tags[QUICK_READ_MARKER] == good
+    assert loaded.items[0].quickRead is None
+
+
+@pytest.mark.asyncio
+async def test_article_body_identity_ignores_interaction_metadata_but_changes_with_body(db, monkeypatch):
+    definition = HOTSPOT_NEWS_SOURCES[-1]
+    body_digest = "body-v1"
+    calls = 0
+
+    async def fake_fetch(source, source_definition):
+        entry = _entry(url="https://example.com/story", title="A title-only report", summary="")
+        entry.update(published_at=None, updated_at=None, points=1, comments=2, rank=1)
+        return _FeedFetchResult(entries=[entry], etag=None, last_modified=None, not_modified=False)
+
+    async def material(db, item, source_key):
+        return _Material("article_body", "The author reports a bounded change with direct evidence.", body_digest)
+
+    async def fake_call(**kwargs):
+        nonlocal calls
+        calls += 1
+        return RardarStructuredResult(
+            value=_QuickReadOutput(titleZh="一则有正文依据的报道", summaryZh="作者依据直接材料报告了一项有限变更。"),
+            metadata=_metadata(),
+        )
+
+    monkeypatch.setattr(news_service, "_fetch_source", fake_fetch)
+    await refresh_hotspot_news(db, definitions=(definition,))
+    await enhance_hotspot_news(db, item_limit=1, caller=fake_call, route_resolver=_route, material_loader=material)
+    row = (await db.execute(select(ContentItem))).scalar_one()
+    marker = row.tags["rardarHotspotNews"]
+    marker["discoveryChannels"][0]["points"] = 999
+    marker["discoveryChannels"][0]["comments"] = 999
+    row.tags = {**row.tags, "rardarHotspotNews": marker}
+    await db.commit()
+    cached = await enhance_hotspot_news(
+        db, item_limit=1, caller=fake_call, route_resolver=_route, material_loader=material
+    )
+    body_digest = "body-v2"
+    changed = await enhance_hotspot_news(
+        db, item_limit=1, caller=fake_call, route_resolver=_route, material_loader=material
+    )
+
+    assert cached.cacheHits == 1
+    assert changed.enhanced == 1
+    assert calls == 2
+
+
+@pytest.mark.asyncio
+async def test_quick_read_stops_after_two_consecutive_matching_provider_errors(db, monkeypatch):
+    definition = HOTSPOT_NEWS_SOURCES[1]
+    calls = 0
+
+    async def fake_fetch(source, source_definition):
+        return _FeedFetchResult(
+            entries=[_entry(url=f"https://example.com/story-{index}", title=f"Report {index}") for index in range(3)],
+            etag=None,
+            last_modified=None,
+            not_modified=False,
+        )
+
+    async def failing_call(**kwargs):
+        nonlocal calls
+        calls += 1
+        raise RardarLLMError("rardar_llm_invalid_output", classification="invalid_output")
+
+    monkeypatch.setattr(news_service, "_fetch_source", fake_fetch)
+    await refresh_hotspot_news(db, definitions=(definition,))
+    result = await enhance_hotspot_news(db, item_limit=3, caller=failing_call, route_resolver=_route)
+
+    assert result.status == "degraded"
+    assert result.considered == 2
+    assert result.failed == 2
+    assert calls == 2
 
 
 @pytest.mark.asyncio

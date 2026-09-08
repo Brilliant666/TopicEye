@@ -1,10 +1,15 @@
 param(
     [ValidateSet(
-        "start", "stop", "status", "sync-data", "refresh-news", "rebuild-serving",
+        "start", "stop", "status", "sync-data", "refresh-news", "enhance-news", "rebuild-serving",
         "build-selection", "rebuild-selection", "selection-status", "selection-rollback"
     )]
     [string]$Command = "start",
-    [string]$SelectionGeneration
+    [string]$SelectionGeneration,
+    [string]$NewsBudgetPath,
+    [string]$NewsRunId,
+    [ValidateRange(1, 100)] [int]$NewsBudgetLimit = 16,
+    [ValidateRange(1, 40)] [int]$NewsItemLimit = 18,
+    [switch]$InitializeNewsBudget
 )
 
 $ErrorActionPreference = "Stop"
@@ -796,6 +801,67 @@ function Refresh-RardarHotspotNews {
     }
 }
 
+function Enhance-RardarHotspotNews {
+    if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
+        throw "Existing TopicEye Python runtime is unavailable: $Python"
+    }
+    if (-not $NewsBudgetPath -or -not [IO.Path]::IsPathFullyQualified($NewsBudgetPath) -or -not $NewsRunId) {
+        throw "enhance-news requires absolute -NewsBudgetPath and -NewsRunId."
+    }
+    $resolvedBudgetPath = [IO.Path]::GetFullPath($NewsBudgetPath)
+    if ($resolvedBudgetPath.StartsWith($RepoRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "News budget must stay outside the repository."
+    }
+    Start-Postgres
+    $script:DatabaseUser = Resolve-DatabaseUser
+    $database = Resolve-Database
+    $encodedUser = [Uri]::EscapeDataString($script:DatabaseUser)
+    $encodedDatabase = [Uri]::EscapeDataString($database)
+    $databaseUrl = "postgresql+asyncpg://${encodedUser}@127.0.0.1:${PgPort}/${encodedDatabase}"
+    $savedEnvironment = @{}
+    $enhanceEnvironment = @{
+        DATABASE_URL = $databaseUrl
+        RARDAR_PRODUCT_MODE = "true"
+        APP_ENV = "development"
+        PYTHONPATH = $BackendRoot
+        PYTHONUTF8 = "1"
+        PYTHONIOENCODING = "utf-8"
+    }
+    foreach ($name in $enhanceEnvironment.Keys) {
+        $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+        [Environment]::SetEnvironmentVariable($name, $enhanceEnvironment[$name], "Process")
+    }
+    $arguments = @(
+        "-m", "scripts.enhance_rardar_hotspot_news",
+        "run",
+        "--budget-path", $resolvedBudgetPath,
+        "--run-id", $NewsRunId,
+        "--limit", [string]$NewsBudgetLimit,
+        "--item-limit", [string]$NewsItemLimit
+    )
+    Push-Location $BackendRoot
+    try {
+        if ($InitializeNewsBudget) {
+            $initialize = @(
+                "-m", "scripts.enhance_rardar_hotspot_news",
+                "initialize-budget",
+                "--budget-path", $resolvedBudgetPath,
+                "--run-id", $NewsRunId,
+                "--limit", [string]$NewsBudgetLimit
+            )
+            & $Python @initialize
+            if ($LASTEXITCODE -ne 0) { throw "Rardar News budget initialization failed." }
+        }
+        & $Python @arguments
+        if ($LASTEXITCODE -ne 0) { throw "Rardar News quick-read enhancement did not complete." }
+    } finally {
+        Pop-Location
+        foreach ($name in $enhanceEnvironment.Keys) {
+            [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], "Process")
+        }
+    }
+}
+
 function Invoke-SelectionCommand([string[]]$Arguments) {
     if (-not (Test-Path -LiteralPath $Python -PathType Leaf)) {
         throw "Existing TopicEye Python runtime is unavailable: $Python"
@@ -862,6 +928,7 @@ switch ($Command) {
     "status" { Show-Status; Show-RardarSelectionStatus }
     "sync-data" { Sync-RardarData }
     "refresh-news" { Refresh-RardarHotspotNews }
+    "enhance-news" { Enhance-RardarHotspotNews }
     "rebuild-serving" { Rebuild-RardarServing }
     "build-selection" { Build-RardarSelection }
     "rebuild-selection" { Build-RardarSelection }

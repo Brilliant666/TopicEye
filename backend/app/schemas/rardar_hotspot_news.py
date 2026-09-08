@@ -40,6 +40,15 @@ class HotspotNewsDiscoveryChannel(_StrictNewsModel):
     comments: int | None = Field(default=None, ge=0)
 
 
+class HotspotNewsQuickRead(_StrictNewsModel):
+    state: Literal["ready", "title_only"]
+    titleZh: str = Field(min_length=1, max_length=500)
+    summaryZh: str | None = Field(default=None, max_length=600)
+    materialKind: Literal["feed_summary", "article_body", "title_only"]
+    generatedBy: Literal["ai"] = "ai"
+    generatedAt: AwareDatetime
+
+
 class HotspotNewsItem(_StrictNewsModel):
     id: int = Field(gt=0)
     title: str = Field(min_length=1, max_length=500)
@@ -56,6 +65,7 @@ class HotspotNewsItem(_StrictNewsModel):
     updatedAt: AwareDatetime | None
     fetchedAt: AwareDatetime
     discoveryChannels: list[HotspotNewsDiscoveryChannel] = Field(min_length=1)
+    quickRead: HotspotNewsQuickRead | None = None
 
 
 class HotspotNewsResponse(_StrictNewsModel):
@@ -92,3 +102,25 @@ class HotspotNewsRefreshResult(_StrictNewsModel):
     completedAt: AwareDatetime
     providerCalls: Literal[0] = 0
     sources: list[HotspotNewsRefreshSourceResult]
+
+
+class HotspotNewsEnhanceItemResult(_StrictNewsModel):
+    contentId: int = Field(gt=0)
+    sourceKey: str = Field(min_length=1, max_length=40)
+    status: Literal["enhanced", "cached", "already_chinese", "failed", "budget_exhausted"]
+    materialKind: Literal["feed_summary", "article_body", "title_only"] | None = None
+    errorCode: str | None = Field(default=None, max_length=80)
+
+
+class HotspotNewsEnhanceResult(_StrictNewsModel):
+    status: Literal["completed", "degraded", "budget_exhausted"]
+    startedAt: AwareDatetime
+    completedAt: AwareDatetime
+    considered: int = Field(ge=0)
+    enhanced: int = Field(ge=0)
+    cacheHits: int = Field(ge=0)
+    alreadyChinese: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    providerCalls: int = Field(ge=0)
+    budgetRemaining: int = Field(ge=0)
+    items: list[HotspotNewsEnhanceItemResult]

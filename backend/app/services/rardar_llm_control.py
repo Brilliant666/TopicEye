@@ -35,6 +35,7 @@ class RardarLLMScene(StrEnum):
     WORTH_SEEING_GATE = "rardar_worth_seeing_gate"
     WORTH_SEEING_MEANINGFUL_CHANGE = "rardar_worth_seeing_meaningful_change"
     WORTH_SEEING_COPY = "rardar_worth_seeing_copy"
+    NEWS_QUICKREAD = "rardar_news_quickread"
 
 
 class ReasoningEffort(StrEnum):

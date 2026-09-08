@@ -4198,6 +4198,18 @@
   letter-spacing: -0.015em;
 }
 
+.newsAiBadge {
+  width: fit-content;
+  margin: -0.15rem 0 0.55rem;
+  padding: 0.2rem 0.48rem;
+  border: 1px solid #cbe3ee;
+  border-radius: 999px;
+  color: #0d7182;
+  background: #f0fbfd;
+  font-size: 0.62rem;
+  font-weight: 760;
+}
+
 .newsSummary,
 .newsSummaryMissing {
   display: -webkit-box;
@@ -4211,6 +4223,20 @@
 }
 
 .newsSummaryMissing { color: #8794a6; font-style: italic; }
+
+.newsOriginal {
+  margin: -0.35rem 0 0.9rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.7rem;
+  color: #718096;
+  background: #f7f9fc;
+  font-size: 0.69rem;
+  line-height: 1.55;
+}
+
+.newsOriginal summary { cursor: pointer; color: #486885; font-weight: 740; }
+.newsOriginal strong { display: block; margin-top: 0.45rem; color: #40526a; }
+.newsOriginal p { margin: 0.3rem 0 0; }
 
 .newsDiscoveries {
   display: grid;

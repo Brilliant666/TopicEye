@@ -212,6 +212,24 @@ def test_configured_task_maps_project_profile_and_honours_stage(monkeypatch, tmp
     assert summary["stageBreakdown"]["profile_translation"] == 1
 
 
+def test_configured_task_maps_news_quickread_to_the_same_durable_budget(monkeypatch, tmp_path):
+    ledger = ProviderBudgetLedger.initialize(
+        tmp_path / "quickread" / "provider-budget.json",
+        "quickread",
+        task_id="RARDAR-NEWS-CHINESE-QUICKREAD-01",
+        limit=16,
+    )
+    configure(monkeypatch, ledger)
+    resolved, stage = execution_budget("rardar_news_quickread")
+    assert resolved.path == ledger.path
+    assert stage == "news_quickread"
+    with resolved.execution(stage):
+        pass
+    summary = ledger.snapshot()
+    assert summary["attempted"] == 1
+    assert summary["remaining"] == 15
+
+
 def test_configured_task_identity_must_match_ledger(monkeypatch, tmp_path):
     ledger = ProviderBudgetLedger.initialize(
         tmp_path / "incremental" / "provider-budget.json",

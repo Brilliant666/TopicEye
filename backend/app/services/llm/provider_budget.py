@@ -28,7 +28,7 @@ LEGACY_STAGES = {
     "user_copy",
     "format_retry",
 }
-STAGES = LEGACY_STAGES | {"project_profile", "profile_translation"}
+STAGES = LEGACY_STAGES | {"project_profile", "profile_translation", "news_quickread"}
 _stage: ContextVar[str | None] = ContextVar("rardar_budget_stage", default=None)
 _single_attempt: ContextVar[list[int] | None] = ContextVar("rardar_single_attempt", default=None)
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
@@ -391,6 +391,7 @@ def execution_budget(scene: str) -> tuple[ProviderBudgetLedger, str] | None:
     }
     if task_id and task_id != TASK_ID:
         stages["rardar_project_profile"] = "project_profile"
+        stages["rardar_news_quickread"] = "news_quickread"
     if scene not in stages:
         raise ProviderBudgetError("provider_budget_scene_forbidden")
     ledger = ProviderBudgetLedger(Path(path), run_id, task_id=task_id or TASK_ID, limit=limit)

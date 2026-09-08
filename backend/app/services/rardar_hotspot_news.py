@@ -24,6 +24,7 @@ from app.repositories.source_repo import SourceRepository
 from app.schemas.rardar_hotspot_news import (
     HotspotNewsDiscoveryChannel,
     HotspotNewsItem,
+    HotspotNewsQuickRead,
     HotspotNewsRefreshResult,
     HotspotNewsRefreshSourceResult,
     HotspotNewsResponse,
@@ -354,6 +355,44 @@ def _item_marker(item: ContentItem) -> dict[str, Any]:
     return dict(marker) if isinstance(marker, dict) else {}
 
 
+def _text_digest(value: str | None) -> str:
+    return hashlib.sha256((value or "").encode("utf-8")).hexdigest()
+
+
+def _quick_read_for_item(item: ContentItem) -> HotspotNewsQuickRead | None:
+    """Expose a derived reading aid only while it matches the raw source facts."""
+    tags = item.tags if isinstance(item.tags, dict) else {}
+    marker = tags.get("rardarHotspotNewsQuickRead")
+    if not isinstance(marker, dict):
+        return None
+    failure = tags.get("rardarHotspotNewsQuickReadFailure")
+    if (
+        isinstance(failure, dict)
+        and isinstance(failure.get("inputIdentity"), str)
+        and failure.get("inputIdentity") != marker.get("inputIdentity")
+    ):
+        return None
+    if (
+        marker.get("version") != 1
+        or marker.get("sourceTitleSha256") != _text_digest(item.title)
+        or marker.get("sourceSummarySha256") != _text_digest(item.summary)
+    ):
+        return None
+    try:
+        return HotspotNewsQuickRead.model_validate(
+            {
+                "state": marker.get("state"),
+                "titleZh": marker.get("titleZh"),
+                "summaryZh": marker.get("summaryZh"),
+                "materialKind": marker.get("materialKind"),
+                "generatedBy": "ai",
+                "generatedAt": marker.get("generatedAt"),
+            },
+        )
+    except Exception:
+        return None
+
+
 def _merge_channels(marker: dict[str, Any], channel: dict[str, Any]) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
     existing = marker.get("discoveryChannels")
@@ -415,19 +454,19 @@ def _marker(
     effective_updated = max(times) if times else None
     existing_feed_tags = existing.get("feedTags") if isinstance(existing.get("feedTags"), list) else []
     feed_tags = list(dict.fromkeys([*existing_feed_tags, *payload["feed_tags"]]))[:8]
-    return {
-        "rardarHotspotNews": {
-            "version": HOTSPOT_NEWS_MARKER_VERSION,
-            "sourceKey": source_key,
-            "updatedAt": effective_updated.isoformat() if effective_updated else None,
-            "feedTags": feed_tags,
-            "topicKey": topic_key,
-            "contentType": content_type,
-            "publisherName": publisher_name,
-            "language": existing.get("language") or definition.language,
-            "discoveryChannels": _merge_channels(existing, channel),
-        }
+    tags = dict(item.tags) if item is not None and isinstance(item.tags, dict) else {}
+    tags["rardarHotspotNews"] = {
+        "version": HOTSPOT_NEWS_MARKER_VERSION,
+        "sourceKey": source_key,
+        "updatedAt": effective_updated.isoformat() if effective_updated else None,
+        "feedTags": feed_tags,
+        "topicKey": topic_key,
+        "contentType": content_type,
+        "publisherName": publisher_name,
+        "language": existing.get("language") or definition.language,
+        "discoveryChannels": _merge_channels(existing, channel),
     }
+    return tags
 
 
 async def _fetch_rss_feed(source: Source) -> _FeedFetchResult:
@@ -960,6 +999,7 @@ async def load_hotspot_news(
                 updatedAt=updated_at,
                 fetchedAt=fetched_at,
                 discoveryChannels=channels,
+                quickRead=_quick_read_for_item(item),
             )
         )
 

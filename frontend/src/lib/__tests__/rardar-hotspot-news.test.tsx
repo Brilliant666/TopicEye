@@ -97,6 +97,14 @@ const payload: HotspotNewsResponse = {
           comments: 42,
         },
       ],
+      quickRead: {
+        state: 'ready',
+        titleZh: '新处理器架构进入生产环境',
+        summaryZh: '报道介绍了该架构及首个生产系统。',
+        materialKind: 'feed_summary',
+        generatedBy: 'ai',
+        generatedAt: '2026-09-08T04:05:00+00:00',
+      },
     },
     {
       id: 2,
@@ -126,6 +134,14 @@ const payload: HotspotNewsResponse = {
           comments: 8,
         },
       ],
+      quickRead: {
+        state: 'title_only',
+        titleZh: '一场仅有标题的编译器讨论',
+        summaryZh: null,
+        materialKind: 'title_only',
+        generatedBy: 'ai',
+        generatedAt: '2026-09-08T04:06:00+00:00',
+      },
     },
   ],
 };
@@ -146,6 +162,14 @@ describe('Rardar Hotspot News', () => {
       items: [{ ...payload.items[0], discoveryChannels: [{ ...payload.items[0].discoveryChannels[0], key: 'unknown' }] }],
       itemCount: 1,
     })).toThrow('rardar_hotspot_news_channel_invalid');
+    expect(() => parseHotspotNewsResponse({
+      ...payload,
+      items: [{
+        ...payload.items[0],
+        quickRead: { ...payload.items[0].quickRead!, state: 'title_only', summaryZh: '不允许的摘要' },
+      }],
+      itemCount: 1,
+    })).toThrow('rardar_hotspot_news_quick_read_invalid');
   });
 
   it('renders reading-first organization, truthful times, discussion attribution, filters and paging', () => {
@@ -154,7 +178,13 @@ describe('Rardar Hotspot News', () => {
     expect(html).toContain('多渠道科技资讯');
     expect(html).toContain('部分来源同步失败');
     expect(html).toContain('原始发布时间未知');
-    expect(html).toContain('来源未提供可验证摘要');
+    expect(html).toContain('新处理器架构进入生产环境');
+    expect(html).toContain('报道介绍了该架构及首个生产系统');
+    expect(html).toContain('AI 中文速读');
+    expect(html).toContain('仅翻译标题');
+    expect(html).toContain('目前仅取得标题');
+    expect(html).toContain('查看原始标题与来源摘要');
+    expect(html).toContain('本页 2 条中文速读');
     expect(html).toContain('硬件与芯片');
     expect(html).toContain('科技媒体');
     expect(html).toContain('188 points');

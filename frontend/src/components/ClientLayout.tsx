@@ -7,6 +7,7 @@ import NotificationBell from '@/components/NotificationBell';
 import RardarLegacyRouteRedirect from '@/components/RardarLegacyRouteRedirect';
 import RardarShell from '@/components/RardarShell';
 import { AppProvider, useAuthContext, useFavoritesContext, useAppContext } from '@/providers/AppProvider';
+import { AuthProvider } from '@/providers/AuthProvider';
 import {
   RARDAR_ROUTE_VISIBILITY,
   activeProductProfile,
@@ -42,6 +43,13 @@ export default function ClientLayout({
   if (activeProductProfile.rardarEnabled) {
     const visibility = rardarRouteVisibility(pathname);
     if (visibility === RARDAR_ROUTE_VISIBILITY.ALLOW) {
+      if (pathname === '/news') {
+        return (
+          <AuthProvider initialUser={initialData.user} initialFeatureFlags={initialData.featureFlags}>
+            <RardarShell>{children}</RardarShell>
+          </AuthProvider>
+        );
+      }
       return <RardarShell>{children}</RardarShell>;
     }
     if (visibility === RARDAR_ROUTE_VISIBILITY.REDIRECT) {

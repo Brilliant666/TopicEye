@@ -48,6 +48,7 @@ from app.integrations.rardar.serving_schemas import (
     ServingCapability,
     StartHereLink,
 )
+from app.services.llm import run_failure_guard as run_guard
 from app.services.llm.provider_budget import budget_stage
 
 _README_BYTES = 1_500_000
@@ -2881,14 +2882,19 @@ async def _official_translation(
     }
     calls = 0
     for attempt in range(1, 3):
+        checkpoint = None
         try:
+            checkpoint = run_guard.before_attempt()
             calls += 1
             with budget_stage("profile_translation"):
                 value = await translator(payload | {"validationAttempt": attempt})
             _validate_official_translation(value, narrative)
+            run_guard.succeeded()
             break
         except Exception as exc:
             error_code = _generation_error_code("translation", exc)
+            if checkpoint is not None:
+                run_guard.failed(error_code, since=checkpoint)
             if attempt == 2 or not _retryable_generation_error(error_code):
                 return GenerationOutcome(
                     value=None,
@@ -2930,7 +2936,9 @@ async def _official_positioning_translation(
             pass
     calls = 0
     for attempt in range(1, 3):
+        checkpoint = None
         try:
+            checkpoint = run_guard.before_attempt()
             calls += 1
             with budget_stage("profile_translation"):
                 value = await translator(
@@ -2941,9 +2949,12 @@ async def _official_positioning_translation(
                     }
                 )
             _validate_official_positioning_translation(value)
+            run_guard.succeeded()
             break
         except Exception as exc:
             error_code = _generation_error_code("translation", exc)
+            if checkpoint is not None:
+                run_guard.failed(error_code, since=checkpoint)
             if attempt == 2 or not _retryable_generation_error(error_code):
                 return GenerationOutcome(
                     value=None,
@@ -3045,14 +3056,19 @@ async def _translation(
     }
     calls = 0
     for attempt in range(1, 3):
+        checkpoint = None
         try:
+            checkpoint = run_guard.before_attempt()
             calls += 1
             with budget_stage("profile_translation" if stage == "translation" else "project_profile"):
                 value = await translator(payload | {"validationAttempt": attempt})
             _validate_translation(value, set(evidence.evidenceIndex))
+            run_guard.succeeded()
             break
         except Exception as exc:
             error_code = _generation_error_code(stage, exc)
+            if checkpoint is not None:
+                run_guard.failed(error_code, since=checkpoint)
             if attempt == 2 or not _retryable_generation_error(error_code):
                 return GenerationOutcome(
                     value=None,

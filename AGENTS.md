@@ -106,10 +106,9 @@ trending work does not depend on repairing every historical Profile.
   legacy `shadow_review.py` artifact still hard-code a 16-project research
   cohort. This limits reuse of that historical runner for right-sized batches;
   it does not gate the current Selection path.
-- `backend/app/integrations/rardar/selection.py::_activation_gate` permits
-  partial small-batch publication only when exactly one Profile is permanently
-  unavailable. Two independent per-project failures can therefore hold back
-  otherwise valid results; changing that policy remains a separate tested task.
+- Discover small batches use the versioned local-failure policy: incomplete
+  projects remain unfinished, while independently validated results may publish.
+  Retained artifacts continue to use their recorded policy version.
 
 ## Rewriting Local Commits
 

@@ -439,6 +439,8 @@ def _activation_artifact(
         f"selection-activation-{recall_count}-{ready_count}-{retryable_count}-" f"{permanent_count}-{published_count}"
     )
     payload = built.artifact.model_dump(mode="python")
+    # These fixtures retain the prior policy to exercise historical artifacts.
+    payload["contractVersions"]["smallBatchPolicy"] = "worth-seeing-small-batch-v1"
     payload.update(
         {
             "selectionGenerationId": generation,
@@ -1541,7 +1543,7 @@ async def test_small_batch_preserves_recall_inventory_and_processes_exact_six(tm
     ]
     assert all(scene != RardarLLMScene.WORTH_SEEING_MEANINGFUL_CHANGE for scene, _messages in double.calls)
     missing_copy = [
-        item for item in artifact.assessments if item.publicationDisposition == "publish" and item.copyResult is None
+        item for item in artifact.assessments if item.publicationDisposition == "hold" and item.copyResult is None
     ]
     assert missing_copy
     assert all(item.copyFailureCode == "copy_unavailable" for item in missing_copy)
@@ -1885,7 +1887,7 @@ async def test_degraded_rebuild_without_retry_deadline_is_not_permanently_short_
 ) -> None:
     class SourceAdapterDouble:
         def load(self):
-            return object()
+            return SimpleNamespace(source_observation_set_id="observation-a")
 
     class LoaderDouble:
         def __init__(self, _target: Path) -> None:
@@ -1923,7 +1925,7 @@ async def test_degraded_profile_retry_backoff_defers_rebuild_until_deadline(
 ) -> None:
     class SourceAdapterDouble:
         def load(self):
-            return object()
+            return SimpleNamespace(source_observation_set_id="observation-a")
 
     class LoaderDouble:
         def __init__(self, _target: Path) -> None:
@@ -1983,7 +1985,7 @@ async def test_rebuild_timeout_reports_stage_and_preserves_activation_boundary(
 ) -> None:
     class SourceAdapterDouble:
         def load(self):
-            return object()
+            return SimpleNamespace(source_observation_set_id="observation-a")
 
     class LoaderDouble:
         def __init__(self, _target: Path) -> None:

@@ -1,5 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/providers/AppProvider', () => ({ useAuthContext: () => ({ currentUser: null, authLoading: false }) }));
 
 import RardarSelectionDetailPage from '@/components/RardarSelectionDetailPage';
 import RardarSelectionPage, { filterSelection } from '@/components/RardarSelectionPage';
@@ -139,7 +141,7 @@ describe('Rardar worth-seeing Selection', () => {
     const html = renderToStaticMarkup(
       <RardarSelectionPage result={{ kind: 'published', selection: smallBatch }} />,
     );
-    expect(html).toContain('本地小批量真实验证');
+    expect(html).toContain('本轮处理范围');
     expect(html).toContain('宽召回 48 项中固定处理 6 项');
     expect(html).toContain('其余 42 项明确未处理');
     expect(() => parseSelectionResponse({ ...smallBatch, unprocessedCount: 41 })).toThrow(
@@ -163,7 +165,7 @@ describe('Rardar worth-seeing Selection', () => {
     const empty: SelectionResponse = { ...shadow, items: [], publishedCount: 0, previewCount: 0, shadowReviewState: 'empty' };
     expect(parseSelectionResponse(empty).reviewable).toBe(true);
     const html = renderToStaticMarkup(<RardarSelectionPage result={{ kind: 'published', selection: empty }} />);
-    expect(html).toContain('本轮 16 项样本没有通过即时精选的项目');
+    expect(html).toContain('本轮样本没有入选项目');
     expect(html).not.toContain('系统会在画像覆盖恢复');
     expect(() => parseSelectionResponse({ ...shadow, cohortAssessed: 15 })).toThrow();
     expect(() => parseSelectionResponse({ ...shadow, productionReady: true })).toThrow();

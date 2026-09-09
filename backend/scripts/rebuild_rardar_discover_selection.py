@@ -15,6 +15,7 @@ from app.integrations.rardar.selection import (
     default_recall_batch_id,
     selection_input_digest,
 )
+from app.integrations.rardar.selection_execution import selection_writer
 from app.integrations.rardar.selection_serving import (
     SelectionServingError,
     SelectionServingLoader,
@@ -24,6 +25,7 @@ from app.integrations.rardar.selection_serving import (
     rollback_selection,
 )
 from app.integrations.rardar.selection_source import SelectionSourceAdapter
+from app.integrations.rardar.serving import ServingProjectionLoader
 from app.services.rardar_llm_control import resolve_rardar_route_identity
 
 StageReporter = Callable[[str], None]
@@ -76,7 +78,12 @@ def _cache_replay_hits(artifact) -> tuple[int, int, int]:
     return profile_hits, gate_hits, copy_hits
 
 
-async def rebuild(
+async def rebuild(target: Path, **kwargs) -> dict[str, object]:
+    with selection_writer(target):
+        return await _rebuild(target, **kwargs)
+
+
+async def _rebuild(
     target: Path,
     *,
     recall_limit: int = 48,
@@ -87,15 +94,36 @@ async def rebuild(
     process_candidate_ids: tuple[int, ...] | None = None,
     verify_cache_reuse: bool = False,
     provider_calls_allowed: bool = True,
+    expected_source_id: str | None = None,
+    expected_today_generation: str | None = None,
+    expected_route_identity: str | None = None,
 ) -> dict[str, object]:
     report = report_stage or (lambda _stage: None)
     target = target.resolve()
     report("source_validation")
     source = SelectionSourceAdapter.from_config(str(target)).load()
+
+    def verify_frozen_source():
+        current = SelectionSourceAdapter.from_config(str(target)).load()
+        if current.source_observation_set_id != source.source_observation_set_id or (
+            expected_source_id is not None and current.source_observation_set_id != expected_source_id
+        ):
+            raise SelectionServingError("rardar_selection_source_changed", "Selection source changed")
+        if expected_today_generation is not None:
+            today, _etag = ServingProjectionLoader(str(target)).load_today_with_etag()
+            if (
+                today.generationId != expected_today_generation
+                or current.today_generation_id != expected_today_generation
+            ):
+                raise SelectionServingError("rardar_selection_source_changed", "Today source changed")
+
+    verify_frozen_source()
     recall_batch_id = recall_batch_id or default_recall_batch_id(source)
     cache_root = target / "selection-profile-cache"
     report("route_and_input_digest")
     route_before = await resolve_rardar_route_identity()
+    if expected_route_identity is not None and route_before != expected_route_identity:
+        raise SelectionServingError("rardar_selection_route_changed", "Configured route changed after confirmation")
     expected_input = selection_input_digest(
         source,
         cache_root=cache_root,
@@ -214,6 +242,7 @@ async def rebuild(
             "processedCandidateIds": list(active.processedCandidateIds),
         }
     serving = build_selection_serving(built)
+    verify_frozen_source()
     report("atomic_activation")
     installed = install_selection_serving(target, serving)
     report("serving_validation")
@@ -377,7 +406,8 @@ def main() -> int:
         else:
             if not arguments.generation:
                 parser.error("rollback requires a generation ID")
-            installed = rollback_selection(arguments.target.resolve(), arguments.generation)
+            with selection_writer(arguments.target):
+                installed = rollback_selection(arguments.target.resolve(), arguments.generation)
             result = {
                 "status": "healthy",
                 "selectionGenerationId": installed.selection_generation_id,

@@ -32,6 +32,7 @@ STAGES = LEGACY_STAGES | {"project_profile", "profile_translation", "news_quickr
 _stage: ContextVar[str | None] = ContextVar("rardar_budget_stage", default=None)
 _single_attempt: ContextVar[list[int] | None] = ContextVar("rardar_single_attempt", default=None)
 _news_budget: ContextVar[ProviderBudgetLedger | None] = ContextVar("rardar_news_budget", default=None)
+_selection_budget: ContextVar[ProviderBudgetLedger | None] = ContextVar("rardar_selection_budget", default=None)
 _SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,120}$")
 
 
@@ -373,12 +374,37 @@ def news_execution_budget(ledger: ProviderBudgetLedger):
         _news_budget.reset(token)
 
 
+@contextmanager
+def selection_execution_budget(ledger: ProviderBudgetLedger):
+    """Bind the confirmed Selection operation, never a shared process env."""
+    ledger.snapshot()
+    token = _selection_budget.set(ledger)
+    try:
+        yield
+    finally:
+        _selection_budget.reset(token)
+
+
 def execution_budget(scene: str) -> tuple[ProviderBudgetLedger, str] | None:
     """Selection requires a ledger. With one attached, all Rardar calls share it."""
     explicit_news = _news_budget.get()
     if explicit_news is not None and scene == "rardar_news_quickread":
         explicit_news.snapshot()
         return explicit_news, "news_quickread"
+    explicit_selection = _selection_budget.get()
+    if explicit_selection is not None:
+        stages = {
+            "rardar_worth_seeing_gate": "scope_value",
+            "rardar_worth_seeing_copy": "user_copy",
+            "rardar_project_profile": "project_profile",
+        }
+        if scene not in stages:
+            raise ProviderBudgetError("provider_budget_scene_forbidden")
+        explicit_selection.snapshot()
+        stage = _stage.get() or stages[scene]
+        if stage not in explicit_selection.stages:
+            raise ProviderBudgetError("provider_budget_stage_invalid")
+        return explicit_selection, stage
     guarded = scene.startswith("rardar_worth_seeing_")
     configured = any(
         os.environ.get(name)

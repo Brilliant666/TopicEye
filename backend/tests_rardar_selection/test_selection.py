@@ -1887,7 +1887,7 @@ async def test_degraded_rebuild_without_retry_deadline_is_not_permanently_short_
 ) -> None:
     class SourceAdapterDouble:
         def load(self):
-            return object()
+            return SimpleNamespace(source_observation_set_id="observation-a")
 
     class LoaderDouble:
         def __init__(self, _target: Path) -> None:
@@ -1925,7 +1925,7 @@ async def test_degraded_profile_retry_backoff_defers_rebuild_until_deadline(
 ) -> None:
     class SourceAdapterDouble:
         def load(self):
-            return object()
+            return SimpleNamespace(source_observation_set_id="observation-a")
 
     class LoaderDouble:
         def __init__(self, _target: Path) -> None:
@@ -1985,7 +1985,7 @@ async def test_rebuild_timeout_reports_stage_and_preserves_activation_boundary(
 ) -> None:
     class SourceAdapterDouble:
         def load(self):
-            return object()
+            return SimpleNamespace(source_observation_set_id="observation-a")
 
     class LoaderDouble:
         def __init__(self, _target: Path) -> None:

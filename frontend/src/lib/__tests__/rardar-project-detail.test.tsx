@@ -2,7 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import RardarProjectDetailPage from '@/components/RardarProjectDetailPage';
-import { loadProjectDetail, parseProjectDetail, type ProjectDetail } from '@/lib/rardar-intelligence';
+import { TodayFoundation } from '@/components/RardarFoundationPage';
+import { loadProjectDetail, parseProjectDetail, parseTodaySnapshot, type ProjectDetail } from '@/lib/rardar-intelligence';
 
 const officialTaglineZh = '在对话里，把代码仓库或系统描述变成漂亮、可靠、可交互的系统地图。';
 const officialPositioningZh = 'Archify 是一套基于 Node.js 的渲染与校验系统，并以 Agent Skill 的形式支持 Raven、Cursor、Claude Code、Codex CLI 和 OpenCode。Agent 负责生成 Typed JSON IR，Archify 再校验并确定性编译为便携、独立的 HTML/SVG 成品。';
@@ -218,6 +219,101 @@ const detail: ProjectDetail = {
 };
 
 describe('Rardar project detail', () => {
+  function factFirstDetail(originalDescription: string | null = 'A repository for system maps.') {
+    const materials = {
+      materialState: 'unavailable' as const,
+      summarySource: originalDescription ? 'original_description' as const : 'unavailable' as const,
+      originalDescription,
+      officialSummaryZh: null, identitySummaryZh: null,
+      officialTaglineZh: null, officialTaglineEvidenceRefs: [],
+      officialPositioningZh: null, officialPositioningEvidenceRefs: [],
+      positioningZh: null, positioningSourceMode: 'insufficient' as const,
+      positioningEvidenceRefs: [], positioningIncludedRoles: [], positioningExcludedClauses: [],
+      officialHighlights: [], officialNarrativeMode: 'insufficient' as const,
+      officialNarrativeIssues: ['official_narrative_insufficient' as const],
+      sourceLabel: '受限概括' as const,
+      coreValueZh: null, coreValueEvidenceRefs: [], keyDifferentiators: [],
+      rardarAssessmentZh: null, rardarAssessmentEvidenceRefs: [], rardarDifferentiators: [],
+      capabilities: [], capabilityBulletsZh: [], productFormsZh: [],
+      qualityState: 'rejected' as const, qualityIssues: ['material_unavailable'],
+    };
+    return {
+      ...detail, schemaVersion: 8 as const,
+      project: { ...detail.project, ...materials },
+      profile: { ...detail.profile, ...materials, profileSchemaVersion: 'rardar-project-profile-v8' as const },
+    };
+  }
+
+  it.each([null, 'A repository for system maps.'])('renders v8 facts and independent missing material states (%s)', (original) => {
+    const parsed = parseProjectDetail(factFirstDetail(original));
+    const html = renderToStaticMarkup(<RardarProjectDetailPage detail={parsed} />);
+    expect(html).toContain(detail.project.repository);
+    expect(html).toContain('今日排名');
+    expect(html).toContain('打开 GitHub');
+    expect(html).toContain('核心定位暂未补齐');
+    expect(html).toContain('能力资料暂未补齐');
+    expect(html).not.toContain('翻译待补全');
+    if (original) {
+      expect(html).toContain('原始介绍');
+      expect(html).toContain(original);
+    } else expect(html).toContain('项目介绍暂未补齐');
+  });
+
+  it('renders all twenty v8 facts even when every AI profile is unavailable', () => {
+    const project = factFirstDetail().project;
+    const board = parseTodaySnapshot({
+      schemaVersion: 8, state: 'ready', generationId: detail.generationId,
+      servingGenerationId: detail.servingGenerationId, publishedAt: '2026-09-09T00:00:00Z',
+      dataMode: 'real', dataLabel: '真实事实', pendingRanked: [],
+      window: { state: 'exact', startedAt: project.windowStartedAt, endedAt: project.windowEndedAt, durationHours: 24 },
+      coverage: { exactCount: 20, state: 'healthy' },
+      exactRanked: Array.from({ length: 20 }, (_, index) => ({ ...project, rank: index + 1, githubRepositoryId: index + 1, repository: `owner/repo-${index}` })),
+      profileSummary: { total: 20, qualityReady: 0, qualityPartial: 0, qualityRejected: 20,
+        officialZh: 0, officialTranslated: 0, rardarDerived: 0, insufficient: 20 },
+    });
+    const html = renderToStaticMarkup(<TodayFoundation result={{ kind: 'published', board }} />);
+    expect(html).toContain('owner/repo-19');
+    expect(html).toContain('原始介绍');
+    expect(html).not.toContain(officialPositioningZh);
+  });
+
+  it('rejects v8 material projection drift and unsourced capability text', () => {
+    const factFirst = factFirstDetail();
+    expect(() => parseProjectDetail({ ...factFirst, profile: { ...factFirst.profile, originalDescription: 'different' } })).toThrow();
+    expect(() => parseProjectDetail({ ...factFirst, project: { ...factFirst.project,
+      capabilities: [{ title: 'Invented', detail: 'Unsupported capability', shortDetail: null, sourceMode: 'rardar_derived', evidenceRefs: [] }],
+    } })).toThrow();
+  });
+
+  it('keeps independently verified v8 Chinese introductions without requiring positioning or highlights', () => {
+    const partial = factFirstDetail();
+    const identity = {
+      materialState: 'partial' as const, summarySource: 'chinese_profile' as const,
+      officialSummaryZh: officialTaglineZh, identitySummaryZh: officialTaglineZh,
+      officialTaglineZh, officialTaglineEvidenceRefs: ['readme:narrative:tagline'],
+      sourceLabel: '官方中文 README' as const, officialNarrativeMode: 'official_zh' as const,
+      qualityState: 'partial' as const,
+    };
+    const parsed = parseProjectDetail({ ...partial,
+      project: { ...partial.project, ...identity }, profile: { ...partial.profile, ...identity },
+    });
+    const html = renderToStaticMarkup(<RardarProjectDetailPage detail={parsed} />);
+    expect(html).toContain(officialTaglineZh);
+    expect(html).toContain('核心定位暂未补齐');
+    expect(html).toContain('能力资料暂未补齐');
+  });
+
+  it('does not require optional adoption assessments in an otherwise complete v8 profile', () => {
+    const materials = {
+      materialState: 'complete', summarySource: 'chinese_profile', originalDescription: detail.project.description,
+      coreValueZh: null, coreValueEvidenceRefs: [], keyDifferentiators: [],
+      rardarAssessmentZh: null, rardarAssessmentEvidenceRefs: [], rardarDifferentiators: [],
+    };
+    const parsed = parseProjectDetail({ ...detail, schemaVersion: 8,
+      project: { ...detail.project, ...materials }, profile: { ...detail.profile, ...materials },
+    });
+    expect(renderToStaticMarkup(<RardarProjectDetailPage detail={parsed} />)).toContain(officialTaglineZh);
+  });
   it('renders identity, value, adoption, onboarding, facts, and folded provenance in order', () => {
     const html = renderToStaticMarkup(<RardarProjectDetailPage detail={detail} />);
 

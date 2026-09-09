@@ -11,7 +11,7 @@ import stat
 import tempfile
 import threading
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -23,6 +23,7 @@ from app.integrations.rardar.serving_profiles import (
     CollectedProjectProfile,
     ProfileBuildResult,
     _safe_fallback_identity,
+    _safe_source_text,
 )
 from app.integrations.rardar.serving_schemas import (
     OfficialProjectProfile,
@@ -238,7 +239,7 @@ def _fallback_profiles(
 def _summary(profiles: dict[int, CollectedProjectProfile]) -> ServingProfileSummary:
     states = [value.profile.profileState for value in profiles.values()]
     chinese = sum(
-        bool(re.search(r"[\u3400-\u9fff]", value.profile.officialSummaryZh.removeprefix("官方原文：")))
+        bool(re.search(r"[\u3400-\u9fff]", (value.profile.officialSummaryZh or "").removeprefix("官方原文：")))
         for value in profiles.values()
     )
     return ServingProfileSummary(
@@ -280,6 +281,25 @@ def build_serving_projection(
     expected_ids = {project.githubRepositoryId for project in projects}
     if set(profile_result.profiles) != expected_ids:
         raise ServingProjectionError("rardar_serving_profile_inventory_invalid", "Profile inventory is incomplete")
+    from app.integrations.rardar.serving_materials import isolate_materials
+
+    profile_result = isolate_materials(projects, profile_result, generation_id)
+    # A collector may timestamp the same deterministic fallback on every run.
+    # Reuse the verified material revision when *all* content/evidence is equal;
+    # do not create another immutable artifact just for that retry timestamp.
+    current_path = cache_root.parent / "serving" / "current.json"
+    if current_path.exists():
+        loader = ServingProjectionLoader(cache_root.parent)
+        previous, _ = loader.load_today_with_etag()
+        if previous.schemaVersion == 8 and previous.generationId == generation_id:
+            stabilized = dict(profile_result.profiles)
+            for identifier, collected in stabilized.items():
+                old, _ = loader.load_project_with_etag(identifier, generation_id)
+                if old.evidence == collected.evidence and old.profile.model_dump(
+                    exclude={"generatedAt"}
+                ) == collected.profile.model_dump(exclude={"generatedAt"}):
+                    stabilized[identifier] = replace(collected, profile=old.profile)
+            profile_result = replace(profile_result, profiles=stabilized)
     profile_summary = _summary(profile_result.profiles)
     projection_identity = _sha(
         _canonical_bytes(
@@ -337,12 +357,15 @@ def build_serving_projection(
                 "rardarAssessmentZh": profile.rardarAssessmentZh,
                 "rardarAssessmentEvidenceRefs": profile.rardarAssessmentEvidenceRefs,
                 "rardarDifferentiators": profile.rardarDifferentiators,
+                "materialState": profile.materialState,
+                "summarySource": profile.summarySource,
+                "originalDescription": profile.originalDescription,
             },
             strict=True,
         )
         today_projects.append(today_project)
         record = ServingProjectRecord(
-            schemaVersion=7,
+            schemaVersion=8,
             generationId=generation_id,
             servingGenerationId=serving_generation_id,
             project=today_project,
@@ -354,7 +377,7 @@ def build_serving_projection(
         evidence_files[f"evidence/{project.githubRepositoryId}.json"] = _model_bytes(collected.evidence)
 
     today = ServingTodaySnapshot(
-        schemaVersion=7,
+        schemaVersion=8,
         state=board.state,
         reason=board.reason,
         generationId=generation_id,
@@ -399,7 +422,7 @@ def build_serving_projection(
         for identifier in sorted(expected_ids)
     }
     manifest = ServingManifest(
-        schemaVersion=7,
+        schemaVersion=8,
         state="ready",
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
@@ -414,7 +437,7 @@ def build_serving_projection(
     manifest_raw = _model_bytes(manifest)
     files["manifest.json"] = manifest_raw
     pointer = ServingPointer(
-        schemaVersion=7,
+        schemaVersion=8,
         servingGenerationId=serving_generation_id,
         sourceGenerationId=generation_id,
         manifestSha256=_sha(manifest_raw),
@@ -455,9 +478,13 @@ def _validate_project_binding(
     evidence_payload = evidence.model_dump(mode="json", exclude={"digest"})
     if _sha(_canonical_bytes(evidence_payload)) != evidence.digest:
         raise ServingProjectionError("rardar_serving_evidence_digest_invalid", "Serving evidence digest is invalid")
+    if record.schemaVersion == 8 and record.profile.originalDescription != (
+        _safe_source_text(record.project.description or "", maximum=2000) or None
+    ):
+        raise ServingProjectionError("rardar_serving_evidence_ref_invalid", "Original description differs from facts")
     allowed_refs = set(evidence.evidenceIndex)
     claims = {
-        record.profile.officialSummaryZh,
+        *(value for value in [record.profile.officialSummaryZh] if value is not None),
         *(value for value in [record.profile.officialTaglineZh] if value is not None),
         *(value for value in [record.profile.officialPositioningZh] if value is not None),
         *(value for value in [record.profile.positioningZh] if value is not None),

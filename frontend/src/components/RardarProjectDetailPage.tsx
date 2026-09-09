@@ -44,7 +44,7 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
     : todayDetail!.project;
   if (discoverDetail) {
     assertPublishableProject(profile, true);
-  } else if (todayDetail && todayDetail.schemaVersion >= 5) {
+  } else if (todayDetail && todayDetail.schemaVersion >= 5 && todayDetail.schemaVersion < 8) {
     const requireIncludedRoles = todayDetail.schemaVersion >= 6;
     assertPublishableProject(todayDetail.project, requireIncludedRoles);
     assertPublishableProject(profile, requireIncludedRoles);
@@ -68,12 +68,16 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
 
       <section className={styles.detailHero} data-testid="project-identity-hero">
         <div className={styles.detailHeroCopy}>
-          <div className={styles.detailEyebrow}><ShieldCheck size={15} /> 静态项目档案 · {sourceLabel}</div>
+          <div className={styles.detailEyebrow}><ShieldCheck size={15} /> 静态项目档案 · {todayDetail?.schemaVersion === 8 ? materialLabel(profile.materialState) : sourceLabel}</div>
           <h1>{project.repository}</h1>
           {profile.officialTaglineZh ? (
             <p className={styles.officialTagline} data-testid="detail-official-tagline">{profile.officialTaglineZh}</p>
-          ) : (
+          ) : profile.identitySummaryZh ? (
             <p className={styles.detailSafeIdentity}>{profile.identitySummaryZh}</p>
+          ) : profile.originalDescription ? (
+            <p className={styles.detailSafeIdentity}><small>原始介绍 · </small>{profile.originalDescription}</p>
+          ) : (
+            <p>项目介绍暂未补齐，仓库与榜单事实仍可查看。</p>
           )}
           <div className={styles.profileSignalGrid} aria-label="项目形态、环境与交付形式">
             <ProfileSignal label="产品形态" values={profile.productFormsZh} />
@@ -84,7 +88,7 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
             {project.primaryLanguage && <span>{project.primaryLanguage}</span>}
             {project.topics.slice(0, 4).map((topic) => <span key={topic}>{topic}</span>)}
             {project.licenseSpdxId && <span>{project.licenseSpdxId}</span>}
-            <span>{qualityLabel(profile.qualityState)}</span>
+            <span>{todayDetail?.schemaVersion === 8 ? materialLabel(profile.materialState) : qualityLabel(profile.qualityState)}</span>
           </div>
           <div className={styles.detailActions}>
             <a href={project.htmlUrl} target="_blank" rel="noreferrer">打开 GitHub <ArrowUpRight size={15} /></a>
@@ -107,13 +111,13 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
       <div className={styles.detailFlow} data-testid="project-detail-flow">
         {discoverDetail && <DiscoverFactContext detail={discoverDetail} />}
 
-        <section className={styles.detailCoreValue} data-testid="project-official-positioning">
+        {profile.positioningZh ? <section className={styles.detailCoreValue} data-testid="project-official-positioning">
           <div className={styles.sectionKicker}><Sparkles size={16} /> 核心定位 · {positioningLabel}</div>
           <h2>{profile.positioningZh}</h2>
           <EvidenceBadges values={profile.positioningEvidenceRefs} />
-        </section>
+        </section> : <p>核心定位暂未补齐</p>}
 
-        {presentedCapabilities.length > 0 && (
+        {presentedCapabilities.length > 0 ? (
           <DetailSection
             icon={Boxes}
             title="它能做什么"
@@ -132,7 +136,7 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
               ))}
             </ol>
           </DetailSection>
-        )}
+        ) : <p>能力资料暂未补齐；可前往原仓库核对。</p>}
 
         <section className={styles.adoptionLayer} data-testid="rardar-adoption-layer">
           <div className={styles.adoptionIntro}>
@@ -228,6 +232,9 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
               <div><dt>Revision</dt><dd><code>{profile.readmeBlobSha || 'GitHub Description'}</code></dd></div>
               <div><dt>翻译状态</dt><dd>{translationLabel(profile.translationState)}</dd></div>
               <div><dt>Profile 质量</dt><dd>{qualityLabel(profile.qualityState)}</dd></div>
+              {todayDetail?.schemaVersion === 8 && profile.materialState !== 'unavailable' && (
+                <div><dt>已保存资料时间</dt><dd>{formatTime(profile.generatedAt)}</dd></div>
+              )}
               <div><dt>{isDiscover ? 'Discover Generation' : 'Generation'}</dt><dd><code>{generationId}</code></dd></div>
               <div><dt>Serving</dt><dd><code>{detail.servingGenerationId}</code></dd></div>
               <div><dt>Evidence</dt><dd><code>{profile.evidenceDigest}</code></dd></div>
@@ -339,6 +346,10 @@ function legacyCapabilitySourceMode(
   if (matchesOfficialHighlight && profile.officialNarrativeMode === 'official_zh') return 'official_zh';
   if (matchesOfficialHighlight && profile.officialNarrativeMode === 'official_translated') return 'official_translated';
   return 'rardar_derived';
+}
+
+function materialLabel(state: string | undefined) {
+  return state === 'complete' ? '资料完整' : state === 'partial' ? '资料部分可用' : '资料暂未补齐';
 }
 
 function capabilitySourceLabel(mode: CapabilitySourceMode | null | undefined) {

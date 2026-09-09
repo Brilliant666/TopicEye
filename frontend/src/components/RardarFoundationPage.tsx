@@ -124,7 +124,7 @@ function TodayState({ result }: { result: TodayLoadResult }) {
   }
 
   const exact = board.exactRanked.slice(0, 20);
-  const enforceNarrativeCompleteness = board.schemaVersion >= 5;
+  const enforceNarrativeCompleteness = board.schemaVersion >= 5 && board.schemaVersion < 8;
   const enforceV6Completeness = board.schemaVersion >= 6
     && (exact.length >= 20 || (board.coverage?.exactCount ?? 0) >= 20);
   return (
@@ -242,23 +242,27 @@ function ExactProjectCard({
         </Link>
         {project.officialTaglineZh ? (
           <p className={styles.officialTagline} data-testid="today-official-tagline">{project.officialTaglineZh}</p>
-        ) : (
+        ) : project.identitySummaryZh ? (
           <p className={styles.profileFallback}>{project.identitySummaryZh}</p>
+        ) : project.originalDescription ? (
+          <p className={styles.profileFallback}><small>原始介绍 · </small>{project.originalDescription}</p>
+        ) : (
+          <small>项目介绍暂未补齐</small>
         )}
         {project.productFormsZh.length > 0 && (
           <div className={styles.productForms} aria-label="产品形态">
             {project.productFormsZh.slice(0, 3).map((form) => <span key={form}>{form}</span>)}
           </div>
         )}
-        <section className={styles.officialPositioningBlock} aria-label="核心定位" data-testid="today-official-positioning">
+        {project.positioningZh ? <section className={styles.officialPositioningBlock} aria-label="核心定位" data-testid="today-official-positioning">
           <span>核心定位 · {positioningLabel}</span>
           <p>{project.positioningZh}</p>
-        </section>
+        </section> : <p><small>核心定位暂未补齐</small></p>}
         <div className={styles.tags}>
           {project.primaryLanguage && <span>{project.primaryLanguage}</span>}
           {project.topics.slice(0, 3).map((topic) => <span key={topic}>{topic}</span>)}
           {project.licenseSpdxId && <span>{project.licenseSpdxId}</span>}
-          <span>{sourceLabel}</span>
+          {project.summarySource !== 'unavailable' && project.summarySource !== 'original_description' && <span>{sourceLabel}</span>}
           <span>事实 · 精确 24h</span>
           {relativeGrowth !== null && <span>相对增长 {(relativeGrowth * 100).toFixed(1)}%</span>}
         </div>

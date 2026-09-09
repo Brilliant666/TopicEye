@@ -51,6 +51,8 @@ ProfileSourceLabel = Literal[
     "Rardar 整理",
 ]
 TranslationState = Literal["not_needed", "translated", "pending", "unavailable"]
+MaterialState = Literal["complete", "partial", "unavailable"]
+SummarySource = Literal["chinese_profile", "original_description", "unavailable"]
 
 
 def _normalized_capability_text(value: str) -> str:
@@ -206,7 +208,7 @@ class ServingProfileSummary(StrictServingModel):
 
 
 class ServingPointer(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7, 8]
     servingGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
     sourceGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
     manifestSha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -214,7 +216,7 @@ class ServingPointer(StrictServingModel):
 
 
 class ServingManifest(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7, 8]
     state: Literal["ready"]
     servingGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,190}$")
     sourceGenerationId: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{1,126}$")
@@ -237,7 +239,10 @@ class ServingManifest(StrictServingModel):
 
 class TodayProject(ExactExplosionProject):
     profileState: ProfileState
-    officialSummaryZh: str = Field(min_length=1, max_length=2000)
+    officialSummaryZh: str | None = Field(min_length=1, max_length=2000)
+    materialState: MaterialState | None = None
+    summarySource: SummarySource | None = None
+    originalDescription: str | None = Field(default=None, min_length=1, max_length=2000)
     sourceLabel: ProfileSourceLabel
     sourceLanguage: str | None = Field(default=None, max_length=32)
     capabilityBulletsZh: list[str] = Field(max_length=4)
@@ -268,7 +273,7 @@ class TodayProject(ExactExplosionProject):
 
 
 class ServingTodaySnapshot(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7, 8]
     state: Literal["ready", "warming_up", "baseline_missing", "not_ready"]
     reason: Literal["explosion_artifact_not_published"] | None = None
     generationId: str
@@ -291,6 +296,13 @@ class ServingTodaySnapshot(StrictServingModel):
 
     @model_validator(mode="after")
     def validate_v4_quality_projection(self) -> ServingTodaySnapshot:
+        if self.schemaVersion == 8:
+            for project in self.exactRanked:
+                _validate_v8_material(project)
+            _validate_v8_summary(self)
+            return self
+        if any(project.officialSummaryZh is None for project in self.exactRanked):
+            raise ValueError("legacy Serving requires a summary")
         if self.schemaVersion >= 4:
             for project in self.exactRanked:
                 if project.identitySummaryZh is None or project.qualityState is None:
@@ -395,6 +407,7 @@ class OfficialProjectProfile(StrictServingModel):
         "rardar-project-profile-v5",
         "rardar-project-profile-v6",
         "rardar-project-profile-v7",
+        "rardar-project-profile-v8",
     ]
     promptVersion: Literal[
         "rardar-project-profile-zh-v1",
@@ -418,7 +431,10 @@ class OfficialProjectProfile(StrictServingModel):
     htmlUrl: HttpUrl
     generationId: str
     profileState: ProfileState
-    officialSummaryZh: str = Field(min_length=1, max_length=2000)
+    officialSummaryZh: str | None = Field(min_length=1, max_length=2000)
+    materialState: MaterialState | None = None
+    summarySource: SummarySource | None = None
+    originalDescription: str | None = Field(default=None, min_length=1, max_length=2000)
     sourceLabel: ProfileSourceLabel
     sourceLanguage: str | None = Field(default=None, max_length=32)
     capabilityBulletsZh: list[str] = Field(max_length=8)
@@ -462,6 +478,11 @@ class OfficialProjectProfile(StrictServingModel):
 
     @model_validator(mode="after")
     def validate_structured_capabilities(self) -> OfficialProjectProfile:
+        if self.profileSchemaVersion == "rardar-project-profile-v8":
+            _validate_v8_material(self)
+            return self
+        if self.officialSummaryZh is None:
+            raise ValueError("legacy profile requires a summary")
         if (
             self.profileSchemaVersion
             in {
@@ -538,7 +559,7 @@ class ProjectEvidenceProjection(StrictServingModel):
 
 
 class ServingProjectDetail(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7, 8]
     generationId: str
     servingGenerationId: str
     project: TodayProject
@@ -549,6 +570,12 @@ class ServingProjectDetail(StrictServingModel):
 
     @model_validator(mode="after")
     def validate_identity(self) -> ServingProjectDetail:
+        if (self.schemaVersion == 8) != (self.profile.profileSchemaVersion == "rardar-project-profile-v8"):
+            raise ValueError("project material contract version is inconsistent")
+        if self.schemaVersion == 8:
+            _validate_v8_material(self.project)
+        elif self.project.officialSummaryZh is None:
+            raise ValueError("legacy Serving requires a summary")
         identities = {
             (self.project.githubRepositoryId, self.project.repository),
             (self.profile.githubRepositoryId, self.profile.repository),
@@ -564,7 +591,7 @@ class ServingProjectDetail(StrictServingModel):
 
 
 class ServingProjectRecord(StrictServingModel):
-    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7]
+    schemaVersion: Literal[1, 2, 3, 4, 5, 6, 7, 8]
     generationId: str
     servingGenerationId: str
     project: TodayProject
@@ -574,6 +601,12 @@ class ServingProjectRecord(StrictServingModel):
 
     @model_validator(mode="after")
     def validate_identity(self) -> ServingProjectRecord:
+        if (self.schemaVersion == 8) != (self.profile.profileSchemaVersion == "rardar-project-profile-v8"):
+            raise ValueError("project material contract version is inconsistent")
+        if self.schemaVersion == 8:
+            _validate_v8_material(self.project)
+        elif self.project.officialSummaryZh is None:
+            raise ValueError("legacy Serving requires a summary")
         if self.generationId != self.profile.generationId:
             raise ValueError("project generation is inconsistent")
         if (
@@ -584,6 +617,9 @@ class ServingProjectRecord(StrictServingModel):
             raise ValueError("project identity is inconsistent")
         if (
             self.project.profileState != self.profile.profileState
+            or self.project.materialState != self.profile.materialState
+            or self.project.summarySource != self.profile.summarySource
+            or self.project.originalDescription != self.profile.originalDescription
             or self.project.officialSummaryZh != self.profile.officialSummaryZh
             or self.project.sourceLabel != self.profile.sourceLabel
             or self.project.sourceLanguage != self.profile.sourceLanguage
@@ -615,6 +651,97 @@ class ServingProjectRecord(StrictServingModel):
         ):
             raise ValueError("project profile projection is inconsistent")
         return self
+
+
+def _validate_v8_material(value: TodayProject | OfficialProjectProfile) -> None:
+    """Validate present material independently; absence is not a fact failure."""
+    if value.materialState is None or value.summarySource is None or value.qualityState is None:
+        raise ValueError("Serving v8 requires explicit material states")
+    if value.officialSummaryZh != value.identitySummaryZh:
+        raise ValueError("Serving v8 identity projection is inconsistent")
+    expected_labels = {
+        "official_zh": "官方中文 README",
+        "official_translated": "官方 README（译）",
+        "rardar_derived": "Rardar 整理",
+        "insufficient": "受限概括",
+    }
+    if (
+        value.officialNarrativeMode not in expected_labels
+        or value.sourceLabel != expected_labels[value.officialNarrativeMode]
+    ):
+        raise ValueError("Serving v8 narrative source attribution is inconsistent")
+    if len(set(value.officialNarrativeIssues)) != len(value.officialNarrativeIssues):
+        raise ValueError("Serving v8 narrative issues must be unique")
+    if value.summarySource == "chinese_profile":
+        if not value.identitySummaryZh or not re.search(r"[\u3400-\u9fff]", value.identitySummaryZh):
+            raise ValueError("Serving v8 Chinese summary requires Chinese content")
+        if isinstance(value, OfficialProjectProfile) and not value.claimEvidenceRefs.get(value.identitySummaryZh):
+            raise ValueError("Serving v8 Chinese summary requires a saved claim reference")
+    elif value.identitySummaryZh is not None:
+        raise ValueError("Serving v8 original or unavailable summary must not masquerade as Chinese")
+    if value.summarySource == "original_description" and not value.originalDescription:
+        raise ValueError("Serving v8 original summary requires original description")
+    if value.summarySource == "unavailable" and value.originalDescription is not None:
+        raise ValueError("Serving v8 summary source contradicts available description")
+    if [item.detail for item in value.capabilities] != value.capabilityBulletsZh:
+        raise ValueError("Serving v8 capabilities must project to legacy details")
+    if any(item.sourceMode is None for item in value.capabilities):
+        raise ValueError("Serving v8 present capabilities require a source mode")
+    for text, refs in (
+        (value.officialTaglineZh, value.officialTaglineEvidenceRefs),
+        (value.officialPositioningZh, value.officialPositioningEvidenceRefs),
+        (value.coreValueZh, value.coreValueEvidenceRefs),
+        (value.rardarAssessmentZh, value.rardarAssessmentEvidenceRefs),
+    ):
+        if bool(text) != bool(refs):
+            raise ValueError("Serving v8 present claims require evidence and absent claims cannot have references")
+    if value.officialTaglineZh is not None and value.officialTaglineZh != value.identitySummaryZh:
+        raise ValueError("Serving v8 tagline identity projection is inconsistent")
+    if (
+        value.coreValueZh != value.rardarAssessmentZh
+        or value.coreValueEvidenceRefs != value.rardarAssessmentEvidenceRefs
+    ):
+        raise ValueError("Serving v8 assessment compatibility projection is inconsistent")
+    if value.keyDifferentiators != value.rardarDifferentiators:
+        raise ValueError("Serving v8 differentiator compatibility projection is inconsistent")
+    _validate_v6_positioning(value)
+    orders = [item.sourceOrder for item in value.officialHighlights]
+    if orders != list(range(1, len(orders) + 1)):
+        raise ValueError("Serving v8 official highlight order is invalid")
+    if value.officialNarrativeMode == "official_zh" and any(
+        item.sourceTitle != item.titleZh or item.sourceDetail != item.detailZh for item in value.officialHighlights
+    ):
+        raise ValueError("Serving v8 official Chinese highlights must preserve source text")
+    if len(set(value.qualityIssues)) != len(value.qualityIssues) or any(
+        not issue or len(issue) > 80 for issue in value.qualityIssues
+    ):
+        raise ValueError("Serving v8 quality issues must be unique and bounded")
+    complete = bool(value.identitySummaryZh and value.positioningZh and value.capabilities)
+    available = bool(value.identitySummaryZh or value.positioningZh or value.capabilities or value.originalDescription)
+    expected = "complete" if complete else "partial" if available else "unavailable"
+    if value.materialState != expected:
+        raise ValueError("Serving v8 material state is inconsistent")
+
+
+def _validate_v8_summary(value: ServingTodaySnapshot) -> None:
+    projects = value.exactRanked
+    summary = value.profileSummary
+    if summary.total != len(projects) or summary.chineseSummaries != sum(bool(p.identitySummaryZh) for p in projects):
+        raise ValueError("Serving v8 profile summary is inconsistent")
+    for field, state in (("complete", "complete"), ("partial", "partial"), ("sourceUnavailable", "source_unavailable")):
+        if getattr(summary, field) != sum(p.profileState == state for p in projects):
+            raise ValueError("Serving v8 profile state summary is inconsistent")
+    for field, state in (("qualityReady", "ready"), ("qualityPartial", "partial"), ("qualityRejected", "rejected")):
+        if getattr(summary, field) != sum(p.qualityState == state for p in projects):
+            raise ValueError("Serving v8 quality summary is inconsistent")
+    for field, mode in (
+        ("officialZh", "official_zh"),
+        ("officialTranslated", "official_translated"),
+        ("rardarDerived", "rardar_derived"),
+        ("insufficient", "insufficient"),
+    ):
+        if getattr(summary, field) != sum(p.officialNarrativeMode == mode for p in projects):
+            raise ValueError("Serving v8 narrative summary is inconsistent")
 
 
 def _validate_v5_narrative(value: TodayProject | OfficialProjectProfile) -> None:

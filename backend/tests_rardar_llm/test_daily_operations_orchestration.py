@@ -25,7 +25,8 @@ async def test_inventory_serializes_real_candidate_universe_summary(tmp_path, mo
     target, source = copy_and_load(tmp_path)
     expected, summary = build_candidate_universe(source)
     monkeypatch.setattr(
-        serving.ServingProjectionLoader, "load_today_with_etag",
+        serving.ServingProjectionLoader,
+        "load_today_with_etag",
         lambda _self: (SimpleNamespace(generationId=source.today_generation_id), "fixture-etag"),
     )
     built = object()
@@ -33,7 +34,8 @@ async def test_inventory_serializes_real_candidate_universe_summary(tmp_path, mo
     install = Mock()
     monkeypatch.setattr(selection_source, "install_selection_source", install)
     monkeypatch.setattr(
-        selection_source.SelectionSourceAdapter, "from_config",
+        selection_source.SelectionSourceAdapter,
+        "from_config",
         lambda _path: SimpleNamespace(load=lambda: source),
     )
     result, actual_source, universe = await daily._inventory(target)

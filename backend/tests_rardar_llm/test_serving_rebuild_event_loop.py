@@ -73,9 +73,14 @@ async def test_daily_entry_uses_async_rebuild_on_scheduler_loop(monkeypatch, tmp
     async def rebuild(target, **kwargs):
         assert asyncio.get_running_loop() is owner
         assert execution_budget("rardar_project_profile")[0] is ledger
-        return {"status": "healthy", "changed": False, "servingGenerationId": "serving",
-                "profiles": {"total": 20, "complete": 18, "partial": 2, "sourceUnavailable": 0},
-                "translationCalls": 0, "translationCacheHits": 18}
+        return {
+            "status": "healthy",
+            "changed": False,
+            "servingGenerationId": "serving",
+            "profiles": {"total": 20, "complete": 18, "partial": 2, "sourceUnavailable": 0},
+            "translationCalls": 0,
+            "translationCacheHits": 18,
+        }
 
     monkeypatch.setattr(serving, "rebuild_async", rebuild)
     result = await daily._today_profiles(tmp_path, ledger)

@@ -54,8 +54,11 @@ def rebuild(
     _require_generation_budget(generate_profiles)
     source = _load_rebuild_source(target)
     return _build_and_install(
-        target, source,
-        profile_provider=None if offline else real_profile_provider(
+        target,
+        source,
+        profile_provider=None
+        if offline
+        else real_profile_provider(
             translate_top=translate_top, concurrency=concurrency, allow_model_generation=generate_profiles
         ),
         publication_audit=publication_audit,
@@ -83,8 +86,11 @@ async def rebuild_async(
     if not offline:
         board = source[0]
         profiles = await build_official_profiles(
-            list(board.exactRanked[:20]), board.generationId, target / "profile-cache",
-            translate_top=translate_top, concurrency=concurrency,
+            list(board.exactRanked[:20]),
+            board.generationId,
+            target / "profile-cache",
+            translate_top=translate_top,
+            concurrency=concurrency,
             allow_model_generation=generate_profiles,
         )
 
@@ -92,8 +98,11 @@ async def rebuild_async(
             return profiles
 
     return await asyncio.to_thread(
-        _build_and_install_current, target, source,
-        profile_provider=provider, publication_audit=publication_audit,
+        _build_and_install_current,
+        target,
+        source,
+        profile_provider=provider,
+        publication_audit=publication_audit,
     )
 
 
@@ -113,7 +122,10 @@ def _build_and_install_current(target: Path, source, *, profile_provider, public
         if (current[0].generationId, *current[1:3]) != (source[0].generationId, *source[1:3]):
             raise ServingProjectionError("rardar_serving_source_changed", "Source changed during profile collection")
         return _build_and_install(
-            target, source, profile_provider=profile_provider, publication_audit=publication_audit,
+            target,
+            source,
+            profile_provider=profile_provider,
+            publication_audit=publication_audit,
         )
     finally:
         lock_path.unlink(missing_ok=True)

@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from contextlib import contextmanager
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -148,7 +149,7 @@ async def _inventory(target: Path) -> tuple[dict, object, list]:
             "latestCaptureAt": source.latest_capture_at,
             "managedCandidateCount": len(universe),
             "todayProjectCount": len(source.today["exactRanked"][:20]),
-            "universe": summary.model_dump(mode="json"),
+            "universe": asdict(summary),
             "checked": len(source.captures[-1]["observations"]),
             "checkKind": "validated_public_repository_facts_not_completed_ai_profiles",
         },
@@ -393,14 +394,14 @@ async def _public_materials(progress: dict, save) -> dict:
 
 async def _today_profiles(target: Path, ledger) -> dict:
     from app.services.llm.provider_budget import selection_execution_budget
-    from scripts.rebuild_rardar_serving import rebuild
+    from scripts.rebuild_rardar_serving import rebuild_async
 
     if not _same_budget_day(ledger):
         return {"status": "pending", "reason": "calendar_day_changed"}
     if ledger.snapshot()["remaining"] == 0:
         return {"status": "pending", "reason": "daily_budget_exhausted"}
     with selection_execution_budget(ledger):
-        value = await asyncio.to_thread(rebuild, target, concurrency=1, generate_profiles=True)
+        value = await rebuild_async(target, concurrency=1, generate_profiles=True)
     result = {
         key: value[key]
         for key in ("status", "changed", "servingGenerationId", "profiles", "translationCalls", "translationCacheHits")

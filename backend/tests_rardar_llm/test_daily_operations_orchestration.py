@@ -14,6 +14,40 @@ from app.services.llm.provider_budget import atomic, file_lock
 
 
 @pytest.mark.asyncio
+async def test_inventory_serializes_real_candidate_universe_summary(tmp_path, monkeypatch):
+    from dataclasses import asdict
+    from unittest.mock import Mock
+
+    from app.integrations.rardar import selection_source, selection_source_local, serving
+    from app.integrations.rardar.selection import build_candidate_universe
+    from tests_rardar_selection.source_fixture import copy_and_load
+
+    target, source = copy_and_load(tmp_path)
+    expected, summary = build_candidate_universe(source)
+    monkeypatch.setattr(
+        serving.ServingProjectionLoader,
+        "load_today_with_etag",
+        lambda _self: (SimpleNamespace(generationId=source.today_generation_id), "fixture-etag"),
+    )
+    built = object()
+    monkeypatch.setattr(selection_source_local, "build_selection_source_from_today_mirror", Mock(return_value=built))
+    install = Mock()
+    monkeypatch.setattr(selection_source, "install_selection_source", install)
+    monkeypatch.setattr(
+        selection_source.SelectionSourceAdapter,
+        "from_config",
+        lambda _path: SimpleNamespace(load=lambda: source),
+    )
+    result, actual_source, universe = await daily._inventory(target)
+    assert actual_source is source
+    assert universe == expected
+    assert result["universe"] == asdict(summary)
+    assert result["managedCandidateCount"] == len(expected)
+    assert result["checked"] == len(source.captures[-1]["observations"])
+    install.assert_called_once_with(target, built)
+
+
+@pytest.mark.asyncio
 async def test_midnight_manual_catchup_does_not_consume_next_scheduled_cycle(tmp_path, monkeypatch):
     class Clock(datetime):
         instant = datetime(2026, 9, 9, 16, 1, tzinfo=UTC)

@@ -199,8 +199,10 @@ def audit_candidate_publication(
         # Facts retain their complete inventory. Material availability is diagnostic,
         # while any *present* unsafe claim still blocks installation.
         invalid_present = sum(
-            bool(project.identitySummaryZh) and not _identity_complete(project)
-            or bool(project.positioningZh) and not _positioning_complete(project)
+            bool(project.identitySummaryZh)
+            and not _identity_complete(project)
+            or bool(project.positioningZh)
+            and not _positioning_complete(project)
             for project in projects
         )
         invalid_refs = 0

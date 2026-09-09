@@ -660,10 +660,15 @@ def _validate_v8_material(value: TodayProject | OfficialProjectProfile) -> None:
     if value.officialSummaryZh != value.identitySummaryZh:
         raise ValueError("Serving v8 identity projection is inconsistent")
     expected_labels = {
-        "official_zh": "官方中文 README", "official_translated": "官方 README（译）",
-        "rardar_derived": "Rardar 整理", "insufficient": "受限概括",
+        "official_zh": "官方中文 README",
+        "official_translated": "官方 README（译）",
+        "rardar_derived": "Rardar 整理",
+        "insufficient": "受限概括",
     }
-    if value.officialNarrativeMode not in expected_labels or value.sourceLabel != expected_labels[value.officialNarrativeMode]:
+    if (
+        value.officialNarrativeMode not in expected_labels
+        or value.sourceLabel != expected_labels[value.officialNarrativeMode]
+    ):
         raise ValueError("Serving v8 narrative source attribution is inconsistent")
     if len(set(value.officialNarrativeIssues)) != len(value.officialNarrativeIssues):
         raise ValueError("Serving v8 narrative issues must be unique")
@@ -692,7 +697,10 @@ def _validate_v8_material(value: TodayProject | OfficialProjectProfile) -> None:
             raise ValueError("Serving v8 present claims require evidence and absent claims cannot have references")
     if value.officialTaglineZh is not None and value.officialTaglineZh != value.identitySummaryZh:
         raise ValueError("Serving v8 tagline identity projection is inconsistent")
-    if value.coreValueZh != value.rardarAssessmentZh or value.coreValueEvidenceRefs != value.rardarAssessmentEvidenceRefs:
+    if (
+        value.coreValueZh != value.rardarAssessmentZh
+        or value.coreValueEvidenceRefs != value.rardarAssessmentEvidenceRefs
+    ):
         raise ValueError("Serving v8 assessment compatibility projection is inconsistent")
     if value.keyDifferentiators != value.rardarDifferentiators:
         raise ValueError("Serving v8 differentiator compatibility projection is inconsistent")
@@ -727,8 +735,10 @@ def _validate_v8_summary(value: ServingTodaySnapshot) -> None:
         if getattr(summary, field) != sum(p.qualityState == state for p in projects):
             raise ValueError("Serving v8 quality summary is inconsistent")
     for field, mode in (
-        ("officialZh", "official_zh"), ("officialTranslated", "official_translated"),
-        ("rardarDerived", "rardar_derived"), ("insufficient", "insufficient"),
+        ("officialZh", "official_zh"),
+        ("officialTranslated", "official_translated"),
+        ("rardarDerived", "rardar_derived"),
+        ("insufficient", "insufficient"),
     ):
         if getattr(summary, field) != sum(p.officialNarrativeMode == mode for p in projects):
             raise ValueError("Serving v8 narrative summary is inconsistent")

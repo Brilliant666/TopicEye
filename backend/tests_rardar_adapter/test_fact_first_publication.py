@@ -200,6 +200,28 @@ def test_v7_still_rejects_missing_top20_capabilities(tmp_path):
         ServingTodaySnapshot.model_validate_json(json.dumps(payload), strict=True)
 
 
+def test_original_description_must_match_the_verified_fact(tmp_path):
+    root = _root(tmp_path)
+    built = _build(root, _board(root))
+    today = ServingTodaySnapshot.model_validate_json(built.files["today.json"], strict=True)
+    identifier = str(today.exactRanked[0].githubRepositoryId)
+    record = serving.ServingProjectRecord.model_validate_json(built.files[f"projects/{identifier}.json"], strict=True)
+    evidence = serving.ProjectEvidenceProjection.model_validate_json(
+        built.files[f"evidence/{identifier}.json"], strict=True
+    )
+    record = record.model_copy(
+        update={"profile": record.profile.model_copy(update={"originalDescription": "Invented product claim."})}
+    )
+    with pytest.raises(serving.ServingProjectionError, match="Original description differs from facts"):
+        serving._validate_project_binding(
+            record,
+            evidence,
+            identifier=identifier,
+            pointer=serving.ServingPointer.model_validate_json(built.pointer_raw, strict=True),
+            today_project=today.exactRanked[0],
+        )
+
+
 def test_no_description_and_no_ai_still_has_readable_identity_and_fact_details(tmp_path):
     root = _root(tmp_path)
     board = _board(root)

@@ -59,6 +59,9 @@ def load_explosion_board(config: Settings = settings) -> ExplosionBoardResponse:
                 project.model_dump(
                     exclude={
                         "profileState",
+                        "materialState",
+                        "summarySource",
+                        "originalDescription",
                         "officialSummaryZh",
                         "sourceLabel",
                         "sourceLanguage",

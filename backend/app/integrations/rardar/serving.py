@@ -23,6 +23,7 @@ from app.integrations.rardar.serving_profiles import (
     CollectedProjectProfile,
     ProfileBuildResult,
     _safe_fallback_identity,
+    _safe_source_text,
 )
 from app.integrations.rardar.serving_schemas import (
     OfficialProjectProfile,
@@ -477,6 +478,10 @@ def _validate_project_binding(
     evidence_payload = evidence.model_dump(mode="json", exclude={"digest"})
     if _sha(_canonical_bytes(evidence_payload)) != evidence.digest:
         raise ServingProjectionError("rardar_serving_evidence_digest_invalid", "Serving evidence digest is invalid")
+    if record.schemaVersion == 8 and record.profile.originalDescription != (
+        _safe_source_text(record.project.description or "", maximum=2000) or None
+    ):
+        raise ServingProjectionError("rardar_serving_evidence_ref_invalid", "Original description differs from facts")
     allowed_refs = set(evidence.evidenceIndex)
     claims = {
         *(value for value in [record.profile.officialSummaryZh] if value is not None),

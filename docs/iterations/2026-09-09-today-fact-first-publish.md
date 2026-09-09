@@ -44,3 +44,15 @@ invalid references, corrupted identity/evidence, legacy v7 rejection, and
 same-input idempotency. Real acceptance uses the already downloaded fixed
 `20260909T001654097995Z-37354b354360` facts and copied caches, with Provider
 calls forbidden and the prior 4/40 ledger unchanged.
+
+The legacy explosion-board API strips the new material-only fields while
+preserving its factual response contract; the real HTTP pointer-switch and
+fail-closed recovery test covers this boundary. Original Description must match
+the validated source fact, not merely carry a valid material-state label.
+
+The real isolated candidate contains 20 factual members: 11 complete material
+profiles, 8 partial and 1 unavailable. Repeated build is a no-op, with no new
+Provider calls. Runtime installation remains pending: CI reported pre-existing
+frontend dependency vulnerabilities (Next.js, sharp, js-yaml and Vitest).
+This task does not waive that security gate or include an unreviewed dependency
+upgrade. The retained Runtime continues using its previous healthy Serving.

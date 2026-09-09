@@ -24,7 +24,9 @@ from app.integrations.rardar.serving_profiles import build_official_profiles
 from app.integrations.rardar.sync import load_sync_metadata
 
 
-def real_profile_provider(*, translate_top: int, concurrency: int = 4) -> ProfileProvider:
+def real_profile_provider(
+    *, translate_top: int, concurrency: int = 4, allow_model_generation: bool = True
+) -> ProfileProvider:
     def provider(projects, generation_id, cache_root):
         return asyncio.run(
             build_official_profiles(
@@ -33,6 +35,7 @@ def real_profile_provider(*, translate_top: int, concurrency: int = 4) -> Profil
                 cache_root,
                 translate_top=translate_top,
                 concurrency=concurrency,
+                allow_model_generation=allow_model_generation,
             )
         )
 
@@ -46,7 +49,13 @@ def rebuild(
     concurrency: int = 4,
     offline: bool = False,
     publication_audit: Path | None = None,
+    generate_profiles: bool = False,
 ) -> dict[str, object]:
+    if generate_profiles:
+        from app.services.llm.provider_budget import ProviderBudgetError, execution_budget
+
+        if execution_budget("rardar_project_profile") is None:
+            raise ProviderBudgetError("provider_budget_missing")
     board = RardarIntelligenceAdapter.from_config(str(target)).load_explosion_board()
     if not board.generationId:
         raise ServingProjectionError("rardar_serving_source_invalid", "Active raw generation is unavailable")
@@ -61,7 +70,9 @@ def rebuild(
         cache_root=target / "profile-cache",
         profile_provider=None
         if offline
-        else real_profile_provider(translate_top=translate_top, concurrency=concurrency),
+        else real_profile_provider(
+            translate_top=translate_top, concurrency=concurrency, allow_model_generation=generate_profiles
+        ),
     )
     try:
         installed = install_serving_projection(target, built)
@@ -111,6 +122,11 @@ def main() -> int:
     parser.add_argument("--concurrency", type=int, default=4, choices=range(1, 9), metavar="1..8")
     parser.add_argument("--offline", action="store_true", help="Use only audited Artifact facts; intended for fixtures")
     parser.add_argument("--publication-audit", type=Path)
+    parser.add_argument(
+        "--generate-profiles",
+        action="store_true",
+        help="Explicitly allow model enrichment; requires the existing execution budget",
+    )
     arguments = parser.parse_args()
     try:
         result = rebuild(
@@ -119,6 +135,7 @@ def main() -> int:
             concurrency=arguments.concurrency,
             offline=arguments.offline,
             publication_audit=arguments.publication_audit,
+            generate_profiles=arguments.generate_profiles,
         )
     except (RardarArtifactError, ServingProjectionError) as exc:
         print(json.dumps({"status": "failed", "code": exc.code}, sort_keys=True), file=sys.stderr)

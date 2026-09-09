@@ -195,8 +195,45 @@ def audit_candidate_publication(
             and not any(capability_issue_totals.values())
         )
     )
+    if today.schemaVersion >= 8:
+        # Facts retain their complete inventory. Material availability is diagnostic,
+        # while any *present* unsafe claim still blocks installation.
+        invalid_present = sum(
+            bool(project.identitySummaryZh) and not _identity_complete(project)
+            or bool(project.positioningZh) and not _positioning_complete(project)
+            for project in projects
+        )
+        invalid_refs = 0
+        if profiles is not None:
+            for project in projects:
+                collected = profiles.profiles.get(project.githubRepositoryId)
+                if collected is None:
+                    continue
+                allowed = set(collected.evidence.evidenceIndex)
+                refs = [
+                    *project.positioningEvidenceRefs,
+                    *project.officialTaglineEvidenceRefs,
+                    *project.coreValueEvidenceRefs,
+                    *project.rardarAssessmentEvidenceRefs,
+                    *(ref for item in project.officialHighlights for ref in item.evidenceRefs),
+                    *(ref for item in project.keyDifferentiators for ref in item.evidenceRefs),
+                    *(ref for values in collected.profile.claimEvidenceRefs.values() for ref in values),
+                ]
+                invalid_refs += bool(set(refs) - allowed)
+        activation_allowed = bool(
+            (not strict_top20 or total == 20)
+            and not invalid_present
+            and not invalid_refs
+            and not placeholder_count
+            and not navigation_count
+            and not pure_url_count
+            and not html_image_count
+            and not untranslated_count
+            and not any(capability_issue_totals.values())
+        )
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2 if today.schemaVersion >= 8 else 1,
+        "publicationPolicy": "fact_first" if today.schemaVersion >= 8 else "complete_top20_material",
         "candidateServingId": candidate_serving_id,
         "sourceGenerationId": today.generationId,
         "top20GateRequired": strict_top20,

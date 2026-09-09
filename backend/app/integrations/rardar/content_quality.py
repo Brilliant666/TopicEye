@@ -61,7 +61,7 @@ def _capability_issues(capability: ServingCapability, allowed_refs: set[str]) ->
 def _audit_project(detail: ServingProjectDetail) -> dict[str, Any]:
     project = detail.project
     profile = detail.profile
-    identity = profile.identitySummaryZh
+    identity = profile.identitySummaryZh or ""
     allowed_refs = set(detail.evidence.evidenceIndex)
     capability_audit = _capability_audit(profile.capabilities, allowed_refs)
     reasons: list[str] = []

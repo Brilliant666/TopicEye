@@ -65,6 +65,35 @@ def _root(tmp_path: Path, revision: str = "revision-a") -> Path:
 def _build(root: Path):
     board = RardarIntelligenceAdapter.from_config(str(root)).load_explosion_board()
     manifest_sha, explosion_sha = source_hashes(root, board.generationId or "")
+
+    def fixture_profiles(projects, generation, cache):
+        result = serving_module._fallback_profiles(projects, generation, cache)
+        values = {}
+        for key, item in result.profiles.items():
+            summary = "一个帮助开发者组织项目资料的工具。"
+            evidence = item.evidence
+            if "description" not in evidence.evidenceIndex:
+                payload = evidence.model_dump(mode="json", exclude={"digest"})
+                payload["evidenceIndex"]["description"] = "A tool for organizing developer project documents."
+                payload["digest"] = hashlib.sha256(_canonical(payload)).hexdigest()
+                evidence = type(evidence).model_validate(payload)
+            ref = "description"
+            values[key] = replace(
+                item,
+                evidence=evidence,
+                profile=item.profile.model_copy(
+                    update={
+                        "officialSummaryZh": summary,
+                        "identitySummaryZh": summary,
+                        "claimEvidenceRefs": {summary: [ref]},
+                        "officialNarrativeMode": "rardar_derived",
+                        "sourceLabel": "Rardar 整理",
+                        "evidenceDigest": evidence.digest,
+                    }
+                ),
+            )
+        return replace(result, profiles=values)
+
     return build_serving_projection(
         board=board,
         source_manifest_sha256=manifest_sha,
@@ -72,6 +101,7 @@ def _build(root: Path):
         synced_at=None,
         source_host=None,
         cache_root=root / "profile-cache",
+        profile_provider=fixture_profiles,
     )
 
 
@@ -109,7 +139,7 @@ def test_raw_artifact_builds_small_bound_projection_in_original_order(tmp_path: 
         *(f"evidence/{item.githubRepositoryId}.json" for item in board.exactRanked[:20]),
     }
     assert etag.startswith('"') and etag.endswith('"')
-    assert today.schemaVersion == 7
+    assert today.schemaVersion == 8
     assert all(project.identitySummaryZh == project.officialSummaryZh for project in today.exactRanked)
     assert all(project.qualityState in {"ready", "partial", "rejected"} for project in today.exactRanked)
     assert all(isinstance(project.capabilities, list) for project in today.exactRanked)
@@ -140,7 +170,7 @@ def test_positioning_precision_audit_reads_only_validated_serving(tmp_path: Path
 
     assert report["status"] == "PASS"
     assert report["sourceGenerationId"] == "fixture-explosion-a"
-    assert report["servingSchemaVersion"] == 7
+    assert report["servingSchemaVersion"] == 8
     assert report["summary"]["total"] == len(report["projects"])
     assert report["summary"]["remainingIssues"] == 0
     assert all(project["qualityResult"] == "PASS" for project in report["projects"])
@@ -513,6 +543,10 @@ def test_every_profile_claim_requires_saved_evidence(tmp_path: Path) -> None:
     identifier = str(today["exactRanked"][0]["githubRepositoryId"])
     relative = f"projects/{identifier}.json"
     record = json.loads(built.files[relative])
+    # Exercise the retained v7 read contract; v8 rejects the same missing claim
+    # earlier in its material/source Schema validation.
+    record["schemaVersion"] = 7
+    record["profile"]["profileSchemaVersion"] = "rardar-project-profile-v7"
     record["profile"]["claimEvidenceRefs"].pop(record["profile"]["officialSummaryZh"])
     pointer, files = _rebundle(built, relative, record)
 
@@ -534,6 +568,7 @@ def test_structured_capability_requires_a_saved_evidence_reference(tmp_path: Pat
         "detail": "保留完整且可复核的能力说明。",
         "shortDetail": None,
         "evidenceRefs": ["readme:missing"],
+        "sourceMode": "rardar_derived",
     }
     record["profile"]["capabilities"] = [capability]
     record["profile"]["capabilityBulletsZh"] = ["保留完整且可复核的能力说明。"]
@@ -693,6 +728,7 @@ def _complete_top20_candidate(built, *, count: int) -> ServingTodaySnapshot:
     ]
     return today.model_copy(
         update={
+            "schemaVersion": 7,
             "coverage": today.coverage.model_copy(update={"exactCount": 20}),
             "exactRanked": projects,
             "profileSummary": today.profileSummary.model_copy(

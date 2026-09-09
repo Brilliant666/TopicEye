@@ -198,15 +198,21 @@ export interface PositioningExcludedClause {
   evidenceRefs: string[];
 }
 
-export interface TodayProject extends ExactExplosionProject {
+export interface TodayMaterial {
+  materialState?: 'complete' | 'partial' | 'unavailable';
+  summarySource?: 'chinese_profile' | 'original_description' | 'unavailable';
+  originalDescription?: string | null;
+}
+
+export interface TodayProject extends ExactExplosionProject, TodayMaterial {
   profileState: ProfileState;
-  officialSummaryZh: string;
+  officialSummaryZh: string | null;
   sourceLabel: ProfileSourceLabel;
   sourceLanguage: string | null;
   capabilityBulletsZh: string[];
   capabilities: ProjectCapability[];
   translationState: TranslationState;
-  identitySummaryZh: string;
+  identitySummaryZh: string | null;
   coreValueZh: string | null;
   coreValueEvidenceRefs: string[];
   keyDifferentiators: ProjectCapability[];
@@ -246,7 +252,7 @@ export interface ProfileSummary {
 }
 
 export interface TodaySnapshot extends Omit<ExplosionBoard, 'exactRanked' | 'state' | 'reason' | 'dataMode'> {
-  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   state: 'ready' | 'warming_up' | 'baseline_missing' | 'not_ready';
   reason: 'explosion_artifact_not_published' | null;
   exactRanked: TodayProject[];
@@ -277,19 +283,19 @@ export interface StartHereLink {
 }
 
 export interface ProjectDetail {
-  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7;
+  schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   generationId: string;
   servingGenerationId: string;
   project: TodayProject;
-  profile: {
-    profileSchemaVersion: 'rardar-project-profile-v1' | 'rardar-project-profile-v2' | 'rardar-project-profile-v3' | 'rardar-project-profile-v4' | 'rardar-project-profile-v5' | 'rardar-project-profile-v6' | 'rardar-project-profile-v7';
+  profile: TodayMaterial & {
+    profileSchemaVersion: 'rardar-project-profile-v1' | 'rardar-project-profile-v2' | 'rardar-project-profile-v3' | 'rardar-project-profile-v4' | 'rardar-project-profile-v5' | 'rardar-project-profile-v6' | 'rardar-project-profile-v7' | 'rardar-project-profile-v8';
     promptVersion: 'rardar-project-profile-zh-v1' | 'rardar-project-profile-zh-v2' | 'rardar-project-profile-zh-v3' | 'rardar-project-profile-zh-v4' | 'rardar-project-profile-zh-v5' | 'rardar-project-profile-zh-v6' | 'rardar-project-profile-zh-v7' | 'rardar-project-profile-zh-v8' | 'rardar-project-profile-zh-v9' | 'rardar-project-profile-zh-v10' | 'rardar-project-profile-zh-v11' | 'rardar-project-profile-zh-v12' | 'rardar-project-profile-zh-v13' | 'rardar-project-profile-zh-v14' | 'rardar-project-profile-zh-v15';
     githubRepositoryId: number;
     repository: string;
     htmlUrl: string;
     generationId: string;
     profileState: ProfileState;
-    officialSummaryZh: string;
+    officialSummaryZh: string | null;
     sourceLabel: ProfileSourceLabel;
     sourceLanguage: string | null;
     capabilityBulletsZh: string[];
@@ -307,7 +313,7 @@ export interface ProjectDetail {
     evidenceDigest: string;
     generatedAt: string;
     translationState: TranslationState;
-    identitySummaryZh: string;
+    identitySummaryZh: string | null;
     coreValueZh: string | null;
     coreValueEvidenceRefs: string[];
     keyDifferentiators: ProjectCapability[];
@@ -460,7 +466,7 @@ export function assertPublishableProject(project: unknown, requireIncludedRoles 
 export function parseTodaySnapshot(value: unknown): TodaySnapshot {
   const board = parseExplosionBoard(value);
   const schemaVersion = Number(isRecord(value) ? value.schemaVersion : NaN);
-  if (!isRecord(value) || ![1, 2, 3, 4, 5, 6, 7].includes(schemaVersion) || typeof value.servingGenerationId !== 'string') {
+  if (!isRecord(value) || ![1, 2, 3, 4, 5, 6, 7, 8].includes(schemaVersion) || typeof value.servingGenerationId !== 'string') {
     throw new Error('rardar_response_invalid');
   }
   if (
@@ -484,18 +490,18 @@ export function parseTodaySnapshot(value: unknown): TodaySnapshot {
     if (
       !isRecord(item)
       || !['complete', 'partial', 'source_unavailable'].includes(String(item.profileState))
-      || typeof item.officialSummaryZh !== 'string'
-      || item.officialSummaryZh.length === 0
+      || (schemaVersion < 8 && (typeof item.officialSummaryZh !== 'string' || item.officialSummaryZh.length === 0))
+      || (schemaVersion === 8 && !isValidV8Material(item))
       || !Array.isArray(item.capabilityBulletsZh)
       || (schemaVersion >= 3 && !Array.isArray(item.capabilities))
       || (Array.isArray(item.capabilities) && !item.capabilities.every(isProjectCapability))
       || (schemaVersion >= 4 && (
         !isStringArray(item.productFormsZh)
-        || !isValidV4ProfileProjection(item)
+        || !isValidV4ProfileProjection(item, schemaVersion === 8)
       ))
-      || (schemaVersion >= 5 && !isValidV5NarrativeProjection(item))
+      || (schemaVersion >= 5 && !isValidV5NarrativeProjection(item, schemaVersion === 8))
       || (schemaVersion >= 6 && !isValidV6PositioningProjection(item))
-      || (schemaVersion >= 7 && !isValidV7CapabilityProjection(item))
+      || (schemaVersion === 7 && !isValidV7CapabilityProjection(item))
     ) {
       throw new Error('rardar_response_invalid');
     }
@@ -537,7 +543,7 @@ export function parseTodaySnapshot(value: unknown): TodaySnapshot {
   if (
     schemaVersion >= 6
     && (exactProfiles.length >= 20 || exactCount >= 20)
-    && (exactProfiles.length !== 20 || !exactProfiles.every((profile) => isPublishableProject(profile, true)))
+    && (exactProfiles.length !== 20 || (schemaVersion < 8 && !exactProfiles.every((profile) => isPublishableProject(profile, true))))
   ) {
     throw new Error('rardar_serving_completeness_invalid');
   }
@@ -576,6 +582,21 @@ const capabilitySourceModes: CapabilitySourceMode[] = [
   'rardar_derived',
   'deterministic_fallback',
 ];
+
+function isValidV8Material(value: Record<string, unknown>): boolean {
+  if (!['complete', 'partial', 'unavailable'].includes(String(value.materialState))
+    || !['chinese_profile', 'original_description', 'unavailable'].includes(String(value.summarySource))
+    || !(value.originalDescription === null || typeof value.originalDescription === 'string')
+    || !(value.officialSummaryZh === null || isPublishablePrimaryText(value.officialSummaryZh))
+    || !Array.isArray(value.capabilities)
+    || !value.capabilities.every((capability) => isProjectCapability(capability)
+      && capability.sourceMode != null && capability.evidenceRefs.length > 0)) return false;
+  if (value.summarySource === 'chinese_profile') return typeof value.officialSummaryZh === 'string';
+  if (value.officialSummaryZh !== null || value.identitySummaryZh !== null) return false;
+  return value.summarySource === 'original_description'
+    ? typeof value.originalDescription === 'string' && value.originalDescription.trim().length > 0
+    : value.originalDescription === null;
+}
 
 function isValidV7CapabilityProjection(value: Record<string, unknown>): boolean {
   return Array.isArray(value.capabilities)
@@ -679,7 +700,7 @@ function isValidV6PositioningProjection(value: Record<string, unknown>): boolean
     && value.positioningIncludedRoles.length > 0;
 }
 
-function isValidV5NarrativeProjection(value: Record<string, unknown>): boolean {
+function isValidV5NarrativeProjection(value: Record<string, unknown>, independentMaterials = false): boolean {
   if (
     !narrativeModes.includes(value.officialNarrativeMode as OfficialNarrativeMode)
     || !isStringArray(value.officialNarrativeIssues)
@@ -704,7 +725,7 @@ function isValidV5NarrativeProjection(value: Record<string, unknown>): boolean {
   if (mode === 'official_zh' && highlights.some(
     (highlight) => highlight.sourceTitle !== highlight.titleZh || highlight.sourceDetail !== highlight.detailZh,
   )) return false;
-  if (mode === 'official_zh' || mode === 'official_translated') {
+  if (!independentMaterials && (mode === 'official_zh' || mode === 'official_translated')) {
     if (
       typeof value.officialTaglineZh !== 'string'
       || value.officialTaglineEvidenceRefs.length === 0
@@ -713,6 +734,11 @@ function isValidV5NarrativeProjection(value: Record<string, unknown>): boolean {
       || highlights.length === 0
     ) return false;
   }
+  if (independentMaterials && (
+    (value.officialTaglineZh !== null && value.officialTaglineEvidenceRefs.length === 0)
+    || (value.officialPositioningZh !== null && value.officialPositioningEvidenceRefs.length === 0)
+    || (value.rardarAssessmentZh !== null && value.rardarAssessmentEvidenceRefs.length === 0)
+  )) return false;
   if (mode === 'insufficient' && (
     value.officialTaglineZh !== null
     || value.officialPositioningZh !== null
@@ -806,10 +832,10 @@ function normalizeNarrativeProjection(
   };
 }
 
-function isValidV4ProfileProjection(value: Record<string, unknown>): boolean {
+function isValidV4ProfileProjection(value: Record<string, unknown>, nullableSummary = false): boolean {
   if (
-    typeof value.identitySummaryZh !== 'string'
-    || value.identitySummaryZh.length === 0
+    !(nullableSummary && value.identitySummaryZh === null
+      || typeof value.identitySummaryZh === 'string' && value.identitySummaryZh.length > 0)
     || value.identitySummaryZh !== value.officialSummaryZh
     || !(value.coreValueZh === null || typeof value.coreValueZh === 'string')
     || !['ready', 'partial', 'rejected'].includes(String(value.qualityState))
@@ -823,7 +849,7 @@ function isValidV4ProfileProjection(value: Record<string, unknown>): boolean {
     return false;
   }
   if (value.coreValueZh !== null && value.coreValueEvidenceRefs.length === 0) return false;
-  if (value.qualityState === 'ready') {
+  if (value.qualityState === 'ready' && !nullableSummary) {
     return typeof value.coreValueZh === 'string'
       && value.coreValueEvidenceRefs.length > 0
       && value.keyDifferentiators.length > 0
@@ -864,7 +890,7 @@ export async function loadTodaySnapshot(
 
 export function parseProjectDetail(value: unknown): ProjectDetail {
   const schemaVersion = Number(isRecord(value) ? value.schemaVersion : NaN);
-  if (!isRecord(value) || ![1, 2, 3, 4, 5, 6, 7].includes(schemaVersion) || !isRecord(value.project) || !isRecord(value.profile) || !isRecord(value.evidence)) {
+  if (!isRecord(value) || ![1, 2, 3, 4, 5, 6, 7, 8].includes(schemaVersion) || !isRecord(value.project) || !isRecord(value.profile) || !isRecord(value.evidence)) {
     throw new Error('rardar_project_response_invalid');
   }
   const identifier = value.project.githubRepositoryId;
@@ -876,10 +902,11 @@ export function parseProjectDetail(value: unknown): ProjectDetail {
     || typeof value.generationId !== 'string'
     || value.profile.generationId !== value.generationId
     || value.evidence.generationId !== value.generationId
-    || typeof value.project.officialSummaryZh !== 'string'
+    || (schemaVersion < 8 && typeof value.project.officialSummaryZh !== 'string')
+    || (schemaVersion === 8 && (!isValidV8Material(value.project) || !isValidV8Material(value.profile)))
     || (schemaVersion >= 3 && !Array.isArray(value.project.capabilities))
     || (Array.isArray(value.project.capabilities) && !value.project.capabilities.every(isProjectCapability))
-    || typeof value.profile.officialSummaryZh !== 'string'
+    || (schemaVersion < 8 && typeof value.profile.officialSummaryZh !== 'string')
     || !Array.isArray(value.profile.capabilityBulletsZh)
     || (schemaVersion >= 3 && !Array.isArray(value.profile.capabilities))
     || (Array.isArray(value.profile.capabilities) && !value.profile.capabilities.every(isProjectCapability))
@@ -887,15 +914,15 @@ export function parseProjectDetail(value: unknown): ProjectDetail {
     || !Array.isArray(value.profile.startHere)
     || (schemaVersion >= 4 && (
       !isStringArray(value.project.productFormsZh)
-      || !isValidV4ProfileProjection(value.project)
+      || !isValidV4ProfileProjection(value.project, schemaVersion === 8)
     ))
-    || (schemaVersion >= 4 && !isValidV4ProfileProjection(value.profile))
-    || (schemaVersion >= 5 && !isValidV5NarrativeProjection(value.project))
-    || (schemaVersion >= 5 && !isValidV5NarrativeProjection(value.profile))
+    || (schemaVersion >= 4 && !isValidV4ProfileProjection(value.profile, schemaVersion === 8))
+    || (schemaVersion >= 5 && !isValidV5NarrativeProjection(value.project, schemaVersion === 8))
+    || (schemaVersion >= 5 && !isValidV5NarrativeProjection(value.profile, schemaVersion === 8))
     || (schemaVersion >= 6 && !isValidV6PositioningProjection(value.project))
     || (schemaVersion >= 6 && !isValidV6PositioningProjection(value.profile))
-    || (schemaVersion >= 7 && !isValidV7CapabilityProjection(value.project))
-    || (schemaVersion >= 7 && !isValidV7CapabilityProjection(value.profile))
+    || (schemaVersion === 7 && !isValidV7CapabilityProjection(value.project))
+    || (schemaVersion === 7 && !isValidV7CapabilityProjection(value.profile))
     || (schemaVersion >= 5 && (
       typeof value.profile.officialNarrativePromptVersion !== 'string'
       || typeof value.profile.rardarAssessmentPromptVersion !== 'string'
@@ -935,7 +962,12 @@ export function parseProjectDetail(value: unknown): ProjectDetail {
   )) {
     throw new Error('rardar_project_response_invalid');
   }
-  if (schemaVersion >= 6 && !isPublishableProject(value.profile, true)) {
+  if (schemaVersion === 8 && (
+    value.project.materialState !== value.profile.materialState
+    || value.project.summarySource !== value.profile.summarySource
+    || value.project.originalDescription !== value.profile.originalDescription
+  )) throw new Error('rardar_project_response_invalid');
+  if (schemaVersion >= 6 && schemaVersion < 8 && !isPublishableProject(value.profile, true)) {
     throw new Error('rardar_project_completeness_invalid');
   }
   const normalizedProfile = {

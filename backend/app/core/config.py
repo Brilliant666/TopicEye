@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     RARDAR_DEMO_DATA_ENABLED: bool = False
     # Server-owned per-operation cap; never accepted from a browser request.
     RARDAR_NEWS_REQUEST_LIMIT: int = 12
+    RARDAR_DISCOVER_REQUEST_LIMIT: int = 40
 
     # ── Database ──
     # 留空则启动时报错；本地开发请在 .env 中设置（参考 .env.example）。

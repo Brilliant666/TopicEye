@@ -308,7 +308,7 @@ strong.
 The page is one unranked stream with category and primary-reason filters in the
 URL. Project cards and details reuse a cached canonical profile, or use bounded
 deterministic profile evidence on a cache miss; the Selection build never hides
-extra profile-model calls outside its 120-call budget. They add a versioned
+extra profile-model calls outside the attached shared execution budget. They add a versioned
 Selection context without duplicating identity, positioning or capability
 authority. Normal Discover and detail requests read only the immutable
 `discover-worth-seeing` Serving projection: zero GitHub calls, zero LLM calls,
@@ -326,6 +326,17 @@ powershell -ExecutionPolicy Bypass -File .\scripts\rardar-local.ps1 selection-ro
 This runtime is deliberately local/shadow-only. It does not activate
 Production Discover or modify Today. See
 [Rardar Discover Adapter](docs/platform/RARDAR_DISCOVER_ADAPTER.md).
+
+Local administrators can instead open `/discover`, choose **生成下一批精选**,
+review the fixed candidates, Today/source revision and request cap, then
+explicitly confirm. Preparation and status reads never call a model. The
+server owns the batch and durable budget; duplicate confirmation returns the
+same operation rather than buying another allowance. Source facts are prepared
+from the verified local Today mirror, excluding only its published Top 20.
+Up to six available candidates are processed without padding or replacement.
+The versioned small-batch policy keeps incomplete projects unfinished while
+publishing independently valid results. Failure preserves the previous
+Selection, and retained artifacts keep their original validation policy.
 
 Today links each repository to
 `/project/github/<githubRepositoryId>?generation=<generationId>`. The numeric

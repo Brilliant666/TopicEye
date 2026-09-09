@@ -44,7 +44,7 @@ export default function ClientLayout({
   if (activeProductProfile.rardarEnabled) {
     const visibility = rardarRouteVisibility(pathname);
     if (visibility === RARDAR_ROUTE_VISIBILITY.ALLOW) {
-      if (pathname === '/news' || pathname === '/' || pathname === RARDAR_INTERNAL_HOME) {
+      if (pathname === '/news' || pathname === '/discover' || pathname === '/' || pathname === RARDAR_INTERNAL_HOME) {
         return (
           <AuthProvider initialUser={initialData.user} initialFeatureFlags={initialData.featureFlags}>
             <RardarShell>{children}</RardarShell>

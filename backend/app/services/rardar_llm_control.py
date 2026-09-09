@@ -17,6 +17,7 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from app.services.llm import run_failure_guard as run_guard
 from app.services.llm._call_engine import FindCompletionTimeout, _is_deterministic_request_error, _is_rate_limit_error
 from app.services.llm._model_cache import _model_cache
 from app.services.llm.provider import LlmRouteNotConfiguredError, call_llm_with_metadata
@@ -332,6 +333,7 @@ async def call_rardar_structured(
             cache_identity=cache_identity,
             strict_routing_group=True,
         )
+        run_guard.response_received(cache_hit=bool(provider_metadata.get("cache_hit", False)))
         parsed = loads_strict_json(raw)
         value = response_model.model_validate(parsed, strict=True)
     except StrictJSONError as exc:

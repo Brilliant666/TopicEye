@@ -37,6 +37,7 @@ from tenacity import (
 )
 
 from app.core.config import settings
+from app.services.llm import run_failure_guard as run_guard
 from app.services.llm._rate_limit import (
     _get_model_rate_limiter,
     _get_token_rate_limiter,
@@ -246,15 +247,20 @@ async def _call_llm_single(
     start = time.monotonic()
     try:
         async with acquire_completion_slot(model_config, scene):
+            run_guard.before_attempt()
             with budget[0].execution(budget[1]) if budget is not None else nullcontext():
                 deadline = asyncio.timeout(completion_timeout)
                 try:
                     async with deadline:
                         response = await acompletion(**kwargs)
                 except (TimeoutError, LiteLLMTimeout, httpx.TimeoutException) as exc:
+                    run_guard.failed("timeout")
                     if scene == _FIND_SCENE:
                         classification = "local_completion_deadline" if deadline.expired() else "sdk_timeout"
                         raise FindCompletionTimeout(classification) from exc
+                    raise
+                except Exception:
+                    run_guard.failed("transport")
                     raise
         duration_ms = int((time.monotonic() - start) * 1000)
         content = response.choices[0].message.content

@@ -12,6 +12,7 @@ import type {
   SelectionReason,
 } from '@/lib/rardar-selection';
 import styles from './RardarFoundation.module.css';
+import RardarDiscoverOperations from './RardarDiscoverOperations';
 
 type CategoryFilter = 'all' | SelectionCategory;
 type ReasonFilter = 'all' | SelectionReason;
@@ -67,11 +68,12 @@ export default function RardarSelectionPage({ result }: { result: SelectionLoadR
     return (
       <div className={`${styles.page} ${styles.selectionPage}`} data-rardar-route="/discover">
         <SelectionHero count={0} latestCaptureAt={null} />
+        <RardarDiscoverOperations />
         <section className={styles.selectionState} data-testid="selection-unavailable">
           <Radar size={28} />
           <h2>{result.kind === 'not_configured' ? '本地「值得看」精选尚未构建' : '精选数据未通过完整性验证'}</h2>
           <p>{result.kind === 'not_configured'
-            ? '运行 rardar-local.ps1 build-selection 后，这里会读取不可变的静态 Serving。'
+            ? '管理员可通过上方入口检查候选并明确启动一批评估。'
             : '系统已停止读取损坏或不一致的 Selection，不会回退到旧 momentum 列表。'}</p>
           <code>{result.code}</code>
         </section>
@@ -92,6 +94,7 @@ export default function RardarSelectionPage({ result }: { result: SelectionLoadR
   return (
     <div className={`${styles.page} ${styles.selectionPage}`} data-rardar-route="/discover">
       <SelectionHero count={selection.items.length} latestCaptureAt={selection.latestCaptureAt} />
+      <RardarDiscoverOperations />
       {selection.status === 'stale' && (
         <section className={styles.selectionState} data-testid="selection-stale">
           <Clock3 size={22} />
@@ -102,7 +105,7 @@ export default function RardarSelectionPage({ result }: { result: SelectionLoadR
       {selection.executionMode === 'small_batch' && selection.shadowReviewState == null && (
         <section className={styles.selectionState} data-testid="selection-small-batch">
           <Radar size={22} />
-          <h2>本地小批量真实验证</h2>
+          <h2>本轮处理范围</h2>
           <p>本轮从稳定宽召回 {selection.recallCount} 项中固定处理 {selection.processedCount} 项；其余 {selection.unprocessedCount} 项明确未处理，不代表候选全集已完成精选。</p>
           <span>{selection.profileReadyCount}/{selection.processedCount} 项画像就绪 · {selection.publishedCount} 项可查看</span>
         </section>
@@ -151,7 +154,7 @@ export default function RardarSelectionPage({ result }: { result: SelectionLoadR
       </div>
       {selection.shadowReviewState === 'empty' ? (
         <section className={styles.selectionState} data-testid="selection-shadow-empty">
-          <Eye size={24} /><h2>本轮 16 项样本没有通过即时精选的项目</h2><p>这是完整、可评审的空结果，不代表全部候选都不值得看，也不会用热度候选补齐。</p>
+          <Eye size={24} /><h2>本轮样本没有入选项目</h2><p>这是完整、可评审的空结果，不代表全部候选都不值得看，也不会用热度候选补齐。</p>
         </section>
       ) : selection.shadowReviewState === 'incomplete' || selection.shadowReviewState === 'invalid' ? (
         <section className={styles.selectionState} data-testid="selection-shadow-incomplete">
@@ -159,7 +162,7 @@ export default function RardarSelectionPage({ result }: { result: SelectionLoadR
         </section>
       ) : selection.status === 'degraded' && selection.items.length === 0 ? (
         <section className={styles.selectionState} data-testid="selection-degraded-empty">
-          <Eye size={24} /><h2>最新精选尚未发布</h2><p>系统会在画像覆盖恢复并通过完整门禁后再发布。</p>
+          <Eye size={24} /><h2>最新精选尚未发布</h2><p>本轮尚未形成可安全发布的结果，未完成项目不代表没有价值。</p>
         </section>
       ) : filtered.length === 0 ? (
         <section className={styles.selectionState}><Eye size={24} /><h2>当前筛选没有项目</h2><p>这是有效的空结果，不会用热度候选补齐。</p></section>

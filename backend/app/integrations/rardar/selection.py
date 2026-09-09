@@ -53,7 +53,8 @@ from app.integrations.rardar.selection_schemas import (
 )
 from app.integrations.rardar.selection_source import LoadedSelectionSource
 from app.integrations.rardar.serving_profiles import ProfileBuildResult, build_official_profiles
-from app.services.llm.provider_budget import budget_stage, execution_budget
+from app.services.llm import run_failure_guard as run_guard
+from app.services.llm.provider_budget import ProviderBudgetError, budget_stage, execution_budget
 from app.services.llm.strict_json import StrictJSONError, loads_strict_json
 from app.services.rardar_llm_control import (
     RardarLLMError,
@@ -84,7 +85,7 @@ RETRY_POLICY_VERSION = "format-only-retry-v1"
 PROFILE_EVIDENCE_POLICY_VERSION = "evidence-content-profile-cache-v2"
 ACTIVATION_POLICY_VERSION = "worth-seeing-activation-v2"
 SYSTEMIC_FAILURE_POLICY_VERSION = "worth-seeing-systemic-failure-v1"
-SMALL_BATCH_POLICY_VERSION = "worth-seeing-small-batch-v1"
+SMALL_BATCH_POLICY_VERSION = "worth-seeing-small-batch-v2"
 RESULT_CACHE_VERSION = "worth-seeing-result-cache-v1"
 
 _MAX_RECALL = 48
@@ -832,8 +833,8 @@ def _processing_candidates(
     if process_candidate_ids is None:
         return recalled
     if (
-        len(process_candidate_ids) != 6
-        or len(set(process_candidate_ids)) != 6
+        not 1 <= len(process_candidate_ids) <= 6
+        or len(set(process_candidate_ids)) != len(process_candidate_ids)
         or any(
             not isinstance(identifier, int) or isinstance(identifier, bool) or identifier <= 0
             for identifier in process_candidate_ids
@@ -841,7 +842,7 @@ def _processing_candidates(
     ):
         raise SelectionBuildError(
             "rardar_selection_small_batch_invalid",
-            "Small-batch execution requires exactly six unique numeric repository IDs",
+            "Small-batch execution requires one to six unique numeric repository IDs",
         )
     positions = {candidate.githubRepositoryId: index for index, candidate in enumerate(recalled)}
     if any(identifier not in positions for identifier in process_candidate_ids):
@@ -899,8 +900,16 @@ def _activation_gate(
     systemic_failure_codes: list[str],
     negative_failures: list[str],
     copy_complete: bool,
+    local_failures: bool = False,
 ) -> bool:
-    """Permit one explicit, resolved small-batch miss without weakening full builds."""
+    """Separate small-batch completeness from the safety of published items.
+
+    The legacy branch remains available to validate retained artifacts. Item
+    identity, evidence and publication eligibility are validated independently.
+    """
+
+    if execution_mode == "small_batch" and local_failures:
+        return not negative_failures and copy_complete
 
     isolated_small_batch_failure = (
         execution_mode == "small_batch"
@@ -1082,6 +1091,10 @@ async def _prompt_json(
     attempts = 0
     failure = "non_json_output"
     for attempt in range(2 if format_retry else 1):
+        try:
+            checkpoint = run_guard.before_attempt()
+        except ProviderBudgetError as exc:
+            return None, attempts, exc.code
         attempts += 1
         usage.reserve(scene)
         messages = list(base_messages)
@@ -1111,7 +1124,10 @@ async def _prompt_json(
             validated = response_model.model_validate(parsed, strict=True)
             semantic_failure = result_validator(validated) if result_validator is not None else None
             if semantic_failure is not None:
+                if not result.metadata.cache_hit:
+                    run_guard.failed(semantic_failure, since=checkpoint)
                 return None, attempts, semantic_failure
+            run_guard.succeeded(cache_hit=result.metadata.cache_hit)
             if result_cache is not None:
                 result_cache.store(
                     validated,
@@ -1124,7 +1140,7 @@ async def _prompt_json(
             return validated, attempts, None
         except RardarLLMError as exc:
             if exc.classification == "budget":
-                if exc.code == "provider_operation_attempt_limit":
+                if exc.code in {"provider_operation_attempt_limit", "provider_operation_consecutive_failures"}:
                     return None, attempts, exc.code
                 raise SelectionBuildError(exc.code, "Shared Provider execution budget rejected the attempt") from None
             code = {
@@ -1132,16 +1148,22 @@ async def _prompt_json(
                 "rate_limited": "provider_transport_failure",
                 "provider_error": "provider_transport_failure",
             }.get(exc.classification or "", "provider_protocol_rejected")
+            run_guard.failed(exc.classification or code, since=checkpoint)
             return None, attempts, code
         except (StrictJSONError, ValidationError) as exc:
             failure, retryable = _format_error(exc, locals().get("raw", ""))
+            if not result.metadata.cache_hit:
+                run_guard.failed(failure, since=checkpoint)
             if not retryable:
                 return None, attempts, failure
             if attempt == 1:
                 return None, attempts, "retry_exhausted"
             if failure not in _RETRYABLE_FORMAT_CODES:
                 return None, attempts, failure
+        except ProviderBudgetError as exc:
+            return None, attempts, exc.code
         except Exception:
+            run_guard.failed("transport", since=checkpoint)
             return None, attempts, "provider_transport_failure"
     return None, attempts, "retry_exhausted"
 
@@ -1919,6 +1941,20 @@ async def build_selection(
         if owned_client:
             await github_client.aclose()
 
+    if process_candidate_ids is not None:
+        # Incomplete copy is a local omission, never a reason to invent copy or
+        # replace the frozen candidate. Do not run packing again to fill holes.
+        safe_copied: list[SelectionAssessment] = []
+        display_order = 0
+        for item in copied:
+            if item.publicationDisposition == "publish" and item.copyResult is None:
+                item = item.model_copy(update={"publicationDisposition": "hold", "displayOrder": None})
+            elif item.publicationDisposition == "publish":
+                display_order += 1
+                item = item.model_copy(update={"displayOrder": display_order})
+            safe_copied.append(item)
+        copied = safe_copied
+
     generated_at = datetime.now(UTC)
     identities = _source_identities(source, universe)
     input_digest = selection_input_digest(
@@ -2025,7 +2061,8 @@ async def build_selection(
     semantic_resolved_count = sum(
         item.semanticDecision != "UNCERTAIN"
         or (
-            profiles.profiles[item.candidate.githubRepositoryId].profile_failure_code is not None
+            process_candidate_ids is None
+            and profiles.profiles[item.candidate.githubRepositoryId].profile_failure_code is not None
             and not profiles.profiles[item.candidate.githubRepositoryId].profile_failure_retryable
         )
         for item in copied
@@ -2056,6 +2093,7 @@ async def build_selection(
         profile_coverage=profile_coverage,
         systemic_failure_codes=systemic_failure_codes,
         negative_failures=negative_failures,
+        local_failures=process_candidate_ids is not None,
         copy_complete=(
             process_candidate_ids is None
             or all(item.publicationDisposition != "publish" or item.copyResult is not None for item in copied)
@@ -2067,6 +2105,7 @@ async def build_selection(
         published_count == 0
         and activation_gate
         and profile_retryable_failure_count == 0
+        and (process_candidate_ids is None or not failure_histogram)
         and semantic_resolved_count == len(processed)
     ):
         activation_state = "empty"

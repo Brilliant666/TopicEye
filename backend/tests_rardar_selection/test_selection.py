@@ -439,6 +439,8 @@ def _activation_artifact(
         f"selection-activation-{recall_count}-{ready_count}-{retryable_count}-" f"{permanent_count}-{published_count}"
     )
     payload = built.artifact.model_dump(mode="python")
+    # These fixtures retain the prior policy to exercise historical artifacts.
+    payload["contractVersions"]["smallBatchPolicy"] = "worth-seeing-small-batch-v1"
     payload.update(
         {
             "selectionGenerationId": generation,
@@ -1541,7 +1543,7 @@ async def test_small_batch_preserves_recall_inventory_and_processes_exact_six(tm
     ]
     assert all(scene != RardarLLMScene.WORTH_SEEING_MEANINGFUL_CHANGE for scene, _messages in double.calls)
     missing_copy = [
-        item for item in artifact.assessments if item.publicationDisposition == "publish" and item.copyResult is None
+        item for item in artifact.assessments if item.publicationDisposition == "hold" and item.copyResult is None
     ]
     assert missing_copy
     assert all(item.copyFailureCode == "copy_unavailable" for item in missing_copy)

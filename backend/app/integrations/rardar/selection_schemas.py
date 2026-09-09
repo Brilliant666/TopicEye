@@ -650,12 +650,21 @@ class SelectionArtifact(StrictSelectionModel):
                     )
                 )
             )
+            local_failures = (
+                self.executionMode == "small_batch"
+                and self.contractVersions.get("smallBatchPolicy") == "worth-seeing-small-batch-v2"
+            )
+            if local_failures:
+                activation_gate = not self.negativeControlFailures and all(
+                    item.publicationDisposition != "publish" or item.copyResult is not None for item in self.assessments
+                )
             if self.publishedCount > 0 and activation_gate:
                 expected_state = "ready"
             elif (
                 self.publishedCount == 0
                 and activation_gate
                 and self.profileRetryableFailureCount == 0
+                and (not local_failures or not self.failureHistogram)
                 and self.semanticResolvedCount == resolution_count
             ):
                 expected_state = "empty"

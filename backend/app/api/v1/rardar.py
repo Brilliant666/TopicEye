@@ -15,6 +15,7 @@ from app.integrations.rardar import ExplosionBoardResponse, RardarArtifactError
 from app.integrations.rardar.discover_serving_schemas import DiscoverApiResponse, DiscoverProjectDetail
 from app.integrations.rardar.selection_schemas import SelectionApiResponse, SelectionProjectDetail
 from app.integrations.rardar.serving_schemas import ServingProjectDetail, ServingTodaySnapshot
+from app.schemas.rardar_discover_operations import DiscoverOperationRequest, DiscoverPrepareRequest
 from app.schemas.rardar_hotspot_news import HotspotNewsResponse
 from app.schemas.rardar_news_operations import NewsOperationRequest
 from app.schemas.rardar_product import (
@@ -25,7 +26,11 @@ from app.schemas.rardar_product import (
     ProjectInsightRequest,
 )
 from app.schemas.rardar_today_operations import TodayOperationRequest
-from app.services import rardar_news_operations as news_operations, rardar_today_operations as today_operations
+from app.services import (
+    rardar_discover_operations as discover_operations,
+    rardar_news_operations as news_operations,
+    rardar_today_operations as today_operations,
+)
 from app.services.rardar_hotspot_news import load_hotspot_news
 from app.services.rardar_intelligence import (
     load_discover_project_detail,
@@ -149,6 +154,69 @@ async def news_operation_start(
         return await news_operations.start_operation(payload, user_id=admin.id)
     except (ValueError, news_operations.ProviderBudgetError):
         raise HTTPException(status_code=409, detail="news_operation_unavailable") from None
+
+
+@router.get("/discover/operations")
+async def discover_operation_status(response: Response, _admin=Depends(get_current_admin_user)):
+    if not is_rardar_product() or settings.is_production:
+        raise HTTPException(status_code=404, detail="Not found")
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "latest": discover_operations.latest_operation(),
+        "prepared": discover_operations.prepared_plan(),
+        "requestLimit": discover_operations.request_limit(),
+        "batchSize": discover_operations.BATCH_SIZE,
+    }
+
+
+@router.get("/discover/operations/{operation_id}")
+async def discover_operation_detail(operation_id: str, response: Response, _admin=Depends(get_current_admin_user)):
+    if not is_rardar_product() or settings.is_production:
+        raise HTTPException(status_code=404, detail="Not found")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        operation = discover_operations.get_operation(operation_id)
+    except ValueError:
+        operation = None
+    if operation is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return operation
+
+
+@router.post("/discover/operations/prepare")
+async def discover_operation_prepare(
+    payload: DiscoverPrepareRequest, request: Request, response: Response, admin=Depends(get_current_admin_user)
+):
+    if not is_rardar_product() or settings.is_production:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not request.headers.get("authorization") and (
+        request.headers.get("origin") not in settings.cors_origins
+        or request.headers.get("sec-fetch-site") == "cross-site"
+    ):
+        raise HTTPException(status_code=403, detail="discover_origin_rejected")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await discover_operations.prepare_operation(payload, user_id=admin.id)
+    except (ValueError, OSError, RardarArtifactError, discover_operations.ProviderBudgetError):
+        raise HTTPException(status_code=409, detail="discover_source_unavailable") from None
+
+
+@router.post("/discover/operations", status_code=202)
+async def discover_operation_start(
+    payload: DiscoverOperationRequest, request: Request, response: Response, admin=Depends(get_current_admin_user)
+):
+    if not is_rardar_product() or settings.is_production:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not request.headers.get("authorization") and (
+        request.headers.get("origin") not in settings.cors_origins
+        or request.headers.get("sec-fetch-site") == "cross-site"
+    ):
+        raise HTTPException(status_code=403, detail="discover_origin_rejected")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await discover_operations.start_operation(payload, user_id=admin.id)
+    except (ValueError, discover_operations.ProviderBudgetError):
+        raise HTTPException(status_code=409, detail="discover_operation_unavailable") from None
 
 
 @router.get("/today/operations")

@@ -51,16 +51,93 @@ def rebuild(
     publication_audit: Path | None = None,
     generate_profiles: bool = False,
 ) -> dict[str, object]:
+    _require_generation_budget(generate_profiles)
+    source = _load_rebuild_source(target)
+    return _build_and_install(
+        target, source,
+        profile_provider=None if offline else real_profile_provider(
+            translate_top=translate_top, concurrency=concurrency, allow_model_generation=generate_profiles
+        ),
+        publication_audit=publication_audit,
+    )
+
+
+async def rebuild_async(
+    target: Path,
+    *,
+    translate_top: int = 20,
+    concurrency: int = 4,
+    offline: bool = False,
+    publication_audit: Path | None = None,
+    generate_profiles: bool = False,
+) -> dict[str, object]:
+    """Application entry: shared async DB/model services stay on the caller loop.
+
+    The CLI's synchronous provider owns an event loop only in its standalone
+    process. Scheduling it in a thread would reuse the application's asyncpg
+    pool on a foreign loop. Only file projection work belongs in the thread.
+    """
+    _require_generation_budget(generate_profiles)
+    source = await asyncio.to_thread(_load_rebuild_source, target)
+    provider = None
+    if not offline:
+        board = source[0]
+        profiles = await build_official_profiles(
+            list(board.exactRanked[:20]), board.generationId, target / "profile-cache",
+            translate_top=translate_top, concurrency=concurrency,
+            allow_model_generation=generate_profiles,
+        )
+
+        def provider(_projects, _generation_id, _cache_root):
+            return profiles
+
+    return await asyncio.to_thread(
+        _build_and_install_current, target, source,
+        profile_provider=provider, publication_audit=publication_audit,
+    )
+
+
+def _build_and_install_current(target: Path, source, *, profile_provider, publication_audit: Path | None):
+    # Same exclusion protocol as sync_rardar_intelligence, not a second writer
+    # lock. Hold only across local verification/build/install, never model IO.
+    lock_path = target.parent / f".{target.name}.sync.lock"
+    try:
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        raise ServingProjectionError("rardar_sync_already_running", "Another sync owns the mirror") from exc
+    try:
+        with os.fdopen(descriptor, "w", encoding="ascii") as handle:
+            handle.write(str(os.getpid()))
+            handle.flush()
+        current = _load_rebuild_source(target)
+        if (current[0].generationId, *current[1:3]) != (source[0].generationId, *source[1:3]):
+            raise ServingProjectionError("rardar_serving_source_changed", "Source changed during profile collection")
+        return _build_and_install(
+            target, source, profile_provider=profile_provider, publication_audit=publication_audit,
+        )
+    finally:
+        lock_path.unlink(missing_ok=True)
+
+
+def _require_generation_budget(generate_profiles: bool) -> None:
     if generate_profiles:
         from app.services.llm.provider_budget import ProviderBudgetError, execution_budget
 
         if execution_budget("rardar_project_profile") is None:
             raise ProviderBudgetError("provider_budget_missing")
+
+
+def _load_rebuild_source(target: Path):
     board = RardarIntelligenceAdapter.from_config(str(target)).load_explosion_board()
     if not board.generationId:
         raise ServingProjectionError("rardar_serving_source_invalid", "Active raw generation is unavailable")
     manifest_sha256, explosion_sha256 = source_hashes(target, board.generationId)
     metadata = load_sync_metadata(str(target), board.generationId)
+    return board, manifest_sha256, explosion_sha256, metadata
+
+
+def _build_and_install(target: Path, source, *, profile_provider, publication_audit: Path | None) -> dict[str, object]:
+    board, manifest_sha256, explosion_sha256, metadata = source
     built = build_serving_projection(
         board=board,
         source_manifest_sha256=manifest_sha256,
@@ -68,11 +145,7 @@ def rebuild(
         synced_at=datetime.fromisoformat(metadata["syncedAt"]) if metadata else None,
         source_host=metadata["sourceHost"] if metadata else None,
         cache_root=target / "profile-cache",
-        profile_provider=None
-        if offline
-        else real_profile_provider(
-            translate_top=translate_top, concurrency=concurrency, allow_model_generation=generate_profiles
-        ),
+        profile_provider=profile_provider,
     )
     try:
         installed = install_serving_projection(target, built)

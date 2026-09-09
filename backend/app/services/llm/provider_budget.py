@@ -30,6 +30,16 @@ LEGACY_STAGES = {
     "format_retry",
 }
 STAGES = LEGACY_STAGES | {"project_profile", "profile_translation", "news_quickread", "find_project"}
+DAILY_SCENE_STAGES = {
+    "rardar_news_quickread": "news_quickread",
+    "rardar_project_summary": "profile_translation",
+    "rardar_explosion_explanation": "project_profile",
+    "rardar_project_profile": "project_profile",
+    "rardar_find_project_comparison": "find_project",
+    "rardar_worth_seeing_gate": "scope_value",
+    "rardar_worth_seeing_meaningful_change": "meaningful_change",
+    "rardar_worth_seeing_copy": "user_copy",
+}
 _stage: ContextVar[str | None] = ContextVar("rardar_budget_stage", default=None)
 _single_attempt: ContextVar[list[int] | None] = ContextVar("rardar_single_attempt", default=None)
 _news_budget: ContextVar[ProviderBudgetLedger | None] = ContextVar("rardar_news_budget", default=None)
@@ -442,6 +452,8 @@ def execution_budget(scene: str) -> tuple[ProviderBudgetLedger, str] | None:
             "rardar_worth_seeing_copy": "user_copy",
             "rardar_project_profile": "project_profile",
         }
+        if explicit_selection.task_id == DAILY_TASK_ID:
+            stages = DAILY_SCENE_STAGES
         if scene not in stages:
             raise ProviderBudgetError("provider_budget_scene_forbidden")
         explicit_selection.snapshot()

@@ -12,6 +12,8 @@ from app.services.llm.provider_budget import (
     ProviderBudgetError,
     ProviderBudgetLedger,
     combined_budget_execution,
+    execution_budget,
+    selection_execution_budget,
     single_provider_attempt,
 )
 
@@ -155,3 +157,20 @@ def test_cache_reuse_has_no_dispatch_reservation(daily_root):
     ledger.record("cache_hit", "project_profile")
     assert daily.daily_ledger(100).snapshot()["attempted"] == 0
     assert daily.daily_ledger(100).snapshot()["remaining"] == 100
+
+
+def test_daily_context_allows_every_registered_rardar_scene_but_not_legacy_expansion(daily_root, tmp_path):
+    from app.services.rardar_llm_control import RardarLLMScene
+
+    ledger = daily.daily_ledger(100)
+    with selection_execution_budget(ledger):
+        for scene in RardarLLMScene:
+            resolved, stage = execution_budget(scene.value)
+            assert resolved is ledger
+            assert stage in ledger.stages
+    legacy = ProviderBudgetLedger.initialize(
+        tmp_path / "selection" / "provider-budget.json", "selection", task_id="selection-operation", limit=40
+    )
+    with selection_execution_budget(legacy), pytest.raises(ProviderBudgetError, match="scene_forbidden"):
+        execution_budget("rardar_project_summary")
+    assert ledger.snapshot()["attempted"] == 0

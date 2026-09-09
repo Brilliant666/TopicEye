@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 from app.core.config import settings
 from app.repositories.app_setting_repo import AppSettingRepository
 from app.services.llm.provider_budget import (
+    DAILY_SCENE_STAGES,
     DAILY_TASK_ID,
     ProviderBudgetError,
     ProviderBudgetLedger,
@@ -119,16 +120,6 @@ async def daily_execution_budget(scene: str) -> tuple[ProviderBudgetLedger, str]
         limit = await configured_limit(db)
     if limit is None:
         raise ProviderBudgetError("provider_daily_budget_unconfigured")
-    stages = {
-        "rardar_news_quickread": "news_quickread",
-        "rardar_project_summary": "profile_translation",
-        "rardar_explosion_explanation": "project_profile",
-        "rardar_project_profile": "project_profile",
-        "rardar_find_project_comparison": "find_project",
-        "rardar_worth_seeing_gate": "scope_value",
-        "rardar_worth_seeing_meaningful_change": "meaningful_change",
-        "rardar_worth_seeing_copy": "user_copy",
-    }
-    if scene not in stages:
+    if scene not in DAILY_SCENE_STAGES:
         raise ProviderBudgetError("provider_budget_scene_forbidden")
-    return daily_ledger(limit), stages[scene]
+    return daily_ledger(limit), DAILY_SCENE_STAGES[scene]

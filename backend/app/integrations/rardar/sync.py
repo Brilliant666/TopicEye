@@ -27,6 +27,7 @@ from app.integrations.rardar.adapter import (
 from app.integrations.rardar.serving import (
     ProfileProvider,
     ServingInstallResult,
+    ServingProjectionLoader,
     build_serving_projection,
     clear_serving_cache,
     install_serving_projection,
@@ -58,6 +59,8 @@ class RardarSyncResult:
     changed: bool
     serving_generation_id: str
     serving_manifest_sha256: str
+    outcome: str = "updated"
+    upstream_window: dict[str, Any] | None = None
 
 
 RemoteRunner = Callable[[str, str], bytes]
@@ -346,6 +349,7 @@ def sync_rardar_intelligence(
     remote_root: str = "/var/lib/rardar/data",
     runner: RemoteRunner = ssh_read_only_runner,
     profile_provider: ProfileProvider | None = None,
+    check_published: bool = False,
 ) -> RardarSyncResult:
     """Download, validate, and atomically activate one immutable generation."""
 
@@ -387,6 +391,59 @@ def sync_rardar_intelligence(
             or board.coverage.pendingCount != bundle["pendingCount"]
         ):
             raise RardarSyncError("rardar_sync_bundle_invalid", "Validated Rardar facts do not match inventory")
+
+        upstream_window = board.window.model_dump(mode="json") if board.window else None
+        if check_published:
+            # Only a completely validated local Serving may justify a no-op or
+            # protect a newer observed window. Never treat corrupt bytes as
+            # merely missing optional material.
+            local_today = None
+            local_serving_manifest = ""
+            if target.exists():
+                _ensure_plain_directory_chain(target)
+                if (target / "serving").exists():
+                    _ensure_plain_directory_chain(target / "serving")
+                local_pointer = _read_optional_plain_file(target / "serving" / "current.json")
+                if local_pointer is not None:
+                    clear_serving_cache()
+                    loader = ServingProjectionLoader(target)
+                    local_today, _ = loader.load_today_with_etag()
+                    for project in local_today.exactRanked:
+                        loader.load_project_with_etag(project.githubRepositoryId, local_today.generationId)
+                    local_serving_manifest = _strict_json(local_pointer)["manifestSha256"]
+            outcome = None
+            if (
+                not board.window
+                or board.window.state != "exact"
+                or not board.exactRanked
+                or (local_today and local_today.window and board.window.endedAt < local_today.window.endedAt)
+            ):
+                outcome = "no_complete_board"
+            elif (
+                local_today
+                and local_today.generationId == generation_id
+                and local_today.manifestSha256 == bundle["manifestSha256"]
+                and local_today.artifactSha256 == bundle["artifactSha256"]
+                and _read_optional_plain_file(target / "current.json") == pointer_raw
+                and _identical_generation(target / "generations" / generation_id, files)
+            ):
+                outcome = "unchanged"
+            if outcome is not None:
+                return RardarSyncResult(
+                    generation_id=generation_id,
+                    window_state=bundle["windowState"],
+                    exact_count=bundle["exactCount"],
+                    pending_count=bundle["pendingCount"],
+                    manifest_sha256=bundle["manifestSha256"],
+                    artifact_sha256=bundle["artifactSha256"],
+                    file_count=len(files),
+                    synced_at=local_today.syncedAt.isoformat() if local_today and local_today.syncedAt else "",
+                    changed=False,
+                    serving_generation_id=local_today.servingGenerationId if local_today else "",
+                    serving_manifest_sha256=local_serving_manifest,
+                    outcome=outcome,
+                    upstream_window=upstream_window,
+                )
 
         existing_metadata_path = target / "sync" / "generations" / f"{generation_id}.json"
         existing_metadata_raw = _read_optional_plain_file(existing_metadata_path)
@@ -515,6 +572,8 @@ def sync_rardar_intelligence(
             changed=changed,
             serving_generation_id=built_serving.serving_generation_id,
             serving_manifest_sha256=built_serving.manifest_sha256,
+            outcome="updated" if changed else "unchanged",
+            upstream_window=upstream_window,
         )
     except RardarSyncError:
         raise

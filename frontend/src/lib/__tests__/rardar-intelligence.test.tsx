@@ -1,5 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/providers/AppProvider', () => ({ useAuthContext: () => ({ currentUser: null, authLoading: false }) }));
 
 import { DiscoverFoundation, TodayFoundation } from '@/components/RardarFoundationPage';
 import {
@@ -310,7 +312,7 @@ describe('Rardar intelligence client contract', () => {
     expect(damaged).toEqual({ kind: 'error', code: 'rardar_generation_invalid' });
   });
 
-  it('loads a Serving snapshot with bounded caching and maps its failure states', async () => {
+  it('loads the current Serving without a stale Next cache and maps its failure states', async () => {
     let requestedUrl = '';
     let requestedInit: RequestInit | undefined;
     const published = await loadTodaySnapshot(async (input, init) => {
@@ -335,9 +337,8 @@ describe('Rardar intelligence client contract', () => {
 
     expect(published.kind).toBe('published');
     expect(requestedUrl).toBe('http://backend.test/api/v1/rardar/today');
-    expect(requestedInit).toMatchObject({
-      cache: 'force-cache',
-      next: { revalidate: 5 },
+    expect(requestedInit).toEqual({
+      cache: 'no-store',
       headers: { Accept: 'application/json' },
     });
     expect(notConfigured).toEqual({ kind: 'not_configured' });

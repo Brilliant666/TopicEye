@@ -18,7 +18,12 @@ def main() -> int:
     parser.add_argument("--remote-root", default="/var/lib/rardar/data")
     parser.add_argument("--translate-top", type=int, default=20, choices=range(0, 21), metavar="0..20")
     parser.add_argument("--generate-profiles", action="store_true", help="Explicitly allow model enrichment")
+    parser.add_argument(
+        "--check-published", action="store_true", help="Check the published complete board without model generation"
+    )
     arguments = parser.parse_args()
+    if arguments.check_published and arguments.generate_profiles:
+        parser.error("--check-published cannot be combined with --generate-profiles")
     try:
         if arguments.generate_profiles:
             from app.services.llm.provider_budget import ProviderBudgetError, execution_budget
@@ -32,6 +37,7 @@ def main() -> int:
             profile_provider=real_profile_provider(
                 translate_top=arguments.translate_top, allow_model_generation=arguments.generate_profiles
             ),
+            check_published=arguments.check_published,
         )
     except RardarSyncError as exc:
         print(json.dumps({"status": "failed", "code": exc.code}, sort_keys=True), file=sys.stderr)

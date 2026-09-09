@@ -1,5 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('@/providers/AppProvider', () => ({ useAuthContext: () => ({ currentUser: null, authLoading: false }) }));
 
 import RardarProjectDetailPage from '@/components/RardarProjectDetailPage';
 import { TodayFoundation } from '@/components/RardarFoundationPage';

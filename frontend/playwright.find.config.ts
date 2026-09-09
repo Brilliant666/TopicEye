@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test';
 // synthetic fixtures; this suite is browser acceptance, not a Provider probe.
 export default defineConfig({
   testDir: './e2e',
-  testMatch: 'find-production.spec.ts',
+  testMatch: ['find-production.spec.ts', 'today-operations-production.spec.ts'],
   workers: 1,
   retries: 0,
   timeout: 30_000,

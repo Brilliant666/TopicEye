@@ -24,7 +24,8 @@ from app.schemas.rardar_product import (
     ProjectExplanationResponse,
     ProjectInsightRequest,
 )
-from app.services import rardar_news_operations as news_operations
+from app.schemas.rardar_today_operations import TodayOperationRequest
+from app.services import rardar_news_operations as news_operations, rardar_today_operations as today_operations
 from app.services.rardar_hotspot_news import load_hotspot_news
 from app.services.rardar_intelligence import (
     load_discover_project_detail,
@@ -148,6 +149,52 @@ async def news_operation_start(
         return await news_operations.start_operation(payload, user_id=admin.id)
     except (ValueError, news_operations.ProviderBudgetError):
         raise HTTPException(status_code=409, detail="news_operation_unavailable") from None
+
+
+@router.get("/today/operations")
+async def today_operation_status(response: Response, _admin=Depends(get_current_admin_user)):
+    if not is_rardar_product() or settings.is_production:
+        raise HTTPException(status_code=404, detail="Not found")
+    response.headers["Cache-Control"] = "no-store"
+    return {
+        "latest": today_operations.latest_operation(),
+        "lastSuccessfulSyncAt": today_operations.last_successful_sync_at(),
+    }
+
+
+@router.get("/today/operations/{operation_id}")
+async def today_operation_detail(operation_id: str, response: Response, _admin=Depends(get_current_admin_user)):
+    if not is_rardar_product() or settings.is_production:
+        raise HTTPException(status_code=404, detail="Not found")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        operation = today_operations.get_operation(operation_id)
+    except ValueError:
+        operation = None
+    if operation is None:
+        raise HTTPException(status_code=404, detail="Not found")
+    return operation
+
+
+@router.post("/today/operations", status_code=202)
+async def today_operation_start(
+    payload: TodayOperationRequest,
+    request: Request,
+    response: Response,
+    admin=Depends(get_current_admin_user),
+):
+    if not is_rardar_product() or settings.is_production:
+        raise HTTPException(status_code=404, detail="Not found")
+    if not request.headers.get("authorization") and (
+        request.headers.get("origin") not in settings.cors_origins
+        or request.headers.get("sec-fetch-site") == "cross-site"
+    ):
+        raise HTTPException(status_code=403, detail="today_origin_rejected")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await today_operations.start_operation(payload, user_id=admin.id)
+    except (ValueError, today_operations.ProviderBudgetError):
+        raise HTTPException(status_code=409, detail="today_operation_unavailable") from None
 
 
 @router.get("/today", response_model=ServingTodaySnapshot)

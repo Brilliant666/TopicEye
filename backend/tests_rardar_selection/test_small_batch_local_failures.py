@@ -24,6 +24,57 @@ from tests_rardar_selection.test_selection import (
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("isolated", [False, True])
+async def test_profile_failure_latch_does_not_block_other_healthy_project_value(tmp_path, monkeypatch, isolated):
+    from app.integrations.rardar import selection
+    from app.services.llm import run_failure_guard as guard_module
+
+    target, source = _source(tmp_path)
+    recalled = recall_candidates(build_candidate_universe(source)[0], 30, batch_id="phase-isolation")[:6]
+    missing = recalled[-1].repository
+    original = selection.build_official_profiles
+
+    @guard_module.selection_phase("profiles")
+    async def profiles(*args, **kwargs):
+        result = await original(*args, **kwargs)
+        # Reproduce two rejected Profile responses after five healthy results.
+        guard_module.before_attempt()
+        guard_module.failed("schema_invalid")
+        guard_module.before_attempt()
+        guard_module.failed("schema_invalid")
+        return result
+
+    monkeypatch.setattr(selection, "build_official_profiles", profiles)
+
+    def transport(request):
+        if request.url.path.startswith(f"/repos/{missing}/"):
+            return httpx.Response(404, json={})
+        return _github_transport(request)
+
+    with guard_module.run_failure_guard(isolate_stages=isolated) as guard:
+        async with httpx.AsyncClient(
+            base_url="https://api.github.com", transport=httpx.MockTransport(transport)
+        ) as client:
+            built = await build_selection(
+                source=source,
+                cache_root=target / "cache",
+                caller=ModelDouble(copy_why_now=None),
+                github_client=client,
+                recall_limit=30,
+                recall_batch_id="phase-isolation",
+                process_candidate_ids=tuple(item.githubRepositoryId for item in recalled),
+                model_route_identity="c" * 64,
+            )
+        assert guard.stopped
+    assert sum(item.gate is not None for item in built.artifact.assessments) == (5 if isolated else 0)
+    assert built.artifact.assessments[-1].gate is None
+    assert built.artifact.assessments[-1].failureCode
+    assert bool(built.artifact.publishedCount) is isolated
+    if isolated:
+        install_selection_serving(target, build_selection_serving(built))
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("count", [1, 2, 5])
 async def test_actual_build_accepts_available_small_batch_without_padding(tmp_path, count):
     target, source = _source(tmp_path)

@@ -267,7 +267,7 @@ async def _discover(target: Path, source, universe: list, ledger, progress: dict
         "failed": 0,
         "reused": 0,
     }
-    with selection_execution_budget(ledger), run_failure_guard() as guard:
+    with selection_execution_budget(ledger), run_failure_guard(isolate_stages=True) as guard:
         for batch, ids in batches:
             if not _same_budget_day(ledger):
                 result.update(status="partial", reason="calendar_day_changed")

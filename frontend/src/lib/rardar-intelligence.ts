@@ -873,8 +873,9 @@ export async function loadTodaySnapshot(
 ): Promise<TodayLoadResult> {
   try {
     const response = await fetcher(`${backendUrl}/api/v1/rardar/today`, {
-      cache: 'force-cache',
-      next: { revalidate: SERVING_REVALIDATE_SECONDS },
+      // An operator completion refresh must observe the newly installed pointer.
+      // Integrity caching remains in the validated backend loader, not Next's TTL.
+      cache: 'no-store',
       headers: { Accept: 'application/json' },
     });
     const payload: unknown = await response.json();

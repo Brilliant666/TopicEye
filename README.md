@@ -258,6 +258,21 @@ Discover can advance without rewriting Today. A failed or interrupted
 activation restores the affected pointers, so a page cannot mix generations.
 The command never reads D1 or credentials and never writes Production.
 
+For daily **Today-only** checks, log in as an administrator and use
+**检查并同步榜单** on `/`. The page retains the last result, check time and
+successful sync time separately from the factual observation window. A check
+uses the existing read-only SSH identity, validates a published complete board,
+and either installs its fact-first Serving or reports **已是最新** / no newer
+complete board. It never triggers upstream collection, Discover or a model.
+An in-progress check is shared by repeat clicks; failures preserve the old board.
+The CLI uses the same flow:
+`python -m scripts.sync_rardar_intelligence --target <local-data-dir> --check-published`
+(run from `backend`). `RARDAR_TODAY_SOURCE_HOST` and
+`RARDAR_TODAY_SOURCE_ROOT` are server-only configuration, defaulting to the
+existing `rardar-prod` and `/var/lib/rardar/data`; the browser cannot supply
+hosts, paths or generation options. No additional SSH or sudo permission is
+granted by this entry. It is available only in the local Rardar admin mode.
+
 Serving contains a small `today.json`, one project profile and one static
 evidence record per Top 20 repository. Serving v4 separates a concise Chinese
 project identity, an evidence-backed core value, at most two key

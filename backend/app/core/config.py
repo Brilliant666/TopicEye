@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     # Backend-only path to Rardar's published generation root.  It is ignored
     # unless RARDAR_PRODUCT_MODE is enabled and is never exposed to the browser.
     RARDAR_INTELLIGENCE_DATA_DIR: str = ""
+    RARDAR_TODAY_SOURCE_HOST: str = "rardar-prod"
+    RARDAR_TODAY_SOURCE_ROOT: str = "/var/lib/rardar/data"
     # Explicit local opt-in; ignored in production even when set accidentally.
     RARDAR_LOCAL_SHADOW_REVIEW: bool = False
     # Rardar's local product data source is explicit.  Real mode never falls

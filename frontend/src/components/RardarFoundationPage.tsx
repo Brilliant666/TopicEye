@@ -34,6 +34,7 @@ import {
 import styles from './RardarFoundation.module.css';
 import RardarProjectExplanation from './RardarProjectExplanation';
 import RardarSelectionPage from './RardarSelectionPage';
+import RardarTodayOperations from './RardarTodayOperations';
 
 export default async function RardarFoundationPage({ pageKey }: { pageKey: RardarFoundationPageKey }) {
   if (!isRardarProduct()) notFound();
@@ -85,6 +86,8 @@ export function TodayFoundation({ result }: { result: TodayLoadResult }) {
           </div>
         </div>
       </section>
+
+      <RardarTodayOperations syncedAt={board?.syncedAt ?? null} />
 
       <div className={styles.sectionHeading}>
         <div><h2>精确 24 小时榜</h2><p>默认 Top 10，可展开至 Artifact 中的 Top 20。</p></div>

@@ -54,9 +54,12 @@ def failed(kind: str, *, since: int | None = None) -> None:
         if "timeout" in kind
         else "structure"
         if any(part in kind for part in ("json", "schema", "empty", "format", "structure"))
+        or kind in {"unknown_field", "missing_required_field", "invalid_enum", "wrong_field_type", "missing_content"}
         else "evidence"
         if any(part in kind for part in ("evidence", "alias", "unsupported"))
         else "transport"
+        if kind == "transport"
+        else "validation"
     )
     guard.failures += 1
     guard.consecutive = guard.consecutive + 1 if category == guard.failure_code else 1

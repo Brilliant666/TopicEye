@@ -158,6 +158,12 @@ async def prepare_operation(payload: DiscoverPrepareRequest, *, user_id: int) ->
             source = SelectionSourceAdapter.from_config(str(target)).load()
             route = await resolve_rardar_route_identity()
             binding = _binding(source, route)
+            latest_plan = _read(root / "latest-plan.json")
+            if latest_plan and not _read(root / f"executed-{latest_plan['id']}.json"):
+                prepared = _read(root / "plans" / f"{latest_plan['id']}.json")
+                if prepared and prepared["binding"] == binding:
+                    atomic(key, {"id": prepared["id"]})
+                    return _public_plan(prepared)
             completed: set[int] = set()
             attempted: set[int] = set()
             try:
@@ -238,6 +244,9 @@ async def start_operation(payload: DiscoverOperationRequest, *, user_id: int) ->
         plan = _read(root / "plans" / f"{payload.planId}.json")
         if not plan:
             raise ValueError("discover_plan_missing")
+        prepared = _read(root / "latest-plan.json")
+        if not prepared or prepared["id"] != plan["id"]:
+            raise ValueError("discover_plan_superseded")
         future = asyncio.get_running_loop().create_future()
         task = asyncio.create_task(_execute(plan, key, future))
         _tasks.add(task)

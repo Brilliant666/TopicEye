@@ -406,7 +406,8 @@ def main() -> int:
         else:
             if not arguments.generation:
                 parser.error("rollback requires a generation ID")
-            installed = rollback_selection(arguments.target.resolve(), arguments.generation)
+            with selection_writer(arguments.target):
+                installed = rollback_selection(arguments.target.resolve(), arguments.generation)
             result = {
                 "status": "healthy",
                 "selectionGenerationId": installed.selection_generation_id,

@@ -88,3 +88,16 @@ def test_guard_success_cache_and_transport_double_reporting():
     module.before_attempt()
     with module.run_failure_guard() as fresh:
         assert not fresh.stopped
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["unknown_field", "missing_required_field", "invalid_enum", "wrong_field_type", "missing_content"],
+)
+def test_visible_format_errors_are_not_misclassified_as_transport(code):
+    with module.run_failure_guard() as guard:
+        module.failed(code)
+        assert guard.failure_code == "structure"
+    with module.run_failure_guard() as guard:
+        module.failed("profile_rejected")
+        assert guard.failure_code == "validation"

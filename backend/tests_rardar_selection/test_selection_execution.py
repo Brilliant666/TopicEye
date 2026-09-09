@@ -38,6 +38,36 @@ def test_writer_releases_after_failure(tmp_path):
         pass
 
 
+def test_cli_rollback_refuses_active_selection_writer(tmp_path, monkeypatch, capsys):
+    entered, release = threading.Event(), threading.Event()
+
+    def holder():
+        with selection_writer(tmp_path):
+            entered.set()
+            assert release.wait(10)
+
+    thread = threading.Thread(target=holder)
+    thread.start()
+    assert entered.wait(5)
+    rollback = Mock(
+        return_value=SimpleNamespace(
+            selection_generation_id="retained", source_observation_set_id="source", changed=True
+        )
+    )
+    monkeypatch.setattr(rebuild_module, "rollback_selection", rollback)
+    monkeypatch.setattr(rebuild_module.sys, "argv", ["selection", "rollback", "retained", "--target", str(tmp_path)])
+    try:
+        assert rebuild_module.main() == 1
+        rollback.assert_not_called()
+        assert "provider_budget_busy" in capsys.readouterr().err
+    finally:
+        release.set()
+        thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert rebuild_module.main() == 0
+    rollback.assert_called_once()
+
+
 @pytest.mark.asyncio
 async def test_confirmed_route_change_stops_before_build(tmp_path, monkeypatch):
     source = SimpleNamespace(source_observation_set_id="source", today_generation_id="today")

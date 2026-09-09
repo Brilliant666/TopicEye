@@ -114,8 +114,38 @@ async def test_prepare_freezes_and_does_not_initialize_budget(isolated):
     assert "routeIdentity" not in plan
     assert not list(isolated.rglob("provider-budget.json"))
     second = await ops.prepare_operation(DiscoverPrepareRequest(requestId=uuid4()), user_id=1)
+    assert second["id"] == plan["id"]
     assert second["recallBatchId"] == plan["recallBatchId"]
     assert second["candidates"] == plan["candidates"]
+
+
+@pytest.mark.asyncio
+async def test_two_admin_tabs_share_plan_and_single_execution(isolated, monkeypatch):
+    first = await ops.prepare_operation(DiscoverPrepareRequest(requestId=uuid4()), user_id=1)
+    second = await ops.prepare_operation(DiscoverPrepareRequest(requestId=uuid4()), user_id=2)
+    assert first["id"] == second["id"]
+    run = AsyncMock(
+        return_value={"publishedCount": 2, "changed": True, "selectionGenerationId": "selection", "cacheHits": 3}
+    )
+    monkeypatch.setattr(ops, "_run", run)
+    one = await ops.start_operation(DiscoverOperationRequest(requestId=uuid4(), planId=first["id"]), user_id=1)
+    await asyncio.gather(*list(ops._tasks))
+    two = await ops.start_operation(DiscoverOperationRequest(requestId=uuid4(), planId=second["id"]), user_id=2)
+    assert one["id"] == two["id"]
+    run.assert_awaited_once()
+    assert len(list(isolated.rglob("provider-budget.json"))) == 1
+
+
+@pytest.mark.asyncio
+async def test_superseded_unexecuted_plan_cannot_allocate_budget(isolated, monkeypatch):
+    first = await ops.prepare_operation(DiscoverPrepareRequest(requestId=uuid4()), user_id=1)
+    monkeypatch.setattr(ops, "resolve_rardar_route_identity", AsyncMock(return_value="c" * 64))
+    second = await ops.prepare_operation(DiscoverPrepareRequest(requestId=uuid4()), user_id=2)
+    assert second["id"] != first["id"]
+    assert second["recallBatchId"] == first["recallBatchId"]
+    with pytest.raises(ValueError, match="superseded"):
+        await ops.start_operation(DiscoverOperationRequest(requestId=uuid4(), planId=first["id"]), user_id=1)
+    assert not list(isolated.rglob("provider-budget.json"))
 
 
 @pytest.mark.asyncio

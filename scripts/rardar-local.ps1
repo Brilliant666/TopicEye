@@ -545,7 +545,8 @@ function Start-Rardar {
         RARDAR_LOCAL_SHADOW_REVIEW = if ($localShadowReview) { "true" } else { "false" }
         RARDAR_INTELLIGENCE_DATA_DIR = $MirrorRoot
         CORS_ORIGINS = "http://127.0.0.1:3000"
-        SCHEDULER_ENABLED = "false"
+        SCHEDULER_ENABLED = "true"
+        RARDAR_DAILY_OPERATIONS_ENABLED = "true"
         CACHE_WARMUP_ENABLED = "false"
         DUCKDB_STARTUP_INIT_ENABLED = "false"
         STARTUP_SEED_ENABLED = "false"
@@ -822,6 +823,8 @@ function Enhance-RardarHotspotNews {
     $enhanceEnvironment = @{
         DATABASE_URL = $databaseUrl
         RARDAR_PRODUCT_MODE = "true"
+        RARDAR_DAILY_OPERATIONS_ENABLED = "true"
+        RARDAR_INTELLIGENCE_DATA_DIR = $MirrorRoot
         APP_ENV = "development"
         PYTHONPATH = $BackendRoot
         PYTHONUTF8 = "1"
@@ -874,8 +877,12 @@ function Invoke-SelectionCommand([string[]]$Arguments) {
     $databaseUrl = "postgresql+asyncpg://${encodedUser}@127.0.0.1:${PgPort}/${encodedDatabase}"
     $savedPythonPath = $env:PYTHONPATH
     $savedDatabaseUrl = $env:DATABASE_URL
+    $savedDailyOperations = $env:RARDAR_DAILY_OPERATIONS_ENABLED
+    $savedDataDirectory = $env:RARDAR_INTELLIGENCE_DATA_DIR
     $env:PYTHONPATH = $BackendRoot
     $env:DATABASE_URL = $databaseUrl
+    $env:RARDAR_DAILY_OPERATIONS_ENABLED = "true"
+    $env:RARDAR_INTELLIGENCE_DATA_DIR = $MirrorRoot
     Push-Location $BackendRoot
     try {
         & $Python -m scripts.rebuild_rardar_discover_selection @Arguments --target $MirrorRoot
@@ -884,6 +891,8 @@ function Invoke-SelectionCommand([string[]]$Arguments) {
         Pop-Location
         $env:PYTHONPATH = $savedPythonPath
         $env:DATABASE_URL = $savedDatabaseUrl
+        $env:RARDAR_DAILY_OPERATIONS_ENABLED = $savedDailyOperations
+        $env:RARDAR_INTELLIGENCE_DATA_DIR = $savedDataDirectory
     }
 }
 

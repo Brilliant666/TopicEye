@@ -567,6 +567,16 @@ def selection_input_digest(
     _validate_recall_batch_id(recall_batch_id)
     universe, _summary = build_candidate_universe(source)
     identities = _source_identities(source, universe)
+    shared_profiles_digest = None
+    if cache_root.name == "selection-profile-cache":
+        from app.services.llm.provider_budget import ProviderBudgetError, plain
+
+        shared_profiles = cache_root.parent / "profile-cache" / "profile-store" / "v2"
+        try:
+            plain(shared_profiles, missing=True)
+        except ProviderBudgetError as exc:
+            raise SelectionBuildError("rardar_selection_cache_unsafe", "Shared Profile cache path is unsafe") from exc
+        shared_profiles_digest = _cache_inventory_digest(shared_profiles)
     return _sha(
         _canonical_bytes(
             {
@@ -578,6 +588,7 @@ def selection_input_digest(
                 "todayExplosionSha256": source.today_explosion_sha256,
                 **identities,
                 "cacheInventoryDigest": _cache_inventory_digest(cache_root),
+                "sharedProfileInventoryDigest": shared_profiles_digest,
                 "modelRouteIdentity": model_route_identity,
                 "recallLimit": recall_limit,
                 "recallBatchId": recall_batch_id,
@@ -774,6 +785,19 @@ def recall_candidates(
     """Round-robin six independent channels without manufacturing an aggregate score."""
 
     _validate_recall_batch_id(batch_id)
+    # Daily management traverses the entire validated universe in transport
+    # pages. This is not the historical research recall/quality quota. Keep
+    # legacy batches unchanged and bind each page to the exact identity set.
+    if batch_id.startswith("managed-v1-"):
+        ordered = sorted(universe, key=lambda item: item.githubRepositoryId)
+        identity = _sha(_canonical_bytes([item.githubRepositoryId for item in ordered]))[:24]
+        match = re.fullmatch(r"managed-v1-([a-f0-9]{24})-([0-9]+)", batch_id)
+        if match is None or match.group(1) != identity:
+            raise SelectionBuildError("rardar_selection_batch_invalid", "Managed scope changed")
+        offset = int(match.group(2))
+        if offset % 60 or offset >= max(1, len(ordered)):
+            raise SelectionBuildError("rardar_selection_batch_invalid", "Managed page is out of range")
+        return ordered[offset : offset + 60]
     limit = max(30, min(limit, 60, len(universe))) if len(universe) >= 30 else len(universe)
     buckets = {
         channel: sorted(

@@ -820,10 +820,57 @@ async def _normalize_content_events() -> dict:
 # ── Lifecycle helpers ─────────────────────────────────────────────────
 
 
+@track_job(
+    "rardar_daily_operations",
+    name="Rardar 每日增量更新",
+    timeout=14400,
+    description="每日08:30（上海）检查；每小时续接，日内额度与进度共用；本机休眠期间不运行",
+)
+async def _rardar_daily_operations() -> dict:
+    from app.services.rardar_daily_operations import run_daily_operations
+
+    return await run_daily_operations()
+
+
+async def _rardar_startup_catchup() -> None:
+    from app.services.job_tracker import _upsert_job_config, recover_rardar_daily_lease
+
+    await _upsert_job_config(
+        "rardar_daily_operations",
+        _rardar_daily_operations._job_name,
+        _rardar_daily_operations._job_description,
+    )
+    await recover_rardar_daily_lease()
+    if _rardar_daily_window_open():
+        await _rardar_daily_operations()
+
+
+def _rardar_daily_window_open(now: datetime | None = None) -> bool:
+    from zoneinfo import ZoneInfo
+
+    local = (now or datetime.now(UTC)).astimezone(ZoneInfo("Asia/Shanghai"))
+    return (local.hour, local.minute) >= (8, 30)
+
+
 def start_scheduler() -> None:
     """Register all scheduled jobs and start the scheduler."""
     if scheduler.running:
         logger.info("Scheduler already running; start skipped")
+        return
+
+    if settings.RARDAR_PRODUCT_MODE:
+        if not settings.RARDAR_DAILY_OPERATIONS_ENABLED:
+            logger.info("Rardar daily operations disabled; no TopicEye collection jobs started")
+            return
+        scheduler.add_job(
+            _rardar_daily_operations,
+            trigger=CronTrigger(hour="8-23", minute=30, timezone="Asia/Shanghai"),
+            id="rardar_daily_operations",
+            name="Rardar 每日更新与有界续接",
+            replace_existing=True,
+        )
+        scheduler.start()
+        asyncio.get_running_loop().create_task(_rardar_startup_catchup())
         return
 
     # Periodic rescan to catch new/updated/disabled sources

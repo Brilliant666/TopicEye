@@ -256,6 +256,8 @@ async def _rebuild(
         "sourceObservationSetId": installed.source_observation_set_id,
         "created": installed.created,
         "changed": installed.changed,
+        "currentChanged": installed.current_changed,
+        "latestAttemptChanged": installed.latest_attempt_changed,
         "modelCalls": validated.usage.modelCalls,
         "githubRequests": validated.usage.githubRequests,
         "publishedCount": validated.publishedCount,

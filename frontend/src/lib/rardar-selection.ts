@@ -37,6 +37,7 @@ export type SelectionResponse = {
   sourceTodayGeneration: string | null;
   generatedAt: string | null;
   latestCaptureAt: string | null;
+  latestAttemptCaptureAt?: string | null;
   items: SelectionCard[];
   categoryCounts: Record<string, number>;
   primaryReasonCounts: Record<string, number>;
@@ -191,6 +192,7 @@ export function parseSelectionResponse(value: unknown): SelectionResponse {
     || !nullableString(value.sourceTodayGeneration)
     || !nullableString(value.generatedAt)
     || !nullableString(value.latestCaptureAt)
+    || (value.latestAttemptCaptureAt !== undefined && !nullableString(value.latestAttemptCaptureAt))
     || !Array.isArray(value.items)
     || !record(value.categoryCounts)
     || !record(value.primaryReasonCounts)

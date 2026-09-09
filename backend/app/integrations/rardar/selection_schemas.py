@@ -852,6 +852,7 @@ class SelectionApiResponse(StrictSelectionModel):
     sourceTodayGeneration: str | None
     generatedAt: AwareDatetime | None = None
     latestCaptureAt: AwareDatetime | None = None
+    latestAttemptCaptureAt: AwareDatetime | None = None
     items: list[SelectionServingCard] = Field(max_length=20)
     categoryCounts: dict[str, int]
     primaryReasonCounts: dict[str, int]

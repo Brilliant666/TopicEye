@@ -141,7 +141,7 @@ describe('Rardar worth-seeing Selection', () => {
     const html = renderToStaticMarkup(
       <RardarSelectionPage result={{ kind: 'published', selection: smallBatch }} />,
     );
-    expect(html).toContain('本轮处理范围');
+    expect(html).toContain('最近一次处理范围');
     expect(html).toContain('宽召回 48 项中固定处理 6 项');
     expect(html).toContain('其余 42 项明确未处理');
     expect(() => parseSelectionResponse({ ...smallBatch, unprocessedCount: 41 })).toThrow(
@@ -234,6 +234,7 @@ describe('Rardar worth-seeing Selection', () => {
       status: 'degraded' as const,
       state: 'degraded' as const,
       latestAttemptGeneration: 'selection-generation-degraded',
+      latestAttemptCaptureAt: '2026-09-09T00:00:00Z',
       recallCount: 48,
       profileReadyCount: 2,
       retryableFailureCount: 46,
@@ -247,7 +248,10 @@ describe('Rardar worth-seeing Selection', () => {
     const html = renderToStaticMarkup(
       <RardarSelectionPage result={{ kind: 'published', selection: parsed }} />,
     );
-    expect(html).toContain('正在恢复最新画像');
+    expect(html).toContain('最近一次评估未完成发布');
+    expect(html).not.toContain('正在恢复最新画像');
+    expect(html).toContain('最近尝试的事实时间');
+    expect(html).toContain('不代表当前精选已更新');
     expect(html).toContain('暂时展示上一份健康精选');
     expect(html).toContain(card.repository);
     expect(html).not.toContain('当前没有值得看的项目');

@@ -203,3 +203,42 @@ def test_interrupted_read_does_not_resume(isolated):
     ops.atomic(isolated / identifier / "operation.json", {"id": identifier, "status": "running"})
     assert ops.get_operation(identifier)["status"] == "interrupted"
     assert not list(isolated.rglob("provider-budget.json"))
+
+
+def test_legacy_failed_record_projection_does_not_rewrite_history(isolated):
+    identifier = str(uuid4())
+    path = isolated / identifier / "operation.json"
+    path.parent.mkdir()
+    ops.atomic(path, {"id": identifier, "status": "failed", "result": {"installed": True}})
+    original = path.read_bytes()
+    assert ops.get_operation(identifier)["result"]["installed"] is False
+    assert path.read_bytes() == original
+
+
+@pytest.mark.asyncio
+async def test_saved_failed_attempt_is_not_reported_as_published(isolated, monkeypatch):
+    plan = await ops.prepare_operation(DiscoverPrepareRequest(requestId=uuid4()), user_id=1)
+    monkeypatch.setattr(
+        ops,
+        "_run",
+        AsyncMock(
+            return_value={
+                "status": "degraded",
+                "publishedCount": 0,
+                "changed": True,
+                "currentChanged": False,
+                "latestAttemptChanged": True,
+                "selectionGenerationId": "failed-attempt",
+                "cacheHits": 5,
+            }
+        ),
+    )
+    operation = await ops.start_operation(
+        DiscoverOperationRequest(requestId=uuid4(), planId=plan["id"]),
+        user_id=1,
+    )
+    await asyncio.gather(*list(ops._tasks))
+    result = ops.get_operation(operation["id"])
+    assert result["status"] == "failed"
+    assert result["result"]["installed"] is False
+    assert result["result"]["generationId"] == "failed-attempt"

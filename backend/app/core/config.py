@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     # Server-owned per-operation cap; never accepted from a browser request.
     RARDAR_NEWS_REQUEST_LIMIT: int = 12
     RARDAR_DISCOVER_REQUEST_LIMIT: int = 40
+    RARDAR_DAILY_OPERATIONS_ENABLED: bool = False
 
     # ── Database ──
     # 留空则启动时报错；本地开发请在 .env 中设置（参考 .env.example）。
@@ -191,6 +192,9 @@ class Settings(BaseSettings):
     LLM_WORKER_CONCURRENCY: int = 4
     # 单次运行时调用的硬上限；模型 extra_params.timeout 只能把它调小，不能放大。
     LLM_COMPLETION_TIMEOUT_SECONDS: float = 45.0
+    # Profile evidence requests have completed near 45s; use a separate bounded
+    # policy rather than changing News/general calls or inheriting Find's 180s.
+    RARDAR_PROFILE_COMPLETION_TIMEOUT_SECONDS: float = Field(default=90.0, ge=0.1, le=90.0)
     # Find compares multiple evidence bundles. Keep its deadline isolated from
     # News/other scenes and bounded below the 300-second browser request limit.
     RARDAR_FIND_COMPLETION_TIMEOUT_SECONDS: float = Field(default=180.0, ge=0.1, le=180.0)

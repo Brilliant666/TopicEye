@@ -273,6 +273,30 @@ existing `rardar-prod` and `/var/lib/rardar/data`; the browser cannot supply
 hosts, paths or generation options. No additional SSH or sudo permission is
 granted by this entry. It is available only in the local Rardar admin mode.
 
+Rardar daily operations reuse the backend APScheduler and its existing job
+records. The normal local launcher enables only the Rardar daily job, not
+TopicEye's unrelated collectors or analysis jobs. The schedule checks at 08:30
+Asia/Shanghai and hourly afterwards for bounded same-day recovery; startup
+checks missed work, but sleeping/offline computers do not execute jobs.
+Administrators use **后台 → 系统设置 → Rardar 每日自动更新** to pause/resume,
+run immediately, inspect recent results and configure the shared daily model
+request limit. Triggered, processed and published are separate outcomes.
+Missing model expense configuration leaves zero-model sync available. Daily
+progress and budget records survive process restarts; historical experiment
+ledgers are not reset or reused. A continuously online host still requires a
+separately authorized deployment through the existing deployment procedure.
+
+The daily cycle checks Today facts first (never requiring AI), refreshes enabled
+public News sources, checks registered public project material, then continues
+Discover assessments, News quick reads and Today profiles using compatible
+caches. All managed candidates/content are inventoried; transport chunks are
+not a daily coverage quota. Counts distinguish checks, completed work, pending
+work and actual pointer activation. Each 08:30 cycle has at most three attempts;
+a midnight manual catch-up does not consume the coming morning's cycle. Model
+usage instead follows the Shanghai calendar day and includes manual calls.
+Historical Find questions/results are not rerun; old memory-only project lists
+cannot be reconstructed and are not reported as a completed historical scan.
+
 Serving contains a small `today.json`, one project profile and one static
 evidence record per Top 20 repository. Serving v4 separates a concise Chinese
 project identity, an evidence-backed core value, at most two key

@@ -105,9 +105,9 @@ export default function RardarSelectionPage({ result }: { result: SelectionLoadR
       {selection.executionMode === 'small_batch' && selection.shadowReviewState == null && (
         <section className={styles.selectionState} data-testid="selection-small-batch">
           <Radar size={22} />
-          <h2>本轮处理范围</h2>
+          <h2>最近一次处理范围</h2>
           <p>本轮从稳定宽召回 {selection.recallCount} 项中固定处理 {selection.processedCount} 项；其余 {selection.unprocessedCount} 项明确未处理，不代表候选全集已完成精选。</p>
-          <span>{selection.profileReadyCount}/{selection.processedCount} 项画像就绪 · {selection.publishedCount} 项可查看</span>
+          <span>{selection.profileReadyCount}/{selection.processedCount} 项画像就绪 · 当前展示 {selection.publishedCount} 项{selection.status === 'degraded' ? '（保留的健康结果）' : ''}</span>
         </section>
       )}
       {selection.shadowReviewState != null && (
@@ -122,11 +122,12 @@ export default function RardarSelectionPage({ result }: { result: SelectionLoadR
       {selection.status === 'degraded' && selection.shadowReviewState == null && (
         <section className={styles.selectionState} data-testid="selection-degraded">
           <Radar size={22} />
-          <h2>正在恢复最新画像</h2>
+          <h2>最近一次评估未完成发布</h2>
           <p>{selection.items.length > 0
             ? '最新一轮画像覆盖不足，本页暂时展示上一份健康精选。'
             : '项目画像覆盖不足，本轮精选结果尚未发布；这不代表当前没有值得看的项目。'}</p>
-          <span>{selection.profileReadyCount}/{selection.recallCount} 项画像已就绪</span>
+          <span>{selection.profileReadyCount}/{selection.processedCount ?? selection.recallCount} 项画像已就绪</span>
+          {selection.latestAttemptCaptureAt && <span>最近尝试的事实时间：{formatTime(selection.latestAttemptCaptureAt)}；不代表当前精选已更新。</span>}
         </section>
       )}
       <section className={styles.selectionFilters} aria-label="值得看项目筛选">

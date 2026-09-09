@@ -589,6 +589,9 @@ def selection_input_digest(
                 **identities,
                 "cacheInventoryDigest": _cache_inventory_digest(cache_root),
                 "sharedProfileInventoryDigest": shared_profiles_digest,
+                # Invalidate old whole-run failure shortcuts, not healthy
+                # Profile/Value/copy caches (their content contracts are unchanged).
+                "executionFailurePolicy": "selection-stage-isolation-v1",
                 "modelRouteIdentity": model_route_identity,
                 "recallLimit": recall_limit,
                 "recallBatchId": recall_batch_id,
@@ -1215,6 +1218,7 @@ def _gate_payload(candidate: SelectionCandidateFacts, evidence: list[SelectionEv
     return payload
 
 
+@run_guard.selection_phase("value")
 async def _run_gate(
     candidate: SelectionCandidateFacts,
     evidence: list[SelectionEvidenceAlias],
@@ -1645,6 +1649,7 @@ def _negative_control_passed(
     return not value_gate_is_publishable(gate, primary, failure)
 
 
+@run_guard.selection_phase("negative_controls")
 async def _negative_controls(
     usage: _Usage,
     caller: LLMCaller,
@@ -1679,6 +1684,7 @@ async def _negative_controls(
     return failures
 
 
+@run_guard.selection_phase("copy")
 async def _copy(
     assessment: SelectionAssessment,
     collected: Any,

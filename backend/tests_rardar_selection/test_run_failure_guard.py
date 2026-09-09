@@ -11,6 +11,58 @@ from app.services.rardar_llm_control import RardarLLMError, RardarLLMResult, Rar
 from tests_rardar_selection.test_selection import _metadata
 
 
+def test_execution_policy_versions_shortcut_without_changing_result_contracts(tmp_path, monkeypatch):
+    from app.integrations.rardar import selection
+    from tests_rardar_selection.test_selection import _source
+
+    target, source = _source(tmp_path)
+    original_canonical = selection._canonical_bytes
+    contracts = selection._contract_versions()
+    current = selection.selection_input_digest(
+        source, cache_root=target / "cache", model_route_identity="a" * 64, recall_limit=48
+    )
+
+    def previous_canonical(value):
+        if isinstance(value, dict) and "executionFailurePolicy" in value:
+            value = {key: item for key, item in value.items() if key != "executionFailurePolicy"}
+        return original_canonical(value)
+
+    monkeypatch.setattr(selection, "_canonical_bytes", previous_canonical)
+    previous = selection.selection_input_digest(
+        source, cache_root=target / "cache", model_route_identity="a" * 64, recall_limit=48
+    )
+    assert previous != current
+    assert selection._contract_versions() == contracts
+
+
+@pytest.mark.asyncio
+async def test_phase_latches_persist_across_projects_and_batches():
+    @module.selection_phase("profiles")
+    async def broken_profile():
+        module.before_attempt()
+        module.failed("schema_invalid")
+
+    @module.selection_phase("value")
+    async def value(fail=False):
+        module.before_attempt()
+        if fail:
+            module.failed("schema_invalid")
+
+    with module.run_failure_guard(isolate_stages=True) as guard:
+        await broken_profile()
+        await broken_profile()
+        assert guard.stopped
+        with pytest.raises(ProviderBudgetError):
+            await broken_profile()
+        await value()
+        await value(fail=True)
+        await value(fail=True)
+        with pytest.raises(ProviderBudgetError):
+            await value()
+        assert guard.stages["profiles"].failures == 2
+        assert guard.stages["value"].failures == 2
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["structure", "timeout"])
 async def test_selection_third_attempt_is_not_dispatched(failure):

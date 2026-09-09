@@ -263,7 +263,7 @@ async def _run(plan: dict, ledger: ProviderBudgetLedger, report) -> dict:
     from app.services.llm.run_failure_guard import run_failure_guard
     from scripts.rebuild_rardar_discover_selection import rebuild
 
-    with selection_execution_budget(ledger), run_failure_guard() as guard:
+    with selection_execution_budget(ledger), run_failure_guard(isolate_stages=True) as guard:
         result = await rebuild(
             Path(settings.RARDAR_INTELLIGENCE_DATA_DIR),
             recall_batch_id=plan["recallBatchId"],

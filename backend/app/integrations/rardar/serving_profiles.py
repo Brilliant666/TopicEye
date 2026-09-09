@@ -4275,6 +4275,7 @@ async def collect_official_project_profile(
     )
 
 
+@run_guard.selection_phase("profiles")
 async def build_official_profiles(
     projects: list[ExactExplosionProject],
     generation_id: str,

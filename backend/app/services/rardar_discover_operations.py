@@ -88,6 +88,10 @@ def get_operation(identifier: str) -> dict | None:
     saved = _read(operation_root() / identifier / "operation.json")
     if saved is None:
         return None
+    # Older records used "changed" (including latest-attempt-only writes) as
+    # installed. Correct the read projection without rewriting audit history.
+    if saved["status"] == "failed" and isinstance(saved.get("result"), dict):
+        saved["result"] = {**saved["result"], "installed": False}
     if (operation_root() / identifier / "provider-budget.json").exists():
         saved["providerCalls"] = _ledger(identifier).snapshot()["attempted"]
     if saved["status"] == "running":
@@ -346,7 +350,7 @@ async def _execute(plan: dict, key: Path, ready: asyncio.Future) -> None:
                     "completedCandidateIds": completed,
                     "cacheHits": result.get("cacheHits", 0),
                     "generationId": result.get("selectionGenerationId"),
-                    "installed": result.get("changed", False),
+                    "installed": result.get("currentChanged", False),
                     "stopped": result.get("stopped", False),
                     "stopReason": result.get("stopReason"),
                 },

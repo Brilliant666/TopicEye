@@ -17,6 +17,22 @@ from app.services.rardar_llm_control import _map_control_error
 FIND = "rardar_find_project_comparison"
 
 
+def test_profile_deadline_is_independent_and_respects_model_shorter_timeout(monkeypatch):
+    monkeypatch.setattr(engine.settings, "LLM_COMPLETION_TIMEOUT_SECONDS", 45)
+    monkeypatch.setattr(engine.settings, "RARDAR_PROFILE_COMPLETION_TIMEOUT_SECONDS", 90)
+    assert engine._completion_timeout_seconds(scene="rardar_project_profile") == 90
+    assert engine._completion_timeout_seconds(120, scene="rardar_project_profile") == 90
+    assert engine._completion_timeout_seconds(30, scene="rardar_project_profile") == 30
+    assert engine._completion_timeout_seconds(scene="rardar_news_quickread") == 45
+    assert engine._completion_timeout_seconds(scene="rardar_profile_translation") == 45
+
+
+@pytest.mark.parametrize("value", [0, -1, 91, float("inf"), float("nan")])
+def test_profile_invalid_deadline_rejected(value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, RARDAR_PROFILE_COMPLETION_TIMEOUT_SECONDS=value)
+
+
 def test_find_deadline_is_bounded_and_other_scenes_unchanged(monkeypatch):
     monkeypatch.setattr(engine.settings, "LLM_COMPLETION_TIMEOUT_SECONDS", 45)
     monkeypatch.setattr(engine.settings, "RARDAR_FIND_COMPLETION_TIMEOUT_SECONDS", 120)
@@ -44,6 +60,7 @@ def isolated_engine(monkeypatch):
     monkeypatch.setattr(engine, "_get_token_rate_limiter", lambda: limiter)
     monkeypatch.setattr(engine, "_get_model_rate_limiter", lambda _: None)
     monkeypatch.setattr(engine, "execution_budget", lambda _: None)
+    monkeypatch.setattr(engine, "daily_execution_budget", AsyncMock(return_value=None))
     monkeypatch.setattr(llm_usage, "record_llm_call_in_new_session", AsyncMock())
 
     @asynccontextmanager
@@ -52,6 +69,24 @@ def isolated_engine(monkeypatch):
 
     monkeypatch.setattr(engine, "acquire_completion_slot", slot)
     monkeypatch.setattr(engine.settings, "RARDAR_FIND_COMPLETION_TIMEOUT_SECONDS", 0.1)
+
+
+@pytest.mark.asyncio
+async def test_profile_scene_applies_deadline_to_actual_sdk_request(isolated_engine, monkeypatch):
+    monkeypatch.setattr(engine.settings, "RARDAR_PROFILE_COMPLETION_TIMEOUT_SECONDS", 90)
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        raise RuntimeError("mock-stop-before-provider")
+
+    monkeypatch.setattr(engine, "acompletion", completion)
+    with pytest.raises(RuntimeError, match="mock-stop"):
+        await engine._call_llm_single([], "mock", None, None, 0.3, 2000, None, scene="rardar_project_profile")
+    assert len(calls) == 1
+    assert calls[0]["timeout"] == 90
+    assert calls[0]["max_tokens"] == 2000
+    assert calls[0]["temperature"] == 0.3
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,8 @@ import { NOTIFICATION_EVENT_TYPES } from '@/lib/api/_analytics';
 import { Badge, Button, Panel } from '@/components/ui';
 import { AdminPageShell, AdminPageHeader, AdminNoticeBanner } from '@/components/admin-ui';
 import { LoadingState } from '@/components/StateView';
+import RardarDailyOperations from '@/components/RardarDailyOperations';
+import { isRardarProduct } from '@/lib/product-profile';
 
 const DEFAULT_FROM_NAME = 'TopicEye';
 
@@ -235,6 +237,7 @@ export default function AdminSettingsPage() {
         description="配置系统级邮件服务，用于注册验证码等事务邮件发送"
       />
 
+        {isRardarProduct() && <RardarDailyOperations />}
         <Panel className="p-6">
           <div className="mb-5 flex items-center justify-between">
             <h2 className="text-base font-black text-gray-900">邮件服务</h2>

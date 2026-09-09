@@ -12,7 +12,7 @@ import json
 import os
 import re
 import stat
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,6 +20,7 @@ from typing import Any
 from uuid import uuid4
 
 TASK_ID = "RARDAR-DISCOVER-SHADOW-CONVERGENCE-01"
+DAILY_TASK_ID = "RARDAR-DAILY-PROVIDER-OPERATIONS"
 LIMIT = 40
 LEGACY_STAGES = {
     "negative_control",
@@ -164,6 +165,8 @@ class ProviderBudgetLedger:
         self.run_id = run_id
         self.task_id = task_id
         self.limit = limit
+        self.reservation_limit = limit
+        self.execution_lock = path.with_name("provider-execution.lock")
         self.stages = LEGACY_STAGES if task_id == TASK_ID else STAGES
         self.events = path.with_name("provider-budget-events.jsonl")
         self.lock = path.with_name("provider-budget.lock")
@@ -320,9 +323,13 @@ class ProviderBudgetLedger:
         with file_lock(self.lock):
             summary, events = self._read()
             if kind == "reserved":
-                if summary["remaining"] <= 0:
+                if summary["remaining"] <= 0 or summary["reserved"] >= self.reservation_limit:
                     raise ProviderBudgetError("provider_budget_exhausted")
-                if stage == "negative_control" and summary["stageBreakdown"][stage] >= 6:
+                if (
+                    stage == "negative_control"
+                    and self.task_id != DAILY_TASK_ID
+                    and summary["stageBreakdown"][stage] >= 6
+                ):
                     raise ProviderBudgetError("provider_budget_negative_control_exhausted")
                 attempt_id = uuid4().hex
             event = {
@@ -344,11 +351,11 @@ class ProviderBudgetLedger:
         return attempt_id
 
     @contextmanager
-    def execution(self, stage: str):
+    def execution(self, stage: str, *, consume_attempt_allowance: bool = True):
         # Cross-process concurrency=1, independently of TopicEye's route pool.
-        with file_lock(self.path.with_name("provider-execution.lock"), blocking=False):
+        with file_lock(self.execution_lock, blocking=False):
             allowance = _single_attempt.get()
-            if allowance is not None:
+            if allowance is not None and consume_attempt_allowance:
                 if allowance[0] <= 0:
                     raise ProviderBudgetError("provider_operation_attempt_limit")
                 allowance[0] -= 1
@@ -361,6 +368,43 @@ class ProviderBudgetLedger:
                 raise
             else:
                 self.record("succeeded", stage, identifier)
+
+
+@contextmanager
+def combined_budget_execution(
+    operation: tuple[ProviderBudgetLedger, str] | None,
+    daily: tuple[ProviderBudgetLedger, str] | None,
+):
+    """Enforce both scopes; the daily ledger never replaces a narrower run cap.
+
+    Reservations precede dispatch and are conservative on interruption. A
+    shared daily ledger passed as the operation context is only charged once.
+    Locks are nonblocking so an overlapping request cannot freeze the event loop.
+    """
+    budgets: list[tuple[ProviderBudgetLedger, str]] = []
+    seen: set[tuple[Path, str]] = set()
+    if operation is not None and daily is not None and operation[0].task_id == DAILY_TASK_ID:
+        # A long-running operation may retain yesterday's ContextVar. Its
+        # daily scope is replaced at dispatch; only a distinct task budget is
+        # an additional cap. Preserve the precise translation/control stage.
+        daily = (daily[0], operation[1])
+        operation = None
+    for entry in (daily, operation):
+        if entry is None:
+            continue
+        ledger, stage = entry
+        identity = (ledger.path, ledger.run_id)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        snapshot = ledger.snapshot()
+        if snapshot["reserved"] >= min(ledger.limit, ledger.reservation_limit):
+            raise ProviderBudgetError("provider_budget_exhausted")
+        budgets.append((ledger, stage))
+    with ExitStack() as stack:
+        for index, (ledger, stage) in enumerate(budgets):
+            stack.enter_context(ledger.execution(stage, consume_attempt_allowance=index == 0))
+        yield
 
 
 @contextmanager

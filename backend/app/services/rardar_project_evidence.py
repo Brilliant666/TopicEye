@@ -8,6 +8,8 @@ import json
 import re
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -35,6 +37,75 @@ _MANIFESTS = {
 _CHINESE = re.compile(r"[\u3400-\u9fff]")
 _HEADING = re.compile(r"^#{1,6}\s+(.+?)\s*$")
 _CACHE: dict[tuple[str, str], tuple[float, ProjectEvidence]] = {}
+
+
+def _persistent_root() -> Path | None:
+    from app.core.config import settings
+
+    if not settings.RARDAR_INTELLIGENCE_DATA_DIR:
+        return None
+    return Path(settings.RARDAR_INTELLIGENCE_DATA_DIR) / "public-project-evidence"
+
+
+def _persisted_evidence(repository: str, revision: str) -> ProjectEvidence | None:
+    from app.services.llm.provider_budget import plain
+
+    root = _persistent_root()
+    if root is None:
+        return None
+    path = root / hashlib.sha256(repository.lower().encode()).hexdigest() / f"{revision}.json"
+    plain(path, missing=True)
+    if not path.exists() or path.stat().st_size > 300_000:
+        return None
+    try:
+        saved = json.loads(path.read_bytes())
+        checksum = saved.pop("checksum", None)
+        if checksum != _canonical_digest(saved):
+            return None
+        if saved["repository"] != repository or saved["revision"] != revision or saved["version"] != 1:
+            return None
+        collected = datetime.fromisoformat(saved["collectedAt"])
+        if not timedelta(0) <= datetime.now(UTC) - collected <= timedelta(days=1):
+            return None
+        value = saved["evidence"]
+        if _canonical_digest(value["payload"]) != value["digest"]:
+            return None
+        return ProjectEvidence(**{**value, "allowed_refs": frozenset(value["allowed_refs"]), "cache_hit": True})
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def _persist_evidence(repository: str, revision: str, facts: dict, value: ProjectEvidence, options: dict) -> None:
+    from dataclasses import asdict
+
+    from app.services.llm.provider_budget import atomic, plain
+
+    root = _persistent_root()
+    if root is None or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_][A-Za-z0-9_.-]*", repository):
+        return
+    directory = root / hashlib.sha256(repository.lower().encode()).hexdigest()
+    plain(directory, missing=True)
+    directory.mkdir(parents=True, exist_ok=True)
+    evidence = asdict(value)
+    evidence["allowed_refs"] = sorted(value.allowed_refs)
+    saved = {
+        "version": 1,
+        "repository": repository,
+        "revision": revision,
+        "collectedAt": datetime.now(UTC).isoformat(),
+        "evidence": evidence,
+    }
+    atomic(directory / f"{revision}.json", {**saved, "checksum": _canonical_digest(saved)})
+    # Public project identity/material only. Never persist a user's requirement,
+    # model prompt, paid response or private subscription in this inventory.
+    atomic(
+        directory / "managed.json",
+        {
+            "repository": repository,
+            "facts": {key: facts.get(key) for key in ("description", "pushedAt", "licenseSpdxId")},
+            "options": options,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -156,6 +227,7 @@ async def collect_project_evidence(
     client: httpx.AsyncClient | None = None,
     include_readme_body: bool = False,
     readme_only: bool = False,
+    refresh_material: bool = False,
 ) -> ProjectEvidence:
     """Collect at most four public GitHub API responses; never clone or execute code."""
 
@@ -175,9 +247,14 @@ async def collect_project_evidence(
         if now - created_at > _CACHE_TTL_SECONDS:
             _CACHE.pop(key, None)
     cached = _CACHE.get(cache_key)
-    if cached:
+    if cached and not refresh_material:
         value = cached[1]
         return ProjectEvidence(**{**value.__dict__, "cache_hit": True})
+    if not refresh_material:
+        persisted = _persisted_evidence(repository, revision)
+        if persisted is not None:
+            _CACHE[cache_key] = (time.monotonic(), persisted)
+            return persisted
 
     owned = client is None
     if client is None:
@@ -366,5 +443,17 @@ async def collect_project_evidence(
     )
     while len(_CACHE) >= _CACHE_MAX_ENTRIES:
         _CACHE.pop(next(iter(_CACHE)))
-    _CACHE[cache_key] = (time.monotonic(), value)
+    if readme_text or cache_key not in _CACHE:
+        _CACHE[cache_key] = (time.monotonic(), value)
+    if readme_text:
+        _persist_evidence(
+            repository,
+            revision,
+            artifact_facts,
+            value,
+            {
+                "include_readme_body": include_readme_body,
+                "readme_only": readme_only,
+            },
+        )
     return value

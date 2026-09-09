@@ -1224,7 +1224,7 @@ async def test_retained_v1_artifact_digest_is_checked_without_v2_default_fields(
 
 
 @pytest.mark.asyncio
-async def test_degraded_attempt_updates_latest_only_and_preserves_healthy_serving(tmp_path: Path) -> None:
+async def test_degraded_attempt_updates_latest_only_and_preserves_healthy_serving(tmp_path: Path, monkeypatch) -> None:
     target, source = _source(tmp_path)
     async with _client() as client:
         healthy = await build_selection(
@@ -1271,6 +1271,29 @@ async def test_degraded_attempt_updates_latest_only_and_preserves_healthy_servin
     assert response.latestAttemptGeneration == degraded_artifact.selectionGenerationId
     assert response.items
     assert response.code == "rardar_selection_degraded"
+
+    # A newer failed attempt must not date/rebind retained cards to new facts.
+    from app.services import rardar_intelligence
+
+    newer = loaded.latest_attempt.model_copy(
+        update={
+            "latestCaptureAt": loaded.latest_attempt.latestCaptureAt + timedelta(days=1),
+            "sourceObservationSetId": "newer-attempt-source",
+            "sourceTodayGeneration": "newer-attempt-today",
+        }
+    )
+    monkeypatch.setattr(
+        rardar_intelligence,
+        "SelectionServingLoader",
+        lambda _: SimpleNamespace(
+            load_state_with_etag=lambda: replace(loaded, latest_attempt=newer),
+        ),
+    )
+    response, _etag = load_selection_snapshot(SimpleNamespace(RARDAR_INTELLIGENCE_DATA_DIR=target))
+    assert response.latestCaptureAt == loaded.current.latestCaptureAt
+    assert response.sourceObservation == loaded.current.sourceObservationSetId
+    assert response.sourceTodayGeneration == loaded.current.sourceTodayGeneration
+    assert response.latestAttemptCaptureAt == newer.latestCaptureAt
 
 
 @pytest.mark.asyncio

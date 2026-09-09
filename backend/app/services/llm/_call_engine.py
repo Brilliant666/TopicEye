@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
 
@@ -47,8 +47,9 @@ from app.services.llm._rate_limit import (
     acquire_completion_slot,
     estimate_request_tokens,
 )
+from app.services.llm.daily_provider_budget import daily_execution_budget
 from app.services.llm.error_safety import safe_llm_error
-from app.services.llm.provider_budget import ProviderBudgetError, execution_budget
+from app.services.llm.provider_budget import ProviderBudgetError, combined_budget_execution, execution_budget
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +137,8 @@ def _completion_timeout_seconds(configured_timeout: Any = None, *, scene: str = 
             float(
                 settings.RARDAR_FIND_COMPLETION_TIMEOUT_SECONDS
                 if scene == _FIND_SCENE and _find_comparison_deadline.get()
+                else settings.RARDAR_PROFILE_COMPLETION_TIMEOUT_SECONDS
+                if scene == "rardar_project_profile"
                 else settings.LLM_COMPLETION_TIMEOUT_SECONDS
             ),
             0.1,
@@ -221,7 +224,7 @@ async def _call_llm_single(
     if reasoning_effort is None:
         kwargs["temperature"] = temperature
     kwargs.update(_litellm_extra_kwargs(model_config))
-    if budget is not None:
+    if budget is not None or (scene.startswith("rardar_") and settings.RARDAR_DAILY_OPERATIONS_ENABLED):
         # Every network attempt must pass through our durable reservation.
         kwargs["num_retries"] = 0
     completion_timeout = _completion_timeout_seconds(kwargs.get("timeout"), scene=scene)
@@ -248,7 +251,12 @@ async def _call_llm_single(
     try:
         async with acquire_completion_slot(model_config, scene):
             run_guard.before_attempt()
-            with budget[0].execution(budget[1]) if budget is not None else nullcontext():
+            # Resolve at dispatch, not before rate-limit / pool waiting: a
+            # request crossing midnight must consume the actual dispatch day.
+            daily_budget = await daily_execution_budget(scene)
+            if daily_budget is not None:
+                kwargs["num_retries"] = 0
+            with combined_budget_execution(budget, daily_budget):
                 deadline = asyncio.timeout(completion_timeout)
                 try:
                     async with deadline:

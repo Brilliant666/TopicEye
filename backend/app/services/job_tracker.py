@@ -28,6 +28,144 @@ logger = logging.getLogger(__name__)
 _job_locks: dict[str, asyncio.Lock] = {}
 
 
+async def recover_rardar_daily_lease() -> bool:
+    """Only recover this job when its shared business writer lock is free."""
+    from app.services.llm.provider_budget import ProviderBudgetError, file_lock
+    from app.services.rardar_daily_operations import operation_root
+
+    try:
+        with file_lock(operation_root() / "writer.lock", blocking=False):
+            async with async_session() as db:
+                job = (
+                    await db.execute(
+                        select(ScheduledJob).where(ScheduledJob.job_key == "rardar_daily_operations").with_for_update()
+                    )
+                ).scalar_one_or_none()
+                if job is None or job.last_status != "RUNNING":
+                    return False
+                job.last_status = "INTERRUPTED"
+                logs = (
+                    (
+                        await db.execute(
+                            select(JobExecutionLog).where(
+                                JobExecutionLog.job_key == "rardar_daily_operations",
+                                JobExecutionLog.status == "RUNNING",
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+                for log in logs:
+                    log.status = "INTERRUPTED"
+                    log.finished_at = datetime.now(UTC)
+                    log.error_message = "启动恢复：原执行器已不持有写锁，可续接日内进度"
+                await db.commit()
+                return True
+    except ProviderBudgetError:
+        return False
+
+
+async def daily_config_status(limit: int | None = None) -> dict:
+    from app.repositories.app_setting_repo import AppSettingRepository
+    from app.services.llm.daily_provider_budget import SETTING_KEY, daily_budget_status
+
+    async with async_session() as db:
+        if limit is not None:
+            import json
+
+            if isinstance(limit, bool) or not 1 <= limit <= 100_000:
+                raise ValueError("provider_daily_config_invalid")
+            await AppSettingRepository(db).upsert_setting(
+                SETTING_KEY,
+                json.dumps({"providerRequestLimit": limit}),
+                "Rardar 全站每日模型请求上限（上海自然日）",
+            )
+            await db.commit()
+        usage = await daily_budget_status(db)
+    from app.services.rardar_daily_operations import latest_status
+
+    state = latest_status()
+    fields = {
+        "status",
+        "checked",
+        "processed",
+        "updated",
+        "cached",
+        "reused",
+        "failed",
+        "unfinished",
+        "managedCandidateCount",
+        "todayProjectCount",
+        "newlyPublishedTotal",
+        "currentPublishedCount",
+        "invalidCacheRecords",
+        "incompatibleCacheRecords",
+        "invalidCurrentArtifact",
+        "unresolvedProjectCount",
+    }
+    summary = {key: state.get(key) for key in ("status", "startedAt", "completedAt")}
+    summary["modules"] = {
+        name: {
+            key: value for key, value in result.items() if key in fields and isinstance(value, str | int | type(None))
+        }
+        for name, result in state.get("modules", {}).items()
+        if isinstance(result, dict)
+    }
+    return {**usage, "dailyStatus": summary}
+
+
+async def control_rardar_daily_job(action: str) -> dict:
+    """Manage the existing scheduled job; no caller-supplied executable or path."""
+    from app.core.config import settings
+    from app.scheduler import _rardar_daily_operations, scheduler
+
+    if not settings.RARDAR_PRODUCT_MODE or not settings.RARDAR_DAILY_OPERATIONS_ENABLED:
+        raise ValueError("rardar_daily_operations_not_enabled")
+    if action not in {"pause", "resume", "run"}:
+        raise ValueError("invalid_job_action")
+    await _upsert_job_config(
+        "rardar_daily_operations",
+        _rardar_daily_operations._job_name,
+        _rardar_daily_operations._job_description,
+    )
+    async with async_session() as db:
+        job = (
+            await db.execute(
+                select(ScheduledJob).where(ScheduledJob.job_key == "rardar_daily_operations").with_for_update()
+            )
+        ).scalar_one()
+        if action in {"pause", "resume"}:
+            job.enabled = action == "resume"
+            await db.commit()
+            return {"status": "enabled" if job.enabled else "paused"}
+        if not job.enabled:
+            return {"status": "paused"}
+        last = job.last_run_at
+        if last is not None and last.tzinfo is None:
+            last = last.replace(tzinfo=UTC)
+        running = job.last_status == "RUNNING" and last and (datetime.now(UTC) - last).total_seconds() < 14400
+        if running or scheduler.get_job("rardar_daily_operations_manual") is not None:
+            return {"status": "running"}
+    if not scheduler.running:
+        raise ValueError("rardar_scheduler_not_running")
+    from apscheduler.jobstores.base import ConflictingIdError
+
+    try:
+        scheduler.add_job(
+            _rardar_daily_operations,
+            trigger="date",
+            run_date=datetime.now(UTC),
+            id="rardar_daily_operations_manual",
+            kwargs={"_trigger_type": "manual"},
+            max_instances=1,
+            name="Rardar 管理员立即检查 / 补跑",
+        )
+    except ConflictingIdError:
+        return {"status": "running"}
+    return {"status": "queued"}
+
+
 def _get_job_lock(job_key: str) -> asyncio.Lock:
     lock = _job_locks.get(job_key)
     if lock is None:
@@ -88,6 +226,8 @@ async def _claim_job_run(job_key: str, name: str, description: str, timeout: int
                     return True
 
                 lease_seconds = max(int(timeout), 1)
+                if not job.enabled:
+                    return False
                 stale_cutoff = now.timestamp() - lease_seconds
                 # 时区 bug 修复:SQLite 读回 DateTime(timezone=True) 是 naive,
                 # .timestamp() 按**本地时区**解释(UTC+8 多减 8 小时),
@@ -200,21 +340,22 @@ def track_job(job_key: str, name: str = "", timeout: int = 300, description: str
 
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
+            invocation_trigger = kwargs.pop("_trigger_type", trigger_type)
             lock = _get_job_lock(job_key)
             skip_summary = "同一任务仍在运行，本次触发已跳过"
             if lock.locked():
-                await _record_skipped_job(job_key, trigger_type, skip_summary)
+                await _record_skipped_job(job_key, invocation_trigger, skip_summary)
                 logger.info("Job %s skipped because another run is active", job_key)
                 return
 
             claimed = await _claim_job_run(job_key, _name, description, timeout)
             if not claimed:
-                await _record_skipped_job(job_key, trigger_type, skip_summary)
+                await _record_skipped_job(job_key, invocation_trigger, skip_summary)
                 logger.info("Job %s skipped because another process holds the lease", job_key)
                 return
 
             async with lock:
-                log_id = await _create_log(job_key, trigger_type=trigger_type)
+                log_id = await _create_log(job_key, trigger_type=invocation_trigger)
                 start = time.monotonic()
                 status = "SUCCESS"
                 result_summary = ""
@@ -228,8 +369,16 @@ def track_job(job_key: str, name: str = "", timeout: int = 300, description: str
                         import json
 
                         result_summary = json.dumps(result, ensure_ascii=False)[:2000]
+                        if job_key == "rardar_daily_operations":
+                            status = {"partial": "PARTIAL", "failed": "FAILED", "skipped": "SKIPPED"}.get(
+                                result.get("status"), "SUCCESS"
+                            )
                     elif result is not None:
                         result_summary = str(result)[:2000]
+                except asyncio.CancelledError:
+                    await _finish_log(log_id, "INTERRUPTED", error_message="执行器已停止，后续日程可续接")
+                    await _release_job_run(job_key, "INTERRUPTED")
+                    raise
                 except TimeoutError:
                     status = "TIMEOUT"
                     error_message = f"Job timed out after {timeout}s"

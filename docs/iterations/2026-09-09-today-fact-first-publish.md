@@ -52,7 +52,9 @@ the validated source fact, not merely carry a valid material-state label.
 
 The real isolated candidate contains 20 factual members: 11 complete material
 profiles, 8 partial and 1 unavailable. Repeated build is a no-op, with no new
-Provider calls. Runtime installation remains pending: CI reported pre-existing
-frontend dependency vulnerabilities (Next.js, sharp, js-yaml and Vitest).
-This task does not waive that security gate or include an unreviewed dependency
-upgrade. The retained Runtime continues using its previous healthy Serving.
+Provider calls. CI initially reported pre-existing frontend dependency
+vulnerabilities. The user authorized a same-PR security patch follow-up: Next.js
+16.3.4, sharp 0.35.4, js-yaml 4.3.2 and Vitest 4.1.11, with their resolved
+transitive dependencies. No audit exclusions or CI gates were weakened.
+The updated lockfile passes npm audit (zero vulnerabilities) and frontend
+tests (264 passed). Runtime cutover requires the final exact-head CI checks.

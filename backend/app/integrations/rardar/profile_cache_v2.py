@@ -513,13 +513,26 @@ def profile_store_path(cache_root: Path, identity: ProfileCacheIdentityV2) -> Pa
 
 
 def load_profile_store(cache_root: Path, identity: ProfileCacheIdentityV2) -> ProfileStoreEnvelopeV2 | None:
-    raw = _read_plain(profile_store_path(cache_root, identity), root=cache_root)
-    if raw is None:
-        return None
-    try:
-        return ProfileStoreEnvelopeV2.model_validate_json(raw, strict=True)
-    except (ValidationError, ValueError) as exc:
-        raise ProfileCacheIntegrityError("profile cache record is invalid") from exc
+    roots = [cache_root]
+    # The two product modules share only an exact identity under one data root.
+    # Never search arbitrary ancestors, rewrite identities or migrate records.
+    sibling = {"profile-cache": "selection-profile-cache", "selection-profile-cache": "profile-cache"}.get(
+        cache_root.name
+    )
+    if sibling is not None:
+        roots.append(cache_root.parent / sibling)
+    for root in roots:
+        raw = _read_plain(profile_store_path(root, identity), root=cache_root.parent if sibling else cache_root)
+        if raw is None:
+            continue
+        try:
+            envelope = ProfileStoreEnvelopeV2.model_validate_json(raw, strict=True)
+            if envelope.cacheIdentity != identity:
+                raise ValueError("profile cache lookup identity mismatch")
+            return envelope
+        except (ValidationError, ValueError) as exc:
+            raise ProfileCacheIntegrityError("profile cache record is invalid") from exc
+    return None
 
 
 def store_profile(

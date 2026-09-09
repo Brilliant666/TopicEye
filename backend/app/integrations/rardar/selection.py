@@ -567,6 +567,16 @@ def selection_input_digest(
     _validate_recall_batch_id(recall_batch_id)
     universe, _summary = build_candidate_universe(source)
     identities = _source_identities(source, universe)
+    shared_profiles_digest = None
+    if cache_root.name == "selection-profile-cache":
+        from app.services.llm.provider_budget import ProviderBudgetError, plain
+
+        shared_profiles = cache_root.parent / "profile-cache" / "profile-store" / "v2"
+        try:
+            plain(shared_profiles, missing=True)
+        except ProviderBudgetError as exc:
+            raise SelectionBuildError("rardar_selection_cache_unsafe", "Shared Profile cache path is unsafe") from exc
+        shared_profiles_digest = _cache_inventory_digest(shared_profiles)
     return _sha(
         _canonical_bytes(
             {
@@ -578,6 +588,7 @@ def selection_input_digest(
                 "todayExplosionSha256": source.today_explosion_sha256,
                 **identities,
                 "cacheInventoryDigest": _cache_inventory_digest(cache_root),
+                "sharedProfileInventoryDigest": shared_profiles_digest,
                 "modelRouteIdentity": model_route_identity,
                 "recallLimit": recall_limit,
                 "recallBatchId": recall_batch_id,

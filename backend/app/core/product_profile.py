@@ -10,13 +10,10 @@ from app.core.config import Settings, settings
 ProductProfileKey = Literal["topiceye", "rardar"]
 
 RARDAR_NAVIGATION: tuple[tuple[str, str], ...] = (
-    ("/", "今日"),
-    ("/news", "热点资讯"),
-    ("/activity", "动态"),
-    ("/discover", "发现"),
+    ("/", "今日热榜"),
+    ("/historical-hot", "历史热门"),
     ("/find", "找项目"),
-    ("/candidates", "候选池"),
-    ("/watchlist", "观察列表"),
+    ("/activity", "动态"),
 )
 
 

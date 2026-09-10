@@ -226,6 +226,9 @@ async def enhance_hotspot_news(
     frozen_page: Any | None = None,
     allow_model: bool = True,
 ) -> HotspotNewsEnhanceResult:
+    from app.core.rardar_scope import require_module_execution
+
+    require_module_execution("news")
     with news_writer():
         return await _enhance_hotspot_news(
             db,

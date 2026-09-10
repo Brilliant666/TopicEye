@@ -171,6 +171,27 @@ Full config in [backend/app/services/scoring_engine.py](backend/app/services/sco
 
 ### Rardar local product MVP (Windows)
 
+**Current development direction (RARDAR-REFOCUS-01):** Today combines GitHub
+Trending and Trendshift's own daily repository lists; `/historical-hot` keeps
+traceable historical appearances and saved project readings; `/find` remains
+requirement-first with interactive model priority. In this branch, Rardar's
+News/Discover collection and enhancement entries are paused, and candidate-pool
+and watchlist pages are retired. Data/shared materials remain. This does not
+disable those capabilities in the independent TopicEye profile.
+
+Use the Today administrator's **检查并同步双榜** action, or the configured backend
+entry `python -m scripts.refresh_rardar_boards` (zero model requests).
+`--history-once` imports the public historical appearance index with unknown
+individual dates retained. The existing daily scheduler runs board refresh plus
+bounded historical interpretation under the existing daily budget; Find does not
+wait for a whole background inventory. See
+[current scope and storage contract](docs/platform/RARDAR_PLATFORM_FOUNDATION.md#current-product-scope--rardar-refocus-01).
+
+The following earlier local-MVP instructions remain historical compatibility
+reference. Their News/Discover commands are deliberately rejected in the refocused
+Rardar mode; they are not daily setup steps for this direction. This PR does not
+switch the running local version or deploy cloud services.
+
 Rardar reuses the existing TopicEye PostgreSQL cluster and the enabled
 `routing_group=rardar` model; it never creates a replacement database or
 rewrites model credentials. Real Rardar intelligence is the default. Sync one

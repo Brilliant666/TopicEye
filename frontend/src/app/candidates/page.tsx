@@ -1,5 +1,5 @@
-import RardarFoundationPage from '@/components/RardarFoundationPage';
+import RardarPausedPage from '@/components/RardarPausedPage';
 
 export default function Page() {
-  return <RardarFoundationPage pageKey="candidates" />;
+  return <RardarPausedPage title="候选池" />;
 }

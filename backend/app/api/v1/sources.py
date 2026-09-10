@@ -373,6 +373,8 @@ async def sync_my_source(
     if existing.owner_user_id != current_user.id:
         raise HTTPException(status_code=404, detail=f"Source {source_id} not found") from None
 
+    _check_product_source_sync(existing.platform)
+
     if not existing.enabled or existing.status == SourceStatus.DISABLED:
         raise HTTPException(status_code=409, detail="信源已禁用，请启用后再同步") from None
 
@@ -654,6 +656,8 @@ async def sync_source(source_id: int, db: AsyncSession = Depends(get_db)):
     if existing is None:
         raise HTTPException(status_code=404, detail=f"Source {source_id} not found")
 
+    _check_product_source_sync(existing.platform)
+
     if not existing.enabled or existing.status == SourceStatus.DISABLED:
         raise HTTPException(status_code=409, detail="信源已禁用，请启用后再同步")
 
@@ -681,3 +685,14 @@ async def sync_source(source_id: int, db: AsyncSession = Depends(get_db)):
         duplicates=stats["duplicates"],
         source_info=SourceResponse.model_validate(source),
     )
+
+
+def _check_product_source_sync(platform: str | None) -> None:
+    if platform != "rardar_hotspot_news":
+        return
+    from app.core.rardar_scope import RardarModulePaused, require_module_execution
+
+    try:
+        require_module_execution("news")
+    except RardarModulePaused as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code}) from None

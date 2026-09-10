@@ -21,6 +21,9 @@ def rebuild(
     concurrency: int = 4,
     profile_provider: ProfileProvider | None = None,
 ) -> dict[str, object]:
+    from app.core.rardar_scope import require_module_execution
+
+    require_module_execution("discover")
     target = target.resolve()
     source = DiscoverArtifactAdapter.from_config(str(target)).load()
     metadata = load_discover_sync_metadata(target, source)
@@ -47,6 +50,9 @@ def rebuild(
 
 
 def main() -> int:
+    from app.core.rardar_scope import require_module_execution
+
+    require_module_execution("discover")
     parser = argparse.ArgumentParser(description="Rebuild immutable Rardar Discover Serving")
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--translate-top", type=int, default=30, choices=range(0, 31), metavar="0..30")

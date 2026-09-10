@@ -844,6 +844,12 @@ async def _today_profiles(target: Path, ledger, progress: dict | None = None) ->
 
 
 async def run_daily_operations() -> dict:
+    from app.core.product_profile import is_rardar_product
+
+    if is_rardar_product():
+        from app.services.rardar_trending import run_daily_refocus
+
+        return await run_daily_refocus()
     now = datetime.now(UTC)
     local = now.astimezone(ZONE)
     # A midnight manual catch-up must not consume the coming 08:30 check.

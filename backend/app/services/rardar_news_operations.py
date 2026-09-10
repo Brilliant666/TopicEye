@@ -82,6 +82,9 @@ def latest_operation() -> dict[str, Any] | None:
 
 
 async def start_operation(payload: NewsOperationRequest, *, user_id: int) -> dict[str, Any]:
+    from app.core.rardar_scope import require_module_execution
+
+    require_module_execution("news")
     root = operation_root()
     root.mkdir(parents=True, exist_ok=True)
     # Short admission lock also records aliases for clicks made during a run.

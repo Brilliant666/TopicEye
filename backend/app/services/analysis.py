@@ -418,6 +418,10 @@ async def _mark_content_error(
 
 async def analyze_content(content: ContentItem, db: AsyncSession) -> AiAnalysis:
     """Run full AI analysis on a single content item (single LLM call)."""
+    if getattr(content, "platform", None) == "rardar_hotspot_news":
+        from app.core.rardar_scope import require_module_execution
+
+        require_module_execution("news")
     logger.info("Analyzing content id=%d: %s", content.id, content.title[:50])
 
     content_text = content.raw_content or content.summary or ""

@@ -42,13 +42,10 @@ def test_product_profile_explicitly_enabled_is_rardar(value: object) -> None:
     assert profile.product_name == "Rardar"
     assert profile.navigation == RARDAR_NAVIGATION
     assert profile.navigation == (
-        ("/", "今日"),
-        ("/news", "热点资讯"),
-        ("/activity", "动态"),
-        ("/discover", "发现"),
+        ("/", "今日热榜"),
+        ("/historical-hot", "历史热门"),
         ("/find", "找项目"),
-        ("/candidates", "候选池"),
-        ("/watchlist", "观察列表"),
+        ("/activity", "动态"),
     )
 
 

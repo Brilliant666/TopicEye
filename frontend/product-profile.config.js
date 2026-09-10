@@ -1,11 +1,8 @@
 const RARDAR_NAVIGATION = Object.freeze([
-  Object.freeze({ href: '/', label: '今日' }),
-  Object.freeze({ href: '/news', label: '热点资讯' }),
-  Object.freeze({ href: '/activity', label: '动态' }),
-  Object.freeze({ href: '/discover', label: '发现' }),
+  Object.freeze({ href: '/', label: '今日热榜' }),
+  Object.freeze({ href: '/historical-hot', label: '历史热门' }),
   Object.freeze({ href: '/find', label: '找项目' }),
-  Object.freeze({ href: '/candidates', label: '候选池' }),
-  Object.freeze({ href: '/watchlist', label: '观察列表' }),
+  Object.freeze({ href: '/activity', label: '动态' }),
 ]);
 
 const RARDAR_INTERNAL_HOME = '/rardar-foundation';
@@ -60,6 +57,8 @@ function matchesPath(pathname, route) {
 function rardarRouteVisibility(pathname) {
   if (pathname === RARDAR_INTERNAL_HOME) return RARDAR_ROUTE_VISIBILITY.ALLOW;
   if (matchesPath(pathname, '/project/github')) return RARDAR_ROUTE_VISIBILITY.ALLOW;
+  if (matchesPath(pathname, '/project/stable')) return RARDAR_ROUTE_VISIBILITY.ALLOW;
+  if (['/news', '/discover', '/candidates', '/watchlist'].includes(pathname)) return RARDAR_ROUTE_VISIBILITY.ALLOW;
   if (RARDAR_NAVIGATION.some((item) => matchesPath(pathname, item.href))) {
     return RARDAR_ROUTE_VISIBILITY.ALLOW;
   }

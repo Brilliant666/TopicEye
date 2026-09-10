@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     RARDAR_NEWS_REQUEST_LIMIT: int = 12
     RARDAR_DISCOVER_REQUEST_LIMIT: int = 40
     RARDAR_DAILY_OPERATIONS_ENABLED: bool = False
+    # Work allowance, never a minimum publication/completeness requirement.
+    RARDAR_HISTORICAL_DAILY_LIMIT: int = Field(default=3, ge=1, le=20)
 
     # ── Database ──
     # 留空则启动时报错；本地开发请在 .env 中设置（参考 .env.example）。

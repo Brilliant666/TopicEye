@@ -101,6 +101,12 @@ async def ingest_from_source(source: Source, db: AsyncSession) -> dict[str, int]
 
     Returns ``{"fetched": N, "new": N, "duplicates": N}``.
     """
+    # Generic source endpoints must not bypass the Rardar-only News pause.
+    # Other TopicEye sources and standalone deployments retain their behavior.
+    if getattr(source, "platform", None) == "rardar_hotspot_news":
+        from app.core.rardar_scope import require_module_execution
+
+        require_module_execution("news")
     # SSRF 防护（抓取时最终防线）：字面量 + DNS 解析双校验。
     # 创建入口已在 schema validator 拒绝内网字面量；这里额外拦截
     # "稳定解析到内网 IP" 的域名（内网域名 / rebinding 的常见形态），

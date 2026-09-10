@@ -11,8 +11,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.integrations.rardar.selection import (
+    build_candidate_universe,
     build_selection,
     default_recall_batch_id,
+    recall_candidates,
     selection_input_digest,
 )
 from app.integrations.rardar.selection_execution import selection_writer
@@ -83,6 +85,82 @@ async def rebuild(target: Path, **kwargs) -> dict[str, object]:
         return await _rebuild(target, **kwargs)
 
 
+async def rebuild_period(target: Path, **kwargs) -> dict[str, object]:
+    """CLI publication uses the same singleton children and period installer."""
+    from app.integrations.rardar.selection_period import publish_period, with_current_period
+    from app.services.llm.daily_provider_budget import ProviderWorkYield
+    from app.services.llm.run_failure_guard import run_failure_guard
+
+    if kwargs.get("verify_cache_reuse"):
+        return await rebuild(target, **kwargs)
+    target = target.resolve()
+    source = SelectionSourceAdapter.from_config(str(target)).load()
+    route = await resolve_rardar_route_identity()
+    batch = kwargs.get("recall_batch_id") or default_recall_batch_id(source)
+    ids = kwargs.pop("process_candidate_ids", None)
+    if ids is None:
+        universe, _summary = build_candidate_universe(source)
+        ids = tuple(
+            item.githubRepositoryId
+            for item in recall_candidates(universe, kwargs.get("recall_limit", 48), batch_id=batch)
+        )
+    if not ids or len(ids) != len(set(ids)):
+        raise SelectionServingError("rardar_selection_candidates_invalid", "Candidate IDs must be nonempty and unique")
+    kwargs["recall_batch_id"] = batch
+    children = []
+    waiting = None
+    calls = 0
+    with run_failure_guard(isolate_stages=True):
+        for identifier in ids:
+            try:
+                result = await rebuild(
+                    target,
+                    **kwargs,
+                    process_candidate_ids=(identifier,),
+                    publish=False,
+                    expected_source_id=source.source_observation_set_id,
+                    expected_today_generation=source.today_generation_id,
+                    expected_route_identity=route,
+                )
+            except ProviderWorkYield as exc:
+                waiting = exc.code
+                continue
+            children.append(result["selectionGenerationId"])
+            calls += result.get("modelCalls", 0)
+    if not children:
+        return {
+            "status": "waiting",
+            "code": waiting or "no_completed_candidate",
+            "currentChanged": False,
+            "modelCalls": None,
+            "completedChildModelCalls": 0,
+        }
+    route_after = await resolve_rardar_route_identity()
+    if route_after != route:
+        raise SelectionServingError("rardar_selection_route_changed", "Configured route changed during computation")
+    installed = publish_period(
+        target,
+        with_current_period(target, children),
+        expected_source_id=source.source_observation_set_id,
+        expected_today_generation=source.today_generation_id,
+        expected_route_identity=route,
+    )
+    artifact = SelectionServingLoader(target).validate_generation(installed.selection_generation_id)
+    return {
+        "status": "waiting" if waiting else "healthy" if artifact.currentEligible else "degraded",
+        "code": waiting,
+        "state": artifact.state,
+        "selectionGenerationId": installed.selection_generation_id,
+        "currentChanged": installed.current_changed,
+        "changed": installed.changed,
+        "publishedCount": artifact.publishedCount,
+        # A yielding child may have dispatched before stopping; only the daily
+        # ledger can account for those requests. Never report a partial sum as total.
+        "modelCalls": None if waiting else calls,
+        "completedChildModelCalls": calls,
+    }
+
+
 async def _rebuild(
     target: Path,
     *,
@@ -97,6 +175,7 @@ async def _rebuild(
     expected_source_id: str | None = None,
     expected_today_generation: str | None = None,
     expected_route_identity: str | None = None,
+    publish: bool = True,
 ) -> dict[str, object]:
     report = report_stage or (lambda _stage: None)
     target = target.resolve()
@@ -244,7 +323,7 @@ async def _rebuild(
     serving = build_selection_serving(built)
     verify_frozen_source()
     report("atomic_activation")
-    installed = install_selection_serving(target, serving)
+    installed = install_selection_serving(target, serving, activate=publish)
     report("serving_validation")
     validated = loader.validate_generation(installed.selection_generation_id)
     report("complete")
@@ -350,7 +429,7 @@ def main() -> int:
         dest="process_candidate_ids",
         type=int,
         action="append",
-        help="Explicit small-batch numeric repository ID; repeat exactly six times in stable recall order",
+        help="Explicit numeric repository ID; repeat for the desired bounded candidate set",
     )
     parser.add_argument(
         "--verify-cache-reuse",
@@ -389,7 +468,7 @@ def main() -> int:
     try:
         if arguments.command == "build":
             result = asyncio.run(
-                rebuild(
+                rebuild_period(
                     arguments.target,
                     recall_limit=arguments.recall_limit,
                     recall_batch_id=arguments.recall_batch_id,
@@ -421,7 +500,7 @@ def main() -> int:
         print(json.dumps({"status": "failed", "code": code}, sort_keys=True), file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
-    return 0
+    return 2 if result.get("status") == "waiting" else 0
 
 
 if __name__ == "__main__":

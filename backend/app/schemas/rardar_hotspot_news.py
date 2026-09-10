@@ -107,13 +107,13 @@ class HotspotNewsRefreshResult(_StrictNewsModel):
 class HotspotNewsEnhanceItemResult(_StrictNewsModel):
     contentId: int = Field(gt=0)
     sourceKey: str = Field(min_length=1, max_length=40)
-    status: Literal["enhanced", "cached", "already_chinese", "failed", "budget_exhausted"]
+    status: Literal["enhanced", "cached", "already_chinese", "failed", "budget_exhausted", "waiting"]
     materialKind: Literal["feed_summary", "article_body", "title_only"] | None = None
     errorCode: str | None = Field(default=None, max_length=80)
 
 
 class HotspotNewsEnhanceResult(_StrictNewsModel):
-    status: Literal["completed", "degraded", "budget_exhausted"]
+    status: Literal["completed", "degraded", "budget_exhausted", "waiting"]
     startedAt: AwareDatetime
     completedAt: AwareDatetime
     considered: int = Field(ge=0)

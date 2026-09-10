@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 class DailyBudgetConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     providerRequestLimit: int = Field(strict=True, ge=1, le=100_000)
+    interactiveReserve: int | None = Field(default=None, strict=True, ge=0, le=100_000)
+    earlyBackgroundLimit: int | None = Field(default=None, strict=True, ge=0, le=100_000)
 
 
 def _require_same_origin(request: Request) -> None:
@@ -43,7 +45,14 @@ async def save_daily_config(body: DailyBudgetConfig, request: Request):
     from app.services.job_tracker import daily_config_status
 
     _require_same_origin(request)
-    return await daily_config_status(body.providerRequestLimit)
+    try:
+        return await daily_config_status(
+            body.providerRequestLimit,
+            interactive_reserve=body.interactiveReserve,
+            early_background_limit=body.earlyBackgroundLimit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
 @router.post("/jobs/rardar_daily_operations/{action}")

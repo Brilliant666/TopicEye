@@ -4290,6 +4290,7 @@ async def build_official_profiles(
     allow_model_generation: bool = True,
     model_route_identity: str | None = None,
     force_retryable: bool = False,
+    model_project_ids: set[int] | None = None,
 ) -> ProfileBuildResult:
     """Collect bounded profiles; the publication gate decides whether the full candidate may activate."""
 
@@ -4432,6 +4433,9 @@ async def build_official_profiles(
 
     async def collect(project: ExactExplosionProject) -> tuple[int, CollectedProjectProfile]:
         async with semaphore:
+            generate = allow_model_generation and (
+                model_project_ids is None or project.githubRepositoryId in model_project_ids
+            )
             try:
                 value = await collect_official_project_profile(
                     project,
@@ -4442,7 +4446,7 @@ async def build_official_profiles(
                     translator=translator,
                     narrative_translator=narrative_translator,
                     positioning_translator=positioning_translator,
-                    allow_model_generation=allow_model_generation,
+                    allow_model_generation=generate,
                     model_route_identity=model_route_identity,
                     force_retryable=force_retryable,
                 )
@@ -4468,7 +4472,7 @@ async def build_official_profiles(
                             translator=translator,
                             narrative_translator=narrative_translator,
                             positioning_translator=positioning_translator,
-                            allow_model_generation=allow_model_generation,
+                            allow_model_generation=generate,
                             model_route_identity=model_route_identity,
                             force_retryable=force_retryable,
                         )
@@ -4487,8 +4491,18 @@ async def build_official_profiles(
                     await empty_client.aclose()
             return project.githubRepositoryId, value
 
+    tasks = [asyncio.create_task(collect(project)) for project in projects]
     try:
-        pairs = await asyncio.gather(*(collect(project) for project in projects))
+        pairs = await asyncio.gather(*tasks)
+    except BaseException:
+        # gather propagates a yield/cancellation without stopping its siblings.
+        # Drain them before releasing the client or the caller's work slice;
+        # cooperative scheduling must not leave source/cache work in flight.
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
     finally:
         if owned:
             await client.aclose()

@@ -85,6 +85,16 @@ async def test_every_registered_rardar_scene_uses_same_daily_ledger(scene, tmp_p
 
     monkeypatch.setattr(database, "async_session", session)
     monkeypatch.setattr(daily, "configured_limit", AsyncMock(return_value=100))
+    monkeypatch.setattr(
+        daily,
+        "configured_execution_policy",
+        AsyncMock(
+            return_value={
+                "interactiveReserve": 10,
+                "earlyBackgroundLimit": 20,
+            }
+        ),
+    )
     resolved = await daily.daily_execution_budget(scene.value)
     assert resolved is not None
     ledger, stage = resolved

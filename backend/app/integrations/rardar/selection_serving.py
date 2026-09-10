@@ -19,7 +19,7 @@ from pydantic import BaseModel, ValidationError
 from pydantic_core import to_jsonable_python
 
 from app.integrations.rardar.adapter import RardarArtifactError, _SafeRoot
-from app.integrations.rardar.selection import BuiltSelection
+from app.integrations.rardar.selection import BuiltSelection, profile_material_usable
 from app.integrations.rardar.selection_schemas import (
     SelectionArtifact,
     SelectionProjectContext,
@@ -113,8 +113,8 @@ def _strict(raw: bytes, model: type[Any], code: str) -> Any:
 
 def _fallback_identity(assessment: Any, profile: Any) -> str:
     value = (
-        profile.identitySummaryZh
-        or profile.officialSummaryZh
+        (profile.identitySummaryZh if profile else None)
+        or (profile.officialSummaryZh if profile else None)
         or assessment.candidate.description
         or f"{assessment.candidate.repository} 的开源项目。"
     )
@@ -151,7 +151,9 @@ def _card(assessment: Any, profile: Any) -> SelectionServingCard:
         repository=assessment.candidate.repository,
         htmlUrl=assessment.candidate.htmlUrl,
         identitySummaryZh=copy.identitySummaryZh if copy else _fallback_identity(assessment, profile),
-        corePositioningZh=(profile.positioningZh or profile.coreValueZh or profile.officialPositioningZh),
+        corePositioningZh=(profile.positioningZh or profile.coreValueZh or profile.officialPositioningZh)
+        if profile
+        else None,
         whyWorthSeeingZh=(copy.whyWorthSeeingZh if copy else _REASON_COPY[assessment.primaryReason]),
         whyNowZh=copy.whyNowZh if copy and copy.whyNowZh else _why_now(assessment),
         primaryReason=assessment.primaryReason,
@@ -180,7 +182,8 @@ def build_selection_serving(built: BuiltSelection) -> BuiltSelectionServing:
     contexts: dict[int, SelectionProjectContext] = {}
     for assessment in published:
         collected = built.profiles.profiles[assessment.candidate.githubRepositoryId]
-        card = _card(assessment, collected.profile)
+        usable_profile = profile_material_usable(collected)
+        card = _card(assessment, collected.profile if usable_profile else None)
         cards.append(card)
         contexts[assessment.candidate.githubRepositoryId] = SelectionProjectContext(
             schemaVersion=1,
@@ -191,7 +194,7 @@ def build_selection_serving(built: BuiltSelection) -> BuiltSelectionServing:
             selectionEvidenceDigest=assessment.selectionEvidenceDigest,
             timelinessReasonCodes=assessment.timeliness.reasonCodes,
             evidence=assessment.valueEvidence + assessment.timelinessEvidence + assessment.peerEvidence,
-            canonicalProfile=collected.profile.model_dump(mode="json"),
+            canonicalProfile=collected.profile.model_dump(mode="json") if usable_profile else {},
             canonicalEvidence=collected.evidence.model_dump(mode="json"),
         )
     categories: dict[str, int] = {}
@@ -350,7 +353,9 @@ def _tree_matches(root: Path, files: dict[str, bytes]) -> bool:
     return all(safe.read_stable(path, maximum_bytes=max(1, len(raw))) == raw for path, raw in files.items())
 
 
-def install_selection_serving(target: Path, built: BuiltSelectionServing) -> SelectionInstallResult:
+def install_selection_serving(
+    target: Path, built: BuiltSelectionServing, *, activate: bool = True
+) -> SelectionInstallResult:
     if not _ID.fullmatch(built.selection_generation_id):
         raise SelectionServingError("rardar_selection_invalid", "Selection generation ID is unsafe")
     store = target / _STORE
@@ -385,6 +390,15 @@ def install_selection_serving(target: Path, built: BuiltSelectionServing) -> Sel
         if created:
             shutil.rmtree(final, ignore_errors=True)
         raise
+
+    if not activate:
+        return SelectionInstallResult(
+            built.selection_generation_id,
+            built.source_observation_set_id,
+            built.manifest_sha256,
+            created,
+            False,
+        )
 
     pointer_path = store / "current.json"
     latest_path = store / "latest-attempt.json"
@@ -484,6 +498,8 @@ class SelectionServingLoader:
             raise SelectionServingError("rardar_selection_invalid", "Selection serving artifact is absent")
         raw = self._file(generation, descriptor)
         snapshot = _strict(raw, SelectionServingSnapshot, "rardar_selection_invalid")
+        if snapshot.schemaVersion == 2:
+            self.validate_generation(generation)
         if (
             snapshot.selectionGenerationId != generation
             or snapshot.sourceObservationSetId != pointer.sourceObservationSetId
@@ -588,7 +604,12 @@ class SelectionServingLoader:
             raise SelectionServingError("rardar_selection_invalid", "Selection raw digest is absent")
         unsigned = dict(serialized)
         serialized_digest = unsigned.pop("payloadDigest")
-        artifact = _strict(raw, SelectionArtifact, "rardar_selection_invalid")
+        if serialized.get("schemaVersion") == 2:
+            from app.integrations.rardar.selection_period import load_period_view
+
+            artifact = load_period_view(self, raw)
+        else:
+            artifact = _strict(raw, SelectionArtifact, "rardar_selection_invalid")
         if (
             artifact.selectionGenerationId != generation
             or artifact.sourceObservationSetId != manifest.sourceObservationSetId
@@ -614,6 +635,18 @@ class SelectionServingLoader:
                 raise SelectionServingError("rardar_selection_unsafe_path", "Selection generation is unsafe")
         if actual_paths != expected_paths:
             raise SelectionServingError("rardar_selection_invalid", "Selection inventory is invalid")
+        if artifact.schemaVersion == 2:
+            from app.integrations.rardar.selection_period import PeriodEnvelope, build_period_serving
+
+            envelope = PeriodEnvelope.model_validate_json(
+                self._file(artifact.selectionGenerationId, descriptors["raw/selection.json"])
+            )
+            expected = build_period_serving(self.target, [item.generation for item in envelope.children])
+            if any(
+                self._file(artifact.selectionGenerationId, item) != expected.files.get(item.path)
+                for item in manifest.files
+            ):
+                raise SelectionServingError("rardar_selection_invalid", "Period serving projection differs")
         snapshot_raw = self._file(artifact.selectionGenerationId, descriptors["serving/selection.json"])
         snapshot = _strict(snapshot_raw, SelectionServingSnapshot, "rardar_selection_invalid")
         if snapshot.selectionGenerationId != artifact.selectionGenerationId:

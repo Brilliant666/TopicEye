@@ -73,6 +73,7 @@ async def rebuild_async(
     offline: bool = False,
     publication_audit: Path | None = None,
     generate_profiles: bool = False,
+    model_project_ids: set[int] | None = None,
 ) -> dict[str, object]:
     """Application entry: shared async DB/model services stay on the caller loop.
 
@@ -92,6 +93,7 @@ async def rebuild_async(
             translate_top=translate_top,
             concurrency=concurrency,
             allow_model_generation=generate_profiles,
+            model_project_ids=model_project_ids,
         )
 
         def provider(_projects, _generation_id, _cache_root):
@@ -176,6 +178,11 @@ def _build_and_install(target: Path, source, *, profile_provider, publication_au
         "created": installed.created,
         "changed": installed.changed,
         "profiles": built.profile_summary.model_dump(mode="json"),
+        "profileFailureCodes": {
+            str(identifier): item.profile_failure_code
+            for identifier, item in profiles.profiles.items()
+            if item.profile_failure_code
+        },
         "githubRequests": profiles.github_requests,
         "readmeCacheHits": profiles.readme_cache_hits,
         "translationCalls": profiles.translation_calls,

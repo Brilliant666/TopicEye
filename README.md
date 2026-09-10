@@ -291,9 +291,29 @@ public News sources, checks registered public project material, then continues
 Discover assessments, News quick reads and Today profiles using compatible
 caches. All managed candidates/content are inventoried; transport chunks are
 not a daily coverage quota. Counts distinguish checks, completed work, pending
-work and actual pointer activation. Each 08:30 cycle has at most three attempts;
-a midnight manual catch-up does not consume the coming morning's cycle. Model
+work and actual pointer activation. Each 08:30 cycle bounds failure retries;
+cooperative pauses and budget waits do not consume that allowance. A midnight
+manual catch-up does not consume the coming morning's cycle. Model
 usage instead follows the Shanghai calendar day and includes manual calls.
+Model work rotates in bounded dispatch slices (initially six requests), not
+whole module backlogs; public material fetches also yield in bounded pieces.
+News interleaves recent/changed items with older work;
+zero-model checks and compatible caches remain usable at the cap. The existing
+settings also reserve ten requests for interactive Find by default and limit
+pre-08:30 background work to twenty requests. These are editable execution
+defaults within the shared total, not extra allowances or per-module quotas.
+Waiting for a slice, an interactive request or allowance is not a model error.
+An in-flight request can finish; pause prevents subsequent work slices.
+
+Discover computes immutable single-project children and publishes one validated
+period snapshot after a bounded run, using the existing six-card packing rule.
+Compatible children share facts, the actual Today exclusion set, route and
+policy versions; changing the computational grouping does not change packing.
+Incomplete children are reported separately and cannot clear a healthy current
+snapshot. Legacy artifacts remain readable; old code cannot read a schema-2
+period snapshot, so code rollback must first use the existing Selection rollback
+entry to a retained pre-change schema-1 generation compatible with that code.
+Do not edit current pointers manually.
 Historical Find questions/results are not rerun; old memory-only project lists
 cannot be reconstructed and are not reported as a completed historical scan.
 

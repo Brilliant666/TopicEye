@@ -441,6 +441,8 @@ def _activation_artifact(
     payload = built.artifact.model_dump(mode="python")
     # These fixtures retain the prior policy to exercise historical artifacts.
     payload["contractVersions"]["smallBatchPolicy"] = "worth-seeing-small-batch-v1"
+    payload["contractVersions"]["profileEvidencePolicy"] = "evidence-content-profile-cache-v2"
+    payload["profileFailureSummary"] = None
     payload.update(
         {
             "selectionGenerationId": generation,
@@ -658,7 +660,11 @@ def test_value_projection_removes_popularity_facts_without_banning_technical_wor
 
     candidate = _candidate(tmp_path).model_copy(update={"description": mixed})
     collected = SimpleNamespace(
+        generation_failures=(),
+        profile_failure_code=None,
         profile=SimpleNamespace(
+            profileState="ready",
+            qualityState="accepted",
             evidenceDigest="profile-revision",
             identitySummaryZh="用于窗口管理和增量数据处理的开发工具。",
             coreValueZh=None,
@@ -1177,6 +1183,7 @@ async def test_retained_v1_artifact_digest_is_checked_without_v2_default_fields(
     payload["failureSummary"] = {"profile_unavailable": 46}
     for field in (
         "profileCacheIdentityVersion",
+        "profileFailureSummary",
         "sourceFactDigest",
         "profileRevisionSetDigest",
         "profileBindingSetDigest",

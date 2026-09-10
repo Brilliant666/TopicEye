@@ -51,7 +51,7 @@ export type SelectionResponse = {
   currentGeneration: string | null;
   latestAttemptGeneration: string | null;
   recallCount: number;
-  executionMode: 'full' | 'small_batch';
+  executionMode: 'full' | 'small_batch' | 'period';
   processedCount: number | null;
   unprocessedCount: number;
   profileReadyCount: number;
@@ -178,7 +178,7 @@ export function parseSelectionCard(value: unknown): SelectionCard {
 }
 
 export function parseSelectionResponse(value: unknown): SelectionResponse {
-  const executionMode = record(value) && value.executionMode === 'small_batch' ? 'small_batch' : 'full';
+  const executionMode = record(value) && value.executionMode === 'period' ? 'period' : record(value) && value.executionMode === 'small_batch' ? 'small_batch' : 'full';
   const processedCount = record(value) && value.processedCount !== undefined
     ? value.processedCount
     : (record(value) && Number.isSafeInteger(value.recallCount) ? Number(value.recallCount) : null);
@@ -206,7 +206,7 @@ export function parseSelectionResponse(value: unknown): SelectionResponse {
     || !nullableString(value.currentGeneration)
     || !nullableString(value.latestAttemptGeneration)
     || !Number.isSafeInteger(value.recallCount) || Number(value.recallCount) < 0
-    || (value.executionMode !== undefined && !['full', 'small_batch'].includes(String(value.executionMode)))
+    || (value.executionMode !== undefined && !['full', 'small_batch', 'period'].includes(String(value.executionMode)))
     || (processedCount !== null
       && (!Number.isSafeInteger(processedCount) || Number(processedCount) < 0))
     || !Number.isSafeInteger(unprocessedCount) || Number(unprocessedCount) < 0
@@ -223,6 +223,10 @@ export function parseSelectionResponse(value: unknown): SelectionResponse {
     throw new Error('rardar_selection_response_invalid');
   }
   const items = value.items.map(parseSelectionCard);
+  if (executionMode === 'period' && (
+    processedCount === null || Number(processedCount) > 500 || Number(value.recallCount) > 500
+    || Number(processedCount) + Number(unprocessedCount) !== Number(value.recallCount)
+  )) throw new Error('rardar_selection_period_invalid');
   if (executionMode === 'small_batch'
     && (processedCount === null
       || Number(processedCount) < 1

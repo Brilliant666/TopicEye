@@ -1,11 +1,16 @@
 // Synthetic HTTP auth fixture only. No database, GitHub or Provider access.
 import { createServer } from 'node:http';
+import { periodSelection } from './selection-period-fixture.mjs';
 
 let adminReads = 0;
 const server = createServer((request, response) => {
   response.setHeader('Content-Type', 'application/json');
   response.setHeader('Cache-Control', 'no-store');
   const url = new URL(request.url, 'http://127.0.0.1');
+  if (request.method === 'GET' && url.pathname === '/api/v1/rardar/discover/selection') {
+    response.end(JSON.stringify(periodSelection));
+    return;
+  }
   if (request.method !== 'GET') {
     response.writeHead(405).end('{}');
     return;

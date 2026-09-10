@@ -65,6 +65,7 @@ def test_cli_rebuild_still_owns_its_standalone_loop(monkeypatch, tmp_path):
 
 @pytest.mark.asyncio
 async def test_daily_entry_uses_async_rebuild_on_scheduler_loop(monkeypatch, tmp_path):
+    from app.integrations.rardar.adapter import RardarIntelligenceAdapter
     from app.services import rardar_daily_operations as daily
 
     owner = asyncio.get_running_loop()
@@ -73,6 +74,7 @@ async def test_daily_entry_uses_async_rebuild_on_scheduler_loop(monkeypatch, tmp
     async def rebuild(target, **kwargs):
         assert asyncio.get_running_loop() is owner
         assert execution_budget("rardar_project_profile")[0] is ledger
+        assert kwargs["model_project_ids"] == {1}
         return {
             "status": "healthy",
             "changed": False,
@@ -83,6 +85,13 @@ async def test_daily_entry_uses_async_rebuild_on_scheduler_loop(monkeypatch, tmp
         }
 
     monkeypatch.setattr(serving, "rebuild_async", rebuild)
+    monkeypatch.setattr(
+        RardarIntelligenceAdapter,
+        "load_explosion_board",
+        lambda _self: SimpleNamespace(
+            generationId="fixed-source", exactRanked=[SimpleNamespace(githubRepositoryId=i) for i in range(1, 21)]
+        ),
+    )
     result = await daily._today_profiles(tmp_path, ledger)
     assert result["status"] == "partial"
     assert result["completed"] == 18
@@ -113,3 +122,77 @@ def test_current_install_respects_existing_sync_lock(monkeypatch, tmp_path):
         serving._build_and_install_current(tmp_path, (), profile_provider=None, publication_audit=None)
     assert failure.value.code == "rardar_sync_already_running"
     assert lock.read_text(encoding="ascii") == "other writer"
+
+
+@pytest.mark.asyncio
+async def test_daily_profile_wait_keeps_later_cache_opportunity(monkeypatch, tmp_path):
+    from app.integrations.rardar.adapter import RardarIntelligenceAdapter
+    from app.services import rardar_daily_operations as daily
+    from app.services.llm.daily_provider_budget import ProviderWorkYield
+
+    ledger = SimpleNamespace(task_id="test", stages={"project_profile"}, snapshot=lambda: {"remaining": 0})
+    monkeypatch.setattr(
+        RardarIntelligenceAdapter,
+        "load_explosion_board",
+        lambda _self: SimpleNamespace(
+            generationId="fixed", exactRanked=[SimpleNamespace(githubRepositoryId=i) for i in (1, 2)]
+        ),
+    )
+    selected = []
+
+    async def rebuild(target, **kwargs):
+        selected.append(kwargs["model_project_ids"])
+        if kwargs["model_project_ids"] == {1}:
+            raise ProviderWorkYield("interactive_budget_reserved")
+        return {
+            "status": "healthy",
+            "changed": False,
+            "servingGenerationId": "cached",
+            "profiles": {"total": 2, "complete": 1, "partial": 1, "sourceUnavailable": 0},
+            "translationCalls": 0,
+            "translationCacheHits": 1,
+        }
+
+    monkeypatch.setattr(serving, "rebuild_async", rebuild)
+    progress = {}
+    waiting = await daily._today_profiles(tmp_path, ledger, progress)
+    assert waiting["status"] == "pending" and waiting["hasMore"]
+    cached = await daily._today_profiles(tmp_path, ledger, progress)
+    assert selected == [{1}, {2}]
+    assert cached["translationCalls"] == 0 and cached["completed"] == 1
+    assert not cached["hasMore"]
+
+
+@pytest.mark.asyncio
+async def test_all_today_model_waits_still_finish_cache_only_projection(monkeypatch, tmp_path):
+    from app.integrations.rardar.adapter import RardarIntelligenceAdapter
+    from app.services import rardar_daily_operations as daily
+    from app.services.llm.daily_provider_budget import ProviderWorkYield
+
+    ledger = SimpleNamespace(task_id="test", stages={"project_profile"}, snapshot=lambda: {"remaining": 0})
+    monkeypatch.setattr(
+        RardarIntelligenceAdapter,
+        "load_explosion_board",
+        lambda _self: SimpleNamespace(generationId="fixed", exactRanked=[SimpleNamespace(githubRepositoryId=1)]),
+    )
+    modes = []
+
+    async def rebuild(target, **kwargs):
+        modes.append(kwargs["generate_profiles"])
+        if kwargs["generate_profiles"]:
+            raise ProviderWorkYield("interactive_budget_reserved")
+        assert kwargs["model_project_ids"] == set()
+        return {
+            "status": "healthy",
+            "changed": True,
+            "servingGenerationId": "real-cache-projection",
+            "profiles": {"total": 1, "complete": 0, "partial": 1, "sourceUnavailable": 0},
+            "translationCalls": 0,
+            "translationCacheHits": 1,
+        }
+
+    monkeypatch.setattr(serving, "rebuild_async", rebuild)
+    result = await daily._today_profiles(tmp_path, ledger, {})
+    assert modes == [True, False]
+    assert result["changed"] and result["translationCalls"] == 0
+    assert not result["hasMore"] and result["waitReason"] == "interactive_budget_reserved"

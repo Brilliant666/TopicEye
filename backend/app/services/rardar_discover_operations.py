@@ -259,21 +259,48 @@ async def start_operation(payload: DiscoverOperationRequest, *, user_id: int) ->
 
 
 async def _run(plan: dict, ledger: ProviderBudgetLedger, report) -> dict:
+    from app.integrations.rardar.selection_period import publish_period, with_current_period
     from app.services.llm.provider_budget import selection_execution_budget
     from app.services.llm.run_failure_guard import run_failure_guard
     from scripts.rebuild_rardar_discover_selection import rebuild
 
     with selection_execution_budget(ledger), run_failure_guard(isolate_stages=True) as guard:
-        result = await rebuild(
-            Path(settings.RARDAR_INTELLIGENCE_DATA_DIR),
-            recall_batch_id=plan["recallBatchId"],
-            process_candidate_ids=tuple(item["githubRepositoryId"] for item in plan["candidates"]),
-            report_stage=report,
+        target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
+        children = []
+        calls = 0
+        for item in plan["candidates"]:
+            result = await rebuild(
+                target,
+                recall_batch_id=plan["recallBatchId"],
+                process_candidate_ids=(item["githubRepositoryId"],),
+                report_stage=report,
+                expected_source_id=plan["sourceObservationSetId"],
+                expected_today_generation=plan["todayGenerationId"],
+                expected_route_identity=plan["routeIdentity"],
+                publish=False,
+            )
+            children.append(result["selectionGenerationId"])
+            calls += result.get("modelCalls", 0)
+        installed = publish_period(
+            target,
+            with_current_period(target, children),
             expected_source_id=plan["sourceObservationSetId"],
             expected_today_generation=plan["todayGenerationId"],
-            expected_route_identity=plan["routeIdentity"],
+            expected_route_identity=await resolve_rardar_route_identity(),
         )
-        return {**result, "stopped": guard.stopped, "stopReason": guard.failure_code if guard.stopped else None}
+        artifact = SelectionServingLoader(target).validate_generation(installed.selection_generation_id)
+        valid_completion = all(item.gate is not None and not item.failureCode for item in artifact.assessments)
+        return {
+            "status": "healthy" if artifact.currentEligible or valid_completion else "degraded",
+            "state": artifact.state,
+            "selectionGenerationId": installed.selection_generation_id,
+            "publishedCount": artifact.publishedCount,
+            "currentChanged": installed.current_changed,
+            "changed": installed.changed,
+            "modelCalls": calls,
+            "stopped": guard.stopped,
+            "stopReason": guard.failure_code if guard.stopped else None,
+        }
 
 
 async def _execute(plan: dict, key: Path, ready: asyncio.Future) -> None:
@@ -322,6 +349,7 @@ async def _execute(plan: dict, key: Path, ready: asyncio.Future) -> None:
             else:
                 result = await _run(plan, ledger, report)
                 artifact = SelectionServingLoader(target).validate_generation(result["selectionGenerationId"])
+                plan_ids = {item["githubRepositoryId"] for item in plan["candidates"]}
                 failures = [
                     {
                         "githubRepositoryId": item.candidate.githubRepositoryId,
@@ -329,12 +357,15 @@ async def _execute(plan: dict, key: Path, ready: asyncio.Future) -> None:
                         "reason": item.failureCode or "incomplete",
                     }
                     for item in artifact.assessments
-                    if item.gate is None or item.copyFailureCode
+                    if item.candidate.githubRepositoryId in plan_ids and (item.gate is None or item.copyFailureCode)
                 ]
                 completed = [
                     item.candidate.githubRepositoryId
                     for item in artifact.assessments
-                    if item.gate is not None and not item.valueFailureCode and not item.copyFailureCode
+                    if item.candidate.githubRepositoryId in plan_ids
+                    and item.gate is not None
+                    and not item.valueFailureCode
+                    and not item.copyFailureCode
                 ]
             operation.update(
                 status="failed"
@@ -357,6 +388,8 @@ async def _execute(plan: dict, key: Path, ready: asyncio.Future) -> None:
             )
             atomic(path, operation)
     except BaseException as exc:
+        from app.services.llm.daily_provider_budget import ProviderWorkYield
+
         if operation:
             code = getattr(exc, "code", None)
             safe_code = (
@@ -365,8 +398,17 @@ async def _execute(plan: dict, key: Path, ready: asyncio.Future) -> None:
                 and re.fullmatch(r"(?:rardar_selection|provider_budget|provider_operation)_[a-z0-9_]{1,80}", code)
                 else "discover_operation_failed"
             )
+            if isinstance(exc, ProviderWorkYield) and code in {
+                "calendar_day_changed",
+                "work_slice_exhausted",
+                "interactive_budget_reserved",
+                "pre_window_background_limit",
+                "interactive_request_waiting",
+                "provider_request_busy",
+            }:
+                safe_code = f"provider_operation_{code}"
             operation.update(
-                status="interrupted" if isinstance(exc, asyncio.CancelledError) else "failed",
+                status="interrupted" if isinstance(exc, asyncio.CancelledError | ProviderWorkYield) else "failed",
                 completedAt=datetime.now(UTC).isoformat(),
                 errorCode=safe_code,
             )

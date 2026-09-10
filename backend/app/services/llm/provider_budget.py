@@ -361,9 +361,11 @@ class ProviderBudgetLedger:
         return attempt_id
 
     @contextmanager
-    def execution(self, stage: str, *, consume_attempt_allowance: bool = True):
+    def execution(self, stage: str, *, consume_attempt_allowance: bool = True, before_reserve=None):
         # Cross-process concurrency=1, independently of TopicEye's route pool.
         with file_lock(self.execution_lock, blocking=False):
+            if before_reserve is not None:
+                before_reserve()
             allowance = _single_attempt.get()
             if allowance is not None and consume_attempt_allowance:
                 if allowance[0] <= 0:
@@ -384,6 +386,8 @@ class ProviderBudgetLedger:
 def combined_budget_execution(
     operation: tuple[ProviderBudgetLedger, str] | None,
     daily: tuple[ProviderBudgetLedger, str] | None,
+    *,
+    before_reserve=None,
 ):
     """Enforce both scopes; the daily ledger never replaces a narrower run cap.
 
@@ -413,7 +417,13 @@ def combined_budget_execution(
         budgets.append((ledger, stage))
     with ExitStack() as stack:
         for index, (ledger, stage) in enumerate(budgets):
-            stack.enter_context(ledger.execution(stage, consume_attempt_allowance=index == 0))
+            stack.enter_context(
+                ledger.execution(
+                    stage,
+                    consume_attempt_allowance=index == 0,
+                    before_reserve=before_reserve if index == 0 else None,
+                )
+            )
         yield
 
 

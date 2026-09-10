@@ -224,6 +224,7 @@ async def enhance_hotspot_news(
     route_resolver: RouteResolver = resolve_rardar_route_identity,
     material_loader: MaterialLoader = _load_material,
     frozen_page: Any | None = None,
+    allow_model: bool = True,
 ) -> HotspotNewsEnhanceResult:
     with news_writer():
         return await _enhance_hotspot_news(
@@ -233,6 +234,7 @@ async def enhance_hotspot_news(
             route_resolver=route_resolver,
             material_loader=material_loader,
             frozen_page=frozen_page,
+            allow_model=allow_model,
         )
 
 
@@ -244,10 +246,13 @@ async def _enhance_hotspot_news(
     route_resolver: RouteResolver,
     material_loader: MaterialLoader,
     frozen_page: Any | None,
+    allow_model: bool = True,
 ) -> HotspotNewsEnhanceResult:
     """Enhance at most one balanced page; this never refreshes news sources."""
     if isinstance(item_limit, bool) or item_limit < 1 or item_limit > 40:
         raise ValueError("hotspot_news_enhance_limit_invalid")
+    from app.services.llm.daily_provider_budget import ProviderWorkYield
+
     started_at = datetime.now(UTC)
     route_identity = await route_resolver()
     ledger, before_budget = _budget_snapshot()
@@ -263,6 +268,7 @@ async def _enhance_hotspot_news(
     exhausted = False
     last_provider_error: str | None = None
     consecutive_provider_errors = 0
+    waiting = False
 
     for content_id in [item.id for item in page.items]:
         row = rows_by_id.get(content_id)
@@ -290,6 +296,18 @@ async def _enhance_hotspot_news(
                     sourceKey=public.sourceKey,
                     status="cached",
                     materialKind=material.kind,
+                )
+            )
+            continue
+        if not allow_model:
+            waiting = True
+            results.append(
+                HotspotNewsEnhanceItemResult(
+                    contentId=content_id,
+                    sourceKey=public.sourceKey,
+                    status="waiting",
+                    materialKind=material.kind,
+                    errorCode="bounded_retry_wait",
                 )
             )
             continue
@@ -324,7 +342,33 @@ async def _enhance_hotspot_news(
                     materialKind=material.kind,
                 )
             )
+        except ProviderWorkYield as exc:
+            # Scheduling is not a bad response and must not poison the content
+            # failure marker. Other cached/native items remain readable.
+            waiting = True
+            results.append(
+                HotspotNewsEnhanceItemResult(
+                    contentId=content_id,
+                    sourceKey=public.sourceKey,
+                    status="waiting",
+                    materialKind=material.kind,
+                    errorCode=exc.code,
+                )
+            )
+            continue
         except RardarLLMError as exc:
+            if exc.code == "provider_budget_exhausted":
+                exhausted = True
+                results.append(
+                    HotspotNewsEnhanceItemResult(
+                        contentId=content_id,
+                        sourceKey=public.sourceKey,
+                        status="budget_exhausted",
+                        materialKind=material.kind,
+                        errorCode=exc.code,
+                    )
+                )
+                continue
             await db.rollback()
             refreshed = (await repository.list_items_by_ids(item_ids=[content_id]))[0]
             _save_failure(refreshed, identity=identity, code=exc.code)
@@ -361,14 +405,20 @@ async def _enhance_hotspot_news(
         for status in {"enhanced", "cached", "already_chinese", "failed"}
     }
     return HotspotNewsEnhanceResult(
-        status="budget_exhausted" if exhausted else "degraded" if counts["failed"] else "completed",
+        status="budget_exhausted"
+        if exhausted
+        else "waiting"
+        if waiting
+        else "degraded"
+        if counts["failed"]
+        else "completed",
         startedAt=started_at,
         completedAt=datetime.now(UTC),
         considered=len(results),
         enhanced=counts["enhanced"],
         cacheHits=counts["cached"],
         alreadyChinese=counts["already_chinese"],
-        failed=counts["failed"] + sum(item.status == "budget_exhausted" for item in results),
+        failed=counts["failed"],
         providerCalls=provider_calls,
         budgetRemaining=budget_remaining,
         items=results,

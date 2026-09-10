@@ -82,7 +82,7 @@ PACKING_POLICY_VERSION = "worth-seeing-packing-v3"
 EVIDENCE_ALIAS_VERSION = "worth-seeing-evidence-alias-v2"
 PROTOCOL_VERSION = "prompt-json-local-validation-v1"
 RETRY_POLICY_VERSION = "format-only-retry-v1"
-PROFILE_EVIDENCE_POLICY_VERSION = "evidence-content-profile-cache-v2"
+PROFILE_EVIDENCE_POLICY_VERSION = "validated-raw-value-evidence-v3"
 ACTIVATION_POLICY_VERSION = "worth-seeing-activation-v2"
 SYSTEMIC_FAILURE_POLICY_VERSION = "worth-seeing-systemic-failure-v1"
 SMALL_BATCH_POLICY_VERSION = "worth-seeing-small-batch-v2"
@@ -987,6 +987,45 @@ def _safe_excerpt(value: Any, maximum: int = 1200) -> str | None:
     return _project_value_excerpt(value, maximum)[0]
 
 
+def profile_material_usable(collected: Any) -> bool:
+    """Display completeness and Value evidence availability are separate."""
+    return (
+        not any(not failure.resolved for failure in collected.generation_failures)
+        and collected.profile_failure_code is None
+        and collected.profile.profileState != "source_unavailable"
+        and collected.profile.qualityState != "rejected"
+    )
+
+
+def _raw_evidence_failure(candidate: SelectionCandidateFacts, collected: Any, generation: str) -> str | None:
+    evidence = collected.evidence
+    if evidence.readmePath and (
+        evidence.readmePath.startswith(("/", "\\"))
+        or "\\" in evidence.readmePath
+        or any(part in {"", ".", ".."} for part in evidence.readmePath.split("/"))
+    ):
+        return "profile_path_unsafe"
+    if (
+        (evidence.githubRepositoryId, evidence.repository) != (candidate.githubRepositoryId, candidate.repository)
+        or evidence.generationId != generation
+        or collected.profile.githubRepositoryId != candidate.githubRepositoryId
+        or collected.profile.repository != candidate.repository
+        or collected.profile.generationId != generation
+        or collected.profile.evidenceDigest != evidence.digest
+        or _sha(_canonical_bytes(evidence.model_dump(mode="json", exclude={"digest"}))) != evidence.digest
+    ):
+        return "profile_evidence_mismatch"
+    # A repository name, tree or short description alone is not a replacement
+    # for actual material explaining its use/implementation.
+    if (
+        not evidence.readmePath
+        or not evidence.readmeBlobSha
+        or not any(_safe_excerpt(text) for text in evidence.originalExcerpts)
+    ):
+        return "profile_evidence_incomplete"
+    return None
+
+
 def _value_evidence(candidate: SelectionCandidateFacts, collected: Any) -> list[SelectionEvidenceAlias]:
     profile = collected.profile
     evidence = collected.evidence
@@ -999,11 +1038,11 @@ def _value_evidence(candidate: SelectionCandidateFacts, collected: Any) -> list[
         ("profile", "profile.coreValueZh", profile.evidenceDigest, profile.coreValueZh),
         ("profile", "profile.positioningZh", profile.evidenceDigest, profile.positioningZh),
     ]
-    for source_type, path, revision, raw in profile_fields:
+    for source_type, path, revision, raw in profile_fields if profile_material_usable(collected) else []:
         excerpt, rule = _project_value_excerpt(raw)
         if excerpt:
             values.append((source_type, path, revision, excerpt, rule))
-    for index, capability in enumerate(profile.capabilities[:6]):
+    for index, capability in enumerate(profile.capabilities[:6] if profile_material_usable(collected) else []):
         excerpt, rule = _project_value_excerpt(f"{capability.title}：{capability.detail}")
         if excerpt:
             values.append(("profile", f"profile.capabilities[{index}]", profile.evidenceDigest, excerpt, rule))
@@ -1485,8 +1524,8 @@ def _primary_reason(gate: SelectionGateResult | None) -> tuple[PrimaryReason | N
 def _category(candidate: SelectionCandidateFacts, collected: Any) -> str:
     text = " ".join(
         [candidate.repository, candidate.description or "", " ".join(candidate.topics)]
-        + list(collected.profile.productFormsZh)
-        + list(collected.profile.primaryUseCasesZh)
+        + (list(collected.profile.productFormsZh) if profile_material_usable(collected) else [])
+        + (list(collected.profile.primaryUseCasesZh) if profile_material_usable(collected) else [])
     ).casefold()
     rules = (
         ("video-content", ("video", "audio", "media", "ffmpeg", "视频", "音频")),
@@ -1704,7 +1743,11 @@ async def _copy(
         "primaryReason": assessment.primaryReason,
         "timeliness": assessment.timeliness.model_dump(mode="json"),
         "evidence": [item.model_dump(mode="json") for item in assessment.valueEvidence + assessment.timelinessEvidence],
-        "canonicalIdentity": collected.profile.identitySummaryZh or collected.profile.officialSummaryZh,
+        "canonicalIdentity": (
+            collected.profile.identitySummaryZh or collected.profile.officialSummaryZh
+            if profile_material_usable(collected)
+            else assessment.candidate.description
+        ),
         "promptVersion": COPY_PROMPT_VERSION,
         "schemaVersion": COPY_SCHEMA_VERSION,
     }
@@ -1812,16 +1855,12 @@ async def build_selection(
         release_requests = 0
         for candidate in processed:
             collected = profiles.profiles[candidate.githubRepositoryId]
-            unresolved_profile_failure = any(not failure.resolved for failure in collected.generation_failures)
-            if (
-                unresolved_profile_failure
-                or collected.profile.profileState == "source_unavailable"
-                or collected.profile.qualityState == "rejected"
-            ):
+            raw_failure = _raw_evidence_failure(candidate, collected, source.source_observation_set_id)
+            if raw_failure:
                 value_evidence = []
                 gate = None
                 gate_attempts = 0
-                gate_failure = collected.profile_failure_code or "profile_unknown_failure"
+                gate_failure = raw_failure
             else:
                 try:
                     value_evidence = _value_evidence(candidate, collected)
@@ -1906,7 +1945,9 @@ async def build_selection(
                     profileCacheState=collected.profile_cache_state,
                     category=_category(candidate, collected),
                     categorySource="research_derived",
-                    productFormsZh=list(collected.profile.productFormsZh[:3]),
+                    productFormsZh=list(collected.profile.productFormsZh[:3])
+                    if profile_material_usable(collected)
+                    else [],
                 )
             )
         peer_context_digest = _sha(
@@ -2099,7 +2140,7 @@ async def build_selection(
     )
     unresolved_count = len(copied) - semantic_resolved_count
     profile_coverage = profile_ready_count / len(processed) if processed else 1.0
-    assessment_coverage = gate_assessed_count / profile_ready_count if profile_ready_count else 0.0
+    assessment_coverage = gate_assessed_count / len(processed) if processed else 0.0
     failure_histogram = {
         code: sum(item.failureCode == code for item in copied)
         for code in sorted({item.failureCode for item in copied if item.failureCode})
@@ -2134,7 +2175,6 @@ async def build_selection(
     elif (
         published_count == 0
         and activation_gate
-        and profile_retryable_failure_count == 0
         and (process_candidate_ids is None or not failure_histogram)
         and semantic_resolved_count == len(processed)
     ):
@@ -2198,6 +2238,12 @@ async def build_selection(
         "assessments": copied,
         "usage": usage.summary(profiles.github_requests + release_requests),
         "profileCacheIdentityVersion": 2,
+        "profileFailureSummary": {
+            code: sum(value.profile_failure_code == code for value in profiles.profiles.values())
+            for code in sorted(
+                {value.profile_failure_code for value in profiles.profiles.values() if value.profile_failure_code}
+            )
+        },
         "sourceFactDigest": source_fact_digest,
         "profileRevisionSetDigest": profile_revision_set_digest,
         "profileBindingSetDigest": profile_binding_set_digest,

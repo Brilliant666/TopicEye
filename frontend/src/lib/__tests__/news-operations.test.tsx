@@ -11,6 +11,21 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 beforeEach(() => { state.user = null; state.request.mockReset(); });
 
 describe('News operator entry', () => {
+  it('keeps a yielded enhancement distinct from a failed or completed item', () => {
+    const operation: NewsOperation = {
+      id: 'waiting', action: 'enhance', status: 'waiting', startedAt: '2026-09-10T00:00:00Z', completedAt: null,
+      errorCode: null, itemIds: [1], requestLimit: 12,
+      result: { status: 'waiting', providerCalls: 0, considered: 1, enhanced: 0, cacheHits: 0, alreadyChinese: 0, failed: 0,
+        items: [{ contentId: 1, status: 'waiting', materialKind: null, errorCode: 'interactive_budget_reserved' }] },
+    };
+    const html = renderToStaticMarkup(<NewsOperationResult operation={operation} />);
+    expect(html).toContain('资讯 #1：等待执行额度 / 时隙');
+    expect(html).not.toContain('资讯 #1：处理失败');
+    expect(html).not.toContain('资讯 #1：已完成');
+    expect(newsOperationLabel('waiting')).toBe('等待执行额度 / 时隙');
+    expect(state.request).not.toHaveBeenCalled();
+  });
+
   it('describes an all-paused refresh as skipped, retaining content rather than reporting a network failure', () => {
     const operation: NewsOperation = {
       id: 'paused', action: 'refresh', status: 'paused', startedAt: '2026-09-09T00:00:00Z', completedAt: '2026-09-09T00:00:01Z',

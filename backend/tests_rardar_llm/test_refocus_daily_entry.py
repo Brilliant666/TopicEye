@@ -106,7 +106,8 @@ async def test_historical_admission_is_saved_before_network_and_rotates_next_day
 
 
 @pytest.mark.asyncio
-async def test_historical_one_failure_does_not_block_next_project(isolated, monkeypatch):
+@pytest.mark.parametrize("failed_metadata", [None, {}, [], {"full_name": "org/a", "id": 1}])
+async def test_historical_one_failure_does_not_block_next_project(isolated, monkeypatch, failed_metadata):
     from app.services import rardar_llm_control
 
     store.publish_sources(isolated, [board("github", ["org/a", "org/b"])])
@@ -121,7 +122,7 @@ async def test_historical_one_failure_does_not_block_next_project(isolated, monk
 
     def response(request):
         if request.url.path.endswith("/a"):
-            return httpx.Response(503)
+            return httpx.Response(503) if failed_metadata is None else httpx.Response(200, json=failed_metadata)
         return httpx.Response(200, json={"full_name": "org/b", "id": 2, "default_branch": "main"})
 
     monkeypatch.setattr(

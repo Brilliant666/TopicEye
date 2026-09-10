@@ -231,6 +231,17 @@ async def historical_work(target: Path, progress: dict, save) -> dict:
                 response = await client.get(f"/repos/{repository}")
                 response.raise_for_status()
                 meta = response.json()
+                if (
+                    not isinstance(meta, dict)
+                    or not isinstance(meta.get("full_name"), str)
+                    or type(meta.get("id")) is not int
+                    or meta["id"] <= 0
+                    or not isinstance(meta.get("default_branch"), str)
+                    or not meta["default_branch"]
+                    or (meta.get("license") is not None and not isinstance(meta["license"], dict))
+                    or (meta.get("pushed_at") is not None and not isinstance(meta["pushed_at"], str))
+                ):
+                    raise ValueError("repository_metadata_invalid")
                 if canonical_repository(meta["full_name"]) != repository or type(meta["id"]) is not int:
                     raise ValueError("repository_identity_mismatch")
                 facts = SimpleNamespace(

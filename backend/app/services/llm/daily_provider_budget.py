@@ -271,6 +271,8 @@ def _check_work_policy(ledger: ProviderBudgetLedger, *, background: bool) -> Non
     if not background:
         return
     snapshot = ledger.snapshot()
+    if snapshot["reserved"] >= ledger.reservation_limit:
+        _yield_work("daily_budget_exhausted")
     if snapshot["reserved"] >= ledger.reservation_limit - getattr(ledger, "interactive_reserve", 0):
         _yield_work("interactive_budget_reserved")
     local = datetime.now(UTC).astimezone(TIMEZONE)

@@ -129,8 +129,11 @@ async def rebuild_period(target: Path, **kwargs) -> dict[str, object]:
             calls += result.get("modelCalls", 0)
     if not children:
         return {
-            "status": "waiting", "code": waiting or "no_completed_candidate", "currentChanged": False,
-            "modelCalls": None, "completedChildModelCalls": 0,
+            "status": "waiting",
+            "code": waiting or "no_completed_candidate",
+            "currentChanged": False,
+            "modelCalls": None,
+            "completedChildModelCalls": 0,
         }
     route_after = await resolve_rardar_route_identity()
     if route_after != route:

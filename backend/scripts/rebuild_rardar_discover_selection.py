@@ -128,7 +128,10 @@ async def rebuild_period(target: Path, **kwargs) -> dict[str, object]:
             children.append(result["selectionGenerationId"])
             calls += result.get("modelCalls", 0)
     if not children:
-        return {"status": "waiting", "code": waiting or "no_completed_candidate", "currentChanged": False}
+        return {
+            "status": "waiting", "code": waiting or "no_completed_candidate", "currentChanged": False,
+            "modelCalls": None, "completedChildModelCalls": 0,
+        }
     route_after = await resolve_rardar_route_identity()
     if route_after != route:
         raise SelectionServingError("rardar_selection_route_changed", "Configured route changed during computation")
@@ -148,7 +151,10 @@ async def rebuild_period(target: Path, **kwargs) -> dict[str, object]:
         "currentChanged": installed.current_changed,
         "changed": installed.changed,
         "publishedCount": artifact.publishedCount,
-        "modelCalls": calls,
+        # A yielding child may have dispatched before stopping; only the daily
+        # ledger can account for those requests. Never report a partial sum as total.
+        "modelCalls": None if waiting else calls,
+        "completedChildModelCalls": calls,
     }
 
 

@@ -23,7 +23,7 @@ async def test_cli_computes_singletons_then_publishes_once(monkeypatch, tmp_path
         (identifier,) = kwargs["process_candidate_ids"]
         if waiting and identifier == 1:
             raise ProviderWorkYield("daily_budget_exhausted")
-        return {"selectionGenerationId": str(identifier), "modelCalls": 0}
+        return {"selectionGenerationId": str(identifier), "modelCalls": 2}
 
     monkeypatch.setattr(script, "rebuild", rebuild)
     monkeypatch.setattr(selection_period, "with_current_period", lambda target, children: children)
@@ -47,7 +47,21 @@ async def test_cli_computes_singletons_then_publishes_once(monkeypatch, tmp_path
     assert len(attempts) == 2
     assert publications == [["2"] if waiting else ["1", "2"]]
     assert result["status"] == ("waiting" if waiting else "healthy")
-    assert result["modelCalls"] == 0
+    assert result["modelCalls"] == (None if waiting else 4)
+    assert result["completedChildModelCalls"] == (2 if waiting else 4)
+
+
+@pytest.mark.asyncio
+async def test_cli_all_children_waiting_does_not_claim_zero_total(monkeypatch, tmp_path):
+    source = SimpleNamespace(source_observation_set_id="source", today_generation_id="today")
+    monkeypatch.setattr(script.SelectionSourceAdapter, "from_config", lambda _: SimpleNamespace(load=lambda: source))
+    monkeypatch.setattr(script, "resolve_rardar_route_identity", AsyncMock(return_value="a" * 64))
+    monkeypatch.setattr(script, "rebuild", AsyncMock(side_effect=ProviderWorkYield("work_slice_exhausted")))
+    result = await script.rebuild_period(tmp_path, recall_batch_id="batch", process_candidate_ids=(1,))
+    assert result["status"] == "waiting"
+    assert result["modelCalls"] is None
+    assert result["completedChildModelCalls"] == 0
+    assert result["currentChanged"] is False
 
 
 def test_cli_waiting_has_distinct_exit_status(monkeypatch, tmp_path):

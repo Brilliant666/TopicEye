@@ -143,8 +143,15 @@ def _project(loader, children):
         if first.contractVersions.get("profileEvidencePolicy") == "validated-raw-value-evidence-v3"
         else profile_ready
     )
-    # A partial period without cards cannot clear the previous healthy result.
-    state = "ready" if chosen else "empty" if resolved == first.universeCount and not failure else "degraded"
+    # A bounded evaluated set may legitimately contain no publishable project.
+    # Coverage reports unprocessed scope; it is not an all-universe gate.
+    fully_resolved = (
+        bool(rows)
+        and resolved == len(rows)
+        and not failure
+        and not any(item.negativeControlFailures for item in artifacts)
+    )
+    state = "ready" if chosen else "empty" if fully_resolved else "degraded"
     digest = _sha(_canonical_bytes({"period": period_key, "children": children}))
     generation = f"period-{digest[:32]}"
     view = PeriodView(

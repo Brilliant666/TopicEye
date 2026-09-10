@@ -13,6 +13,67 @@ from tests_rardar_selection.test_selection import ModelDouble, _client, _source
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failed", [False, True])
+async def test_valid_negative_singleton_can_publish_empty_but_incomplete_cannot_clear_current(tmp_path, failed):
+    import json
+
+    from app.services.rardar_llm_control import RardarLLMResult, RardarLLMScene
+    from tests_rardar_selection.test_selection import _metadata
+
+    class NegativeOrInvalid(ModelDouble):
+        async def __call__(self, **kwargs):
+            payload = json.loads(kwargs["messages"][1]["content"])
+            if (
+                failed
+                and kwargs["scene"] == RardarLLMScene.WORTH_SEEING_GATE
+                and not str(payload.get("repository", "")).startswith("negative-control/")
+            ):
+                return RardarLLMResult("invalid-json", _metadata(kwargs["scene"]))
+            return await super().__call__(**kwargs)
+
+    target, source = _source(tmp_path)
+    candidate = recall_candidates(build_candidate_universe(source)[0], 30, batch_id="negative-period")[0]
+    async with _client() as client:
+        healthy = await build_selection(
+            source=source,
+            cache_root=target / "old-cache",
+            caller=ModelDouble(copy_why_now=None),
+            github_client=client,
+            recall_limit=30,
+            recall_batch_id="negative-period",
+            process_candidate_ids=(candidate.githubRepositoryId,),
+            model_route_identity="c" * 64,
+        )
+        install_selection_serving(target, build_selection_serving(healthy))
+        before = (target / "discover-worth-seeing/current.json").read_bytes()
+        evaluated = await build_selection(
+            source=source,
+            cache_root=target / "new-cache",
+            caller=NegativeOrInvalid(regular_value="weak"),
+            github_client=client,
+            recall_limit=30,
+            recall_batch_id="negative-period",
+            process_candidate_ids=(candidate.githubRepositoryId,),
+            model_route_identity="c" * 64,
+        )
+    assert not evaluated.artifact.negativeControlFailures
+    child = install_selection_serving(target, build_selection_serving(evaluated), activate=False)
+    period = build_period_serving(target, [child.selection_generation_id])
+    assert period.state == ("degraded" if failed else "empty")
+    installed = install_selection_serving(target, period)
+    snapshot, _ = SelectionServingLoader(target).load_latest_attempt_with_etag()
+    assert snapshot.processedCount == 1
+    assert snapshot.unprocessedCount > 0
+    assert "未处理不代表淘汰" in snapshot.coverageLabelZh
+    if failed:
+        assert not installed.current_changed
+        assert (target / "discover-worth-seeing/current.json").read_bytes() == before
+    else:
+        assert installed.current_changed
+        assert SelectionServingLoader(target).load_with_etag()[0].status == "empty"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("chunk_size", [1, 6])
 async def test_period_collects_batches_without_early_activation_and_is_order_independent(tmp_path, chunk_size):
     target, source = _source(tmp_path)

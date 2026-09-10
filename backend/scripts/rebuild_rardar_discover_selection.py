@@ -97,6 +97,7 @@ async def _rebuild(
     expected_source_id: str | None = None,
     expected_today_generation: str | None = None,
     expected_route_identity: str | None = None,
+    publish: bool = True,
 ) -> dict[str, object]:
     report = report_stage or (lambda _stage: None)
     target = target.resolve()
@@ -244,7 +245,7 @@ async def _rebuild(
     serving = build_selection_serving(built)
     verify_frozen_source()
     report("atomic_activation")
-    installed = install_selection_serving(target, serving)
+    installed = install_selection_serving(target, serving, activate=publish)
     report("serving_validation")
     validated = loader.validate_generation(installed.selection_generation_id)
     report("complete")

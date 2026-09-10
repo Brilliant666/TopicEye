@@ -66,7 +66,9 @@ async def recover_rardar_daily_lease() -> bool:
         return False
 
 
-async def daily_config_status(limit: int | None = None) -> dict:
+async def daily_config_status(
+    limit: int | None = None, *, interactive_reserve: int | None = None, early_background_limit: int | None = None
+) -> dict:
     from app.repositories.app_setting_repo import AppSettingRepository
     from app.services.llm.daily_provider_budget import SETTING_KEY, daily_budget_status
 
@@ -76,9 +78,26 @@ async def daily_config_status(limit: int | None = None) -> dict:
 
             if isinstance(limit, bool) or not 1 <= limit <= 100_000:
                 raise ValueError("provider_daily_config_invalid")
-            await AppSettingRepository(db).upsert_setting(
+            repository = AppSettingRepository(db)
+            existing = await repository.get_by_key(SETTING_KEY)
+            saved = json.loads(existing.value) if existing and existing.value else {}
+            config = {
+                "providerRequestLimit": limit,
+                "interactiveReserve": min(saved.get("interactiveReserve", 10), limit)
+                if interactive_reserve is None
+                else interactive_reserve,
+                "earlyBackgroundLimit": min(saved.get("earlyBackgroundLimit", 20), limit)
+                if early_background_limit is None
+                else early_background_limit,
+            }
+            if any(
+                isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= limit
+                for value in config.values()
+            ):
+                raise ValueError("provider_daily_config_invalid")
+            await repository.upsert_setting(
                 SETTING_KEY,
-                json.dumps({"providerRequestLimit": limit}),
+                json.dumps(config),
                 "Rardar 全站每日模型请求上限（上海自然日）",
             )
             await db.commit()
@@ -103,6 +122,15 @@ async def daily_config_status(limit: int | None = None) -> dict:
         "incompatibleCacheRecords",
         "invalidCurrentArtifact",
         "unresolvedProjectCount",
+        "completed",
+        "currentPending",
+        "historyPending",
+        "workSlices",
+        "waitReason",
+        "currentGenerationId",
+        "currentPublishedAt",
+        "attemptGenerationId",
+        "attemptedAt",
     }
     summary = {key: state.get(key) for key in ("status", "startedAt", "completedAt")}
     summary["modules"] = {
@@ -111,6 +139,12 @@ async def daily_config_status(limit: int | None = None) -> dict:
         }
         for name, result in state.get("modules", {}).items()
         if isinstance(result, dict)
+    }
+    summary["scheduling"] = {
+        key: value
+        for key, value in state.get("scheduling", {}).items()
+        if key in {"sliceRequestLimit", "interactiveReserve", "preMorningBackgroundLimit", "workSlices", "waitReason"}
+        and isinstance(value, str | int | type(None))
     }
     return {**usage, "dailyStatus": summary}
 

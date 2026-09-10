@@ -341,6 +341,32 @@ async def test_quick_read_stops_after_two_consecutive_matching_provider_errors(d
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["work_slice_exhausted", "interactive_budget_reserved", "provider_budget_exhausted"])
+async def test_scheduling_wait_does_not_create_news_failure_marker(db, monkeypatch, reason):
+    from app.services.llm.daily_provider_budget import ProviderWorkYield
+    from app.services.rardar_news_quickread import QUICK_READ_FAILURE_MARKER
+
+    async def fetch(_source, _definition):
+        return _FeedFetchResult(entries=[_entry()], etag=None, last_modified=None, not_modified=False)
+
+    async def wait(**_kwargs):
+        if reason == "provider_budget_exhausted":
+            raise RardarLLMError(reason, classification="budget")
+        raise ProviderWorkYield(reason)
+
+    monkeypatch.setattr(news_service, "_fetch_source", fetch)
+    await refresh_hotspot_news(db, definitions=(HOTSPOT_NEWS_SOURCES[1],))
+    result = await enhance_hotspot_news(db, item_limit=1, caller=wait, route_resolver=_route)
+    assert result.status in {"waiting", "budget_exhausted"}
+    assert result.failed == result.enhanced == 0
+    row = (await db.execute(select(ContentItem))).scalar_one()
+    assert QUICK_READ_FAILURE_MARKER not in (row.tags or {})
+    page, _ = await load_hotspot_news(db)
+    assert page.totalItems == 1
+    assert page.items[0].title == _entry()["title"]
+
+
+@pytest.mark.asyncio
 async def test_304_preserves_saved_rows(db, monkeypatch):
     definition = HOTSPOT_NEWS_SOURCES[0]
     results = [

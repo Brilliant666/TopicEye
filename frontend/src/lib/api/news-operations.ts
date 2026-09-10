@@ -3,13 +3,14 @@ import { request } from './_core';
 export type NewsOperation = {
   id: string;
   action: 'refresh' | 'enhance';
-  status: 'running' | 'completed' | 'degraded' | 'failed' | 'interrupted' | 'budget_exhausted' | 'paused';
+  status: 'running' | 'completed' | 'degraded' | 'failed' | 'interrupted' | 'budget_exhausted' | 'paused' | 'waiting';
   startedAt: string;
   completedAt: string | null;
   errorCode: string | null;
   itemIds: number[];
   requestLimit: number;
   result: {
+    status?: string;
     providerCalls: number;
     considered?: number;
     enhanced?: number;
@@ -35,5 +36,5 @@ export const newsOperationsApi = {
 };
 
 export function newsOperationLabel(status: NewsOperation['status']): string {
-  return { running: '正在执行', completed: '已完成', degraded: '部分完成', failed: '执行失败', interrupted: '执行已中断', budget_exhausted: '额度已用尽', paused: '来源已暂停，未执行采集' }[status];
+  return { running: '正在执行', completed: '已完成', degraded: '部分完成', failed: '执行失败', interrupted: '执行已中断', budget_exhausted: '额度已用尽', paused: '来源已暂停，未执行采集', waiting: '等待执行额度 / 时隙' }[status];
 }

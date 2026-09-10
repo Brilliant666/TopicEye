@@ -95,6 +95,15 @@ export default function RardarSelectionPage({ result }: { result: SelectionLoadR
     <div className={`${styles.page} ${styles.selectionPage}`} data-rardar-route="/discover">
       <SelectionHero count={selection.items.length} latestCaptureAt={selection.latestCaptureAt} />
       <RardarDiscoverOperations />
+      {selection.executionMode === 'period' && selection.shadowReviewState == null && (
+        <section className={styles.selectionState} data-testid="selection-period">
+          <Radar size={22} />
+          <h2>本期精选处理范围</h2>
+          <p>本期候选 {selection.recallCount} 项，已处理 {selection.processedCount} 项，待处理 {selection.unprocessedCount} 项。当前展示 {selection.publishedCount} 项；未处理不代表不值得看。</p>
+          <span>当前展示事实时间：{selection.latestCaptureAt ? formatTime(selection.latestCaptureAt) : '未知'}</span>
+          {selection.latestAttemptCaptureAt && selection.latestAttemptGeneration !== selection.currentGeneration && <span>最近尝试事实时间：{formatTime(selection.latestAttemptCaptureAt)}；不代表展示已切换。</span>}
+        </section>
+      )}
       {selection.status === 'stale' && (
         <section className={styles.selectionState} data-testid="selection-stale">
           <Clock3 size={22} />

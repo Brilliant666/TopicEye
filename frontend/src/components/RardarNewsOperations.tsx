@@ -114,10 +114,11 @@ export function NewsOperationResult({ operation }: { operation: NewsOperation })
   const result = operation.result;
   if (!result) return null;
   return <>
+    {(result.status === 'waiting' || operation.status === 'waiting') && <p>等待执行额度 / 时隙；已完成内容保留，等待不代表处理失败。</p>}
     {result.sources && <p>新增 {result.sources.reduce((n, item) => n + item.created, 0)} 条 · 重复/更新 {result.sources.reduce((n, item) => n + item.duplicates, 0)} 条 · 来源失败 {result.sources.filter((item) => item.status === 'failed').length} 个</p>}
     {result.sources?.some((item) => item.status === 'paused') && <p>已暂停 {result.sources.filter((item) => item.status === 'paused').length} 个来源，未执行采集；已有内容保留。</p>}
     {result.items && <p>已增强 {result.enhanced} · 缓存复用 {result.cacheHits} · 原生中文 {result.alreadyChinese} · 未处理 {Math.max(0, operation.itemIds.length - (result.considered ?? 0))} · 未完成 {result.failed}</p>}
     <p>本次模型请求 {result.providerCalls} 次{operation.action === 'enhance' ? ` / 上限 ${operation.requestLimit}` : ''}</p>
-    {result.items && <details><summary>逐条处理结果</summary><ul>{result.items.map((item) => <li key={item.contentId}>资讯 #{item.contentId}：{({ enhanced: '已完成', cached: '已复用缓存', already_chinese: '原生中文', failed: '处理失败', budget_exhausted: '额度不足，未完成' } as Record<string, string>)[item.status] ?? '未处理'}{item.materialKind === 'title_only' ? ' · 仅标题，未生成正文摘要' : item.materialKind === 'article_body' ? ' · 依据正文' : item.materialKind === 'feed_summary' ? ' · 依据来源摘要' : ''}</li>)}</ul></details>}
+    {result.items && <details><summary>逐条处理结果</summary><ul>{result.items.map((item) => <li key={item.contentId}>资讯 #{item.contentId}：{({ enhanced: '已完成', cached: '已复用缓存', already_chinese: '原生中文', failed: '处理失败', waiting: '等待执行额度 / 时隙', budget_exhausted: '额度不足，未完成' } as Record<string, string>)[item.status] ?? '未处理'}{item.materialKind === 'title_only' ? ' · 仅标题，未生成正文摘要' : item.materialKind === 'article_body' ? ' · 依据正文' : item.materialKind === 'feed_summary' ? ' · 依据来源摘要' : ''}</li>)}</ul></details>}
   </>;
 }

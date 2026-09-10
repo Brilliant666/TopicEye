@@ -24,7 +24,7 @@ test('daily admin controls use explicit POST and preserve readable partial resul
       return;
     }
     if (url.pathname.endsWith('/rardar-daily-config')) {
-      await route.fulfill({ json: { day: '2026-09-09', configuredLimit, attempted: 8, remaining: configuredLimit - 8, dailyStatus: { status: 'partial', modules: { discover: { status: 'partial', checked: 48, processed: 6, failed: 1, newlyPublishedTotal: 2 }, news: { status: 'completed', checked: 140, updated: 3 } } } } });
+      await route.fulfill({ json: { day: '2026-09-09', configuredLimit, attempted: 8, remaining: configuredLimit - 8, interactiveReserve: 10, earlyBackgroundLimit: 20, backgroundRemaining: 82, stageBreakdown: { project_profile: 5, news_quickread: 3 }, dailyStatus: { status: 'partial', scheduling: { workSlices: 3, sliceRequestLimit: 6, waitReason: 'interactive_reserve' }, modules: { discover: { status: 'partial', checked: 48, processed: 6, failed: 1, newlyPublishedTotal: 2, currentPublishedCount: 4, currentGenerationId: 'current-healthy', attemptGenerationId: 'attempt-failed', currentPending: 5, historyPending: 37 }, news: { status: 'completed', checked: 140, updated: 3 } } } } });
     } else if (url.pathname.endsWith('/jobs')) {
       await route.fulfill({ json: { jobs: [{ job_key: 'rardar_daily_operations', enabled, last_status: running ? 'RUNNING' : 'PARTIAL' }] } });
     } else {
@@ -35,7 +35,12 @@ test('daily admin controls use explicit POST and preserve readable partial resul
   const panel = page.getByRole('region', { name: 'Rardar 每日自动更新' });
   await expect(panel).toBeVisible();
   await expect(panel.getByText(/每日请求上限：100/)).toBeVisible();
-  await expect(panel.getByText(/checked=48/)).toBeVisible();
+  await expect(panel.getByText(/已检查：48/)).toBeVisible();
+  await expect(panel.getByText(/当前展示版本：current-healthy/)).toBeVisible();
+  await expect(panel.getByText(/最新尝试版本：attempt-failed/)).toBeVisible();
+  await expect(panel.getByText(/历史积压：37/)).toBeVisible();
+  await expect(panel.getByText(/当日请求预留分布：项目画像 5 · 资讯中文阅读 3/)).toBeVisible();
+  await expect(panel.getByText(/为手动操作保留额度/)).toBeVisible();
   expect(posts).toEqual([]);
   await page.reload();
   await expect(panel.getByRole('button', { name: '暂停日程' })).toBeEnabled();
@@ -50,7 +55,7 @@ test('daily admin controls use explicit POST and preserve readable partial resul
   await expect(panel.getByRole('button', { name: '立即检查 / 补跑' })).toBeDisabled();
   expect(posts.filter((path) => path.endsWith('/run'))).toHaveLength(1);
   expect(posts.map((path) => path.split('/').pop())).toEqual(['pause', 'resume', 'run']);
-  await expect(panel.getByText(/newlyPublishedTotal=2/)).toBeVisible();
+  await expect(panel.getByText(/本轮新发布：2/)).toBeVisible();
   const size = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
   expect(size.scroll).toBeLessThanOrEqual(size.width);
   expect(errors).toEqual([]);

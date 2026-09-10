@@ -4,6 +4,17 @@ import type { DiscoverPlan, DiscoverOperation } from '../src/lib/api/discover-op
 // Explicit synthetic responses; actual production route and AuthProvider.
 // No real selection, database, source acquisition or Provider is invoked.
 const endpoint = '**/api/v1/rardar/discover/operations';
+
+test('period Selection renders 500-scope with current facts separate from failed attempt', async ({ page }) => {
+  await page.goto('/discover');
+  const period = page.getByTestId('selection-period');
+  await expect(period).toBeVisible();
+  await expect(period).toContainText('本期候选 500 项，已处理 80 项，待处理 420 项');
+  await expect(period).toContainText('当前展示 1 项');
+  await expect(period).toContainText('当前展示事实时间：09/03 08:00');
+  await expect(period).toContainText('最近尝试事实时间：09/10 08:00');
+  await expect(page.getByText('fixture/period-project', { exact: true })).toBeVisible();
+});
 const plan: DiscoverPlan = { id: '11111111-1111-4111-8111-111111111111', candidates: [{ githubRepositoryId: 42, repository: 'fixture/only-one' }], candidateCount: 1, sourceObservationSetId: 'fixture-source', todayGenerationId: 'fixture-today', latestCaptureAt: '2026-09-09T00:00:00Z', requestLimit: 40, recallBatchId: 'fixture-batch' };
 
 test('Discover anonymous reading never starts an operation', async ({ page }) => {

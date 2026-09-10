@@ -23,8 +23,8 @@ _active: ContextVar[RunFailureGuard | None] = ContextVar("selection_run_failure_
 
 
 @contextmanager
-def run_failure_guard(*, isolate_stages: bool = False):
-    guard = RunFailureGuard(isolate_stages=isolate_stages)
+def run_failure_guard(*, isolate_stages: bool = False, existing: RunFailureGuard | None = None):
+    guard = existing if existing is not None else RunFailureGuard(isolate_stages=isolate_stages)
     token = _active.set(guard)
     try:
         yield guard

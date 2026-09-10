@@ -97,7 +97,21 @@ async def test_discover_traverses_all_managed_candidates_not_research_limit(tmp_
         calls.extend(ids)
         identifier = f"generation-{len(artifacts)}"
         artifacts[identifier] = SimpleNamespace(
-            assessments=[SimpleNamespace(gate=object(), valueFailureCode=None, copyFailureCode=None) for _ in ids],
+            sourceObservationSetId="source",
+            sourceManifestSha256="manifest",
+            contractVersions=selection._contract_versions(),
+            todayGenerationId="today",
+            assessedCount=len(ids),
+            modelRouteIdentity="route",
+            assessments=[
+                SimpleNamespace(
+                    candidate=SimpleNamespace(githubRepositoryId=identifier),
+                    gate=object(),
+                    valueFailureCode=None,
+                    copyFailureCode=None,
+                )
+                for identifier in ids
+            ],
             publishedCount=0,
             selectionGenerationId=identifier,
             inputDigest="binding",
@@ -152,7 +166,8 @@ async def test_failed_module_isolated_and_repeat_run_resumes_without_repeating_f
     monkeypatch.setattr(daily, "_public_materials", AsyncMock(return_value={"status": "completed"}))
     first = await daily.run_daily_operations()
     assert first["status"] == "partial"
-    assert first["modules"]["discover"] == {"status": "failed", "errorCode": "ValueError"}
+    assert first["modules"]["discover"]["status"] == "failed"
+    assert first["modules"]["discover"]["errorCode"] == "ValueError"
     assert first["modules"]["news_enhance"]["status"] == "completed"
     assert first["modules"]["today_profiles"]["status"] == "completed"
     second = await daily.run_daily_operations()
@@ -168,7 +183,7 @@ async def test_failed_module_isolated_and_repeat_run_resumes_without_repeating_f
 
 
 @pytest.mark.asyncio
-async def test_no_budget_keeps_zero_model_modules_and_retry_bound(tmp_path, monkeypatch):
+async def test_no_budget_keeps_zero_model_modules_without_consuming_failure_retries(tmp_path, monkeypatch):
     monkeypatch.setattr(daily, "operation_root", lambda: tmp_path / "operations")
     monkeypatch.setattr(daily.settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(tmp_path / "facts"))
     monkeypatch.setattr(budget, "daily_execution_budget", AsyncMock(return_value=None))
@@ -185,7 +200,9 @@ async def test_no_budget_keeps_zero_model_modules_and_retry_bound(tmp_path, monk
     for _ in range(daily.MAX_DAILY_ATTEMPTS):
         result = await daily.run_daily_operations()
         assert result["status"] == "partial"
-    assert (await daily.run_daily_operations())["reason"] == "daily_retry_limit"
+    continued = await daily.run_daily_operations()
+    assert continued["status"] == "partial"
+    assert continued.get("failureRetries", 0) == 0
     assert today.await_count == news.await_count == 1
     assert model.await_count == 0
 
@@ -277,44 +294,16 @@ async def test_failed_discover_prefix_does_not_starve_later_candidates(tmp_path,
             # Empty progress also models the next operation cycle: cursor is
             # durable, but no historic result is rebound or marked complete.
             await daily._discover(tmp_path, source, universe, ledger, {}, lambda: None)
-    assert attempts == [tuple(range(1, 7)), tuple(range(7, 13)), tuple(range(13, 19))]
+    assert attempts == [(1,), (2,), (3,)]
     assert ledger.snapshot()["attempted"] == 0
 
 
 @pytest.mark.asyncio
-async def test_exhausting_first_module_rotates_next_days_first_opportunity(tmp_path, monkeypatch):
-    from datetime import UTC, datetime, timedelta
+async def test_exhausting_first_module_yields_same_day_opportunity(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
 
     monkeypatch.setattr(daily, "operation_root", lambda: tmp_path / "operations")
     monkeypatch.setattr(daily.settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(tmp_path / "facts"))
-    available = {"remaining": 100}
-    ledger = SimpleNamespace(
-        task_id="isolated",
-        snapshot=lambda: {
-            "remaining": available["remaining"],
-            "attempted": 100 - available["remaining"],
-            "limit": 100,
-        },
-    )
-    monkeypatch.setattr(budget, "daily_execution_budget", AsyncMock(return_value=(ledger, "project_profile")))
-    monkeypatch.setattr(daily, "_today", AsyncMock(return_value={"status": "completed"}))
-    monkeypatch.setattr(daily, "_news_refresh", AsyncMock(return_value={"status": "completed"}))
-    monkeypatch.setattr(daily, "_inventory", AsyncMock(return_value=({"status": "checked"}, object(), [])))
-    monkeypatch.setattr(daily, "_public_materials", AsyncMock(return_value={"status": "completed"}))
-    firsts = []
-
-    def action(name):
-        async def consume(*_args):
-            if available["remaining"]:
-                firsts.append(name)
-                available["remaining"] = 0
-            return {"status": "partial"}
-
-        return consume
-
-    monkeypatch.setattr(daily, "_discover", action("discover"))
-    monkeypatch.setattr(daily, "_news_enhance", action("news"))
-    monkeypatch.setattr(daily, "_today_profiles", action("today"))
     current = datetime(2026, 9, 10, 4, tzinfo=UTC)
 
     class Clock:
@@ -323,14 +312,41 @@ async def test_exhausting_first_module_rotates_next_days_first_opportunity(tmp_p
             return current
 
     monkeypatch.setattr(daily, "datetime", Clock)
-    for _ in range(3):
-        available["remaining"] = 100
-        assert (await daily.run_daily_operations())["status"] == "partial"
-        # Same-day catch-up has no replenishment.
-        assert (await daily.run_daily_operations())["status"] == "partial"
-        current += timedelta(days=1)
-    assert len(firsts) == 3
-    assert set(firsts) == {"discover", "news", "today"}
+    monkeypatch.setattr(budget, "datetime", Clock)
+    monkeypatch.setattr(budget, "daily_root", lambda: tmp_path / "budget")
+    ledger = budget.daily_ledger(100)
+    ledger.interactive_reserve = 10
+    ledger.early_background_limit = 20
+    monkeypatch.setattr(budget, "daily_execution_budget", AsyncMock(return_value=(ledger, "project_profile")))
+    monkeypatch.setattr(daily, "_today", AsyncMock(return_value={"status": "completed"}))
+    monkeypatch.setattr(daily, "_news_refresh", AsyncMock(return_value={"status": "completed"}))
+    monkeypatch.setattr(daily, "_inventory", AsyncMock(return_value=({"status": "checked"}, object(), [])))
+    monkeypatch.setattr(daily, "_public_materials", AsyncMock(return_value={"status": "completed"}))
+    dispatches = []
+    monkeypatch.setattr(daily, "_publish_discover", lambda *_: {"installed": False})
+
+    def action(name):
+        async def consume(*_args, **_kwargs):
+            # A greedy module really requests more than its slice allows.
+            # The actual dispatch guard, not a mock counter, must yield it.
+            while True:
+                async with budget.managed_budget_execution(
+                    None, (ledger, "project_profile"), scene="rardar_project_profile"
+                ):
+                    dispatches.append(name)
+
+        return consume
+
+    monkeypatch.setattr(daily, "_discover", action("discover"))
+    monkeypatch.setattr(daily, "_news_enhance", action("news"))
+    monkeypatch.setattr(daily, "_today_profiles", action("today"))
+    assert (await daily.run_daily_operations())["status"] == "partial"
+    assert dispatches[:18] == ["discover"] * 6 + ["news"] * 6 + ["today"] * 6
+    assert {name: dispatches.count(name) for name in set(dispatches)} == {"discover": 30, "news": 30, "today": 30}
+    assert ledger.snapshot()["attempted"] == 90
+    assert ledger.snapshot()["remaining"] == 10
+    assert (await daily.run_daily_operations())["status"] == "partial"
+    assert ledger.snapshot()["attempted"] == len(dispatches) == 90
 
 
 @pytest.mark.asyncio

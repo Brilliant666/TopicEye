@@ -467,6 +467,7 @@ class SelectionArtifact(StrictSelectionModel):
     usage: SelectionUsageSummary
     payloadDigest: str = Field(pattern=r"^[a-f0-9]{64}$")
     profileCacheIdentityVersion: Literal[1, 2] = 1
+    profileFailureSummary: dict[str, int] | None = None
     sourceFactDigest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     profileRevisionSetDigest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     profileBindingSetDigest: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
@@ -600,14 +601,16 @@ class SelectionArtifact(StrictSelectionModel):
             if self.profileReboundCount + self.profileRebuiltCount > self.profileReadyCount:
                 raise ValueError("selection profile cache counts are inconsistent")
             actual_gate_count = sum(item.gate is not None for item in self.assessments)
-            if self.gateAssessedCount != actual_gate_count or self.gateAssessedCount > self.profileReadyCount:
+            raw_value_policy = self.contractVersions.get("profileEvidencePolicy") == "validated-raw-value-evidence-v3"
+            assessment_denominator = resolution_count if raw_value_policy else self.profileReadyCount
+            if self.gateAssessedCount != actual_gate_count or self.gateAssessedCount > assessment_denominator:
                 raise ValueError("selection assessment count is inconsistent")
             expected_profile_coverage = round(
                 self.profileReadyCount / resolution_count if resolution_count else 1.0,
                 6,
             )
             expected_assessment_coverage = round(
-                self.gateAssessedCount / self.profileReadyCount if self.profileReadyCount else 0.0,
+                self.gateAssessedCount / assessment_denominator if assessment_denominator else 0.0,
                 6,
             )
             if (
@@ -617,8 +620,19 @@ class SelectionArtifact(StrictSelectionModel):
                 raise ValueError("selection coverage metrics are inconsistent")
             if self.failureHistogram != self.failureSummary:
                 raise ValueError("selection failure histogram is inconsistent")
-            retryable_count = sum(self.failureHistogram.get(code, 0) for code in _RETRYABLE_PROFILE_FAILURES)
-            permanent_count = sum(self.failureHistogram.get(code, 0) for code in _PERMANENT_PROFILE_FAILURES)
+            profile_failures = self.profileFailureSummary if raw_value_policy else self.failureHistogram
+            if profile_failures is None or (
+                raw_value_policy
+                and any(
+                    code not in _RETRYABLE_PROFILE_FAILURES | _PERMANENT_PROFILE_FAILURES
+                    or isinstance(count, bool)
+                    or count < 1
+                    for code, count in profile_failures.items()
+                )
+            ):
+                raise ValueError("selection profile failure summary is invalid")
+            retryable_count = sum(profile_failures.get(code, 0) for code in _RETRYABLE_PROFILE_FAILURES)
+            permanent_count = sum(profile_failures.get(code, 0) for code in _PERMANENT_PROFILE_FAILURES)
             if (
                 retryable_count != self.profileRetryableFailureCount
                 or permanent_count != self.profilePermanentUnavailableCount
@@ -626,7 +640,7 @@ class SelectionArtifact(StrictSelectionModel):
                 raise ValueError("selection profile failure counts are inconsistent")
             systemic_threshold = max(5, math.ceil(resolution_count * 0.20))
             expected_systemic = sorted(
-                code for code in _RETRYABLE_PROFILE_FAILURES if self.failureHistogram.get(code, 0) >= systemic_threshold
+                code for code in _RETRYABLE_PROFILE_FAILURES if profile_failures.get(code, 0) >= systemic_threshold
             )
             if self.systemicFailureCodes != expected_systemic:
                 raise ValueError("selection systemic failure classification is inconsistent")
@@ -663,7 +677,7 @@ class SelectionArtifact(StrictSelectionModel):
             elif (
                 self.publishedCount == 0
                 and activation_gate
-                and self.profileRetryableFailureCount == 0
+                and (raw_value_policy or self.profileRetryableFailureCount == 0)
                 and (not local_failures or not self.failureHistogram)
                 and self.semanticResolvedCount == resolution_count
             ):
@@ -727,7 +741,7 @@ class SelectionServingFile(StrictSelectionModel):
 
 
 class SelectionServingSnapshot(StrictSelectionModel):
-    schemaVersion: Literal[1]
+    schemaVersion: Literal[1, 2]
     selectionGenerationId: str
     sourceObservationSetId: str
     generatedAt: AwareDatetime
@@ -743,20 +757,20 @@ class SelectionServingSnapshot(StrictSelectionModel):
     sourceCoverageState: Literal["healthy", "degraded"]
     sourceTodayGeneration: str
     candidateCount: int = Field(ge=0, le=500)
-    recallCount: int = Field(default=0, ge=0, le=60)
-    executionMode: Literal["full", "small_batch"] = "full"
-    processedCount: int | None = Field(default=None, ge=0, le=60)
-    unprocessedCount: int = Field(default=0, ge=0, le=60)
-    selectedCount: int = Field(ge=0, le=60)
+    recallCount: int = Field(default=0, ge=0, le=500)
+    executionMode: Literal["full", "small_batch", "period"] = "full"
+    processedCount: int | None = Field(default=None, ge=0, le=500)
+    unprocessedCount: int = Field(default=0, ge=0, le=500)
+    selectedCount: int = Field(ge=0, le=500)
     publishedCount: int = Field(ge=0, le=20)
-    suppressedCount: int = Field(ge=0, le=60)
+    suppressedCount: int = Field(ge=0, le=500)
     currentGeneration: str | None = Field(default=None, max_length=190)
     latestAttemptGeneration: str | None = Field(default=None, max_length=190)
-    profileReadyCount: int = Field(default=0, ge=0, le=60)
-    profileReboundCount: int = Field(default=0, ge=0, le=60)
-    profileRebuiltCount: int = Field(default=0, ge=0, le=60)
-    retryableFailureCount: int = Field(default=0, ge=0, le=60)
-    permanentFailureCount: int = Field(default=0, ge=0, le=60)
+    profileReadyCount: int = Field(default=0, ge=0, le=500)
+    profileReboundCount: int = Field(default=0, ge=0, le=500)
+    profileRebuiltCount: int = Field(default=0, ge=0, le=500)
+    retryableFailureCount: int = Field(default=0, ge=0, le=500)
+    permanentFailureCount: int = Field(default=0, ge=0, le=500)
     profileCoverage: float = Field(default=1, ge=0, le=1)
     assessmentCoverage: float = Field(default=1, ge=0, le=1)
     systemicFailure: bool = False
@@ -765,6 +779,24 @@ class SelectionServingSnapshot(StrictSelectionModel):
 
     @model_validator(mode="after")
     def validate_inventory(self) -> SelectionServingSnapshot:
+        if (self.schemaVersion == 2) != (self.executionMode == "period"):
+            raise ValueError("selection period schema is inconsistent")
+        if self.schemaVersion == 1 and any(
+            value > 60
+            for value in (
+                self.recallCount,
+                self.processedCount or 0,
+                self.unprocessedCount,
+                self.selectedCount,
+                self.suppressedCount,
+                self.profileReadyCount,
+                self.profileReboundCount,
+                self.profileRebuiltCount,
+                self.retryableFailureCount,
+                self.permanentFailureCount,
+            )
+        ):
+            raise ValueError("legacy selection scope exceeded")
         identifiers = [item.githubRepositoryId for item in self.items]
         if len(identifiers) != len(set(identifiers)):
             raise ValueError("selection cards must have unique identities")
@@ -782,7 +814,9 @@ class SelectionServingSnapshot(StrictSelectionModel):
         ):
             raise ValueError("selection serving counts are inconsistent")
         if self.latestAttemptGeneration is not None:
-            resolution_count = self.processedCount if self.executionMode == "small_batch" else self.recallCount
+            resolution_count = (
+                self.processedCount if self.executionMode in {"small_batch", "period"} else self.recallCount
+            )
             if self.executionMode == "small_batch" and (
                 resolution_count is None
                 or resolution_count < 1
@@ -858,22 +892,22 @@ class SelectionApiResponse(StrictSelectionModel):
     primaryReasonCounts: dict[str, int]
     coverageLabelZh: str | None = Field(default=None, max_length=500)
     candidateCount: int = Field(ge=0, le=500)
-    selectedCount: int = Field(ge=0, le=60)
+    selectedCount: int = Field(ge=0, le=500)
     publishedCount: int = Field(ge=0, le=20)
-    suppressedCount: int = Field(ge=0, le=60)
+    suppressedCount: int = Field(ge=0, le=500)
     provenance: dict[str, Any]
     code: str | None = Field(default=None, max_length=100)
     currentGeneration: str | None = Field(default=None, max_length=190)
     latestAttemptGeneration: str | None = Field(default=None, max_length=190)
-    recallCount: int = Field(default=0, ge=0, le=60)
-    executionMode: Literal["full", "small_batch"] = "full"
-    processedCount: int | None = Field(default=None, ge=0, le=60)
-    unprocessedCount: int = Field(default=0, ge=0, le=60)
-    profileReadyCount: int = Field(default=0, ge=0, le=60)
-    profileReboundCount: int = Field(default=0, ge=0, le=60)
-    profileRebuiltCount: int = Field(default=0, ge=0, le=60)
-    retryableFailureCount: int = Field(default=0, ge=0, le=60)
-    permanentFailureCount: int = Field(default=0, ge=0, le=60)
+    recallCount: int = Field(default=0, ge=0, le=500)
+    executionMode: Literal["full", "small_batch", "period"] = "full"
+    processedCount: int | None = Field(default=None, ge=0, le=500)
+    unprocessedCount: int = Field(default=0, ge=0, le=500)
+    profileReadyCount: int = Field(default=0, ge=0, le=500)
+    profileReboundCount: int = Field(default=0, ge=0, le=500)
+    profileRebuiltCount: int = Field(default=0, ge=0, le=500)
+    retryableFailureCount: int = Field(default=0, ge=0, le=500)
+    permanentFailureCount: int = Field(default=0, ge=0, le=500)
     profileCoverage: float = Field(default=1, ge=0, le=1)
     assessmentCoverage: float = Field(default=1, ge=0, le=1)
     systemicFailure: bool = False

@@ -47,9 +47,9 @@ from app.services.llm._rate_limit import (
     acquire_completion_slot,
     estimate_request_tokens,
 )
-from app.services.llm.daily_provider_budget import daily_execution_budget
+from app.services.llm.daily_provider_budget import daily_execution_budget, managed_budget_execution
 from app.services.llm.error_safety import safe_llm_error
-from app.services.llm.provider_budget import ProviderBudgetError, combined_budget_execution, execution_budget
+from app.services.llm.provider_budget import ProviderBudgetError, execution_budget
 
 logger = logging.getLogger(__name__)
 
@@ -256,7 +256,7 @@ async def _call_llm_single(
             daily_budget = await daily_execution_budget(scene)
             if daily_budget is not None:
                 kwargs["num_retries"] = 0
-            with combined_budget_execution(budget, daily_budget):
+            async with managed_budget_execution(budget, daily_budget, scene=scene):
                 deadline = asyncio.timeout(completion_timeout)
                 try:
                     async with deadline:

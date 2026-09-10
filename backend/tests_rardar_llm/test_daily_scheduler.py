@@ -11,6 +11,45 @@ from app.models.scheduled_job import ScheduledJob
 from app.services import job_tracker
 
 
+@pytest.mark.asyncio
+async def test_daily_config_preserves_policy_fields_and_rejects_over_cap(monkeypatch):
+    import json
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from app.repositories.app_setting_repo import AppSettingRepository
+    from app.services import rardar_daily_operations
+    from app.services.llm import daily_provider_budget
+
+    @asynccontextmanager
+    async def session():
+        yield SimpleNamespace(commit=AsyncMock())
+
+    save = AsyncMock()
+    monkeypatch.setattr(job_tracker, "async_session", session)
+    monkeypatch.setattr(
+        AppSettingRepository,
+        "get_by_key",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                value='{"providerRequestLimit":100,"interactiveReserve":12,"earlyBackgroundLimit":18}'
+            )
+        ),
+    )
+    monkeypatch.setattr(AppSettingRepository, "upsert_setting", save)
+    monkeypatch.setattr(daily_provider_budget, "daily_budget_status", AsyncMock(return_value={}))
+    monkeypatch.setattr(rardar_daily_operations, "latest_status", lambda: {})
+    await job_tracker.daily_config_status(100)
+    assert json.loads(save.call_args.args[1]) == {
+        "providerRequestLimit": 100,
+        "interactiveReserve": 12,
+        "earlyBackgroundLimit": 18,
+    }
+    with pytest.raises(ValueError, match="provider_daily_config_invalid"):
+        await job_tracker.daily_config_status(100, interactive_reserve=101)
+    assert save.await_count == 1
+
+
 def test_startup_window_does_not_gate_explicit_manual_action():
     assert not scheduler_module._rardar_daily_window_open(datetime(2026, 9, 10, 0, 29, tzinfo=UTC))
     assert scheduler_module._rardar_daily_window_open(datetime(2026, 9, 10, 0, 30, tzinfo=UTC))

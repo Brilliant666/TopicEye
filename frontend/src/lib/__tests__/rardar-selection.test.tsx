@@ -111,6 +111,19 @@ const detail: SelectionProjectDetail = {
 };
 
 describe('Rardar worth-seeing Selection', () => {
+  it('accepts versioned period scope above legacy batch size without confusing current and attempt', () => {
+    const period = parseSelectionResponse({ ...selection, status: 'degraded', state: 'degraded', executionMode: 'period', recallCount: 500, processedCount: 80, unprocessedCount: 420, latestAttemptGeneration: 'failed-period-attempt', latestAttemptCaptureAt: '2026-09-10T00:00:00Z' });
+    const html = renderToStaticMarkup(<RardarSelectionPage result={{ kind: 'published', selection: period }} />);
+    expect(html).toContain('本期候选');
+    expect(html).toContain('500');
+    expect(html).toContain('420');
+    expect(html).toContain('当前展示事实时间');
+    expect(html).toContain('不代表展示已切换');
+    expect(() => parseSelectionResponse({ ...period, processedCount: 81 })).toThrow('rardar_selection_period_invalid');
+    expect(() => parseSelectionResponse({ ...period, recallCount: 501, unprocessedCount: 421 })).toThrow('rardar_selection_period_invalid');
+    expect(() => parseSelectionResponse({ ...period, executionMode: 'small_batch' })).toThrow('rardar_selection_small_batch_invalid');
+    expect(parseSelectionResponse(selection).executionMode).toBe('full');
+  });
   const shadow: SelectionResponse = {
     ...selection, status: 'degraded', state: 'degraded', generation: 'shadow-123', currentGeneration: null,
     latestAttemptGeneration: 'shadow-123', productionReady: false, reviewable: true,

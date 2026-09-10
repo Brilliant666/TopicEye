@@ -184,19 +184,34 @@ async def historical_work(target: Path, progress: dict, save) -> dict:
         "checked": len(projects),
         "reused": sum(p["profile"] is not None for p in projects),
         "processed": 0,
+        "refreshed": 0,
         "failed": 0,
         "status": "completed",
     }
-    pending = [
-        p
-        for p in projects
-        if p["profile"] is None
-        or datetime.now(UTC) - datetime.fromisoformat(p["profile"]["generatedAt"]) > timedelta(days=30)
-    ]
+    rotation_path = target / "trending-boards" / "material-work.json"
+    rotation = read_json(rotation_path) or {}
+    checks = rotation.setdefault("_successfulChecks", {})
+
+    def due(project: dict) -> bool:
+        profile = project["profile"]
+        if profile is None:
+            return True
+        checked = datetime.fromisoformat(profile["generatedAt"])
+        prior = checks.get(project["repository"], {})
+        if _digest(profile) in prior.get("profileDigests", []):
+            checked = max(checked, datetime.fromisoformat(prior["checkedAt"]))
+        return datetime.now(UTC) - checked > timedelta(days=30)
+
+    pending = [p for p in projects if due(p)]
     result["remaining"] = len(pending)
     if not pending:
         return result
-    budget = await daily_execution_budget("rardar_project_profile")
+    try:
+        budget = await daily_execution_budget("rardar_project_profile")
+    except ProviderBudgetError as exc:
+        if exc.code != "provider_daily_budget_unconfigured":
+            raise
+        budget = None
     if budget is None:
         return {**result, "status": "pending", "waitReason": "daily_budget_not_configured"}
     ledger = budget[0]
@@ -204,8 +219,6 @@ async def historical_work(target: Path, progress: dict, save) -> dict:
         return {**result, "status": "pending", "waitReason": "daily_budget_exhausted"}
     route = await resolve_rardar_route_identity()
     attempts = progress.setdefault("attempts", {})
-    rotation_path = target / "trending-boards" / "material-work.json"
-    rotation = read_json(rotation_path) or {}
     limit = settings.RARDAR_HISTORICAL_DAILY_LIMIT
     # Previously failed projects rotate behind never-attempted work, with a
     # daily bounded retry record rather than a permanent negative cache.
@@ -268,8 +281,26 @@ async def historical_work(target: Path, progress: dict, save) -> dict:
                         translate=True,
                         model_route_identity=route,
                     )
-                project_material(collected.profile, collected.evidence)
-                result["processed"] += 1
+                material = project_material(collected.profile, collected.evidence)
+                if collected.profile_cache_state in {"hit", "rebound", "migrated"}:
+                    result["refreshed"] += 1
+                    if project["profile"] is None:
+                        result["reused"] += 1
+                elif collected.profile_cache_state == "rebuilt":
+                    result["processed"] += 1
+                else:
+                    raise ValueError("historical_profile_not_readable")
+                checks[repository] = {
+                    "checkedAt": datetime.now(UTC).isoformat(),
+                    # A compatible rebound is not persisted over its immutable
+                    # cache envelope. Also bind the saved reading we checked,
+                    # without rewriting its source generation or generatedAt.
+                    "profileDigests": sorted(
+                        {_digest(material["profile"])}
+                        | ({_digest(project["profile"])} if project["profile"] is not None else set())
+                    ),
+                }
+                atomic(rotation_path, rotation)
             except ProviderWorkYield as exc:
                 result.update(status="pending", waitReason=exc.code)
                 save()
@@ -278,7 +309,7 @@ async def historical_work(target: Path, progress: dict, save) -> dict:
                 result["failed"] += 1
             save()
             await asyncio.sleep(0)
-    result["remaining"] = len(pending) - result["processed"]
+    result["remaining"] = len(pending) - result["processed"] - result["refreshed"]
     if result["remaining"] and result["status"] == "completed":
         result.update(status="partial", waitReason="next_daily_work")
     return result

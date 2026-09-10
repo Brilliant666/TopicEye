@@ -3,7 +3,7 @@
 import asyncio
 import threading
 from copy import deepcopy
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -19,6 +19,7 @@ from app.integrations.rardar import trending_boards, trending_store as store
 from app.schemas.rardar_today_operations import TodayOperationRequest
 from app.services import rardar_daily_operations as daily, rardar_today_operations as ops, rardar_trending as service
 from app.services.llm import daily_provider_budget
+from app.services.llm.provider_budget import ProviderBudgetError
 from tests_rardar_llm.test_rardar_trending_store import board
 
 
@@ -55,6 +56,73 @@ async def test_scheduler_fetches_both_boards_despite_exhausted_models(isolated, 
     fetch.assert_awaited_once()
     retired.assert_not_called()
     assert len(store.load_snapshot(isolated)["projects"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_budget_is_pending_not_material_failure(isolated, monkeypatch):
+    monkeypatch.setattr(trending_boards, "fetch_boards", AsyncMock(return_value=[board("github", ["org/a"])]))
+    monkeypatch.setattr(
+        daily_provider_budget,
+        "daily_execution_budget",
+        AsyncMock(side_effect=ProviderBudgetError("provider_daily_budget_unconfigured")),
+    )
+    result = await daily.run_daily_operations()
+    assert result["modules"]["today"]["count"] == 1
+    assert result["modules"]["historical_hot"]["status"] == "pending"
+    assert result["modules"]["historical_hot"]["waitReason"] == "daily_budget_not_configured"
+
+
+@pytest.mark.asyncio
+async def test_old_rebound_reading_is_checked_without_repeated_daily_work(isolated, monkeypatch):
+    from app.services import rardar_llm_control
+
+    store.publish_sources(isolated, [board("github", ["org/a"])])
+    now = datetime.now(UTC)
+    profile = {"summary": "saved", "generatedAt": (now - timedelta(days=40)).isoformat(), "sourceGeneration": "old"}
+    project = {"repository": "org/a", "profile": profile, "totalStars": 10}
+    monkeypatch.setattr(
+        service, "historical_snapshot", lambda *_args, **_kwargs: {"projects": [project], "generationId": "current"}
+    )
+    budget = AsyncMock(return_value=(SimpleNamespace(snapshot=lambda: {"remaining": 10}), {}))
+    monkeypatch.setattr(daily_provider_budget, "daily_execution_budget", budget)
+    monkeypatch.setattr(rardar_llm_control, "resolve_rardar_route_identity", AsyncMock(return_value="route"))
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        service.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(
+            **kwargs,
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(200, json={"full_name": "org/a", "id": 1, "default_branch": "main"})
+            ),
+        ),
+    )
+    collector = AsyncMock(
+        return_value=SimpleNamespace(profile=object(), evidence=object(), profile_cache_state="rebound")
+    )
+    monkeypatch.setattr(service, "collect_official_project_profile", collector)
+    monkeypatch.setattr(service, "project_material", lambda *_: {"profile": {**profile, "sourceGeneration": "current"}})
+    first = await service.historical_work(isolated, {}, lambda: None)
+    assert first["processed"] == 0
+    assert first["refreshed"] == 1
+    assert first["remaining"] == 0
+
+    class NextDay(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return now + timedelta(days=1)
+
+    monkeypatch.setattr(service, "datetime", NextDay)
+    second = await service.historical_work(isolated, {}, lambda: None)
+    assert second["remaining"] == 0
+    assert second["processed"] == second["refreshed"] == 0
+    collector.assert_awaited_once()
+    budget.assert_awaited_once()
+    assert profile["sourceGeneration"] == "old"
+    assert profile["generatedAt"] == (now - timedelta(days=40)).isoformat()
+    project["profile"] = {**profile, "summary": "changed reading"}
+    await service.historical_work(isolated, {}, lambda: None)
+    assert collector.await_count == 2  # a changed saved reading does not inherit the check
 
 
 @pytest.mark.asyncio
@@ -128,7 +196,9 @@ async def test_historical_one_failure_does_not_block_next_project(isolated, monk
     monkeypatch.setattr(
         service.httpx, "AsyncClient", lambda **kwargs: original(**kwargs, transport=httpx.MockTransport(response))
     )
-    collector = AsyncMock(return_value=SimpleNamespace(profile=object(), evidence=object()))
+    collector = AsyncMock(
+        return_value=SimpleNamespace(profile=object(), evidence=object(), profile_cache_state="rebuilt")
+    )
     monkeypatch.setattr(service, "collect_official_project_profile", collector)
     monkeypatch.setattr(service, "project_material", lambda *_: {"profile": {"summary": "fixture"}})
     result = await service.historical_work(isolated, {}, lambda: None)

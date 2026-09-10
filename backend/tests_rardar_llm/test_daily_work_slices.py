@@ -89,6 +89,10 @@ async def test_manual_background_respects_reserve_without_slice(ledger):
             pytest.fail("Interactive traffic cannot exceed the same cap")
     assert ledger.snapshot()["attempted"] == 3
     assert ledger.limit == 100
+    with pytest.raises(daily.ProviderWorkYield, match="^daily_budget_exhausted$"):
+        async with daily.managed_budget_execution(None, (ledger, "news_quickread"), scene="rardar_news_quickread"):
+            pytest.fail("Exhausted total must not be mislabeled as interactive reserve")
+    assert ledger.snapshot()["attempted"] == 3
 
 
 @pytest.mark.asyncio

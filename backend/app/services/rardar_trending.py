@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import httpx
 
 from app.core.config import settings
+from app.integrations.rardar import trending_metadata
 from app.integrations.rardar.profile_cache_v2 import ProfileStoreEnvelopeV2, _read_plain
 from app.integrations.rardar.project_identity import canonical_repository, project_id_for_repository
 from app.integrations.rardar.serving_profiles import _digest, collect_official_project_profile
@@ -195,6 +196,9 @@ def saved_materials(target: Path, *, original_profile_digest: str | None = None)
         material = project_material(profile, evidence, source_kind=source_kind, metadata=metadata)
         if original_profile_digest is None:
             material = apply_saved(target, profile, evidence, material)
+            from app.integrations.rardar.material_content_revision import apply_saved as apply_content
+
+            material = apply_content(target, profile, evidence, material)
         key = canonical_repository(profile.repository)
         # storedAt can change during cache migration, so it must not make an
         # older interpretation replace a newer one. Do not rewrite either date.
@@ -238,6 +242,8 @@ def saved_materials(target: Path, *, original_profile_digest: str | None = None)
 
 
 def _history_with_materials(target: Path, materials: dict) -> dict:
+    from app.integrations.rardar.trending_metrics import apply_history_context
+
     snapshot = historical_snapshot(target, materials=materials)
     projects = {project["repository"]: project for project in snapshot["projects"]}
     seen = set()
@@ -297,7 +303,9 @@ def _history_with_materials(target: Path, materials: dict) -> dict:
     snapshot["projects"] = list(projects.values())
     snapshot = apply_materials(snapshot, materials)
     snapshot["projects"].sort(key=lambda p: (p["profile"] is None, -(p["totalStars"] or 0), p["repository"]))
-    return snapshot
+    for project in snapshot["projects"]:
+        apply_history_context(project)
+    return trending_metadata.apply(snapshot, target)
 
 
 def load_saved_project_profile(
@@ -325,8 +333,10 @@ async def refresh_boards(target: Path | None = None) -> dict:
     materials = await asyncio.to_thread(saved_materials, target)
     installed = await asyncio.to_thread(publish_sources, target, results, materials=materials)
     current = load_snapshot(target)
+    metadata = await refresh_metadata(target, current["projects"])
     return {
         **installed,
+        "metadata": metadata,
         "sources": current["sources"],
         "providerCalls": 0,
         "status": "partial"
@@ -337,9 +347,22 @@ async def refresh_boards(target: Path | None = None) -> dict:
     }
 
 
+async def refresh_metadata(target: Path, projects: list[dict] | None = None) -> dict:
+    async with httpx.AsyncClient(
+        base_url="https://api.github.com",
+        timeout=12,
+        follow_redirects=False,
+        trust_env=False,
+        headers={"User-Agent": "TopicEye-Rardar/2.0"},
+    ) as client:
+        return await trending_metadata.refresh(
+            target, projects if projects is not None else load_snapshot(target)["projects"], client
+        )
+
+
 def today() -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
-    return apply_materials(load_snapshot(target), saved_materials(target))
+    return trending_metadata.apply(apply_materials(load_snapshot(target), saved_materials(target)), target)
 
 
 def history() -> dict:
@@ -350,6 +373,7 @@ def history() -> dict:
 def detail(identifier: str, generation: str | None, *, historical: bool = False) -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
     snapshot = history() if historical else apply_materials(load_snapshot(target, generation), saved_materials(target))
+    trending_metadata.apply(snapshot, target)
     for project in snapshot["projects"]:
         if project["projectId"] == identifier:
             return {
@@ -395,6 +419,7 @@ async def _collect_project_material(target: Path, project: dict, generation: str
         licenseSpdxId=(meta.get("license") or {}).get("spdx_id"),
         pushedAt=datetime.fromisoformat(meta["pushed_at"].replace("Z", "+00:00")) if meta.get("pushed_at") else None,
     )
+    trending_metadata.save(target, project, meta)
     return await collect_official_project_profile(
         facts,
         generation,

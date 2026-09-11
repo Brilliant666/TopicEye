@@ -1,5 +1,7 @@
 # RARDAR-AUDIT-FIX-01
 
+历史记录：以下双增长展示已被[2026-09-12修正](2026-09-12-rardar-ranking-content-fix.md)取代；现行Today按唯一主增长全量排序。本文件保留原任务证据，不作为恢复旧展示的要求。
+
 基线：`ec662e1108ad4b37bb4f57f8da41e06cc1d43bd3`。保持双榜Today、历史回顾、Find与动态占位；暂停模块不恢复。
 
 ## 修正

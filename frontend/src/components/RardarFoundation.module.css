@@ -693,6 +693,32 @@
   gap: 0.75rem;
 }
 
+.boardAppearanceList {
+  margin-top: 0.65rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+  color: var(--rardar-muted-text);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.tags .dualBoardBadge {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.boardLoadMore {
+  width: 100%;
+  padding: 0.9rem 1rem;
+  border: 0;
+  background: transparent;
+  color: var(--rardar-brand-primary);
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+
 .rankingCard {
   min-height: 5.8rem;
   padding: 0.85rem 1rem;

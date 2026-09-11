@@ -1,3 +1,5 @@
+import type { ProjectDetail } from './rardar-intelligence';
+
 export type BoardSource = {
   source: 'github' | 'trendshift'; label: string; status: 'healthy' | 'stale' | 'failed';
   sourceDate: string | null; fetchedAt: string | null; errorCode: string | null; count: number;
@@ -7,9 +9,15 @@ export type TrendingProject = {
   description: string | null; totalStars: number | null; dualListed: boolean;
   appearances: Array<{ source: 'github' | 'trendshift'; rank: number; sourceDate: string | null; fetchedAt: string; period: string; reportedDelta: number | null }>;
   materialState: 'complete' | 'partial' | 'unavailable';
-  profile: null | { summary: string; positioning: string; capabilities: string[]; generatedAt: string; sourceUrl: string; sourceLabel?: string; useCases?: string[]; limitations?: string[]; startHere?: Array<{ label: string; url: string }> };
+  displayProfile?: ProjectDetail['profile'] | null;
+  displayEvidence?: ProjectDetail['evidence'] | null;
+  material?: { schemaVersion: 2; sourceKind: 'profile_cache' | 'published_serving'; sourceGeneration: string; sourceRevision: string; generatedAt: string } | null;
+  language?: string | null; topics?: string[]; license?: string | null;
+  productForms?: string[]; runtimeEnvironments?: string[]; artifactTypes?: string[];
+  profile: null | { summary: string; positioning: string; capabilities: string[]; generatedAt: string; sourceUrl: string; sourceLabel?: string; useCases?: string[]; limitations?: string[] | null; startHere?: Array<{ label: string; url: string }> };
   historyAppearances?: number; firstSeenAt?: string | null; lastSeenAt?: string | null;
   historicalEvidence?: Array<{ source: string; sourceUrl: string; reportedAppearanceCount: number; sourceDate: string | null; fetchedAt: string }>;
+  historicalRardarEvidence?: Array<{ source: 'rardar_today'; sourceGeneration: string; servingGeneration: string; rank: number; windowStartedAt: string; windowEndedAt: string; observedStarDelta: number; totalStars: number }>;
 };
 export type TrendingBoard = { schemaVersion: number; generationId: string; publishedAt: string | null; checkedAt: string | null; sources: BoardSource[]; projects: TrendingProject[] };
 export type TrendingDetail = TrendingProject & { generationId?: string; publishedAt?: string | null; sources?: BoardSource[] };

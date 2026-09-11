@@ -34,6 +34,10 @@ class ProjectInsightRequest(StrictProductModel):
     generationId: str = Field(min_length=1, max_length=128)
 
 
+class SharedProjectInsightRequest(ProjectInsightRequest):
+    context: Literal["trending", "historical_hot"] = "trending"
+
+
 class EvidenceBackedText(StrictProductModel):
     text: str = Field(min_length=2, max_length=600)
     evidenceRefs: list[str] = Field(min_length=1, max_length=5)
@@ -125,6 +129,12 @@ class ProjectExplanationResponse(StrictProductModel):
         if self.state == "unavailable" and (not self.errorCode or self.format != "none"):
             raise ValueError("unavailable explanation requires a stable error code")
         return self
+
+
+class SharedProjectInsightStatus(StrictProductModel):
+    state: Literal["unprocessed", "running", "ready", "waiting", "unavailable"]
+    result: ProjectExplanationResponse | None = None
+    errorCode: str | None = Field(default=None, max_length=100)
 
 
 class FindProjectRequest(StrictProductModel):

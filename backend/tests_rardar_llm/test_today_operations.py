@@ -163,3 +163,59 @@ def test_shared_cli_sync_is_explicitly_model_disabled(monkeypatch, isolated):
     assert seen["allow_model_generation"] is False
     assert seen["check_published"] is True
     assert seen["host"] == ops.settings.RARDAR_TODAY_SOURCE_HOST
+
+
+def test_dual_board_status_does_not_relabel_old_exact_sync(isolated, monkeypatch):
+    from app.core import product_profile
+
+    monkeypatch.setattr(product_profile, "is_rardar_product", lambda: True)
+    identifier = str(uuid4())
+    folder = isolated / identifier
+    folder.mkdir()
+    path = folder / "operation.json"
+    old = {
+        "id": identifier,
+        "status": "updated",
+        "result": {"generationId": "20260909-exact", "window": {"endedAt": "2026-09-09T00:00:00Z"}},
+    }
+    ops.atomic(path, old)
+    ops.atomic(isolated / "latest-operation.json", {"id": identifier})
+    ops.atomic(isolated / "last-successful-sync.json", {"id": identifier, "completedAt": "2026-09-09T00:10:00Z"})
+    before = path.read_bytes()
+    assert ops.latest_operation() is None
+    assert ops.last_successful_sync_at() is None
+    assert ops.get_operation(identifier) == old
+    assert path.read_bytes() == before
+
+
+def test_existing_board_operation_keeps_its_own_manual_time(isolated, monkeypatch):
+    from app.core import product_profile
+
+    monkeypatch.setattr(product_profile, "is_rardar_product", lambda: True)
+    identifier = str(uuid4())
+    (isolated / identifier).mkdir()
+    ops.atomic(
+        isolated / identifier / "operation.json",
+        {"id": identifier, "status": "updated", "result": {"generationId": "boards-" + "a" * 64}},
+    )
+    ops.atomic(isolated / "latest-operation.json", {"id": identifier})
+    ops.atomic(isolated / "last-successful-sync.json", {"id": identifier, "completedAt": "2026-09-11T00:10:00Z"})
+    assert ops.latest_operation()["id"] == identifier
+    assert ops.last_successful_sync_at() == "2026-09-11T00:10:00Z"
+
+
+@pytest.mark.asyncio
+async def test_pre_discriminator_board_idempotency_is_preserved(isolated, monkeypatch):
+    from app.core import product_profile
+
+    monkeypatch.setattr(product_profile, "is_rardar_product", lambda: True)
+    identifier = str(uuid4())
+    request = TodayOperationRequest(requestId=uuid4())
+    (isolated / identifier).mkdir()
+    ops.atomic(
+        isolated / identifier / "operation.json",
+        {"id": identifier, "status": "unchanged", "result": {"generationId": "boards-" + "b" * 64}},
+    )
+    ops.atomic(isolated / f"request-1-{request.requestId}.json", {"id": identifier})
+    monkeypatch.setattr(ops, "_sync", lambda: pytest.fail("compatible repeated operation must not refresh"))
+    assert (await ops.start_operation(request, user_id=1))["id"] == identifier

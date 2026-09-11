@@ -20,6 +20,51 @@ from app.integrations.rardar.project_identity import canonical_repository, proje
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
 
 SOURCES = {"github": "GitHub Trending", "trendshift": "Trendshift Trending"}
+MATERIAL_FIELDS = (
+    "githubRepositoryId",
+    "materialState",
+    "profile",
+    "displayProfile",
+    "displayEvidence",
+    "material",
+    "productForms",
+    "runtimeEnvironments",
+    "artifactTypes",
+    "language",
+    "topics",
+    "license",
+    "pushedAt",
+)
+
+
+def _apply_material(project: dict, material: dict | None) -> None:
+    if not material:
+        return
+    # Repository name is canonical in both indexes. A known numeric ID must
+    # also agree: a reused name must not inherit another repository's reading.
+    if material.get("repository") and material["repository"] != project["repository"]:
+        return
+    if project.get("githubRepositoryId") and project["githubRepositoryId"] != material.get("githubRepositoryId"):
+        return
+    project.update({key: deepcopy(material[key]) for key in MATERIAL_FIELDS if key in material})
+
+
+def apply_materials(snapshot: dict, materials: dict) -> dict:
+    """Read-time v2 display overlay; the immutable board's facts stay untouched.
+
+    v1 snapshots remain readable. Their small profile is only a legacy fallback;
+    complete display fields always come from the current validated shared store.
+    """
+    result = deepcopy(snapshot)
+    result["displaySchemaVersion"] = 2
+    for project in result["projects"]:
+        project.update(displayProfile=None, displayEvidence=None, material=None)
+        for key in ("language", "license", "pushedAt"):
+            project.setdefault(key, None)
+        for key in ("topics", "productForms", "runtimeEnvironments", "artifactTypes"):
+            project.setdefault(key, [])
+        _apply_material(project, materials.get(project["repository"]))
+    return result
 
 
 def read_json(path: Path, maximum: int = 12_000_000) -> dict | None:
@@ -88,6 +133,10 @@ def _generation(root: Path, generation: str) -> dict:
     if len(expected) != len(actual):
         raise ValueError("trending_projection_coverage_invalid")
     for first, second in zip(expected, actual, strict=True):
+        if first.get("githubRepositoryId") is not None and first["githubRepositoryId"] != second.get(
+            "githubRepositoryId"
+        ):
+            raise ValueError("trending_projection_facts_invalid")
         for key in (
             "repository",
             "repositoryUrl",
@@ -266,13 +315,17 @@ def publish_sources(target: Path, results: list[dict], *, materials: dict | None
         projects = merge_sources(list(retained.values()), statuses)
         for project in projects:
             material = (materials or {}).get(project["repository"])
+            # Persist the existing minimal v1 projection for archive readers;
+            # full/current materials are resolved at GET time, never frozen to
+            # the last source refresh or mixed into board fact identity.
             if material:
-                project.update(
+                _apply_material(
+                    project,
                     {
-                        key: deepcopy(material[key])
-                        for key in ("githubRepositoryId", "materialState", "profile")
+                        key: material[key]
+                        for key in ("repository", "githubRepositoryId", "materialState", "profile")
                         if key in material
-                    }
+                    },
                 )
         source_states = [
             {
@@ -379,18 +432,19 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
                 projects[key]["appearances"].append(_appearance(item, capture))
     for key, project in projects.items():
         material = (materials or {}).get(key, {})
-        project.update(
-            {k: deepcopy(material[k]) for k in ("githubRepositoryId", "materialState", "profile") if k in material}
-        )
+        _apply_material(project, material)
         times = [x["fetchedAt"] for x in [*project["appearances"], *project.get("historicalEvidence", [])]]
         project.update(historyAppearances=len(seen[key]), firstSeenAt=min(times), lastSeenAt=max(times))
-    return {
-        **current,
-        "projects": sorted(
-            projects.values(), key=lambda p: (p["profile"] is None, -(p["totalStars"] or 0), p["repository"])
-        ),
-        "kind": "historical",
-    }
+    return apply_materials(
+        {
+            **current,
+            "projects": sorted(
+                projects.values(), key=lambda p: (p["profile"] is None, -(p["totalStars"] or 0), p["repository"])
+            ),
+            "kind": "historical",
+        },
+        materials or {},
+    )
 
 
 def validate_historical_evidence(record: dict) -> None:

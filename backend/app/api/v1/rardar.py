@@ -7,7 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.auth import get_current_admin_user
+from app.api.v1.auth import get_current_admin_user, get_current_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.product_profile import is_rardar_product
@@ -25,6 +25,8 @@ from app.schemas.rardar_product import (
     ProjectExplanationRequest,
     ProjectExplanationResponse,
     ProjectInsightRequest,
+    SharedProjectInsightRequest,
+    SharedProjectInsightStatus,
 )
 from app.schemas.rardar_today_operations import TodayOperationRequest
 from app.services import (
@@ -51,6 +53,54 @@ from app.services.rardar_product import (
 )
 
 router = APIRouter(prefix="/rardar", tags=["rardar"])
+
+
+@router.get("/project-insights/{project_id}", response_model=SharedProjectInsightStatus)
+async def shared_project_insight_read(
+    project_id: str,
+    response: Response,
+    generation_id: str = Query(alias="generationId", min_length=1, max_length=128),
+    context: Literal["trending", "historical_hot"] = "trending",
+):
+    from app.services.rardar_project_insights import read_project_insight
+
+    if not is_rardar_product():
+        raise HTTPException(status_code=404, detail="Not found")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await read_project_insight(
+            project_id, SharedProjectInsightRequest(generationId=generation_id, context=context)
+        )
+    except LookupError:
+        raise HTTPException(status_code=404, detail={"code": "project_not_found"}) from None
+    except (ValueError, OSError):
+        raise HTTPException(status_code=503, detail={"code": "project_material_invalid"}) from None
+
+
+@router.post("/project-insights/{project_id}", response_model=SharedProjectInsightStatus)
+async def shared_project_insight_start(
+    project_id: str,
+    payload: SharedProjectInsightRequest,
+    request: Request,
+    response: Response,
+    _user=Depends(get_current_user),
+):
+    from app.services.rardar_project_insights import start_project_insight
+
+    if not is_rardar_product():
+        raise HTTPException(status_code=404, detail="Not found")
+    if not request.headers.get("authorization") and (
+        request.headers.get("origin") not in settings.cors_origins
+        or request.headers.get("sec-fetch-site") == "cross-site"
+    ):
+        raise HTTPException(status_code=403, detail={"code": "project_insight_origin_rejected"})
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await start_project_insight(project_id, payload)
+    except LookupError:
+        raise HTTPException(status_code=404, detail={"code": "project_not_found"}) from None
+    except (ValueError, OSError):
+        raise HTTPException(status_code=503, detail={"code": "project_material_invalid"}) from None
 
 
 @router.get("/trending-today")

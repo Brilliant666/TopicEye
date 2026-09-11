@@ -1,6 +1,6 @@
 const RARDAR_NAVIGATION = Object.freeze([
   Object.freeze({ href: '/', label: '今日热榜' }),
-  Object.freeze({ href: '/historical-hot', label: '历史热门' }),
+  Object.freeze({ href: '/historical-hot', label: '历史回顾' }),
   Object.freeze({ href: '/find', label: '找项目' }),
   Object.freeze({ href: '/activity', label: '动态' }),
 ]);

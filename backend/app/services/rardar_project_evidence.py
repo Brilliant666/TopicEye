@@ -47,7 +47,7 @@ def _persistent_root() -> Path | None:
     return Path(settings.RARDAR_INTELLIGENCE_DATA_DIR) / "public-project-evidence"
 
 
-def _persisted_evidence(repository: str, revision: str) -> ProjectEvidence | None:
+def _persisted_evidence(repository: str, revision: str, *, allow_stale: bool = False) -> ProjectEvidence | None:
     from app.services.llm.provider_budget import plain
 
     root = _persistent_root()
@@ -65,7 +65,8 @@ def _persisted_evidence(repository: str, revision: str) -> ProjectEvidence | Non
         if saved["repository"] != repository or saved["revision"] != revision or saved["version"] != 1:
             return None
         collected = datetime.fromisoformat(saved["collectedAt"])
-        if not timedelta(0) <= datetime.now(UTC) - collected <= timedelta(days=1):
+        age = datetime.now(UTC) - collected
+        if age < timedelta(0) or (not allow_stale and age > timedelta(days=1)):
             return None
         value = saved["evidence"]
         if _canonical_digest(value["payload"]) != value["digest"]:
@@ -121,6 +122,23 @@ class ProjectEvidence:
 
 def clear_project_evidence_cache() -> None:
     _CACHE.clear()
+
+
+def read_saved_project_evidence(
+    repository: str, artifact_facts: dict[str, Any], *, allow_stale: bool = False
+) -> ProjectEvidence | None:
+    """Read the existing bounded evidence cache without fetching any URL."""
+    revision = _canonical_digest(
+        {
+            "repository": repository,
+            "description": artifact_facts.get("description"),
+            "pushedAt": artifact_facts.get("pushedAt"),
+            "licenseSpdxId": artifact_facts.get("licenseSpdxId"),
+            "includeReadmeBody": False,
+            "readmeOnly": False,
+        }
+    )
+    return _persisted_evidence(repository, revision, allow_stale=allow_stale)
 
 
 def _clean_markdown(value: str, maximum: int) -> str:

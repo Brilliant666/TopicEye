@@ -877,8 +877,11 @@ class ServingProjectionLoader:
             _SOURCE_CACHE[key] = bundle
             return bundle
 
-    def load_today_with_etag(self) -> tuple[ServingTodaySnapshot, str]:
-        bundle = self._current_bundle()
+    def load_today_with_etag(self, source_generation_id: str | None = None) -> tuple[ServingTodaySnapshot, str]:
+        """Read current or a retained source using the same manifest/fact checks."""
+        bundle = (
+            self._source_bundle(source_generation_id) if source_generation_id is not None else self._current_bundle()
+        )
         return bundle.today, f'"{bundle.manifest.today.sha256}"'
 
     @staticmethod

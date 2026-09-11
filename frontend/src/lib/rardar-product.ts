@@ -105,7 +105,7 @@ export type FindProjectResponse = {
   cacheHit: boolean;
 };
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+async function postJson<T>(path: string, body: unknown, loginError?: string): Promise<T> {
   const response = await fetch(path, {
     method: 'POST',
     cache: 'no-store',
@@ -114,6 +114,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   });
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
+    if (response.status === 401 && loginError) throw new Error(loginError);
     const code = isRecord(payload) && isRecord(payload.detail) && typeof payload.detail.code === 'string'
       ? payload.detail.code
       : 'rardar_request_failed';
@@ -136,6 +137,29 @@ export function explainProjectById(githubRepositoryId: number, generationId: str
 
 export function explainDiscoverProjectById(githubRepositoryId: number, generationId: string) {
   return postJson<ProjectExplanation>(`/api/v1/rardar/discover/projects/${githubRepositoryId}/insight`, { generationId });
+}
+
+export type SharedProjectInsightStatus = {
+  state: 'unprocessed' | 'running' | 'ready' | 'waiting' | 'unavailable';
+  result: ProjectExplanation | null;
+  errorCode: string | null;
+};
+
+export type SharedProjectContext = 'trending' | 'historical_hot';
+
+export async function readSharedProjectInsight(projectId: string, generationId: string, context: SharedProjectContext) {
+  const query = new URLSearchParams({ generationId, context });
+  const response = await fetch(`/api/v1/rardar/project-insights/${encodeURIComponent(projectId)}?${query}`, {
+    cache: 'no-store', headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) throw new Error('project_insight_read_failed');
+  return await response.json() as SharedProjectInsightStatus;
+}
+
+export function explainSharedProject(projectId: string, generationId: string, context: SharedProjectContext) {
+  return postJson<SharedProjectInsightStatus>(`/api/v1/rardar/project-insights/${encodeURIComponent(projectId)}`, {
+    generationId, context,
+  }, 'project_insight_login_required');
 }
 
 export function findProjects(requirement: string, repositoryUrl: string | null) {

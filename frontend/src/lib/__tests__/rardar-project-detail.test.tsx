@@ -5,6 +5,8 @@ vi.mock('@/providers/AppProvider', () => ({ useAuthContext: () => ({ currentUser
 
 import RardarProjectDetailPage from '@/components/RardarProjectDetailPage';
 import { TodayFoundation } from '@/components/RardarFoundationPage';
+import { TrendingCard } from '@/components/RardarTrendingPage';
+import type { TrendingDetail } from '@/lib/rardar-trending';
 import { loadProjectDetail, parseProjectDetail, parseTodaySnapshot, type ProjectDetail } from '@/lib/rardar-intelligence';
 
 const officialTaglineZh = '在对话里，把代码仓库或系统描述变成漂亮、可靠、可交互的系统地图。';
@@ -221,6 +223,54 @@ const detail: ProjectDetail = {
 };
 
 describe('Rardar project detail', () => {
+  const sharedDetail: TrendingDetail = {
+    projectId: 'tt-a1i-archify--12345678901234567890', repository: detail.project.repository,
+    repositoryUrl: detail.project.htmlUrl, githubRepositoryId: detail.project.githubRepositoryId,
+    description: detail.project.description, totalStars: detail.project.totalStars, dualListed: true,
+    appearances: [{ source: 'github', rank: 7, sourceDate: '2026-09-11', fetchedAt: '2026-09-11T00:00:00Z', period: 'daily', reportedDelta: 15 }],
+    materialState: 'complete', profile: null, displayProfile: detail.profile, displayEvidence: detail.evidence,
+    language: detail.project.primaryLanguage, topics: detail.project.topics, license: detail.project.licenseSpdxId,
+    generationId: 'boards-shared', historyAppearances: 1,
+  };
+
+  it.each([false, true])('retains the original full Profile and layout on shared board detail, history=%s', (historical) => {
+    const original = renderToStaticMarkup(<RardarProjectDetailPage detail={detail} />);
+    const html = renderToStaticMarkup(<RardarProjectDetailPage detail={sharedDetail} historical={historical} />);
+    const texts = [officialTaglineZh, officialPositioningZh, rardarAssessmentZh, ...canonicalCapabilities.flatMap(item => [item.title, item.detail]), 'Agent Skill', 'Node.js 渲染/校验工具', 'Codex CLI', '独立 HTML', '理解陌生代码库的系统结构', '如何开始', 'README · Overview', '更多示例', '来源、官方原文与审计', '打开 GitHub'];
+    for (const text of texts) { expect(original).toContain(text); expect(html).toContain(text); }
+    expect(html).toContain('project-identity-hero');
+    expect(html).toContain('rardar-adoption-layer');
+    expect(html).toContain('project-capability-section');
+    expect(html).toContain('用这个仓库评估我的需求');
+    expect(html).not.toContain('24h 新增');
+    expect(html).not.toContain('基线 Star');
+    expect(html).not.toContain('5,246');
+    expect(html).toContain(historical ? '历史回顾' : '今日热榜');
+  });
+
+  it('uses the same original card content for Today and history without inventing exact facts', () => {
+    for (const historical of [false, true]) {
+      const html = renderToStaticMarkup(<TrendingCard project={sharedDetail} generationId="boards-shared" historical={historical} />);
+      expect(html).toContain(officialTaglineZh);
+      expect(html).toContain(officialPositioningZh);
+      expect(html).toContain('Agent Skill');
+      expect(html).toContain('JavaScript');
+      expect(html).toContain('MIT');
+      expect(html).toContain('GitHub Trending #7');
+      expect(html).not.toContain('精确 24h');
+    }
+  });
+
+  it('opens the complete detail shell without a Profile, numeric ID or baseline', () => {
+    const html = renderToStaticMarkup(<RardarProjectDetailPage detail={{ ...sharedDetail, displayProfile: null, displayEvidence: null, githubRepositoryId: null, materialState: 'unavailable', totalStars: null }} />);
+    expect(html).toContain('原始介绍');
+    expect(html).toContain('资料暂未补齐');
+    expect(html).toContain('源榜单事实');
+    expect(html).toContain('Rardar 决策与采用');
+    expect(html).not.toContain('基线 Star');
+    expect(html).not.toContain(officialPositioningZh);
+  });
+
   function factFirstDetail(originalDescription: string | null = 'A repository for system maps.') {
     const materials = {
       materialState: 'unavailable' as const,

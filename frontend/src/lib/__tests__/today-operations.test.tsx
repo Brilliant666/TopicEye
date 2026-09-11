@@ -27,8 +27,8 @@ describe('Today daily operator entry', () => {
     const html = renderToStaticMarkup(<RardarTodayOperations syncedAt="2026-09-09T01:00:00Z" />);
     expect(html).toContain('检查并同步榜单');
     expect(html).toContain('GitHub Trending 与 Trendshift 公开日榜 · 不调用模型');
-    expect(html).toContain('最近成功同步');
-    expect(html).toContain('最近检查');
+    expect(html).toContain('最近成功手动同步');
+    expect(html).toContain('最近手动操作');
     expect(html).toContain('disabled'); // Status must load before an action is allowed.
     expect(html).not.toContain('补齐');
     expect(state.request).not.toHaveBeenCalled();
@@ -45,6 +45,26 @@ describe('Today daily operator entry', () => {
     await todayOperationsApi.start('same-retry-id');
     expect(state.request.mock.calls[2]).toEqual(state.request.mock.calls[3]);
     expect(state.request.mock.calls[2][1]).toEqual({ method: 'POST', body: JSON.stringify({ requestId: 'same-retry-id' }) });
+  });
+
+  it('does not present a legacy exact-window operation as the current dual-board check', () => {
+    const old = operation('updated');
+    expect(renderToStaticMarkup(<TodayOperationResult operation={old} context="dual_board" />)).toBe('');
+    const current = { ...old, scope: 'dual_board' as const, status: 'partial' as const };
+    const html = renderToStaticMarkup(<TodayOperationResult operation={current} context="dual_board" />);
+    expect(html).toContain('部分来源已更新');
+    expect(html).not.toContain('观察窗口');
+    expect(html).not.toContain('2026/9/8');
+    expect(state.request).not.toHaveBeenCalled();
+  });
+
+  it('keeps publication, source-check and manual-operation times distinct', () => {
+    state.user = { id: 1, role: 'admin' };
+    const html = renderToStaticMarkup(<RardarTodayOperations context="dual_board" syncedAt="2026-09-10T01:00:00Z" checkedAt="2026-09-11T02:00:00Z" />);
+    expect(html).toContain('当前清单发布：2026/9/10 09:00:00');
+    expect(html).toContain('最近来源检查：2026/9/11 10:00:00');
+    expect(html).toContain('最近成功手动同步：暂无记录');
+    expect(state.request).not.toHaveBeenCalled();
   });
 
   it.each(['updated', 'unchanged', 'no_complete_board', 'failed', 'interrupted', 'not_configured'] as const)('shows honest terminal status %s without replacing the observed window with check time', (status) => {

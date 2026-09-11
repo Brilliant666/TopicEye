@@ -62,12 +62,31 @@ def get_operation(identifier: str) -> dict[str, Any] | None:
 
 def latest_operation() -> dict[str, Any] | None:
     latest = _read(operation_root() / "latest-operation.json")
-    return get_operation(latest["id"]) if latest else None
+    saved = get_operation(latest["id"]) if latest else None
+    return saved if saved and _operation_scope(saved) == _current_scope() else None
+
+
+def _current_scope() -> str:
+    from app.core.product_profile import is_rardar_product
+
+    return "dual_board" if is_rardar_product() else "exact_observation"
+
+
+def _operation_scope(saved: dict[str, Any]) -> str:
+    if saved.get("scope") in {"dual_board", "exact_observation"}:
+        return saved["scope"]
+    # PR49 records predate the explicit discriminator. Their immutable result
+    # identifies the board contract; an old observation date cannot do so.
+    generation = (saved.get("result") or {}).get("generationId") or ""
+    return "dual_board" if generation.startswith("boards-") else "exact_observation"
 
 
 def last_successful_sync_at() -> str | None:
     saved = _read(operation_root() / "last-successful-sync.json")
-    return saved.get("completedAt") if saved else None
+    if not saved:
+        return None
+    operation = get_operation(saved["id"]) if saved.get("id") else saved
+    return saved.get("completedAt") if operation and _operation_scope(operation) == _current_scope() else None
 
 
 def _sync():
@@ -95,8 +114,13 @@ async def start_operation(payload: TodayOperationRequest, *, user_id: int) -> di
     root = operation_root()
     root.mkdir(parents=True, exist_ok=True)
     with file_lock(root / "admission.lock", blocking=False):
-        key = root / f"request-{user_id}-{payload.requestId}.json"
+        key = root / f"request-{_current_scope()}-{user_id}-{payload.requestId}.json"
         existing = _read(key)
+        if not existing:
+            prior = _read(root / f"request-{user_id}-{payload.requestId}.json")
+            prior_operation = get_operation(prior["id"]) if prior else None
+            if prior_operation and _operation_scope(prior_operation) == _current_scope():
+                existing = prior
         if existing:
             return get_operation(existing["id"])
         latest = latest_operation()
@@ -124,6 +148,7 @@ def _execute(key: Path, loop: asyncio.AbstractEventLoop, ready: asyncio.Future) 
             state_path.parent.mkdir()
             operation = {
                 "id": identifier,
+                "scope": _current_scope(),
                 "status": "running",
                 "startedAt": datetime.now(UTC).isoformat(),
                 "completedAt": None,

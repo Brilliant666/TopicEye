@@ -177,7 +177,7 @@ def apply_saved(target: Path, profile, evidence, material: dict) -> dict:
     if path.stat().st_size > 200_000:
         raise ValueError("material_content_revision_oversized")
     record = json.loads(path.read_bytes())
-    if not isinstance(record, dict):
+    if not isinstance(record, dict) or not isinstance(record.get("derivedAt"), str):
         raise ValueError("material_content_revision_invalid")
     if (
         record.get("version") != VERSION

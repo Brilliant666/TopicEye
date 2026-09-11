@@ -36,6 +36,11 @@ async def test_template_repair_is_explicit_immutable_reusable_and_keeps_position
     assert path.read_bytes() == before
     saved = revision._path(tmp_path, original)
     tampered = json.loads(saved.read_bytes())
+    missing_date = {k: v for k, v in tampered.items() if k != "derivedAt"}
+    missing_date["digest"] = revision.digest({k: v for k, v in missing_date.items() if k != "digest"})
+    saved.write_text(json.dumps(missing_date), encoding="utf-8")
+    with pytest.raises(ValueError, match="revision_invalid"):
+        revision.apply_saved(tmp_path, original, record.evidence, material)
     tampered["fields"]["positioningZh"] = "未取得资料的功能"
     tampered["digest"] = revision.digest({k: v for k, v in tampered.items() if k != "digest"})
     saved.write_text(json.dumps(tampered), encoding="utf-8")

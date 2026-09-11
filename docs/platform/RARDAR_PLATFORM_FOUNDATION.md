@@ -1,5 +1,58 @@
 # Rardar Platform Foundation
 
+## Current product scope — RARDAR-REFOCUS-01
+
+The current implementation branch replaces the former Discover-first roadmap:
+Today reads the **GitHub all-language daily repository board** and **Trendshift's
+own daily board**, unions their complete public listings, and retains source ranks.
+It does not use Trendshift's GitHub archive as a second independent daily source.
+Neither the old 500-observation universe nor an ExactExplosion 24h baseline nor
+complete AI Profiles gates this list. No exact growth value/window is fabricated.
+
+Historical Hot (`/historical-hot`) accumulates these captures and a separately
+labelled public historical GitHub Trending appearance index. Reported lifetime
+appearance counts and unknown appearance dates are not converted into local
+daily observations. Existing verified project materials remain readable with
+their original revision/time; new work reuses the existing single-project Profile
+collector. `RARDAR_HISTORICAL_DAILY_LIMIT` defaults to three attempted projects,
+not a publication quota. Attempts are durable and failed projects rotate.
+
+Find remains public-GitHub, requirement-first and on demand, with the existing
+daily shared limit and interactive reserve. The current 100-request daily cap is
+unchanged. No new trial ledger or model route is introduced.
+
+In Rardar mode only, News and Discover dedicated collection/enhancement/Selection
+entries are paused at service/CLI/API boundaries. Candidate-pool and watchlist
+product pages show a pause notice. Historical data, observation series, shared
+materials, TopicEye's independent product mode and generic source management
+remain. News is deferred to independent TrendRadar use; Activity remains a future
+content decision, not a renamed news collector.
+
+The existing 08:30 Asia/Shanghai APScheduler job and bounded catch-up call the
+same zero-model board refresh used by the Today administrator operation. They then
+attempt bounded Historical Hot work, respecting the administrator pause, existing
+request lock, daily allowance and Find priority. Sleeping/offline local machines
+do not run it; this branch neither deploys an always-on service nor changes the
+current Runtime. A manual invocation is not evidence of natural-day operation.
+
+New immutable public board captures and projections live beneath the configured
+data root's `trending-boards/`; existing Serving v1–v8 and Selection readers are
+retained. Whole-source failure leaves the old pointer; single-source success may
+publish with the other source explicitly stale/unavailable. History deduplicates
+source/day appearances. Unknown GitHub board dates stay unknown; capture dates
+are labelled separately. Public HTML is a changeable interface, so invalid/empty
+parses fail closed. The paid Signal API and its raw redistribution contract are
+not used. All displayed readings still need valid cached evidence bindings.
+
+Configured CLI: `python -m scripts.refresh_rardar_boards`; the optional
+`--history-once` adds the verified public historical index without invoking AI.
+Web and CLI share `rardar_trending.refresh_boards`; daily historical work uses
+the same Profile cache as Today/Find. There is no database migration. Rollback
+is a code revert: old data/pointers have not been deleted or rewritten.
+
+The sections below preserve the foundation's historical design and evidence;
+their old Discover/News scopes are not instructions to resume those products.
+
 ## Status and provenance
 
 This document defines the first formal TopicEye × Rardar platform-fusion boundary.

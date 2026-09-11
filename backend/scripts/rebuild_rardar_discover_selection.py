@@ -81,16 +81,21 @@ def _cache_replay_hits(artifact) -> tuple[int, int, int]:
 
 
 async def rebuild(target: Path, **kwargs) -> dict[str, object]:
+    from app.core.rardar_scope import require_module_execution
+
+    require_module_execution("discover")
     with selection_writer(target):
         return await _rebuild(target, **kwargs)
 
 
 async def rebuild_period(target: Path, **kwargs) -> dict[str, object]:
     """CLI publication uses the same singleton children and period installer."""
+    from app.core.rardar_scope import require_module_execution
     from app.integrations.rardar.selection_period import publish_period, with_current_period
     from app.services.llm.daily_provider_budget import ProviderWorkYield
     from app.services.llm.run_failure_guard import run_failure_guard
 
+    require_module_execution("discover")
     if kwargs.get("verify_cache_reuse"):
         return await rebuild(target, **kwargs)
     target = target.resolve()

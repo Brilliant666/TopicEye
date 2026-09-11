@@ -295,6 +295,9 @@ async def explain_discover_project_by_id(
     generation_id: str,
     config: Settings = settings,
 ) -> ProjectExplanationResponse:
+    from app.core.rardar_scope import require_module_execution
+
+    require_module_execution("discover")
     detail, _etag = load_discover_project_detail(github_repository_id, generation_id, config)
     request = ProjectExplanationRequest(repository=detail.facts.repository, generationId=generation_id)
     return await _explain_project_with_evidence(

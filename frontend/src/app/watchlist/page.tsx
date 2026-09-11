@@ -1,5 +1,5 @@
-import RardarFoundationPage from '@/components/RardarFoundationPage';
+import RardarPausedPage from '@/components/RardarPausedPage';
 
 export default function Page() {
-  return <RardarFoundationPage pageKey="watchlist" />;
+  return <RardarPausedPage title="观察列表" />;
 }

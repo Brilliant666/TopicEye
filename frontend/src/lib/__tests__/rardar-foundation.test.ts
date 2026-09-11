@@ -4,13 +4,13 @@ import { RARDAR_NAVIGATION } from '../../../product-profile.config.js';
 import { RARDAR_FOUNDATION_PAGES, RARDAR_FOUNDATION_SLOTS } from '@/lib/rardar-foundation';
 
 describe('Rardar foundation content contract', () => {
-  it('defines every approved user-facing route shell', () => {
+  it('retains legacy page definitions without restoring paused navigation', () => {
     const pages = Object.values(RARDAR_FOUNDATION_PAGES);
 
     expect(pages).toHaveLength(7);
-    expect(pages.map((page) => page.href)).toEqual(
-      RARDAR_NAVIGATION.map((item) => item.href),
-    );
+    expect(pages.map((page) => page.href)).toContain('/discover');
+    expect(RARDAR_NAVIGATION.map((item) => item.href)).not.toContain('/discover');
+    expect(RARDAR_NAVIGATION.map((item) => item.href)).toContain('/historical-hot');
   });
 
   it('keeps every route honest about its unconnected capability', () => {

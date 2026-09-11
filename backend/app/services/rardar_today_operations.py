@@ -73,6 +73,13 @@ def last_successful_sync_at() -> str | None:
 def _sync():
     # Same collector/build/install path as CLI, with model generation explicitly
     # disabled. Fixed server-side values; no environment mutation per request.
+    from app.core.product_profile import is_rardar_product
+
+    if is_rardar_product():
+        from app.services.rardar_trending import refresh_boards
+
+        return asyncio.run(refresh_boards())
+
     from scripts.rebuild_rardar_serving import real_profile_provider
 
     return sync_rardar_intelligence(
@@ -132,6 +139,15 @@ def _execute(key: Path, loop: asyncio.AbstractEventLoop, ready: asyncio.Future) 
             if not settings.RARDAR_INTELLIGENCE_DATA_DIR:
                 raise RardarSyncError("rardar_sync_invalid_configuration", "Not configured")
             result = _sync()
+            if isinstance(result, dict):
+                operation.update(status=result["status"], completedAt=datetime.now(UTC).isoformat(), result=result)
+                atomic(state_path, operation)
+                if result["changed"]:
+                    atomic(
+                        operation_root() / "last-successful-sync.json",
+                        {"id": identifier, "completedAt": operation["completedAt"]},
+                    )
+                return
             saved = asdict(result)
             current = None
             try:

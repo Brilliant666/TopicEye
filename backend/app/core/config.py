@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # Backend-only path to Rardar's published generation root.  It is ignored
     # unless RARDAR_PRODUCT_MODE is enabled and is never exposed to the browser.
     RARDAR_INTELLIGENCE_DATA_DIR: str = ""
+    # Isolated previews may share an EXISTING runtime budget identity while
+    # reading a data copy. Server-only; never a new allowance or browser input.
+    RARDAR_BUDGET_IDENTITY_DATA_DIR: str = ""
     RARDAR_TODAY_SOURCE_HOST: str = "rardar-prod"
     RARDAR_TODAY_SOURCE_ROOT: str = "/var/lib/rardar/data"
     # Explicit local opt-in; ignored in production even when set accidentally.
@@ -29,6 +32,9 @@ class Settings(BaseSettings):
     RARDAR_NEWS_REQUEST_LIMIT: int = 12
     RARDAR_DISCOVER_REQUEST_LIMIT: int = 40
     RARDAR_DAILY_OPERATIONS_ENABLED: bool = False
+    RARDAR_STARTUP_CATCHUP_ENABLED: bool = True
+    # Work allowance, never a minimum publication/completeness requirement.
+    RARDAR_HISTORICAL_DAILY_LIMIT: int = Field(default=3, ge=1, le=20)
 
     # ── Database ──
     # 留空则启动时报错；本地开发请在 .env 中设置（参考 .env.example）。
@@ -58,6 +64,7 @@ class Settings(BaseSettings):
 
     # ── Startup behavior ──
     AUTO_CREATE_TABLES_ON_STARTUP: bool = True
+    STARTUP_SEQUENCE_SYNC_ENABLED: bool = True
     STARTUP_SEED_ENABLED: bool = True
     ADMIN_SEED_ENABLED: bool = False
     ADMIN_EMAIL: str | None = None

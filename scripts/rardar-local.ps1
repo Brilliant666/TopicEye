@@ -1,7 +1,8 @@
 param(
     [ValidateSet(
-        "start", "stop", "status", "sync-data", "refresh-news", "enhance-news", "rebuild-serving",
-        "build-selection", "rebuild-selection", "selection-status", "selection-rollback"
+        "start", "stop", "restart", "status", "build", "sync-data", "refresh-news", "enhance-news", "rebuild-serving",
+        "build-selection", "rebuild-selection", "selection-status", "selection-rollback",
+        "preview-start", "preview-stop", "preview-restart", "preview-status", "preview-build"
     )]
     [string]$Command = "start",
     [string]$SelectionGeneration,
@@ -29,7 +30,22 @@ $Python = Join-Path $ControlRoot "venv-20260826\Scripts\python.exe"
 $PgPort = if ($env:RARDAR_LOCAL_PG_PORT) { [int]$env:RARDAR_LOCAL_PG_PORT } else { 55433 }
 $BundledNode = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
 $Node = if (Test-Path -LiteralPath $BundledNode) { $BundledNode } else { (Get-Command node.exe).Source }
-$NpmCli = Join-Path (Split-Path (Get-Command npm.cmd).Source) "node_modules\npm\bin\npm-cli.js"
+$NpmCli = if ($Command -notin @('start', 'stop', 'restart', 'status', 'build') -and -not $Command.StartsWith("preview-")) {
+    Join-Path (Split-Path (Get-Command npm.cmd).Source) "node_modules\npm\bin\npm-cli.js"
+} else { $null }
+
+# Shared process launch primitive. Preview and daily Runtime use the same
+# executable, working-directory and log handling; no shell/encoded wrapper.
+function Start-AppProcess([string]$Executable, [string[]]$Arguments, [string]$Directory,
+    [string]$LogPrefix, [hashtable]$Environment = @{}) {
+    $parameters = @{
+        FilePath = $Executable; ArgumentList = $Arguments; WorkingDirectory = $Directory
+        RedirectStandardOutput = "$LogPrefix.out.log"; RedirectStandardError = "$LogPrefix.err.log"
+        WindowStyle = "Hidden"; PassThru = $true
+    }
+    if ($Environment.Count) { $parameters.Environment = $Environment }
+    return Start-Process @parameters
+}
 
 function Read-State {
     if (-not (Test-Path -LiteralPath $StatePath -PathType Leaf)) { return $null }
@@ -544,6 +560,7 @@ function Start-Rardar {
         RARDAR_DEMO_DATA_ENABLED = "false"
         RARDAR_LOCAL_SHADOW_REVIEW = if ($localShadowReview) { "true" } else { "false" }
         RARDAR_INTELLIGENCE_DATA_DIR = $MirrorRoot
+        RARDAR_BUDGET_IDENTITY_DATA_DIR = $null
         CORS_ORIGINS = "http://127.0.0.1:3000"
         SCHEDULER_ENABLED = "true"
         RARDAR_DAILY_OPERATIONS_ENABLED = "true"
@@ -563,7 +580,7 @@ function Start-Rardar {
     }
     $statePublished = $false
     try {
-        $backend = Start-Process -FilePath $Python -ArgumentList @("-m", "uvicorn", "app.main:app", "--app-dir", $BackendRoot, "--host", "127.0.0.1", "--port", "8102") -WorkingDirectory $BackendRoot -RedirectStandardOutput (Join-Path $RuntimeRoot "backend.out.log") -RedirectStandardError (Join-Path $RuntimeRoot "backend.err.log") -WindowStyle Hidden -PassThru
+        $backend = Start-AppProcess $Python @("-m", "uvicorn", "app.main:app", "--app-dir", "`"$BackendRoot`"", "--host", "127.0.0.1", "--port", "8102") $BackendRoot (Join-Path $RuntimeRoot "backend")
     } finally {
         foreach ($name in $backendEnvironment.Keys) {
             [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], "Process")
@@ -578,6 +595,7 @@ function Start-Rardar {
         $frontendEnvironment = @{
             NODE_ENV = "production"
             RARDAR_PRODUCT_MODE = "true"
+            RARDAR_ISOLATED_PREVIEW = "false"
             BACKEND_API_URL = "http://127.0.0.1:8102"
             NEXT_TELEMETRY_DISABLED = "1"
         }
@@ -604,7 +622,7 @@ function Start-Rardar {
                 throw "Rardar production frontend build has an unexpected backend binding."
             }
             $frontendBuildId = (Get-Content -LiteralPath (Join-Path $FrontendRoot ".next\BUILD_ID") -Raw).Trim()
-            $frontend = Start-Process -FilePath $Node -ArgumentList @($next, "start", "--hostname", "127.0.0.1", "--port", "3000") -WorkingDirectory $FrontendRoot -RedirectStandardOutput (Join-Path $RuntimeRoot "frontend.out.log") -RedirectStandardError (Join-Path $RuntimeRoot "frontend.err.log") -WindowStyle Hidden -PassThru
+            $frontend = Start-AppProcess $Node @("`"$next`"", "start", "--hostname", "127.0.0.1", "--port", "3000") $FrontendRoot (Join-Path $RuntimeRoot "frontend")
         } finally {
             foreach ($name in $frontendEnvironment.Keys) {
                 [Environment]::SetEnvironmentVariable($name, $savedFrontendEnvironment[$name], "Process")
@@ -931,10 +949,21 @@ function Rollback-RardarSelection {
     Invoke-SelectionCommand @("rollback", $SelectionGeneration)
 }
 
+if ($Command.StartsWith("preview-")) {
+    . (Join-Path $PSScriptRoot "rardar-preview.ps1")
+    Invoke-RardarPreview $Command
+    return
+}
+
+if ($Command -in @('start', 'stop', 'restart', 'status', 'build')) {
+    # The current Rardar product no longer requires a legacy Selection or SSH
+    # sync merely to run. Runtime and preview share ownership and health gates.
+    . (Join-Path $PSScriptRoot "rardar-preview.ps1")
+    Invoke-RardarPreview "preview-$Command" -RuntimeMode
+    return
+}
+
 switch ($Command) {
-    "start" { Start-Rardar }
-    "stop" { Stop-Rardar }
-    "status" { Show-Status; Show-RardarSelectionStatus }
     "sync-data" { Sync-RardarData }
     "refresh-news" { Refresh-RardarHotspotNews }
     "enhance-news" { Enhance-RardarHotspotNews }

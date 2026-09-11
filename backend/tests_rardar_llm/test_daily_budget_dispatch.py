@@ -12,6 +12,25 @@ from app.services.llm.provider_budget import ProviderBudgetError
 from app.services.rardar_llm_control import RardarLLMScene
 
 
+def test_preview_attaches_existing_budget_identity_without_new_allowance(tmp_path, monkeypatch):
+    original, preview = tmp_path / "original", tmp_path / "preview"
+    original.mkdir()
+    preview.mkdir()
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(daily.settings, "RARDAR_BUDGET_IDENTITY_DATA_DIR", "")
+    monkeypatch.setattr(daily.settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(original))
+    existing = daily.daily_ledger(100)
+    original_root = daily.daily_root()
+    monkeypatch.setattr(daily.settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(preview))
+    monkeypatch.setattr(daily.settings, "RARDAR_BUDGET_IDENTITY_DATA_DIR", str(original))
+    assert daily.daily_root() == original_root
+    assert daily.daily_ledger(100).snapshot() == existing.snapshot()
+    assert len(list((tmp_path / "TopicEye" / "daily-provider-budget").iterdir())) == 1
+    monkeypatch.setattr(daily.settings, "RARDAR_BUDGET_IDENTITY_DATA_DIR", str(preview))
+    with pytest.raises((ProviderBudgetError, OSError, ValueError)):
+        daily.daily_root()
+
+
 @pytest.mark.asyncio
 async def test_actual_dispatch_shares_cap_across_scenes_and_disables_sdk_retries(tmp_path, monkeypatch):
     monkeypatch.setattr(daily, "daily_root", lambda: tmp_path / "daily")

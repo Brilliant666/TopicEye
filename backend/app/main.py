@@ -247,12 +247,15 @@ async def lifespan(app: FastAPI):
     # Post-migration: ensure PG sequences are >= max(id).
     # Historical data imports (COPY / explicit-id INSERT) can leave SERIAL
     # sequences stale, causing UniqueViolationError on subsequent inserts.
-    try:
-        from app.core.sequence_health import ensure_sequences_synced
+    if settings.STARTUP_SEQUENCE_SYNC_ENABLED:
+        try:
+            from app.core.sequence_health import ensure_sequences_synced
 
-        await ensure_sequences_synced()
-    except Exception as exc:
-        logger.warning("Sequence sync check failed (non-fatal): %s", exc)
+            await ensure_sequences_synced()
+        except Exception as exc:
+            logger.warning("Sequence sync check failed (non-fatal): %s", exc)
+    else:
+        logger.info("Startup sequence synchronization skipped by config")
 
     # Slow query listener (SQL > 1s log warning, > 5s alert webhook)
     try:

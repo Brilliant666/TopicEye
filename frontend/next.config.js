@@ -8,8 +8,14 @@ const {
 
 const backendApiUrl = process.env.BACKEND_API_URL || 'http://127.0.0.1:8102';
 const activeProductProfile = resolveProductProfile(process.env.RARDAR_PRODUCT_MODE);
+const isolatedPreview = process.env.RARDAR_ISOLATED_PREVIEW;
+if (isolatedPreview && !['true', 'false'].includes(isolatedPreview)) {
+  throw new Error('RARDAR_ISOLATED_PREVIEW must be true or false');
+}
 
 const nextConfig = {
+  // The managed branch preview must not replace a currently served .next build.
+  distDir: isolatedPreview === 'true' ? '.next-preview' : '.next',
   reactStrictMode: true,
   compress: true,
   poweredByHeader: false,

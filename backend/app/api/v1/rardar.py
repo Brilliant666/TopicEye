@@ -11,6 +11,7 @@ from app.api.v1.auth import get_current_admin_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.product_profile import is_rardar_product
+from app.core.rardar_scope import RardarModulePaused, require_module_execution
 from app.integrations.rardar import ExplosionBoardResponse, RardarArtifactError
 from app.integrations.rardar.discover_serving_schemas import DiscoverApiResponse, DiscoverProjectDetail
 from app.integrations.rardar.selection_schemas import SelectionApiResponse, SelectionProjectDetail
@@ -51,6 +52,61 @@ from app.services.rardar_product import (
 
 router = APIRouter(prefix="/rardar", tags=["rardar"])
 
+
+@router.get("/trending-today")
+async def trending_today(response: Response):
+    from app.services import rardar_trending
+
+    if not is_rardar_product():
+        raise HTTPException(status_code=404, detail="Not found")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return rardar_trending.today()
+    except (ValueError, OSError):
+        raise HTTPException(status_code=503, detail="trending_snapshot_invalid") from None
+
+
+@router.get("/historical-hot")
+async def historical_hot(response: Response):
+    from app.services import rardar_trending
+
+    if not is_rardar_product():
+        raise HTTPException(status_code=404, detail="Not found")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return rardar_trending.history()
+    except (ValueError, OSError):
+        raise HTTPException(status_code=503, detail="historical_snapshot_invalid") from None
+
+
+@router.get("/trending-projects/{project_id}")
+async def trending_project(project_id: str, generation: str = Query(min_length=1, max_length=128)):
+    from app.services import rardar_trending
+
+    if not is_rardar_product():
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        return rardar_trending.detail(project_id, generation)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="project_not_found") from None
+    except (ValueError, OSError):
+        raise HTTPException(status_code=503, detail="trending_snapshot_invalid") from None
+
+
+@router.get("/historical-projects/{project_id}")
+async def historical_project(project_id: str):
+    from app.services import rardar_trending
+
+    if not is_rardar_product():
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        return rardar_trending.detail(project_id, None, historical=True)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="project_not_found") from None
+    except (ValueError, OSError):
+        raise HTTPException(status_code=503, detail="historical_snapshot_invalid") from None
+
+
 _SERVING_CACHE_CONTROL = "private, max-age=15, stale-while-revalidate=45"
 
 
@@ -58,6 +114,13 @@ def _cache_headers(response: Response, etag: str) -> None:
     response.headers["ETag"] = etag
     response.headers["Cache-Control"] = _SERVING_CACHE_CONTROL
     response.headers["Vary"] = "Accept"
+
+
+def _require_active_module(module: str) -> None:
+    try:
+        require_module_execution(module)
+    except RardarModulePaused as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code}) from None
 
 
 def _not_modified(request: Request, etag: str) -> Response | None:
@@ -143,6 +206,7 @@ async def news_operation_start(
 ):
     if not is_rardar_product() or settings.is_production:
         raise HTTPException(status_code=404, detail="Not found")
+    _require_active_module("news")
     # Cookie auth needs an explicit same-origin browser request. Bearer clients
     # retain the existing CLI/API authentication contract; localhost is not auth.
     if not request.headers.get("authorization"):
@@ -189,6 +253,7 @@ async def discover_operation_prepare(
 ):
     if not is_rardar_product() or settings.is_production:
         raise HTTPException(status_code=404, detail="Not found")
+    _require_active_module("discover")
     if not request.headers.get("authorization") and (
         request.headers.get("origin") not in settings.cors_origins
         or request.headers.get("sec-fetch-site") == "cross-site"
@@ -207,6 +272,7 @@ async def discover_operation_start(
 ):
     if not is_rardar_product() or settings.is_production:
         raise HTTPException(status_code=404, detail="Not found")
+    _require_active_module("discover")
     if not request.headers.get("authorization") and (
         request.headers.get("origin") not in settings.cors_origins
         or request.headers.get("sec-fetch-site") == "cross-site"
@@ -497,6 +563,7 @@ async def discover_project_insight(
 ) -> ProjectExplanationResponse:
     if not is_rardar_product():
         raise HTTPException(status_code=404, detail="Not found")
+    _require_active_module("discover")
     try:
         return await explain_discover_project_by_id(github_repository_id, payload.generationId)
     except RardarProductError as exc:

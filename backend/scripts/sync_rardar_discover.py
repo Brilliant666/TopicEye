@@ -12,6 +12,9 @@ from scripts.rebuild_rardar_serving import real_profile_provider
 
 
 def main() -> int:
+    from app.core.rardar_scope import require_module_execution
+
+    require_module_execution("discover")
     parser = argparse.ArgumentParser(description="Sync one audited Rardar Discover generation")
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--host", default="rardar-prod")

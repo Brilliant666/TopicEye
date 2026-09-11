@@ -193,4 +193,4 @@ def test_runtime_wiring_uses_audited_loader_and_preserves_production_mode() -> N
     assert "selectionSource = $selectionSource" in source
     assert '$frontendEnvironment = @{\n            NODE_ENV = "production"' in source
     assert "& $Node $next build --webpack" in source
-    assert '@($next, "start", "--hostname", "127.0.0.1", "--port", "3000")' in source
+    assert 'Start-AppProcess $Node @("`"$next`"", "start", "--hostname", "127.0.0.1", "--port", "3000")' in source

@@ -45,13 +45,10 @@ describe('product profile contract', () => {
 
   it('keeps the approved navigation in one ordered contract', () => {
     expect(RARDAR_NAVIGATION).toEqual([
-      { href: '/', label: '今日' },
-      { href: '/news', label: '热点资讯' },
-      { href: '/activity', label: '动态' },
-      { href: '/discover', label: '发现' },
+      { href: '/', label: '今日热榜' },
+      { href: '/historical-hot', label: '历史热门' },
       { href: '/find', label: '找项目' },
-      { href: '/candidates', label: '候选池' },
-      { href: '/watchlist', label: '观察列表' },
+      { href: '/activity', label: '动态' },
     ]);
   });
 

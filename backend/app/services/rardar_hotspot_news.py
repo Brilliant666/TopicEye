@@ -709,6 +709,9 @@ async def refresh_hotspot_news(
     *,
     definitions: tuple[HotspotNewsSourceDefinition, ...] = HOTSPOT_NEWS_SOURCES,
 ) -> HotspotNewsRefreshResult:
+    from app.core.rardar_scope import require_module_execution
+
+    require_module_execution("news")
     with news_writer():
         return await _refresh_hotspot_news(db, definitions=definitions)
 

@@ -85,8 +85,18 @@ def _yield_work(code: str):
 
 def daily_root() -> Path:
     home = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / ".local" / "state"))
-    identity = hashlib.sha256(str(Path(settings.RARDAR_INTELLIGENCE_DATA_DIR).absolute()).encode()).hexdigest()[:20]
-    return home / "TopicEye" / "daily-provider-budget" / identity
+    binding = settings.RARDAR_BUDGET_IDENTITY_DATA_DIR
+    data = Path(binding or settings.RARDAR_INTELLIGENCE_DATA_DIR)
+    identity = hashlib.sha256(str(data.absolute()).encode()).hexdigest()[:20]
+    root = home / "TopicEye" / "daily-provider-budget" / identity
+    if binding:
+        # A preview must attach to an existing identity, never silently mint
+        # a second budget after a typo or a missing runtime directory.
+        plain(data)
+        plain(root)
+        if not data.is_absolute() or not data.is_dir() or not root.is_dir():
+            raise ProviderBudgetError("provider_budget_identity_unavailable")
+    return root
 
 
 def calendar_day(now: datetime | None = None) -> str:

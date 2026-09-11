@@ -137,6 +137,9 @@ def _binding(source, route: str) -> str:
 
 
 async def prepare_operation(payload: DiscoverPrepareRequest, *, user_id: int) -> dict:
+    from app.core.rardar_scope import require_module_execution
+
+    require_module_execution("discover")
     if not settings.RARDAR_INTELLIGENCE_DATA_DIR:
         raise ValueError("discover_not_configured")
     root = operation_root()
@@ -232,6 +235,9 @@ async def prepare_operation(payload: DiscoverPrepareRequest, *, user_id: int) ->
 
 
 async def start_operation(payload: DiscoverOperationRequest, *, user_id: int) -> dict:
+    from app.core.rardar_scope import require_module_execution
+
+    require_module_execution("discover")
     if not settings.RARDAR_INTELLIGENCE_DATA_DIR:
         raise ValueError("discover_not_configured")
     root = operation_root()

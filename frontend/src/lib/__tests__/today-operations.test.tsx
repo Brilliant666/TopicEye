@@ -26,7 +26,7 @@ describe('Today daily operator entry', () => {
     state.user = { id: 1, role: 'admin' };
     const html = renderToStaticMarkup(<RardarTodayOperations syncedAt="2026-09-09T01:00:00Z" />);
     expect(html).toContain('检查并同步榜单');
-    expect(html).toContain('不调用模型，不触发上游采集');
+    expect(html).toContain('GitHub Trending 与 Trendshift 公开日榜 · 不调用模型');
     expect(html).toContain('最近成功同步');
     expect(html).toContain('最近检查');
     expect(html).toContain('disabled'); // Status must load before an action is allowed.
@@ -54,7 +54,7 @@ describe('Today daily operator entry', () => {
     expect(html).toContain('08:00:00');
     expect(html).not.toContain('10:00:02');
     if (['failed', 'interrupted', 'not_configured'].includes(status)) expect(html).toContain('当前有效榜单保留');
-    if (status === 'no_complete_board') expect(html).toContain('当前榜单和观察窗口不变');
+    if (status === 'no_complete_board') expect(html).toContain('当前已保存内容保留');
     expect(state.request).not.toHaveBeenCalled();
   });
 

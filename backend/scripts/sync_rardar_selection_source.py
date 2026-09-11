@@ -11,6 +11,9 @@ from app.integrations.rardar.selection_source import SelectionSourceAdapter, syn
 
 
 def main() -> int:
+    from app.core.rardar_scope import require_module_execution
+
+    require_module_execution("discover")
     parser = argparse.ArgumentParser(description="Synchronize Rardar Observation + Today Selection facts")
     parser.add_argument("--target", type=Path, required=True)
     parser.add_argument("--host", default="rardar-prod")

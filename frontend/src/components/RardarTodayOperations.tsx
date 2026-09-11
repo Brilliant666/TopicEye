@@ -87,7 +87,7 @@ function AdminTodayOperations({ syncedAt, userId }: { syncedAt: string | null; u
 
   return <section className={styles.panel} aria-label="管理员榜单更新">
     <div className={styles.heading}>
-      <div><h2>榜单更新</h2><p>检查上游已发布的完整 24h 榜单 · 不调用模型，不触发上游采集</p></div>
+      <div><h2>榜单更新</h2><p>读取 GitHub Trending 与 Trendshift 公开日榜 · 不调用模型</p></div>
       <div className={styles.actions}><button type="button" disabled={!ready || sending || active} onClick={() => void start()}>
         {pendingId && !sending ? '确认上次同步结果' : '检查并同步榜单'}
       </button></div>
@@ -108,7 +108,7 @@ export function TodayOperationResult({ operation }: { operation: TodayOperation 
     <strong>{todayOperationLabel(operation.status)}</strong>
     {operation.status === 'running' && <p>可以继续阅读；刷新页面后仍可查看结果，旧有效榜单会保留到验证通过。</p>}
     {['failed', 'interrupted', 'not_configured'].includes(operation.status) && <p>当前有效榜单保留，未自动重试。请检查已有只读同步配置或稍后重试。</p>}
-    {operation.status === 'no_complete_board' && <p>上游尚无可替换的完整 24h 榜单，当前榜单和观察窗口不变。</p>}
+    {operation.status === 'no_complete_board' && <p>来源尚无可替换的有效榜单，当前已保存内容保留。</p>}
     {operation.result?.window && <p>来源观察窗口（北京时间）：{timeLabel(operation.result.window.startedAt)} → {timeLabel(operation.result.window.endedAt)}</p>}
   </div>;
 }

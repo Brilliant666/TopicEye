@@ -85,6 +85,59 @@ async def test_daily_status_only_exposes_safe_summary(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_admin_get_reports_actual_material_settings_without_starting_work(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    import httpx
+    from fastapi import FastAPI
+
+    from app.api.v1.auth import get_current_admin_user
+    from app.api.v1.scheduler import router
+    from app.core.config import settings
+    from app.services import rardar_daily_operations, rardar_trending
+    from app.services.llm import daily_provider_budget
+
+    @asynccontextmanager
+    async def session():
+        yield object()
+
+    monkeypatch.setattr(settings, "RARDAR_HISTORICAL_DAILY_LIMIT", 7)
+    monkeypatch.setattr(
+        settings, "__pydantic_fields_set__", settings.model_fields_set | {"RARDAR_HISTORICAL_DAILY_LIMIT"}
+    )
+    monkeypatch.setattr(job_tracker, "async_session", session)
+    monkeypatch.setattr(daily_provider_budget, "daily_budget_status", AsyncMock(return_value={"configuredLimit": 100}))
+    monkeypatch.setattr(rardar_daily_operations, "latest_status", lambda: {})
+    collector = AsyncMock(side_effect=AssertionError("admin GET must not collect"))
+    monkeypatch.setattr(rardar_trending, "_collect_project_material", collector)
+    app = FastAPI()
+    app.include_router(router)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        denied = await client.get("/scheduler/rardar-daily-config")
+        assert denied.status_code in {401, 403}
+        app.dependency_overrides[get_current_admin_user] = lambda: object()
+        response = await client.get("/scheduler/rardar-daily-config")
+    assert response.status_code == 200
+    value = response.json()["materialExecution"]
+    assert value["historicalDailyNewProjectLimit"] == 7  # not a hard-coded default 3
+    assert value["historicalLimitUnit"] == "new_historical_projects_per_day"
+    assert value["historicalLimitSource"] == "explicit_settings_input"
+    assert value["todayDailyProjectLimit"] is None
+    assert value["serverProcessId"] > 0
+    assert set(value) == {
+        "historicalDailyNewProjectLimit",
+        "historicalLimitUnit",
+        "historicalLimitSource",
+        "todayDailyProjectLimit",
+        "projectSliceLimit",
+        "providerSliceRequestLimit",
+        "failureRetryLimit",
+        "serverProcessId",
+    }
+    collector.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_control_requires_admin_and_cookie_origin(monkeypatch):
     import httpx
     from fastapi import FastAPI

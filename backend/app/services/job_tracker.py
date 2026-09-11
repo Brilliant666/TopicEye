@@ -131,6 +131,21 @@ async def daily_config_status(
         "currentPublishedAt",
         "attemptGenerationId",
         "attemptedAt",
+        "refreshed",
+        "remaining",
+        "checkedToday",
+        "checkedHistorical",
+        "todayPending",
+        "historicalPending",
+        "historicalAdmitted",
+        "historicalNewAdmitted",
+        "historicalDailyNewProjectLimit",
+        "projectSliceLimit",
+        "providerSliceRequestLimit",
+        "providerRequests",
+        "visited",
+        "failedAttempts",
+        "unclassifiedAttempts",
     }
     summary = {key: state.get(key) for key in ("status", "startedAt", "completedAt")}
     summary["modules"] = {
@@ -146,7 +161,9 @@ async def daily_config_status(
         if key in {"sliceRequestLimit", "interactiveReserve", "preMorningBackgroundLimit", "workSlices", "waitReason"}
         and isinstance(value, str | int | type(None))
     }
-    return {**usage, "dailyStatus": summary}
+    from app.services.rardar_trending import material_execution_settings
+
+    return {**usage, "dailyStatus": summary, "materialExecution": material_execution_settings()}
 
 
 async def control_rardar_daily_job(action: str) -> dict:

@@ -27,6 +27,7 @@ import type { DiscoverProjectDetail } from '@/lib/rardar-discover';
 import { boardTime, safeSourceUrl, type TrendingDetail } from '@/lib/rardar-trending';
 import styles from './RardarFoundation.module.css';
 import RardarProjectExplanation from './RardarProjectExplanation';
+import RardarGrowthFacts from './RardarGrowthFacts';
 
 export default function RardarProjectDetailPage({ detail, historical = false }: { detail: ProjectDetail | DiscoverProjectDetail | TrendingDetail; historical?: boolean }) {
   const trendingDetail = 'repository' in detail ? detail : null;
@@ -137,11 +138,17 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
       <div className={styles.detailFlow} data-testid="project-detail-flow">
         {discoverDetail && <DiscoverFactContext detail={discoverDetail} />}
 
-        {profile.positioningZh || profile.coreValueZh ? <section className={styles.detailCoreValue} data-testid="project-official-positioning">
-          <div className={styles.sectionKicker}><Sparkles size={16} /> 核心定位 · {positioningLabel}</div>
-          <h2>{profile.positioningZh || profile.coreValueZh}</h2>
-          <EvidenceBadges values={profile.positioningZh ? profile.positioningEvidenceRefs : profile.coreValueEvidenceRefs} />
-        </section> : <p className={styles.projectDescription}>核心定位暂未补齐，可先查看真实上榜资料和原仓库。</p>}
+        {profile.coreValueZh && <section className={styles.detailCoreValue} data-testid="project-core-value">
+          <div className={styles.sectionKicker}><Sparkles size={16} /> 核心价值 · Rardar 解读</div>
+          <h2>{profile.coreValueZh}</h2>
+          <EvidenceBadges values={profile.coreValueEvidenceRefs} />
+        </section>}
+        {profile.positioningZh && profile.positioningZh !== profile.coreValueZh && <section className={styles.detailPositioning} data-testid="project-official-positioning">
+          <div className={styles.sectionKicker}><BookOpen size={16} /> 项目定位 · {positioningLabel}</div>
+          <p>{profile.positioningZh}</p>
+          <EvidenceBadges values={profile.positioningEvidenceRefs} />
+        </section>}
+        {!profile.coreValueZh && !profile.positioningZh && <p className={styles.projectDescription}>核心定位暂未补齐，可先查看真实上榜资料和原仓库。</p>}
 
         {presentedCapabilities.length > 0 ? (
           <DetailSection
@@ -169,7 +176,7 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
             <div className={styles.sectionKicker}><Gauge size={16} /> Rardar 决策与采用</div>
             <h2>从“看懂项目”进入“是否值得复用”</h2>
             <p>AI 只分析差异、可复用资产、成本、适合场景和落地边界；项目身份、官方能力与{trendingDetail ? '来源榜单记录' : isDiscover ? '发现阶段和事实顺序' : '今日名次'}不由模型改写。读取资料不代表已经运行验证。</p>
-            {profile.rardarAssessmentZh && (
+            {profile.rardarAssessmentZh && profile.rardarAssessmentZh !== profile.coreValueZh && (
               <div className={styles.rardarAssessment} data-testid="rardar-assessment">
                 <span>Rardar 判断</span>
                 <strong>{profile.rardarAssessmentZh}</strong>
@@ -291,20 +298,20 @@ function TrendingHeroFacts({ detail, historical }: { detail: TrendingDetail; his
   const trendshift = detail.appearances.find(item => item.source === 'trendshift');
   const rardarHistory = detail.historicalRardarEvidence?.[0];
   const externalHistory = detail.historicalEvidence?.[0];
-  return <dl className={styles.heroFactPair} aria-label={historical ? '历史上榜事实' : '双榜来源事实'}>
+  return <div className={styles.trendingHeroFacts} aria-label={historical ? '历史上榜事实' : '双榜来源事实'}><dl className={styles.sourceRankFacts}>
     {historical ? rardarHistory ? <Fact label="Rardar 历史榜名次" value={`#${rardarHistory.rank}`} /> : externalHistory ? <Fact label="来源报告历史上榜" value={`${externalHistory.reportedAppearanceCount} 次`} /> : <Fact label="已保存历史榜单" value={`${detail.historyAppearances ?? detail.appearances.length} 次`} /> : <>
       {github && <Fact label="GitHub Trending" value={`#${github.rank}`} />}
       {trendshift && <Fact label="Trendshift 日榜" value={`#${trendshift.rank}`} />}
     </>}
-    {detail.totalStars !== null && <Fact label="累计 Star" value={formatNumber(detail.totalStars)} accent />}
-  </dl>;
+    </dl><RardarGrowthFacts project={detail} historical={historical} />
+  </div>;
 }
 
 function TrendingFactContext({ detail, historical }: { detail: TrendingDetail; historical: boolean }) {
   return <section className={styles.observationFacts} data-testid="project-trending-facts">
     <header><Star size={17} /><div><h2>{historical ? '历史上榜依据' : '来源榜单事实'}</h2><p>名次与指标保留各来源语义；资料解读不改变榜单事实。</p></div></header>
     <dl>
-      {detail.appearances.map(item => <Fact key={`${item.source}-${item.sourceDate}`} label={`${item.source === 'github' ? 'GitHub Trending' : 'Trendshift'} 日榜`} value={`#${item.rank} · ${boardTime(item.sourceDate)} · 采集 ${boardTime(item.fetchedAt)}${item.reportedDelta !== null ? ` · 来源报告周期增长 +${formatNumber(item.reportedDelta)}` : ''}`} />)}
+      {detail.appearances.map(item => <Fact key={`${item.source}-${item.sourceDate}-${item.fetchedAt}`} label={`${item.source === 'github' ? 'GitHub Trending' : 'Trendshift'} 日榜`} value={`#${item.rank} · ${boardTime(item.sourceDate)} · 采集 ${boardTime(item.fetchedAt)}`} />)}
       {historical && detail.firstSeenAt && <Fact label="本地最早采集" value={boardTime(detail.firstSeenAt)} />}
       {detail.displayProfile?.generatedAt && <Fact label="项目资料生成时间" value={boardTime(detail.displayProfile.generatedAt)} />}
     </dl>

@@ -185,15 +185,14 @@ async def test_today_newcomer_and_historical_backlog_share_bounded_work(tmp_path
     monkeypatch.setattr(service, "project_material", lambda *_: {"profile": {"summary": "fixture"}})
     progress = {}
     first = await service.historical_work(tmp_path, progress, lambda: None)
-    assert first["processed"] == 1
+    assert first["processed"] == 2
     assert first["checkedToday"] == first["checkedHistorical"] == 1
-    assert collector.await_args.args[0].repository == "current/new-repo"
-    second = await service.historical_work(tmp_path, progress, lambda: None)
-    assert second["processed"] == 0  # same day's allowance was not reset
-    assert collector.await_count == 1
-    # Normal next-day progress, persistent rotation; not a new Provider ledger.
-    await service.historical_work(tmp_path, {}, lambda: None)
-    assert collector.await_args.args[0].repository == "archive/huge-project"
+    assert [call.args[0].repository for call in collector.await_args_list] == [
+        "current/new-repo",
+        "archive/huge-project",
+    ]
+    assert first["historicalAdmitted"] == 1  # Today does not consume historical admission
+    assert len(progress["materialWork"]["projects"]) == 2
 
 
 @pytest.mark.asyncio
@@ -249,7 +248,9 @@ async def test_explicit_one_project_enters_existing_budget_collector_and_then_re
     second = await service.generate_project_material(tmp_path, identifier)
     assert second["status"] == "reused"
     assert budget.await_count == collector.await_count == 1
-    assert not (tmp_path / "trending-boards" / "material-work.json").exists()
+    assert (tmp_path / "trending-boards" / "material-work.json").exists()
+    state = next((tmp_path / "existing-operations").glob("*-refocus-v1.json"))
+    assert store.read_json(state)["progress"]["historical"]["materialWork"]["projects"]
 
 
 @pytest.mark.asyncio

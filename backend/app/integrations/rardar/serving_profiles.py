@@ -1754,15 +1754,126 @@ def _evidence_labels(
     rules: tuple[tuple[str, str], ...],
     *,
     maximum: int,
+    trait_kind: str | None = None,
 ) -> list[EvidenceClaim]:
     result: list[EvidenceClaim] = []
     for label, pattern in rules:
-        references = _matching_refs(evidence_index, pattern)
+        references = (
+            _trait_matching_refs(evidence_index, pattern, label, trait_kind)
+            if trait_kind
+            else _matching_refs(evidence_index, pattern)
+        )
         if references:
             result.append(EvidenceClaim(text=label, evidenceRefs=references))
         if len(result) >= maximum:
             break
     return result
+
+
+def _trait_matching_refs(evidence_index: dict[str, str], pattern: str, label: str, kind: str) -> list[str]:
+    """Taxonomy describes this repository, not its dependencies or indexed items.
+
+    This is a conservative attribution filter over original evidence, not an AI
+    classification stage. Unknown ownership produces no label.
+    """
+    identity = " ".join(
+        text
+        for ref, text in evidence_index.items()
+        if ref == "description" or ref == "readme:section:1" or ref == "readme:narrative:positioning"
+    )
+    collection = bool(
+        re.search(
+            r"awesome\s+lists?|(?:collection|compilation|curated\s+list|collective\s+list).{0,100}"
+            r"(?:tutorial|guide|resource|librar|project|api|list)|教程合集|资源清单|清单合集|指南合[集辑]",
+            identity,
+            re.IGNORECASE,
+        )
+    )
+    matcher = re.compile(pattern, re.IGNORECASE)
+    refs = []
+    for ref, text in evidence_index.items():
+        if ref == "repository" or ref.startswith("documented-path:"):
+            continue
+        body = re.sub(r"^[^\n]{0,180}\.md(?:#[^:]+)?:\s*", "", text, flags=re.IGNORECASE)
+        for match in matcher.finditer(body):
+            focus = (
+                re.search(r"\b" + re.escape(label) + r"\b", match.group(), re.IGNORECASE)
+                if label in {"PNG", "SVG", "WebM", "API", "SDK"}
+                else None
+            )
+            focus_start = match.start() + focus.start() if focus else match.start()
+            focus_end = match.start() + focus.end() if focus else match.end()
+            left = list(
+                re.finditer(
+                    r"[.!?。；;]\s+|[。；]|\b(?:but|however)\s+|但是|但(?:是)?", body[:focus_start], re.IGNORECASE
+                )
+            )
+            start = left[-1].end() if left else 0
+            right = re.search(
+                r"[.!?。；;]\s+|[。；]|\b(?:but|however)\s+|但是|但(?:是)?", body[focus_end:], re.IGNORECASE
+            )
+            end = focus_end + right.start() if right else len(body)
+            before = body[start:focus_start]
+            clause = body[start:end]
+            if kind == "environment" and label == "Linux" and re.match(r"\s+DO\b", body[focus_end:], re.IGNORECASE):
+                continue  # community/site name, not a supported operating system
+            if (
+                kind == "form"
+                and label == "工作流"
+                and re.search(
+                    r"workflow(?:[\s,]+(?:and\s+)?(?:architecture|sequence|data-flow|lifecycle)){0,5}[\s,]+(?:and\s+)?diagrams?|工作流图",
+                    clause,
+                    re.IGNORECASE,
+                )
+            ):
+                continue  # diagram subject, not the repository's delivery form
+            if re.search(r"\bneither\b|(?:不支持|不提供|不能导出)", clause, re.IGNORECASE):
+                continue
+            if re.match(
+                r"\s+(?:is|are)\s+not\s+(?:supported|provided|available|included)\b", body[focus_end:end], re.IGNORECASE
+            ):
+                continue
+            # Do not let negation in another sentence veto an affirmative trait.
+            if re.search(
+                r"\b(?:no|without|not\s+(?:a|an|the)|isn't|does\s+not|don't|doesn't)\s+(?:\w+\s+){0,3}$|"
+                r"\bnot\s+$|(?:不是|并非|不提供|不支持|无需|没有)[^，。；]{0,16}$",
+                before,
+                re.IGNORECASE,
+            ):
+                continue
+            if kind in {"form", "delivery"}:
+                if label == "CLI" and re.search(r"\b(?:Codex|Gemini)\s+$", before, re.IGNORECASE):
+                    continue
+                if label in {"CLI", "SDK", "插件", "类库", "框架", "服务", "云服务", "本地服务", "API"} and re.search(
+                    r"\b(?:built\s+(?:with|on)|uses|(?:we|it)\s+use|depends?\s+on|consumes?|requires?)\b"
+                    r"[^.;。；]{0,60}$|(?:(?<!零)依赖|使用第三方)[^，。；]{0,24}$",
+                    before,
+                    re.IGNORECASE,
+                ):
+                    continue
+            own_statement = bool(
+                re.search(
+                    r"(?:this\s+(?:repository|project|tool)|we|our\s+(?:tool|project))\s+"
+                    r"(?:also\s+)?(?:provides?|ships?|includes?|offers?|supports?)\b|"
+                    r"(?:本项目|本仓库|本工具)(?:还)?(?:提供|交付|支持|包含)",
+                    clause,
+                    re.IGNORECASE,
+                )
+            )
+            if re.search(
+                r"\b(?:provides?|includes?|offers?)\s+(?:\w+\s+){0,2}(?:tutorials?|guides?|resources?|examples?)\b|"
+                r"(?:提供|包含).{0,12}(?:教程|指南|示例|资源)",
+                before,
+                re.IGNORECASE,
+            ):
+                own_statement = False
+            if collection and label not in {"Awesome List", "知识资产"} and not own_statement:
+                continue
+            if re.search(r"#(?:build-your-own|tutorials?)(?:\b|:)", text, re.IGNORECASE) and not own_statement:
+                continue
+            refs.append(ref)
+            break
+    return list(dict.fromkeys(refs))[:5]
 
 
 _PRODUCT_FORM_RULES: tuple[tuple[str, str], ...] = (
@@ -1783,7 +1894,7 @@ _PRODUCT_FORM_RULES: tuple[tuple[str, str], ...] = (
     ("工作流", r"\bworkflow\b|工作流"),
     ("模板", r"\btemplate\b|模板"),
     ("数据集", r"\bdataset\b|数据集"),
-    ("Awesome List", r"\bawesome\s+(?:list|collection)\b|collective\s+list|资源清单"),
+    ("Awesome List", r"\bawesome\s+(?:lists?|collection)\b|collective\s+list|资源清单"),
     ("知识资产", r"\b(?:tutorial|knowledge base)\b|教程|知识库"),
     ("开发工具", r"\bdeveloper\s+tool\b|开发工具"),
 )
@@ -1866,9 +1977,9 @@ def _structured_traits(
     list[EvidenceClaim],
 ]:
     return (
-        _evidence_labels(evidence_index, _PRODUCT_FORM_RULES, maximum=4),
-        _evidence_labels(evidence_index, _ENVIRONMENT_RULES, maximum=10),
-        _evidence_labels(evidence_index, _DELIVERY_FORM_RULES, maximum=8),
+        _evidence_labels(evidence_index, _PRODUCT_FORM_RULES, maximum=6, trait_kind="form"),
+        _evidence_labels(evidence_index, _ENVIRONMENT_RULES, maximum=12, trait_kind="environment"),
+        _evidence_labels(evidence_index, _DELIVERY_FORM_RULES, maximum=8, trait_kind="delivery"),
         _evidence_labels(evidence_index, _USE_CASE_RULES, maximum=4),
     )
 

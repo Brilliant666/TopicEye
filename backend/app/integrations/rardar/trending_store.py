@@ -106,7 +106,7 @@ def validate_source(source: dict) -> None:
         rank = item["rank"]
         if repo in repos or type(rank) is not int or rank < 1 or rank in ranks:
             raise ValueError("trending_duplicate_identity_or_rank")
-        for key in ("totalStars", "reportedDelta", "githubRepositoryId"):
+        for key in ("totalStars", "reportedDelta", "trendshiftStarsGained", "githubRepositoryId"):
             value = item.get(key)
             if value is not None and (type(value) is not int or value < (1 if key == "githubRepositoryId" else 0)):
                 raise ValueError("trending_metric_invalid")
@@ -153,10 +153,11 @@ def _generation(root: Path, generation: str) -> dict:
 
 def load_snapshot(target: Path, generation: str | None = None) -> dict:
     root = _root(target)
-    pointer = read_json(root / "current.json") if generation is None else None
+    pointer = read_json(root / "current.json")
     if generation is None and not pointer:
         return {
             "schemaVersion": 1,
+            "metricSchemaVersion": 2,
             "generationId": None,
             "publishedAt": None,
             "checkedAt": None,
@@ -168,7 +169,9 @@ def load_snapshot(target: Path, generation: str | None = None) -> dict:
     value = _generation(root, generation)
     result = deepcopy(value["projection"])
     result["generationId"] = generation
-    check = read_json(root / "last-check.json") if pointer else None
+    # The list and a detail pinned to the current generation share source health.
+    # A historical generation never inherits a later generation's source check.
+    check = read_json(root / "last-check.json") if pointer and pointer["generationId"] == generation else None
     if check:
         result["checkedAt"] = check["checkedAt"]
         # A failed latest check does not rewrite the immutable healthy snapshot.
@@ -176,18 +179,12 @@ def load_snapshot(target: Path, generation: str | None = None) -> dict:
         for source in result["sources"]:
             if source["source"] in errors:
                 source.update(status="stale" if source["count"] else "failed", errorCode=errors[source["source"]])
-    now = datetime.now(UTC)
     for source in result["sources"]:
-        if source.get("fetchedAt") and now - datetime.fromisoformat(source["fetchedAt"]) > timedelta(hours=30):
-            source["status"] = "stale"
-        if (
-            source.get("sourceDate")
-            and source["sourceDate"] < now.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat()
-        ):
-            source["status"] = "stale"
+        source["status"] = _source_status(source, source["status"])
     healthy = {s["source"] for s in result["sources"] if s["status"] == "healthy"}
     for project in result["projects"]:
         project["dualListed"] = project["dualListed"] and len(healthy) == 2
+    _apply_display_metrics(result, value["captures"])
     return result
 
 
@@ -223,7 +220,70 @@ def _appearance(item: dict, source: dict) -> dict:
     }
 
 
+def _source_status(source: dict, status: str) -> str:
+    now = datetime.now(UTC)
+    if source.get("fetchedAt") and now - datetime.fromisoformat(source["fetchedAt"]) > timedelta(hours=30):
+        return "stale"
+    if source.get("sourceDate") and source["sourceDate"] < now.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat():
+        return "stale"
+    return status
+
+
+def _metric_appearance(item: dict, source: dict, status: str) -> dict:
+    """Display v2 only: never change v1 immutable facts or their validation."""
+    return {
+        **_appearance(item, source),
+        "totalStars": item.get("totalStars"),
+        "sourceStatus": _source_status(source, status),
+        "trendshiftStarsGainedLabel": item.get("trendshiftStarsGainedLabel"),
+        "trendshiftMetricPeriod": item.get("trendshiftMetricPeriod"),
+    }
+
+
+def _select_total_stars(project: dict, candidates: list[dict]) -> None:
+    available = [item for item in candidates if type(item.get("totalStars")) is int and item["totalStars"] >= 0]
+    if not available:
+        project.update(totalStars=None, totalStarsSource=None)
+        return
+    selected = min(
+        available,
+        key=lambda item: (
+            item["sourceStatus"] != "healthy",
+            -datetime.fromisoformat(item["fetchedAt"]).timestamp(),
+            list(SOURCES).index(item["source"]),
+        ),
+    )
+    project.update(
+        totalStars=selected["totalStars"],
+        totalStarsSource={
+            "source": selected["source"],
+            "sourceDate": selected.get("sourceDate"),
+            "fetchedAt": selected["fetchedAt"],
+            "status": selected["sourceStatus"],
+        },
+    )
+
+
+def _apply_display_metrics(snapshot: dict, captures: list[dict]) -> None:
+    """Project verified capture metrics without changing union, ordering or disk."""
+    statuses = {source["source"]: source["status"] for source in snapshot["sources"]}
+    by_source = {
+        source["source"]: (source, {canonical_repository(item["repository"]): item for item in source["entries"]})
+        for source in captures
+    }
+    for project in snapshot["projects"]:
+        appearances = []
+        for old in project["appearances"]:
+            source, entries = by_source[old["source"]]
+            appearances.append(_metric_appearance(entries[project["repository"]], source, statuses[old["source"]]))
+        project["appearances"] = appearances
+        _select_total_stars(project, appearances)
+    snapshot["metricSchemaVersion"] = 2
+
+
 def merge_sources(captures: list[dict], statuses: dict[str, str]) -> list[dict]:
+    # Persisted v1 contract. New display fields and cumulative-value selection
+    # belong to _apply_display_metrics after this version has been verified.
     ordered = sorted(captures, key=lambda x: list(SOURCES).index(x["source"]))
     rows = [sorted(source["entries"], key=lambda x: x["rank"]) for source in ordered]
     projects: dict[str, dict] = {}
@@ -377,7 +437,9 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
     root = _root(target) / "captures"
     plain(root, missing=True)
     projects: dict[str, dict] = {}
-    seen: dict[str, set[tuple]] = {}
+    seen: dict[str, dict[tuple, dict]] = {}
+    total_candidates: dict[str, list[dict]] = {}
+    current_statuses = {source["source"]: source["status"] for source in current["sources"]}
     archive = _root(target) / "historical-evidence"
     plain(archive, missing=True)
     for path in sorted(archive.glob("*.json")) if archive.exists() else []:
@@ -411,7 +473,16 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
                     }
                 ],
             }
-            seen[key] = set()
+            seen[key] = {}
+            total_candidates[key] = [
+                {
+                    "source": record["source"],
+                    "sourceDate": None,
+                    "fetchedAt": record["fetchedAt"],
+                    "sourceStatus": _source_status(record, "healthy"),
+                    "totalStars": item.get("totalStars"),
+                }
+            ]
     for path in sorted(root.glob("*.json")) if root.exists() else []:
         capture = read_json(path)
         if not capture or path.stem != digest(capture):
@@ -422,22 +493,37 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
             if key not in projects:
                 projects[key] = _project(item, capture)
                 projects[key]["appearances"] = []
-                seen[key] = set()
+                seen[key] = {}
+                total_candidates[key] = []
             occurrence = (
                 capture["source"],
                 capture.get("sourceDate") or capture.get("captureDate", capture["fetchedAt"][:10]),
             )
-            if occurrence not in seen[key]:
-                seen[key].add(occurrence)
-                projects[key]["appearances"].append(_appearance(item, capture))
+            appearance = _metric_appearance(item, capture, current_statuses.get(capture["source"], "healthy"))
+            total_candidates[key].append(appearance)
+            previous = seen[key].get(occurrence)
+            if previous is None or datetime.fromisoformat(appearance["fetchedAt"]) > datetime.fromisoformat(
+                previous["fetchedAt"]
+            ):
+                seen[key][occurrence] = appearance
     for key, project in projects.items():
+        project["appearances"] = sorted(
+            seen[key].values(),
+            key=lambda item: (
+                -datetime.fromisoformat(item["fetchedAt"]).timestamp(),
+                list(SOURCES).index(item["source"]),
+            ),
+        )
+        _select_total_stars(project, total_candidates[key])
         material = (materials or {}).get(key, {})
         _apply_material(project, material)
-        times = [x["fetchedAt"] for x in [*project["appearances"], *project.get("historicalEvidence", [])]]
+        # Latest-per-day display must not move the actual first saved observation.
+        times = [x["fetchedAt"] for x in total_candidates[key]]
         project.update(historyAppearances=len(seen[key]), firstSeenAt=min(times), lastSeenAt=max(times))
     return apply_materials(
         {
             **current,
+            "metricSchemaVersion": 2,
             "projects": sorted(
                 projects.values(), key=lambda p: (p["profile"] is None, -(p["totalStars"] or 0), p["repository"])
             ),

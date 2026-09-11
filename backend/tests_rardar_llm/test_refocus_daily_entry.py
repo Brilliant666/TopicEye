@@ -126,10 +126,13 @@ async def test_paid_work_yield_retains_admission_and_intermediate_cache(isolated
     monkeypatch.setattr(service, "collect_official_project_profile", collector)
     for _ in range(3):
         await daily.run_daily_operations()
-    assert waiting_history.requests == 2
-    assert collector.await_count == 2  # real work keeps the existing two-attempt bound
+    assert waiting_history.requests == 3
+    assert collector.await_count == 3  # normal paid continuation is not a failed retry
     state = next(daily.operation_root().glob("*-refocus-v1.json"))
-    assert store.read_json(state)["progress"]["historical"]["attempts"] == {"org/a": 2}
+    record = store.read_json(state)["progress"]["historical"]["materialWork"]["projects"]["org/a"]
+    assert record["providerRequests"] == 3
+    assert record["failures"] == 0
+    assert record["status"] == "yielded"
     assert store.read_json(cache) == {"validatedStage": True}
 
 
@@ -156,11 +159,16 @@ async def test_wait_release_preserves_previous_paid_attempt_then_resumes_cache(i
     for _ in range(3):
         await daily.run_daily_operations()
         path = next(daily.operation_root().glob("*-refocus-v1.json"))
-        assert store.read_json(path)["progress"]["historical"]["attempts"] == {"org/a": 1}
+        records = store.read_json(path)["progress"]["historical"]["materialWork"]["projects"]
+        assert list(records) == ["org/a"]
+        assert records["org/a"]["providerRequests"] == 1
+        assert records["org/a"]["failures"] == 0
     final = await daily.run_daily_operations()
     assert final["modules"]["historical_hot"]["refreshed"] == 1
     assert waiting_history.requests == 1
-    assert store.read_json(path)["progress"]["historical"]["attempts"] == {"org/a": 2}
+    final_record = store.read_json(path)["progress"]["historical"]["materialWork"]["projects"]["org/a"]
+    assert final_record["providerRequests"] == 1
+    assert final_record["status"] == "completed"
 
 
 @pytest.mark.asyncio
@@ -270,7 +278,16 @@ async def test_scheduler_source_failure_preserves_previous_board(isolated, monke
 async def test_historical_admission_is_saved_before_network_and_rotates_next_day(isolated, monkeypatch):
     from app.services import rardar_llm_control
 
-    store.publish_sources(isolated, [board("github", ["org/a", "org/b"])])
+    store.import_historical_evidence(
+        isolated,
+        {
+            "source": "github",
+            "period": "historical-all-days",
+            "sourceUrl": "https://trendshift.io/github-trending-repositories",
+            "fetchedAt": datetime.now(UTC).isoformat(),
+            "entries": [{"repository": repo, "reportedAppearanceCount": 1} for repo in ("org/a", "org/b")],
+        },
+    )
     monkeypatch.setattr(settings, "RARDAR_HISTORICAL_DAILY_LIMIT", 1)
     monkeypatch.setattr(
         daily_provider_budget,
@@ -283,7 +300,7 @@ async def test_historical_admission_is_saved_before_network_and_rotates_next_day
 
     def response(request):
         repository = request.url.path.removeprefix("/repos/")
-        assert saved[-1]["attempts"][repository] == 1
+        assert saved[-1]["materialWork"]["projects"][repository]["status"] == "running"
         assert repository in store.read_json(isolated / "trending-boards/material-work.json")
         requested.append(repository)
         return httpx.Response(503)
@@ -296,10 +313,12 @@ async def test_historical_admission_is_saved_before_network_and_rotates_next_day
     assert first["failed"] == 1
     assert requested == ["org/a"]
     await service.historical_work(isolated, progress, lambda: saved.append(deepcopy(progress)))
-    assert requested == ["org/a"]  # same-day resume cannot reset allowance
+    assert requested == ["org/a", "org/a"]  # admitted project may retry, not admit a new one
+    await service.historical_work(isolated, progress, lambda: saved.append(deepcopy(progress)))
+    assert requested == ["org/a", "org/a"]  # two genuine failures retain the retry boundary
     progress = {}  # next day's operation state; rotation remains on disk
     await service.historical_work(isolated, progress, lambda: saved.append(deepcopy(progress)))
-    assert requested == ["org/a", "org/b"]
+    assert requested == ["org/a", "org/a", "org/b"]
 
 
 @pytest.mark.asyncio

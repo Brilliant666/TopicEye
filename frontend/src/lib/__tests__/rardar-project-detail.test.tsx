@@ -252,7 +252,9 @@ describe('Rardar project detail', () => {
     for (const historical of [false, true]) {
       const html = renderToStaticMarkup(<TrendingCard project={sharedDetail} generationId="boards-shared" historical={historical} />);
       expect(html).toContain(officialTaglineZh);
-      expect(html).toContain(officialPositioningZh);
+      expect(html).toContain(detail.profile.coreValueZh);
+      expect(html).toContain('核心价值 · Rardar 解读');
+      expect(html).not.toContain(officialPositioningZh);
       expect(html).toContain('Agent Skill');
       expect(html).toContain('JavaScript');
       expect(html).toContain('MIT');
@@ -382,7 +384,12 @@ describe('Rardar project detail', () => {
     expect(html).toContain('Agent Skill');
     expect(html).toContain('Claude Code');
     expect(html).toContain('独立 HTML');
-    expect(html).toContain('核心定位 · 官方中文 README');
+    expect(html).toContain('核心价值 · Rardar 解读');
+    expect(html).toContain('项目定位 · 官方中文 README');
+    const coreValueBlock = html.slice(html.indexOf('data-testid="project-core-value"'), html.indexOf('data-testid="project-official-positioning"'));
+    expect(coreValueBlock).toContain(detail.profile.coreValueZh);
+    expect(coreValueBlock).not.toContain(officialPositioningZh);
+    expect(coreValueBlock).not.toContain('官方中文 README');
     expect(html).toContain('它能做什么');
     expect(html).toContain('来源：官方中文 README · 证据：官方 README');
     expect((html.match(/data-testid="project-capability-section"/g) || [])).toHaveLength(1);
@@ -402,7 +409,7 @@ describe('Rardar project detail', () => {
     expect(html).toContain('/find?repositoryUrl=https%3A%2F%2Fgithub.com%2Ftt-a1i%2Farchify');
     expect(html).not.toContain('稳定性仍需验证');
     expect(html).toContain('官方 README');
-    expect(html.indexOf(officialPositioningZh)).toBeLessThan(html.indexOf(rardarAssessmentZh));
+    expect(html.indexOf(rardarAssessmentZh)).toBeLessThan(html.indexOf(officialPositioningZh));
     const officialBlock = html.slice(
       html.indexOf('data-testid="project-official-positioning"'),
       html.indexOf('它能做什么'),
@@ -412,7 +419,8 @@ describe('Rardar project detail', () => {
       html.indexOf('如何开始'),
     );
     expect(officialBlock).not.toContain(rardarAssessmentZh);
-    expect(adoptionBlock).toContain(rardarAssessmentZh);
+    expect(adoptionBlock).not.toContain(rardarAssessmentZh);
+    expect(html.split(rardarAssessmentZh)).toHaveLength(2);
     expect(html.indexOf('生成 AI 深度解读')).toBeLessThan(html.indexOf('如何开始'));
     expect((html.match(/用这个仓库评估我的需求/g) || [])).toHaveLength(1);
     expect((html.match(/#1/g) || [])).toHaveLength(1);

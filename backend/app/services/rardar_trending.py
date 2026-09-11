@@ -186,7 +186,10 @@ def saved_materials(target: Path) -> dict:
     found, times = {}, {}
 
     def remember(profile, evidence, *, source_kind="profile_cache", metadata=None):
+        from app.integrations.rardar.material_trait_revision import apply_saved
+
         material = project_material(profile, evidence, source_kind=source_kind, metadata=metadata)
+        material = apply_saved(target, profile, evidence, material)
         key = canonical_repository(profile.repository)
         # storedAt can change during cache migration, so it must not make an
         # older interpretation replace a newer one. Do not rewrite either date.
@@ -393,9 +396,8 @@ async def generate_project_material(target: Path, project_id: str) -> dict:
     This is not called by GET or board refresh. It fixes membership to a real
     saved current/history project and never creates an additional budget pool.
     """
-    from app.services.llm.daily_provider_budget import ProviderWorkYield, daily_execution_budget, work_slice
+    from app.services.llm.daily_provider_budget import ProviderWorkYield, calendar_day, daily_execution_budget
     from app.services.rardar_daily_operations import operation_root
-    from app.services.rardar_llm_control import resolve_rardar_route_identity
 
     materials = saved_materials(target)
     snapshot = _history_with_materials(target, materials)
@@ -416,26 +418,34 @@ async def generate_project_material(target: Path, project_id: str) -> dict:
         # The existing operation mutex prevents manual completion racing a
         # scheduled round for the same project while sharing its paid stages.
         with file_lock(root / "writer.lock", blocking=False):
-            route = await resolve_rardar_route_identity()
-            generation = snapshot["generationId"] or f"historical-material-{_digest(project)[:32]}"
-            async with httpx.AsyncClient(
-                base_url="https://api.github.com",
-                timeout=12,
-                follow_redirects=False,
-                trust_env=False,
-                headers={"User-Agent": "TopicEye-Rardar/2.0"},
-            ) as client:
-                with work_slice(max_requests=6, background=True) as work:
-                    collected = await _collect_project_material(target, project, generation, client, route)
-            material = project_material(collected.profile, collected.evidence)
-            if collected.profile_cache_state not in {"hit", "rebound", "migrated", "rebuilt"}:
-                raise ValueError("historical_profile_not_readable")
+            # Another entry can complete the project while budget resolution
+            # awaits. Re-read the shared validated cache after acquiring the lock.
+            current = _history_with_materials(target, saved_materials(target))
+            saved = next((p for p in current["projects"] if p["projectId"] == project_id), None)
+            if saved is not None and saved.get("displayProfile") is not None:
+                return {"status": "reused", "projectId": project_id, "providerCalls": 0}
+            day = calendar_day()
+            path = root / f"{day}-refocus-v1.json"
+            state = read_json(path) or {"date": day, "modules": {}, "progress": {}}
+            result = await historical_work(
+                target,
+                state["progress"].setdefault("historical", {}),
+                lambda: atomic(path, state),
+                only_project_id=project_id,
+                budget_context=budget,
+            )
+            if not (result["processed"] or result["refreshed"]):
+                return {
+                    "status": "pending",
+                    "waitReason": result.get("waitReason", "material_not_completed"),
+                    "providerCalls": result["providerRequests"],
+                }
             return {
-                "status": "reused" if collected.profile_cache_state in {"hit", "rebound", "migrated"} else "processed",
+                "status": "processed" if result["processed"] else "reused",
                 "projectId": project_id,
-                "materialState": material["materialState"],
-                "providerCalls": work.used_requests,
-                "profileCacheState": collected.profile_cache_state,
+                "materialState": result.get("materialState"),
+                "providerCalls": result["providerRequests"],
+                "profileCacheState": result["profileCacheState"],
             }
     except ProviderWorkYield as exc:
         return {"status": "pending", "waitReason": exc.code, "providerCalls": work.used_requests if work else 0}
@@ -443,11 +453,73 @@ async def generate_project_material(target: Path, project_id: str) -> dict:
         return {"status": "pending", "waitReason": exc.code, "providerCalls": work.used_requests if work else 0}
 
 
-async def historical_work(target: Path, progress: dict, save) -> dict:
+MATERIAL_PROJECT_SLICE_LIMIT = 3
+MATERIAL_PROVIDER_SLICE_LIMIT = 6
+MATERIAL_FAILURE_LIMIT = 2
+
+
+def material_execution_settings() -> dict:
+    """Admin-only, in-process values; never expose paths, environment or secrets."""
+    import os
+
+    return {
+        "historicalDailyNewProjectLimit": settings.RARDAR_HISTORICAL_DAILY_LIMIT,
+        "historicalLimitUnit": "new_historical_projects_per_day",
+        "historicalLimitSource": "explicit_settings_input"
+        if "RARDAR_HISTORICAL_DAILY_LIMIT" in settings.model_fields_set
+        else "code_default",
+        "todayDailyProjectLimit": None,
+        "projectSliceLimit": MATERIAL_PROJECT_SLICE_LIMIT,
+        "providerSliceRequestLimit": MATERIAL_PROVIDER_SLICE_LIMIT,
+        "failureRetryLimit": MATERIAL_FAILURE_LIMIT,
+        "serverProcessId": os.getpid(),
+    }
+
+
+def _material_work_records(progress: dict, today_repositories: set[str]) -> dict:
+    """One daily progress record: unique admissions, failures and paid stages.
+
+    Legacy attempts did not distinguish failures from paid continuations. Keep
+    their original values and conservatively retain their retry debit as unknown;
+    never reclassify them as proven failures or refund a Provider reservation.
+    """
+    if "materialWork" not in progress:
+        records = {}
+        for repository, count in progress.get("attempts", {}).items():
+            if type(count) is not int or count < 0:
+                raise ValueError("material_progress_invalid")
+            if count:
+                records[repository] = {
+                    "scope": "today" if repository in today_repositories else "historical",
+                    "status": "legacy_unknown",
+                    "legacyAttempts": count,
+                    "failures": 0,
+                    "interruptions": 0,
+                    "providerRequests": 0,
+                }
+        progress["materialWork"] = {"schemaVersion": 2, "projects": records}
+    state = progress["materialWork"]
+    if state.get("schemaVersion") != 2 or not isinstance(state.get("projects"), dict):
+        raise ValueError("material_progress_invalid")
+    for record in state["projects"].values():
+        if record.get("scope") not in {"today", "historical"} or any(
+            type(record.get(key, 0)) is not int or record.get(key, 0) < 0
+            for key in ("failures", "interruptions", "legacyAttempts", "providerRequests")
+        ):
+            raise ValueError("material_progress_invalid")
+        if record["status"] == "running":
+            record["interruptions"] = record.get("interruptions", 0) + 1
+            record["status"] = "interrupted"
+    return state["projects"]
+
+
+async def historical_work(
+    target: Path, progress: dict, save, *, only_project_id: str | None = None, budget_context=None
+) -> dict:
     """Use the existing Profile collector and daily request lock, never Selection.
 
-    A daily project bound is a configurable work allowance, not a publication
-    gate. Resume keeps the same attempt count; good earlier entries stay readable.
+    The daily bound admits only new historical-only projects. Today and admitted
+    continuations advance in small passes under the same daily Provider budget.
     """
     from app.services.llm.daily_provider_budget import ProviderWorkYield, daily_execution_budget, work_slice
     from app.services.rardar_llm_control import resolve_rardar_route_identity
@@ -465,6 +537,11 @@ async def historical_work(target: Path, progress: dict, save) -> dict:
         "status": "completed",
         "checkedToday": sum(p["repository"] in today_repositories for p in projects),
         "checkedHistorical": sum(p["repository"] not in today_repositories for p in projects),
+        "historicalDailyNewProjectLimit": settings.RARDAR_HISTORICAL_DAILY_LIMIT,
+        "projectSliceLimit": MATERIAL_PROJECT_SLICE_LIMIT,
+        "providerSliceRequestLimit": MATERIAL_PROVIDER_SLICE_LIMIT,
+        "providerRequests": 0,
+        "visited": 0,
     }
     rotation_path = target / "trending-boards" / "material-work.json"
     rotation = read_json(rotation_path) or {}
@@ -480,12 +557,40 @@ async def historical_work(target: Path, progress: dict, save) -> dict:
             checked = max(checked, datetime.fromisoformat(prior["checkedAt"]))
         return datetime.now(UTC) - checked > timedelta(days=30)
 
-    pending = [p for p in projects if due(p)]
+    pending = [p for p in projects if due(p) and (only_project_id is None or p["projectId"] == only_project_id)]
+    records = _material_work_records(progress, today_repositories)
+    historical_before = sum(r["scope"] == "historical" for r in records.values())
+
+    def retry_debit(repository):
+        record = records.get(repository, {})
+        return sum(record.get(key, 0) for key in ("failures", "interruptions", "legacyAttempts"))
+
+    def admitted(repository):
+        return (
+            repository in today_repositories
+            or repository in records
+            or sum(r["scope"] == "historical" for r in records.values()) < settings.RARDAR_HISTORICAL_DAILY_LIMIT
+        )
+
+    def metrics(completed=()):
+        outstanding = [p for p in pending if p["repository"] not in completed]
+        result.update(
+            remaining=len(outstanding),
+            todayPending=sum(p["repository"] in today_repositories for p in outstanding),
+            historicalPending=sum(p["repository"] not in today_repositories for p in outstanding),
+            historicalAdmitted=sum(r["scope"] == "historical" for r in records.values()),
+            historicalNewAdmitted=sum(r["scope"] == "historical" for r in records.values()) - historical_before,
+            failedAttempts=sum(r.get("failures", 0) for r in records.values()),
+            unclassifiedAttempts=sum(r.get("legacyAttempts", 0) + r.get("interruptions", 0) for r in records.values()),
+        )
+        return outstanding
+
+    metrics()
     result["remaining"] = len(pending)
     if not pending:
         return result
     try:
-        budget = await daily_execution_budget("rardar_project_profile")
+        budget = budget_context or await daily_execution_budget("rardar_project_profile")
     except ProviderBudgetError as exc:
         if exc.code != "provider_daily_budget_unconfigured":
             raise
@@ -496,14 +601,12 @@ async def historical_work(target: Path, progress: dict, save) -> dict:
     if ledger.snapshot()["remaining"] <= 0:
         return {**result, "status": "pending", "waitReason": "daily_budget_exhausted"}
     route = await resolve_rardar_route_identity()
-    attempts = progress.setdefault("attempts", {})
-    limit = settings.RARDAR_HISTORICAL_DAILY_LIMIT
     # Previously failed projects rotate behind never-attempted work, with a
     # daily bounded retry record rather than a permanent negative cache.
     pending.sort(key=lambda p: (rotation.get(p["repository"], ""), -(p["totalStars"] or 0), p["repository"]))
-    # Current newcomers and the historical backlog share one collector/cache
-    # and one existing daily allowance. Alternate useful work when both have
-    # candidates; no source needs to wait for the other inventory to finish.
+    # One candidate appears once even if it belongs to both pages. Continue
+    # admitted partial stages before fresh work within each rotating scope.
+    pending.sort(key=lambda p: (p["repository"] not in records, rotation.get(p["repository"], "")))
     queues = {
         "today": [p for p in pending if p["repository"] in today_repositories],
         "historical": [p for p in pending if p["repository"] not in today_repositories],
@@ -517,72 +620,101 @@ async def historical_work(target: Path, progress: dict, save) -> dict:
             scope = "historical" if scope == "today" else "today"
         pending.append(queues[scope].pop(0))
         scope = "historical" if scope == "today" else "today"
-    async with httpx.AsyncClient(
-        base_url="https://api.github.com",
-        timeout=12,
-        follow_redirects=False,
-        trust_env=False,
-        headers={"User-Agent": "TopicEye-Rardar/2.0"},
-    ) as client:
-        for project in pending:
-            if sum(attempts.values()) >= limit:
-                break
-            repository = project["repository"]
-            if attempts.get(repository, 0) >= 2:
-                continue
-            attempts[repository] = attempts.get(repository, 0) + 1
-            previous_scope = rotation.get("_nextMaterialScope")
-            rotation["_nextMaterialScope"] = "historical" if repository in today_repositories else "today"
-            rotation[repository] = datetime.now(UTC).isoformat()
-            atomic(rotation_path, rotation)
-            save()  # durable admission precedes IO/model work, including interruption
-            work = None
-            try:
-                with work_slice(max_requests=6, background=True) as work:
+    completed = set()
+    with work_slice(max_requests=MATERIAL_PROVIDER_SLICE_LIMIT, background=True) as work:
+        async with httpx.AsyncClient(
+            base_url="https://api.github.com",
+            timeout=12,
+            follow_redirects=False,
+            trust_env=False,
+            headers={"User-Agent": "TopicEye-Rardar/2.0"},
+        ) as client:
+            for project in pending:
+                if result["visited"] >= (1 if only_project_id else MATERIAL_PROJECT_SLICE_LIMIT):
+                    break
+                repository = project["repository"]
+                if retry_debit(repository) >= MATERIAL_FAILURE_LIMIT or not admitted(repository):
+                    continue
+                new_admission = repository not in records
+                record = records.setdefault(
+                    repository,
+                    {
+                        "scope": "today" if repository in today_repositories else "historical",
+                        "failures": 0,
+                        "interruptions": 0,
+                        "legacyAttempts": 0,
+                        "providerRequests": 0,
+                    },
+                )
+                record["status"] = "running"
+                previous_scope = rotation.get("_nextMaterialScope")
+                rotation["_nextMaterialScope"] = "historical" if repository in today_repositories else "today"
+                rotation[repository] = datetime.now(UTC).isoformat()
+                atomic(rotation_path, rotation)
+                result["visited"] += 1
+                save()  # durable admission precedes IO/model work, including interruption
+                used_before = work.used_requests
+                try:
                     collected = await _collect_project_material(
                         target, project, snapshot["generationId"], client, route
                     )
-                material = project_material(collected.profile, collected.evidence)
-                if collected.profile_cache_state in {"hit", "rebound", "migrated"}:
-                    result["refreshed"] += 1
-                    if project["profile"] is None:
-                        result["reused"] += 1
-                elif collected.profile_cache_state == "rebuilt":
-                    result["processed"] += 1
-                else:
-                    raise ValueError("historical_profile_not_readable")
-                checks[repository] = {
-                    "checkedAt": datetime.now(UTC).isoformat(),
-                    # A compatible rebound is not persisted over its immutable
-                    # cache envelope. Also bind the saved reading we checked,
-                    # without rewriting its source generation or generatedAt.
-                    "profileDigests": sorted(
-                        {_digest(material["profile"])}
-                        | ({_digest(project["profile"])} if project["profile"] is not None else set())
-                    ),
-                }
-                atomic(rotation_path, rotation)
-            except ProviderWorkYield as exc:
-                if work is not None and work.used_requests == 0:
-                    # Release only this provisional admission after a proven
-                    # pre-request scheduling wait. Never refund paid stages,
-                    # real failures or an interrupted/unknown execution.
-                    attempts[repository] -= 1
-                    if previous_scope is None:
-                        rotation.pop("_nextMaterialScope", None)
+                    material = project_material(collected.profile, collected.evidence)
+                    if collected.profile_cache_state in {"hit", "rebound", "migrated"}:
+                        result["refreshed"] += 1
+                        if project["profile"] is None:
+                            result["reused"] += 1
+                    elif collected.profile_cache_state == "rebuilt":
+                        result["processed"] += 1
                     else:
-                        rotation["_nextMaterialScope"] = previous_scope
+                        raise ValueError("historical_profile_not_readable")
+                    record["status"] = "completed"
+                    completed.add(repository)
+                    if only_project_id:
+                        result["profileCacheState"] = collected.profile_cache_state
+                        result["materialState"] = material.get("materialState")
+                    checks[repository] = {
+                        "checkedAt": datetime.now(UTC).isoformat(),
+                        # A compatible rebound is not persisted over its immutable
+                        # cache envelope. Keep its original generation/time.
+                        "profileDigests": sorted(
+                            {_digest(material["profile"])}
+                            | ({_digest(project["profile"])} if project["profile"] is not None else set())
+                        ),
+                    }
                     atomic(rotation_path, rotation)
-                result.update(status="pending", waitReason=exc.code)
+                except ProviderWorkYield as exc:
+                    record["status"] = "yielded"
+                    if work.used_requests == used_before and new_admission:
+                        # Release only this new zero-paid cooperative admission.
+                        # Existing paid stages/admissions and all caches survive.
+                        del records[repository]
+                        if previous_scope is None:
+                            rotation.pop("_nextMaterialScope", None)
+                        else:
+                            rotation["_nextMaterialScope"] = previous_scope
+                        atomic(rotation_path, rotation)
+                    result.update(status="pending", waitReason=exc.code)
+                    break
+                except (ValueError, OSError, httpx.HTTPError, ProviderBudgetError):
+                    record["status"] = "failed"
+                    record["failures"] += 1
+                    result["failed"] += 1
+                finally:
+                    used = work.used_requests - used_before
+                    record["providerRequests"] += used
+                    result["providerRequests"] += used
+                    save()
                 save()
-                break
-            except (ValueError, OSError, httpx.HTTPError, ProviderBudgetError):
-                result["failed"] += 1
-            save()
-            await asyncio.sleep(0)
-    result["remaining"] = len(pending) - result["processed"] - result["refreshed"]
-    if result["remaining"] and result["status"] == "completed":
-        result.update(status="partial", waitReason="next_daily_work")
+                await asyncio.sleep(0)
+    outstanding = metrics(completed)
+    if outstanding and result["status"] == "completed":
+        retryable = [p for p in outstanding if retry_debit(p["repository"]) < MATERIAL_FAILURE_LIMIT]
+        reason = "next_scheduled_pass"
+        if not retryable:
+            reason = "material_retry_limit_reached"
+        elif not any(admitted(p["repository"]) for p in retryable):
+            reason = "historical_daily_limit_reached"
+        result.update(status="partial", waitReason=reason)
     return result
 
 

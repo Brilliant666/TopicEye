@@ -28,8 +28,10 @@ def run_ps(tmp_path: Path, body: str) -> subprocess.CompletedProcess[str]:
         "$ErrorActionPreference='Stop'\n"
         f". {literal(HELPER)}\n"
         f"$RepoRoot={literal(tmp_path)}\n"
-        "$Python='C:\\test\\python.exe'; $Node='C:\\test\\node.exe'\n"
-        "$PgRoot='C:\\test\\pgsql'; $PgCtl='C:\\test\\pgsql\\bin\\pg_ctl.exe'\n" + body,
+        # These are process doubles, but Join-Path still resolves their drive.
+        # Use the test filesystem so the same identity checks run on Linux CI.
+        f"$Python={literal(tmp_path / 'python.exe')}; $Node={literal(tmp_path / 'node.exe')}\n"
+        f"$PgRoot={literal(tmp_path / 'pgsql')}; $PgCtl={literal(tmp_path / 'pgsql/bin/pg_ctl.exe')}\n" + body,
         encoding="utf-8",
     )
     return subprocess.run(
@@ -48,8 +50,9 @@ def test_preview_wiring_has_no_automatic_build_migration_or_scheduler() -> None:
     assert "Invoke-RardarPreview $Command" in entry
     assert "function Start-AppProcess" in entry
     assert source.count("Start-AppProcess ") == 2
-    assert "'--lifespan', 'off'" in source
-    assert "SCHEDULER_ENABLED = 'false'" in source
+    assert "$lifespan = if ($RuntimeMode) { 'on' } else { 'off' }" in source
+    assert "'--lifespan', $lifespan" in source
+    assert "SCHEDULER_ENABLED = if ($RuntimeMode) { 'true' } else { 'false' }" in source
     assert "RARDAR_DAILY_OPERATIONS_ENABLED = 'true'" in source
     assert "RARDAR_BUDGET_IDENTITY_DATA_DIR = $config.budgetIdentityDataDirectory" in source
     assert "Start-Postgres" not in source
@@ -57,8 +60,9 @@ def test_preview_wiring_has_no_automatic_build_migration_or_scheduler() -> None:
     assert "alembic" not in source
     assert "Stop-Process -Name" not in source
     assert source.index("Assert-PreviewDatabase $config") < source.index("if ($state) { Stop-PreviewState $state }")
-    assert "RARDAR_ISOLATED_PREVIEW = 'true'" in source
-    assert ".next-preview\\BUILD_ID" in source
+    assert "RARDAR_ISOLATED_PREVIEW = if ($RuntimeMode) { 'false' } else { 'true' }" in source
+    assert "$buildDirectory = if ($RuntimeMode) { '.next' } else { '.next-preview' }" in source
+    assert "$buildDirectory = if ($script:ManagedRuntimeMode) { '.next' } else { '.next-preview' }" in source
 
 
 @pytest.mark.parametrize("change", ["port", "identity", "same_data", "secret"])

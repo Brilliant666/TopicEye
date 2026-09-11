@@ -42,14 +42,20 @@ function Get-PreviewConfig {
         # No password/key is stored, and no data or budget is copied/initialized.
         $original = Read-State
         if (-not $original -or -not $original.database) {
+            $original = Read-PreviewJson (Join-Path $RuntimeRoot 'config.json')
+        }
+        if (-not $original -or -not $original.database) {
             throw "Original Runtime database identity is missing; configure the managed preview config first."
         }
         $config = [pscustomobject]@{
             schemaVersion = 1; repository = $RepoRoot
-            backendPort = 54191; frontendPort = 54190; postgresPort = $PgPort
-            dataDirectory = (Join-Path $env:TEMP "rardar-refocus-preview-data")
+            backendPort = if ($script:ManagedRuntimeMode) { 8102 } else { 54191 }
+            frontendPort = if ($script:ManagedRuntimeMode) { 3000 } else { 54190 }
+            postgresPort = $PgPort
+            dataDirectory = if ($script:ManagedRuntimeMode) { $MirrorRoot } else { (Join-Path $env:TEMP "rardar-refocus-preview-data") }
             budgetIdentityDataDirectory = $MirrorRoot
-            database = $original.database; databaseUser = "topiceye"
+            database = $original.database
+            databaseUser = if ($original.databaseUser) { $original.databaseUser } else { "topiceye" }
         }
         Write-PreviewJson $script:PreviewConfigPath $config
     }
@@ -60,15 +66,20 @@ function Get-PreviewConfig {
         throw "Preview configuration schema or repository does not match."
     }
     foreach ($port in @($config.backendPort, $config.frontendPort)) {
-        if (($port -isnot [int] -and $port -isnot [long]) -or $port -lt 1024 -or $port -gt 65535 -or $port -in @(3000, 8102, $config.postgresPort)) {
+        $reservedPorts = if ($script:ManagedRuntimeMode) { @($config.postgresPort) } else { @(3000, 8102, $config.postgresPort) }
+        if (($port -isnot [int] -and $port -isnot [long]) -or $port -lt 1024 -or $port -gt 65535 -or $port -in $reservedPorts) {
             throw "Preview ports must be distinct from the original Runtime and PostgreSQL."
         }
+    }
+    if ($script:ManagedRuntimeMode -and ($config.backendPort -ne 8102 -or $config.frontendPort -ne 3000)) {
+        throw "Runtime ports must remain 8102 and 3000."
     }
     if ($config.backendPort -eq $config.frontendPort -or $config.postgresPort -ne $PgPort) {
         throw "Preview port configuration does not match the original database."
     }
     foreach ($path in @($config.dataDirectory, $config.budgetIdentityDataDirectory)) { Assert-PreviewPath $path }
-    if ([IO.Path]::GetFullPath($config.dataDirectory).TrimEnd('\') -ieq [IO.Path]::GetFullPath($MirrorRoot).TrimEnd('\') -or
+    $usesOriginalData = [IO.Path]::GetFullPath($config.dataDirectory).TrimEnd('\') -ieq [IO.Path]::GetFullPath($MirrorRoot).TrimEnd('\')
+    if ($usesOriginalData -ne [bool]$script:ManagedRuntimeMode -or
         [IO.Path]::GetFullPath($config.budgetIdentityDataDirectory).TrimEnd('\') -ine [IO.Path]::GetFullPath($MirrorRoot).TrimEnd('\')) {
         throw "Preview data must be isolated and its budget identity must remain the original Runtime identity."
     }
@@ -97,8 +108,9 @@ function Get-PreviewSourceFingerprint {
 
 function Get-PreviewBuild([object]$Config) {
     $manifest = Read-PreviewJson $script:PreviewBuildPath
-    $buildIdPath = Join-Path $FrontendRoot '.next-preview\BUILD_ID'
-    $routesPath = Join-Path $FrontendRoot '.next-preview\routes-manifest.json'
+    $buildDirectory = if ($script:ManagedRuntimeMode) { '.next' } else { '.next-preview' }
+    $buildIdPath = Join-Path $FrontendRoot "$buildDirectory\BUILD_ID"
+    $routesPath = Join-Path $FrontendRoot "$buildDirectory\routes-manifest.json"
     if (-not $manifest -or -not (Test-Path -LiteralPath $buildIdPath) -or -not (Test-Path -LiteralPath $routesPath)) {
         throw "Preview build provenance missing. Run preview-build once; ordinary start never rebuilds."
     }
@@ -196,10 +208,23 @@ function Test-PreviewState([object]$State, [object]$Config, [object]$Build, [str
         (Test-Http "http://127.0.0.1:$($Config.frontendPort)/api/health")
 }
 
-function Invoke-RardarPreview([string]$Action) {
+function Invoke-RardarPreview([string]$Action, [switch]$RuntimeMode) {
     if ($PSVersionTable.PSVersion -lt [version]'7.4') { throw "Preview requires PowerShell 7.4 or newer; no policy override is used." }
+    $script:ManagedRuntimeMode = [bool]$RuntimeMode
+    if ($RuntimeMode) {
+        $originalRuntime = Read-State
+        if (-not $originalRuntime) {
+            # Stop removes transient PID state, not the durable local identity.
+            $originalRuntime = Read-PreviewJson (Join-Path $RuntimeRoot 'config.json')
+        }
+        if (-not $originalRuntime -or $originalRuntime.repository -ine $RepoRoot) {
+            throw "Run the formal Runtime entry only from its existing recorded repository, not a development preview worktree."
+        }
+    }
     $identity = (Get-PreviewHash $RepoRoot.ToLowerInvariant()).Substring(0, 16)
-    $script:PreviewRoot = Join-Path $env:LOCALAPPDATA "TopicEye\rardar-previews\$identity"
+    $script:PreviewRoot = if ($RuntimeMode) { $RuntimeRoot } else { Join-Path $env:LOCALAPPDATA "TopicEye\rardar-previews\$identity" }
+    $buildDirectory = if ($RuntimeMode) { '.next' } else { '.next-preview' }
+    $label = if ($RuntimeMode) { 'Runtime' } else { 'Preview' }
     New-Item -ItemType Directory -Path $script:PreviewRoot -Force | Out-Null
     $script:PreviewConfigPath = Join-Path $script:PreviewRoot 'config.json'
     $script:PreviewStatePath = Join-Path $script:PreviewRoot 'runtime.json'
@@ -208,9 +233,17 @@ function Invoke-RardarPreview([string]$Action) {
     try {
         $lock = [IO.File]::Open((Join-Path $script:PreviewRoot 'operation.lock'), 'OpenOrCreate', 'ReadWrite', 'None')
         $state = Read-PreviewJson $script:PreviewStatePath
+        if ($RuntimeMode -and $state -and -not $state.backend -and -not $state.frontend) {
+            if ((Test-Process $state.backendPid) -or (Test-Process $state.frontendPid)) {
+                throw "Legacy Runtime processes are still running; verify and stop them before the first managed transition."
+            }
+            # Retain the legacy state as database discovery input. It is only
+            # replaced after a new managed process identity has been recorded.
+            $state = $null
+        }
         if ($Action -eq 'preview-stop') {
             Stop-PreviewState $state
-            Write-Host 'Preview stopped. Shared PostgreSQL and original Runtime were not stopped.'
+            Write-Host "$label application stopped. Shared PostgreSQL was not stopped."
             return
         }
         $config = Get-PreviewConfig
@@ -220,7 +253,8 @@ function Invoke-RardarPreview([string]$Action) {
             if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Preview dependency missing: $required" }
         }
         $frontendEnvironment = @{
-            NODE_ENV = 'production'; RARDAR_PRODUCT_MODE = 'true'; RARDAR_ISOLATED_PREVIEW = 'true'
+            NODE_ENV = 'production'; RARDAR_PRODUCT_MODE = 'true'
+            RARDAR_ISOLATED_PREVIEW = if ($RuntimeMode) { 'false' } else { 'true' }
             BACKEND_API_URL = "http://127.0.0.1:$($config.backendPort)"; NEXT_TELEMETRY_DISABLED = '1'
         }
         $next = Join-Path $FrontendRoot 'node_modules\next\dist\bin\next'
@@ -244,11 +278,11 @@ function Invoke-RardarPreview([string]$Action) {
             if ($exitCode -ne 0 -or $fingerprint -ne (Get-PreviewSourceFingerprint)) { throw "Preview build failed or inputs changed." }
             Write-PreviewJson $script:PreviewBuildPath ([pscustomobject]@{
                 sourceFingerprint = $fingerprint; backendPort = $config.backendPort; productMode = $true
-                buildId = (Get-Content -LiteralPath (Join-Path $FrontendRoot '.next-preview\BUILD_ID') -Raw).Trim()
-                routesHash = (Get-FileHash -LiteralPath (Join-Path $FrontendRoot '.next-preview\routes-manifest.json') -Algorithm SHA256).Hash
+                buildId = (Get-Content -LiteralPath (Join-Path $FrontendRoot "$buildDirectory\BUILD_ID") -Raw).Trim()
+                routesHash = (Get-FileHash -LiteralPath (Join-Path $FrontendRoot "$buildDirectory\routes-manifest.json") -Algorithm SHA256).Hash
             })
             $null = Get-PreviewBuild $config
-            Write-Host 'Preview production build recorded. No application or database was started.'
+            Write-Host "$label production build recorded. No application or database was started."
             return
         }
         $build = Get-PreviewBuild $config
@@ -264,7 +298,7 @@ function Invoke-RardarPreview([string]$Action) {
         }
         if (-not $worktreeClean) { throw "Preview startup requires a clean source tree so HEAD identifies the actual code." }
         if ($Action -eq 'preview-start' -and (Test-PreviewState $state $config $build $head)) {
-            Write-Host "Preview already healthy: http://127.0.0.1:$($config.frontendPort)"; return
+            Write-Host "$label already healthy: http://127.0.0.1:$($config.frontendPort)"; return
         }
         # All file/build/database checks precede stop. Unknown ports are never adopted.
         foreach ($port in @($config.frontendPort, $config.backendPort)) {
@@ -280,15 +314,21 @@ function Invoke-RardarPreview([string]$Action) {
             APP_ENV = 'development'; RARDAR_PRODUCT_MODE = 'true'; RARDAR_DATA_MODE = 'real'; RARDAR_DEMO_DATA_ENABLED = 'false'
             RARDAR_LOCAL_SHADOW_REVIEW = 'false'
             RARDAR_INTELLIGENCE_DATA_DIR = $config.dataDirectory; RARDAR_BUDGET_IDENTITY_DATA_DIR = $config.budgetIdentityDataDirectory
-            RARDAR_DAILY_OPERATIONS_ENABLED = 'true'; SCHEDULER_ENABLED = 'false'; CACHE_WARMUP_ENABLED = 'false'
+            RARDAR_DAILY_OPERATIONS_ENABLED = 'true'
+            SCHEDULER_ENABLED = if ($RuntimeMode) { 'true' } else { 'false' }
+            AUTO_CREATE_TABLES_ON_STARTUP = 'false'; STARTUP_SEQUENCE_SYNC_ENABLED = 'false'; CACHE_WARMUP_ENABLED = 'false'
             DUCKDB_STARTUP_INIT_ENABLED = 'false'; STARTUP_SEED_ENABLED = 'false'; ADMIN_SEED_ENABLED = 'false'
             CORS_ORIGINS = "http://127.0.0.1:$($config.frontendPort)"; PYTHONPATH = $BackendRoot; PYTHONUTF8 = '1'; PYTHONIOENCODING = 'utf-8'
             RARDAR_LLM_RUN_ID = $null; RARDAR_LLM_BUDGET_PATH = $null; RARDAR_LLM_BUDGET_LIMIT = $null
         }
         $state = [pscustomobject]@{ repository = $RepoRoot; head = $head; status = 'starting';
-            configHash = Get-PreviewHash ($config | ConvertTo-Json -Compress); buildId = $build.buildId; backend = $null; frontend = $null }
+            configHash = Get-PreviewHash ($config | ConvertTo-Json -Compress); buildId = $build.buildId; backend = $null; frontend = $null
+            database = $config.database; databaseUser = $config.databaseUser
+            postgresPort = $config.postgresPort; dataMirror = $config.dataDirectory
+            frontendMode = 'production'; startedAt = (Get-Date).ToUniversalTime().ToString('o') }
         try {
-            $backend = Start-AppProcess $Python @('-m', 'uvicorn', 'app.main:app', '--app-dir', "`"$BackendRoot`"", '--host', '127.0.0.1', '--port', "$($config.backendPort)", '--lifespan', 'off') $BackendRoot (Join-Path $script:PreviewRoot 'backend') $environment
+            $lifespan = if ($RuntimeMode) { 'on' } else { 'off' }
+            $backend = Start-AppProcess $Python @('-m', 'uvicorn', 'app.main:app', '--app-dir', "`"$BackendRoot`"", '--host', '127.0.0.1', '--port', "$($config.backendPort)", '--lifespan', $lifespan) $BackendRoot (Join-Path $script:PreviewRoot 'backend') $environment
             $state.backend = Get-PreviewProcessRecord $backend.Id $config.backendPort
             Write-PreviewJson $script:PreviewStatePath $state
             Wait-Http "http://127.0.0.1:$($config.backendPort)/health/live" 120
@@ -306,7 +346,7 @@ function Invoke-RardarPreview([string]$Action) {
             $state.status = 'healthy'
             Write-PreviewJson $script:PreviewStatePath $state
             if (-not (Test-PreviewState $state $config $build $head)) { throw "Preview post-start validation failed." }
-            Write-Host "Preview healthy: http://127.0.0.1:$($config.frontendPort) (production). No terminal needs to stay open."
+            Write-Host "$label healthy: http://127.0.0.1:$($config.frontendPort) (production). No terminal needs to stay open."
         } catch {
             $failure = $_
             try { Stop-PreviewState $state } catch { throw "Preview startup failed; cleanup requires identity review. Logs: $script:PreviewRoot" }

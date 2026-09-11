@@ -1,8 +1,38 @@
 version = 1
-name = "Rardar isolated preview"
+name = "Rardar local Runtime and Preview"
 
 [setup]
 script = ""
+
+[[actions]]
+name = "Run Rardar (3000)"
+icon = "run"
+platform = "win32"
+command = "pwsh -NoProfile -File C:/Users/brilliant/Documents/rardar-worktrees/topiceye-rardar-runtime/scripts/rardar-local.ps1 start"
+
+[[actions]]
+name = "Rardar status"
+icon = "debug"
+platform = "win32"
+command = "pwsh -NoProfile -File C:/Users/brilliant/Documents/rardar-worktrees/topiceye-rardar-runtime/scripts/rardar-local.ps1 status"
+
+[[actions]]
+name = "Restart Rardar"
+icon = "run"
+platform = "win32"
+command = "pwsh -NoProfile -File C:/Users/brilliant/Documents/rardar-worktrees/topiceye-rardar-runtime/scripts/rardar-local.ps1 restart"
+
+[[actions]]
+name = "Stop Rardar"
+icon = "tool"
+platform = "win32"
+command = "pwsh -NoProfile -File C:/Users/brilliant/Documents/rardar-worktrees/topiceye-rardar-runtime/scripts/rardar-local.ps1 stop"
+
+[[actions]]
+name = "Build Rardar (when changed)"
+icon = "tool"
+platform = "win32"
+command = "pwsh -NoProfile -File C:/Users/brilliant/Documents/rardar-worktrees/topiceye-rardar-runtime/scripts/rardar-local.ps1 build"
 
 [[actions]]
 name = "Run preview"

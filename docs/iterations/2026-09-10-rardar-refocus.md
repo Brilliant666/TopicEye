@@ -86,3 +86,11 @@ has completed.
 - 真实 Playwright 浏览器通过实际54190应用和54191后端，在1440及390宽度读取33项完整去重列表、57项历史列表与 codecrafters 已保存新解读；暂停模块显示明确说明，无页面异常或横向溢出。没有拦截或替换API响应。
 - Codex浏览器控制连接仍返回 `nodeRepl.fetch request failed`；这与正常启动入口成功是不同结果。登录页面和Find表单可读，但登录后的管理操作与Find实际需求提交尚未完成，PR继续Draft。
 - 先前 `blocked by policy` 已确认属于shell创建前拒绝；当前用户allow规则没有提供对应拒绝解释，无法从已有记录确定隐藏策略的具体判定。未修改规则、权限或安全配置。
+### 2026-09-11 REFOCUS-03 正式入口与切换准备
+
+- 正式 `start/status/restart/stop/build` 与 Preview 共用进程身份、构建绑定、预检与健康检查；仅原 Runtime 配置记录的目录可启动3000/8102。正式模式使用原资料与预算身份、正常lifespan和既有scheduler，不再以Selection或SSH同步为启动前置。
+- 普通start不安装或构建；显式build绑定8102且拒绝覆盖正在服务的构建。自动迁移、seed和sequence修复关闭，原PostgreSQL必须已健康。停止仅移除进程状态，持久配置继续支持再次启动。
+- Actions明确区分“Run Rardar (3000)”与Preview，均调用同一脚本实现；正式动作指向原运行目录，不从开发worktree长期提供正式服务。
+- 修正focused CI测试的跨平台假路径：Ubuntu不存在C盘，测试改用tmp_path；生产进程身份检查未放宽。
+- 已以原测试账号完成真实预览登录和管理员预算读取（HTTP200）；Find真实需求经3条GitHub查询提交并返回，新增2次统一计量请求。没有改密码或模型配置。
+- 原数据库pg_dump备份已完成并验证归档目录；预览资料在仓库外候选目录经原校验/发布函数验证33项Today、57项历史和codecrafters解读。正式数据带回、合并及3000验收结果在PR收口记录中另行确认，不能将准备状态当作部署完成。

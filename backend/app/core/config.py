@@ -63,6 +63,7 @@ class Settings(BaseSettings):
 
     # ── Startup behavior ──
     AUTO_CREATE_TABLES_ON_STARTUP: bool = True
+    STARTUP_SEQUENCE_SYNC_ENABLED: bool = True
     STARTUP_SEED_ENABLED: bool = True
     ADMIN_SEED_ENABLED: bool = False
     ADMIN_EMAIL: str | None = None

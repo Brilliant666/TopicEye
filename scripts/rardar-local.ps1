@@ -1,6 +1,6 @@
 param(
     [ValidateSet(
-        "start", "stop", "status", "sync-data", "refresh-news", "enhance-news", "rebuild-serving",
+        "start", "stop", "restart", "status", "build", "sync-data", "refresh-news", "enhance-news", "rebuild-serving",
         "build-selection", "rebuild-selection", "selection-status", "selection-rollback",
         "preview-start", "preview-stop", "preview-restart", "preview-status", "preview-build"
     )]
@@ -30,7 +30,7 @@ $Python = Join-Path $ControlRoot "venv-20260826\Scripts\python.exe"
 $PgPort = if ($env:RARDAR_LOCAL_PG_PORT) { [int]$env:RARDAR_LOCAL_PG_PORT } else { 55433 }
 $BundledNode = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
 $Node = if (Test-Path -LiteralPath $BundledNode) { $BundledNode } else { (Get-Command node.exe).Source }
-$NpmCli = if (-not $Command.StartsWith("preview-")) {
+$NpmCli = if ($Command -notin @('start', 'stop', 'restart', 'status', 'build') -and -not $Command.StartsWith("preview-")) {
     Join-Path (Split-Path (Get-Command npm.cmd).Source) "node_modules\npm\bin\npm-cli.js"
 } else { $null }
 
@@ -955,10 +955,15 @@ if ($Command.StartsWith("preview-")) {
     return
 }
 
+if ($Command -in @('start', 'stop', 'restart', 'status', 'build')) {
+    # The current Rardar product no longer requires a legacy Selection or SSH
+    # sync merely to run. Runtime and preview share ownership and health gates.
+    . (Join-Path $PSScriptRoot "rardar-preview.ps1")
+    Invoke-RardarPreview "preview-$Command" -RuntimeMode
+    return
+}
+
 switch ($Command) {
-    "start" { Start-Rardar }
-    "stop" { Stop-Rardar }
-    "status" { Show-Status; Show-RardarSelectionStatus }
     "sync-data" { Sync-RardarData }
     "refresh-news" { Refresh-RardarHotspotNews }
     "enhance-news" { Enhance-RardarHotspotNews }

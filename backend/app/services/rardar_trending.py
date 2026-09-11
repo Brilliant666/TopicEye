@@ -22,7 +22,7 @@ from app.integrations.rardar.trending_store import (
     publish_sources,
     read_json,
 )
-from app.services.llm.provider_budget import ProviderBudgetError, atomic, file_lock, plain
+from app.services.llm.provider_budget import ProviderBudgetError, atomic, digest, file_lock, plain
 
 
 def project_material(profile, evidence, *, source_kind: str = "profile_cache", metadata=None) -> dict:
@@ -182,14 +182,19 @@ def _retained_serving_details(target: Path):
             pass
 
 
-def saved_materials(target: Path) -> dict:
+def saved_materials(target: Path, *, original_profile_digest: str | None = None) -> dict:
     found, times = {}, {}
 
     def remember(profile, evidence, *, source_kind="profile_cache", metadata=None):
         from app.integrations.rardar.material_trait_revision import apply_saved
 
+        # Internal insight compatibility lookup: select the exact immutable
+        # original, not whichever newer interpretation happens to be latest.
+        if original_profile_digest is not None and digest(profile.model_dump(mode="json")) != original_profile_digest:
+            return
         material = project_material(profile, evidence, source_kind=source_kind, metadata=metadata)
-        material = apply_saved(target, profile, evidence, material)
+        if original_profile_digest is None:
+            material = apply_saved(target, profile, evidence, material)
         key = canonical_repository(profile.repository)
         # storedAt can change during cache migration, so it must not make an
         # older interpretation replace a newer one. Do not rewrite either date.
@@ -296,10 +301,12 @@ def _history_with_materials(target: Path, materials: dict) -> dict:
 
 
 def load_saved_project_profile(
-    target: Path, repository: str
+    target: Path, repository: str, *, original_profile_digest: str | None = None
 ) -> tuple[OfficialProjectProfile, ProjectEvidenceProjection] | None:
     """Shared validated material for on-demand explanation, without fact rebinding."""
-    material = saved_materials(target).get(canonical_repository(repository))
+    material = saved_materials(target, original_profile_digest=original_profile_digest).get(
+        canonical_repository(repository)
+    )
     if material is None:
         return None
     return (

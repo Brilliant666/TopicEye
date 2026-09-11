@@ -31,17 +31,25 @@ export function TrendingCard({ project, generationId, historical = false, index 
         <span>{project.materialState === 'complete' ? '档案可用' : project.materialState === 'partial' ? '资料部分可用' : '资料暂未补齐'}</span>
         {project.dualListed && !historical && <span className={styles.dualBoardBadge}>双榜上榜</span>}
       </div>
-      <div className={styles.boardAppearanceList}>{project.appearances.map(appearance => <span key={`${appearance.source}-${appearance.sourceDate}`}>
-        {boardSourceName[appearance.source]} #{appearance.rank} · {boardTime(appearance.sourceDate)}
-      </span>)}</div>
-      {historical && (project.appearances.length > 0 || !project.historicalRardarEvidence?.length) && <p className={styles.projectDescription}>本地保存 {project.historyAppearances ?? project.appearances.length} 次榜单记录 · 最早采集 {boardTime(project.firstSeenAt)}</p>}
-      {historical && project.historicalRardarEvidence?.length ? <p className={styles.projectDescription}>Rardar 历史榜记录 {project.historicalRardarEvidence.length} 期</p> : null}
-      {historical && project.historicalEvidence?.map(evidence => <p className={styles.projectDescription} key={evidence.sourceUrl}>GitHub 历史上榜 {evidence.reportedAppearanceCount} 次（来源报告，具体日期未知）{safeSourceUrl(evidence.sourceUrl) && <a href={safeSourceUrl(evidence.sourceUrl)} target="_blank" rel="noopener noreferrer"> · 核对历史来源 ↗</a>}</p>)}
-      {historical && project.historicalRardarEvidence?.[0] && <p className={styles.projectDescription}>Rardar 历史榜 #{project.historicalRardarEvidence[0].rank} · 原观察窗口 {boardTime(project.historicalRardarEvidence[0].windowStartedAt)} → {boardTime(project.historicalRardarEvidence[0].windowEndedAt)} · 当时新增 {project.historicalRardarEvidence[0].observedStarDelta.toLocaleString()} Star</p>}
+      {historical ? <HistoricalContext project={project} /> : <div className={styles.boardAppearanceList}>{project.appearances.map(appearance => <span key={appearance.source}>{boardSourceName[appearance.source]} #{appearance.rank}</span>)}</div>}
+      <details className={styles.provenanceDetails}><summary>{historical ? '历史记录' : '来源与更新时间'}</summary><div className={styles.provenanceDetailsBody}>
+        {project.appearances.map(item => <p key={`${item.source}-${item.fetchedAt}`}>{boardSourceName[item.source]} #{item.rank} · {item.sourceDate ? `榜单日期 ${item.sourceDate}` : `采集于 ${boardTime(item.fetchedAt)}`} · {item.period} · {item.source === 'github' ? item.reportedDeltaPeriod : item.trendshiftMetricPeriod}</p>)}
+          {project.totalStarsSource && <p>累计 Star 来源：{boardSourceName[project.totalStarsSource.source]} · 采集 {boardTime(project.totalStarsSource.fetchedAt)}</p>}
+          {project.metadataSource && <p>语言、主题和许可证：GitHub 仓库元数据 · 读取 {boardTime(project.metadataSource.fetchedAt)}</p>}
+        {historical && project.historicalEvidence?.map(item => <p key={item.sourceUrl}>来源报告历史上榜 {item.reportedAppearanceCount} 次；具体日期未知，不等于本地逐日记录。{safeSourceUrl(item.sourceUrl) && <a href={safeSourceUrl(item.sourceUrl)} target="_blank" rel="noopener noreferrer">核对来源 ↗</a>}</p>)}
+        {historical && project.historicalRardarEvidence?.map(item => <p key={item.sourceGeneration}>Rardar #{item.rank} · {boardTime(item.windowStartedAt)} → {boardTime(item.windowEndedAt)} · 当时新增 {item.observedStarDelta.toLocaleString()} Star</p>)}
+      </div></details>
       <div className={styles.cardActions}><Link className={styles.findPrefillLink} href={detailHref}>查看项目详情 <ArrowRight size={14} /></Link><a className={styles.githubLink} href={`https://github.com/${project.repository}`} target="_blank" rel="noopener noreferrer">GitHub <ArrowUpRight size={14} /></a></div>
     </div>
     <RardarGrowthFacts project={project} historical={historical} />
   </article>;
+}
+
+export function HistoricalContext({ project }: { project: TrendingProject }) {
+  const context = project.historicalContext;
+  if (!context) return <p className={styles.projectDescription}>历史日期未取得</p>;
+  if (context.kind === 'reported_count') return <p className={styles.projectDescription}>来源报告曾上 GitHub 日榜 {context.reportedAppearanceCount} 次 · 具体日期未知，本地无对应逐日记录</p>;
+  return <p className={styles.projectDescription}>{context.kind === 'rardar' ? 'Rardar 历史榜' : boardSourceName[context.source as keyof typeof boardSourceName]} #{context.rank} · {context.dateKind === 'capture' ? '采集于 ' : context.dateKind === 'window' ? '窗口结束 ' : '榜单日期 '}{boardTime(context.date)}</p>;
 }
 
 export default function RardarTrendingPage({ board, historical = false }: { board: TrendingBoard | null; historical?: boolean }) {
@@ -53,7 +61,7 @@ export default function RardarTrendingPage({ board, historical = false }: { boar
       <p className={styles.heroDescription}>{historical ? '从真实历史上榜记录认识项目，复用同一份项目档案与完整解读。历史关注与当前维护状态分别核对。' : 'GitHub Trending 与 Trendshift 自有日榜合并去重，保留两榜原始名次；项目解读帮助理解，不改变来源清单。'}</p>
       <div className={styles.foundationNotice}><span className={styles.noticePill}><ShieldCheck size={15} /> 真实来源 · 原始名次</span><span className={styles.noticePill}><Sparkles size={15} /> 共享项目档案 · 按需深度解读</span></div>
     </div></section>
-    <div className={styles.sectionHeading}><div><h2>{historical ? '历史项目回顾' : '双榜项目清单'}</h2><p>{historical ? '按已保存的历史依据浏览，不将历史表现当作今日增长。' : '按两榜原始顺序交错展示；序号不是全 GitHub 综合排名。'}</p></div>{board?.publishedAt && <span className={styles.timestamp}>清单发布 {boardTime(board.publishedAt)}</span>}</div>
+    <div className={styles.sectionHeading}><div><h2>{historical ? '历史项目回顾' : '双榜项目清单'}</h2><p>{historical ? '已有解读优先，再按累计 Star 浏览；历史表现不代表今日增长。' : '按来源报告的 Star 增长降序排列；双榜项目优先采用 GitHub Trending。'}</p></div>{board?.publishedAt && <span className={styles.timestamp}>清单发布 {boardTime(board.publishedAt)}</span>}</div>
     {!historical && board && <p className={styles.boardSourceSummary} aria-label="两源读取状态">{board.sources.map(source => <span key={source.source}>{source.label}：{source.status === 'healthy' ? '读取成功' : source.status === 'stale' ? '历史缓存' : '读取失败'} · 源榜 {boardTime(source.sourceDate)} · 采集 {boardTime(source.fetchedAt)}</span>)}</p>}
     {!board ? <section className={styles.emptyExactCard} role="status"><Clock3 size={28} /><div><h3>已保存清单暂时不可用</h3><p>请稍后重试；普通阅读不会触发采集或模型请求。</p></div></section> : <>
       <section className={styles.rankingList} aria-label={historical ? '历史回顾项目' : '双榜今日热榜'}>{board.projects.slice(0, visible).map((project, index) => <TrendingCard key={project.projectId} project={project} generationId={board.generationId} historical={historical} index={index} />)}</section>

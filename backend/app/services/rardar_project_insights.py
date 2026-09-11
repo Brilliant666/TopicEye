@@ -86,6 +86,8 @@ def _material_evidence(project: dict, *, read_only: bool = False) -> ProjectEvid
         profile = OfficialProjectProfile.model_validate_json(json.dumps(project["displayProfile"]), strict=True)
         projection = ProjectEvidenceProjection.model_validate_json(json.dumps(project["displayEvidence"]), strict=True)
         revision = project.get("material", {}).get("traitRevision")
+        content_revision = project.get("material", {}).get("contentRevision")
+        revision = revision or content_revision
         if revision is not None:
             # Taxonomy is a read-time display correction, not a replacement of
             # the original Profile used by a saved model interpretation. Keep
@@ -107,15 +109,26 @@ def _material_evidence(project: dict, *, read_only: bool = False) -> ProjectEvid
             current_display = apply_saved(
                 target, original_profile, original_evidence, project_material(original_profile, original_evidence)
             )
+            from app.integrations.rardar.material_content_revision import apply_saved as apply_content
+
+            current_display = apply_content(target, original_profile, original_evidence, current_display)
             if (
                 digest(original_profile.model_dump(mode="json")) != original_digest
                 or original_evidence.digest != revision.get("sourceEvidenceDigest")
                 or original_evidence != projection
                 or current_display["displayProfile"] != project["displayProfile"]
-                or current_display["material"].get("traitRevision") != revision
+                or (
+                    current_display["material"].get("traitRevision")
+                    or current_display["material"].get("contentRevision")
+                )
+                != revision
+                or current_display["material"].get("contentRevision") != content_revision
             ):
                 raise ValueError("project_insight_original_material_mismatch")
-            profile, projection = original_profile, original_evidence
+            # Content repairs genuinely change interpretation input; unlike a
+            # taxonomy-only revision they must not impersonate an old result.
+            if content_revision is None:
+                profile, projection = original_profile, original_evidence
         # detail() only exports profiles after source/identity/ref validation.
         evidence = _static_project_evidence(SimpleNamespace(profile=profile, evidence=projection))
     else:

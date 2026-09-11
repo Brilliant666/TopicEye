@@ -510,8 +510,10 @@ class OfficialProjectProfile(StrictServingModel):
             ):
                 raise ValueError("profile quality issues must be unique and bounded")
             if self.qualityState == "ready" and (
-                self.coreValueZh is None
-                or not self.coreValueEvidenceRefs
+                not (
+                    (self.coreValueZh and self.coreValueEvidenceRefs)
+                    or (self.positioningZh and self.positioningEvidenceRefs)
+                )
                 or not self.keyDifferentiators
                 or not self.capabilities
                 or self.qualityIssues

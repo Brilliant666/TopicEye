@@ -28,6 +28,7 @@ import { boardTime, safeSourceUrl, type TrendingDetail } from '@/lib/rardar-tren
 import styles from './RardarFoundation.module.css';
 import RardarProjectExplanation from './RardarProjectExplanation';
 import RardarGrowthFacts from './RardarGrowthFacts';
+import { HistoricalContext } from './RardarTrendingPage';
 
 export default function RardarProjectDetailPage({ detail, historical = false }: { detail: ProjectDetail | DiscoverProjectDetail | TrendingDetail; historical?: boolean }) {
   const trendingDetail = 'repository' in detail ? detail : null;
@@ -143,7 +144,7 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
           <h2>{profile.coreValueZh}</h2>
           <EvidenceBadges values={profile.coreValueEvidenceRefs} />
         </section>}
-        {profile.positioningZh && profile.positioningZh !== profile.coreValueZh && <section className={styles.detailPositioning} data-testid="project-official-positioning">
+        {profile.positioningZh && profile.positioningZh !== profile.coreValueZh && <section className={profile.coreValueZh ? styles.detailPositioning : styles.detailCoreValue} data-testid="project-official-positioning">
           <div className={styles.sectionKicker}><BookOpen size={16} /> 项目定位 · {positioningLabel}</div>
           <p>{profile.positioningZh}</p>
           <EvidenceBadges values={profile.positioningEvidenceRefs} />
@@ -296,10 +297,8 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
 function TrendingHeroFacts({ detail, historical }: { detail: TrendingDetail; historical: boolean }) {
   const github = detail.appearances.find(item => item.source === 'github');
   const trendshift = detail.appearances.find(item => item.source === 'trendshift');
-  const rardarHistory = detail.historicalRardarEvidence?.[0];
-  const externalHistory = detail.historicalEvidence?.[0];
   return <div className={styles.trendingHeroFacts} aria-label={historical ? '历史上榜事实' : '双榜来源事实'}><dl className={styles.sourceRankFacts}>
-    {historical ? rardarHistory ? <Fact label="Rardar 历史榜名次" value={`#${rardarHistory.rank}`} /> : externalHistory ? <Fact label="来源报告历史上榜" value={`${externalHistory.reportedAppearanceCount} 次`} /> : <Fact label="已保存历史榜单" value={`${detail.historyAppearances ?? detail.appearances.length} 次`} /> : <>
+    {historical ? <div><HistoricalContext project={detail} /></div> : <>
       {github && <Fact label="GitHub Trending" value={`#${github.rank}`} />}
       {trendshift && <Fact label="Trendshift 日榜" value={`#${trendshift.rank}`} />}
     </>}
@@ -314,6 +313,9 @@ function TrendingFactContext({ detail, historical }: { detail: TrendingDetail; h
       {detail.appearances.map(item => <Fact key={`${item.source}-${item.sourceDate}-${item.fetchedAt}`} label={`${item.source === 'github' ? 'GitHub Trending' : 'Trendshift'} 日榜`} value={`#${item.rank} · ${boardTime(item.sourceDate)} · 采集 ${boardTime(item.fetchedAt)}`} />)}
       {historical && detail.firstSeenAt && <Fact label="本地最早采集" value={boardTime(detail.firstSeenAt)} />}
       {detail.displayProfile?.generatedAt && <Fact label="项目资料生成时间" value={boardTime(detail.displayProfile.generatedAt)} />}
+      {detail.primaryGrowth && <Fact label="主增长统计口径" value={detail.primaryGrowth.source === 'rardar_history' ? `${boardTime(detail.primaryGrowth.windowStartedAt)} → ${boardTime(detail.primaryGrowth.windowEndedAt)}` : detail.primaryGrowth.reportedDeltaPeriod || detail.primaryGrowth.trendshiftMetricPeriod || '来源日榜，未声明精确窗口'} />}
+      {detail.totalStarsSource && <Fact label="累计 Star 来源" value={`${detail.totalStarsSource.source === 'github' ? 'GitHub Trending' : 'Trendshift'} · 采集 ${boardTime(detail.totalStarsSource.fetchedAt)}`} />}
+      {detail.metadataSource && <Fact label="语言、主题和许可证" value={`GitHub 仓库元数据 · 读取 ${boardTime(detail.metadataSource.fetchedAt)}`} />}
     </dl>
     {detail.historicalEvidence?.map(item => <p className={styles.projectDescription} key={item.sourceUrl}>GitHub 历史上榜 {item.reportedAppearanceCount} 次（来源报告，具体日期未知），采集 {boardTime(item.fetchedAt)}。{safeSourceUrl(item.sourceUrl) && <a href={safeSourceUrl(item.sourceUrl)} target="_blank" rel="noopener noreferrer"> 核对来源 ↗</a>}</p>)}
     {detail.historicalRardarEvidence?.map(item => <p className={styles.projectDescription} key={`${item.sourceGeneration}-${item.rank}`}>Rardar 历史榜 #{item.rank} · 原观察窗口 {boardTime(item.windowStartedAt)} → {boardTime(item.windowEndedAt)} · 当时观测新增 {formatNumber(item.observedStarDelta)} Star · 当时累计 {formatNumber(item.totalStars)} Star。{detail.githubRepositoryId !== null && <Link href={`/project/github/${detail.githubRepositoryId}?generation=${encodeURIComponent(item.sourceGeneration)}`}> 查看原榜资料 →</Link>}</p>)}

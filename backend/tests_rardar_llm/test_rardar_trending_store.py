@@ -34,7 +34,8 @@ def test_union_preserves_complete_boards_without_profiles_or_observation(tmp_pat
     snapshot = store.load_snapshot(tmp_path)
     assert result["count"] == 32
     assert {p["repository"] for p in snapshot["projects"]} == set(github + trendshift)
-    assert [p["repository"] for p in snapshot["projects"][:3]] == ["org/repo-0", "org/repo-1", "outside/new-project"]
+    # With growth and total Stars unknown, the full union uses repository-name order.
+    assert [p["repository"] for p in snapshot["projects"]] == sorted(set(github + trendshift))
     overlap = snapshot["projects"][0]
     assert overlap["dualListed"]
     assert len(overlap["appearances"]) == 2

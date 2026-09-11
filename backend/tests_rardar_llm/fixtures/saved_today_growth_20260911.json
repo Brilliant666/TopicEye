@@ -1,0 +1,549 @@
+{
+  "provenance": "User saved Today HTML, 2026-09-11; regression data only, never a production input.",
+  "projects": [
+    {
+      "repository": "ayghri/i-have-adhd",
+      "totalStars": 40607,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 1,
+          "reportedDelta": 3440,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        },
+        {
+          "source": "trendshift",
+          "rank": 3,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 2248,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "embertuready/total-commander",
+      "totalStars": 1766,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 1,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 1030,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "bilawalsidhu/gods-eye-view",
+      "totalStars": 26296,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 2,
+          "reportedDelta": 3642,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        },
+        {
+          "source": "trendshift",
+          "rank": 4,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 2040,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "ghoulformpray/monero-miner",
+      "totalStars": 1722,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 2,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 1030,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "nab138/iloader",
+      "totalStars": 2829,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 3,
+          "reportedDelta": 36,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        }
+      ]
+    },
+    {
+      "repository": "melgarafael/deskcommcrm",
+      "totalStars": 1174,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 4,
+          "reportedDelta": 126,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        }
+      ]
+    },
+    {
+      "repository": "vastsa/pi-desktop",
+      "totalStars": 2673,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 5,
+          "reportedDelta": 545,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        }
+      ]
+    },
+    {
+      "repository": "onyxconductorsnips/discord-raid-tools",
+      "totalStars": 2576,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 5,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 706,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "armory3d/armorpaint",
+      "totalStars": 4645,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 6,
+          "reportedDelta": 354,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        }
+      ]
+    },
+    {
+      "repository": "nvlabs/sol-pi",
+      "totalStars": 910,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 6,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 628,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "alsk1992/cloddsbot",
+      "totalStars": 2010,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 7,
+          "reportedDelta": 627,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        },
+        {
+          "source": "trendshift",
+          "rank": 16,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 381,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "github/spec-kit",
+      "totalStars": 135615,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 7,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 646,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        },
+        {
+          "source": "github",
+          "rank": 15,
+          "reportedDelta": 985,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        }
+      ]
+    },
+    {
+      "repository": "nashsu/llm_wiki",
+      "totalStars": 18555,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 8,
+          "reportedDelta": 640,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        },
+        {
+          "source": "trendshift",
+          "rank": 12,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 456,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "watermitecreate/optimizer-for-windows",
+      "totalStars": 1345,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 8,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 608,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "obra/superpowers",
+      "totalStars": 285182,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 9,
+          "reportedDelta": 731,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        }
+      ]
+    },
+    {
+      "repository": "velocitynodecompute/universal-trading-bot",
+      "totalStars": 1285,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 9,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 586,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "sonarr/sonarr",
+      "totalStars": 15653,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 10,
+          "reportedDelta": 174,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        }
+      ]
+    },
+    {
+      "repository": "shademultiplexer/boris-fx-tools",
+      "totalStars": 851,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 10,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 552,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "jihe520/mathmodelagent",
+      "totalStars": 4783,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 11,
+          "reportedDelta": 132,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        }
+      ]
+    },
+    {
+      "repository": "crestcoursechateau/acrobat-pro-software",
+      "totalStars": 3016,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 11,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 693,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "p1neapplexpress/openflux",
+      "totalStars": 987,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 12,
+          "reportedDelta": 201,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        }
+      ]
+    },
+    {
+      "repository": "jordan-gibbs/hyperresearch",
+      "totalStars": 2345,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 13,
+          "reportedDelta": 118,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        }
+      ]
+    },
+    {
+      "repository": "sumimakito/mac-duo",
+      "totalStars": 452,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 13,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 438,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "alphaxiv/openresearch",
+      "totalStars": 1124,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 14,
+          "reportedDelta": 156,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        }
+      ]
+    },
+    {
+      "repository": "google/artemis",
+      "totalStars": 1988,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 14,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 498,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "yang0/handraw-style",
+      "totalStars": 1355,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 15,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 428,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "pascalorg/editor",
+      "totalStars": 23411,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 16,
+          "reportedDelta": 83,
+          "trendshiftStarsGained": null,
+          "fetchedAt": "2026-09-11T23:46:40.91687+08:00",
+          "sourceStatus": "healthy"
+        }
+      ]
+    },
+    {
+      "repository": "zeptofollowerrhythm/seed-phrase-generator-and-checker",
+      "totalStars": 987,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 17,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 312,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "anakin-inc/anakin",
+      "totalStars": 3238,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 18,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 317,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "mcncarl/yichen-skills",
+      "totalStars": 2690,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 19,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 269,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "arcboxlabs/arcbox",
+      "totalStars": 5066,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 20,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 469,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "evomap/autoresearch",
+      "totalStars": 3426,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 21,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 499,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "dataelement/dsh-desktop",
+      "totalStars": 5288,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 22,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 332,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "averygan/reclip",
+      "totalStars": 9164,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 23,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 281,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "angusdevgo/idm_pro_tool",
+      "totalStars": 466,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 24,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 264,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    },
+    {
+      "repository": "stablyai/orca",
+      "totalStars": 66532,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 25,
+          "reportedDelta": null,
+          "trendshiftStarsGained": 591,
+          "fetchedAt": "2026-09-11T23:46:40.92487+08:00",
+          "sourceStatus": "stale"
+        }
+      ]
+    }
+  ]
+}

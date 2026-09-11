@@ -17,7 +17,9 @@ STATS = re.compile(r"\d[\d,.]*[kK+]*\s*(?:stars|forks|贡献者)", re.I)
 
 def clean(text: str) -> str:
     text = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)
-    return re.sub(r"[>*_`#]+", "", text).strip()
+    text = re.sub(r"(?m)^\s{0,3}(?:#{1,6}\s+|>\s*|[-*]\s+)", "", text)
+    # Strip markup pairs only; preserve C#, snake_case and numeric comparisons.
+    return re.sub(r"(\*\*|__|`)(.+?)\1", r"\2", text).strip()
 
 
 def first_sentence(text: str) -> str:
@@ -35,9 +37,9 @@ def derive(profile, evidence) -> dict:
             value[ref_field] = list(evidence_refs)
 
     if TEMPLATE.search(value.get("coreValueZh") or ""):
-        value.update(
-            coreValueZh=None, coreValueEvidenceRefs=[], rardarAssessmentZh=None, rardarAssessmentEvidenceRefs=[]
-        )
+        value.update(coreValueZh=None, coreValueEvidenceRefs=[])
+    if TEMPLATE.search(value.get("rardarAssessmentZh") or ""):
+        value.update(rardarAssessmentZh=None, rardarAssessmentEvidenceRefs=[])
     summary = value.get("identitySummaryZh") or value["officialSummaryZh"]
     summary_refs = refs.get(summary, [])
     if len(STATS.findall(summary)) >= 2:
@@ -135,7 +137,8 @@ def derive(profile, evidence) -> dict:
 
 
 def _path(target, profile):
-    return target / "profile-cache" / "display-content-revisions" / f"{digest(profile.model_dump(mode='json'))}.json"
+    identity = {"sourceProfile": digest(profile.model_dump(mode="json")), "version": VERSION}
+    return target / "profile-cache" / "display-content-revisions" / f"{digest(identity)}.json"
 
 
 def install(target: Path, profile, evidence) -> dict:

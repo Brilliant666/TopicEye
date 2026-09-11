@@ -8,6 +8,13 @@ from app.services import rardar_trending as service
 from tests_rardar_llm.test_managed_materials import seed
 
 
+def test_markdown_cleanup_preserves_technical_meaning():
+    assert (
+        revision.clean("> **支持 C# 与 snake_case**，版本 > 3；[原文](https://example.test)。")
+        == "支持 C# 与 snake_case，版本 > 3；原文。"
+    )
+
+
 @pytest.mark.asyncio
 async def test_template_repair_is_explicit_immutable_reusable_and_keeps_positioning(tmp_path):
     path = await seed(tmp_path)

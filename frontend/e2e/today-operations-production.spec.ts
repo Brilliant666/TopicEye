@@ -4,8 +4,8 @@ import type { TodayOperation } from '../src/lib/api/today-operations';
 // Synthetic operation responses only. This tests the actual production route,
 // auth context and operator component; it never invokes SSH or a Provider.
 const endpoint = '**/api/v1/rardar/today/operations';
-const fixtures = ['updated', 'unchanged', 'no_complete_board', 'failed', 'interrupted', 'not_configured'] as const;
-const labels = ['已更新', '已是最新', '暂时没有更新的完整榜单', '连接或验证失败', '同步已中断', '只读同步尚未配置'];
+const fixtures = ['updated', 'unchanged', 'no_complete_board', 'failed', 'interrupted', 'not_configured', 'partial'] as const;
+const labels = ['已更新', '已是最新', '暂时没有更新的完整榜单', '连接或验证失败', '同步已中断', '只读同步尚未配置', '部分来源已更新'];
 
 test('Today ordinary page reads never start synchronization', async ({ page }) => {
   let requests = 0;
@@ -35,16 +35,16 @@ for (const [index, status] of fixtures.entries()) {
         const input = route.request().postDataJSON();
         expect(Object.keys(input)).toEqual(['requestId']);
         expect(input.requestId).toMatch(/^[0-9a-f-]{36}$/i);
-        latest = { id: input.requestId, status: 'running', startedAt: '2026-09-09T02:00:00Z', completedAt: null, errorCode: null, providerCalls: 0, result: null };
+        latest = { id: input.requestId, scope: 'dual_board', status: 'running', startedAt: '2026-09-11T02:00:00Z', completedAt: null, errorCode: null, providerCalls: 0, result: null };
         await route.fulfill({ json: latest });
         return;
       }
       expect(route.request().method()).toBe('GET');
       if (finish && latest) latest = {
-        ...latest, status, completedAt: '2026-09-09T02:00:05Z',
-        result: { generationId: 'synthetic-only', window: { startedAt: '2026-09-08T00:00:00Z', endedAt: '2026-09-09T00:00:00Z' }, syncedAt: '2026-09-09T01:00:00Z', changed: status === 'updated' },
+        ...latest, status, completedAt: '2026-09-11T02:00:05Z',
+        result: { generationId: `boards-${'a'.repeat(64)}`, window: null, syncedAt: '2026-09-11T01:00:00Z', changed: status === 'updated' },
       };
-      await route.fulfill({ json: { latest, lastSuccessfulSyncAt: '2026-09-09T01:00:00Z' } });
+      await route.fulfill({ json: { latest, lastSuccessfulSyncAt: '2026-09-11T01:00:00Z' } });
     });
     await page.goto('/');
     const panel = page.getByRole('region', { name: '管理员榜单更新', exact: true });
@@ -58,9 +58,11 @@ for (const [index, status] of fixtures.entries()) {
     finish = true;
     await expect(panel.getByText(labels[index], { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(button).toBeEnabled();
-    await expect(panel.getByText(/来源观察窗口（北京时间）/)).toContainText('2026/9/8 08:00:00');
-    await expect(panel.getByText(/最近成功同步/)).toContainText('2026/9/9 09:00:00');
-    await expect(panel.getByText(/最近检查/)).toContainText('2026/9/9 10:00:05');
+    await expect(panel.getByText(/观察窗口/)).toHaveCount(0);
+    await expect(panel.getByText(/当前清单发布/)).toContainText('2026/9/10 08:00:00');
+    await expect(panel.getByText(/最近来源检查/)).toContainText('2026/9/10 08:00:00');
+    await expect(panel.getByText(/最近成功手动同步/)).toContainText('2026/9/11 09:00:00');
+    await expect(panel.getByText(/最近手动操作/)).toContainText('2026/9/11 10:00:05');
     await page.reload();
     await expect(panel.getByText(labels[index], { exact: true })).toBeVisible();
     expect(posts).toBe(1);

@@ -24,15 +24,40 @@ import {
   type ProjectDetail,
 } from '@/lib/rardar-intelligence';
 import type { DiscoverProjectDetail } from '@/lib/rardar-discover';
+import { boardTime, safeSourceUrl, type TrendingDetail } from '@/lib/rardar-trending';
 import styles from './RardarFoundation.module.css';
 import RardarProjectExplanation from './RardarProjectExplanation';
 
-export default function RardarProjectDetailPage({ detail }: { detail: ProjectDetail | DiscoverProjectDetail }) {
+export default function RardarProjectDetailPage({ detail, historical = false }: { detail: ProjectDetail | DiscoverProjectDetail | TrendingDetail; historical?: boolean }) {
+  const trendingDetail = 'repository' in detail ? detail : null;
   const discoverDetail = 'facts' in detail ? detail : null;
   const todayDetail = 'project' in detail ? detail : null;
   const isDiscover = discoverDetail !== null;
-  const profile = detail.profile;
-  const project = discoverDetail
+  const savedProfile = trendingDetail ? trendingDetail.displayProfile : (detail as ProjectDetail | DiscoverProjectDetail).profile;
+  // These are render defaults for absent sections, never a synthesized Profile
+  // or replacement identity/evidence/generation used for analysis.
+  const profile = {
+    ...savedProfile,
+    originalDescription: savedProfile?.originalDescription || trendingDetail?.description,
+    productFormsZh: savedProfile?.productFormsZh || [],
+    supportedEnvironmentsZh: savedProfile?.supportedEnvironmentsZh || [],
+    deliveryFormsZh: savedProfile?.deliveryFormsZh || [],
+    positioningEvidenceRefs: savedProfile?.positioningEvidenceRefs || [],
+    positioningExcludedClauses: savedProfile?.positioningExcludedClauses || [],
+    coreValueEvidenceRefs: savedProfile?.coreValueEvidenceRefs || [],
+    capabilities: savedProfile?.capabilities || [],
+    officialHighlights: savedProfile?.officialHighlights || [],
+    rardarAssessmentEvidenceRefs: savedProfile?.rardarAssessmentEvidenceRefs || [],
+    rardarDifferentiators: savedProfile?.rardarDifferentiators || [],
+    keyDifferentiators: savedProfile?.keyDifferentiators || [],
+    primaryUseCasesZh: savedProfile?.primaryUseCasesZh || [],
+    startHere: savedProfile?.startHere || [],
+    selectedSections: savedProfile?.selectedSections || [],
+    originalExcerpts: savedProfile?.originalExcerpts || [],
+  };
+  const project = trendingDetail
+    ? { githubRepositoryId: trendingDetail.githubRepositoryId, repository: trendingDetail.repository, htmlUrl: `https://github.com/${trendingDetail.repository}`, primaryLanguage: trendingDetail.language, topics: trendingDetail.topics || [], licenseSpdxId: trendingDetail.license }
+    : discoverDetail
     ? {
         githubRepositoryId: discoverDetail.facts.githubRepositoryId,
         repository: discoverDetail.facts.repository,
@@ -43,19 +68,19 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
       }
     : todayDetail!.project;
   if (discoverDetail) {
-    assertPublishableProject(profile, true);
+    assertPublishableProject(discoverDetail.profile, true);
   } else if (todayDetail && todayDetail.schemaVersion >= 5 && todayDetail.schemaVersion < 8) {
     const requireIncludedRoles = todayDetail.schemaVersion >= 6;
     assertPublishableProject(todayDetail.project, requireIncludedRoles);
-    assertPublishableProject(profile, requireIncludedRoles);
+    assertPublishableProject(todayDetail.profile, requireIncludedRoles);
   }
   const relativeGrowth = todayDetail && todayDetail.project.baselineStars > 0
     ? todayDetail.project.observedStarDelta / todayDetail.project.baselineStars
     : null;
-  const generationId = discoverDetail ? discoverDetail.discoverGenerationId : todayDetail!.generationId;
+  const generationId = trendingDetail ? trendingDetail.generationId || 'history' : discoverDetail ? discoverDetail.discoverGenerationId : todayDetail!.generationId;
   const findHref = `/find?repositoryUrl=${encodeURIComponent(project.htmlUrl)}`;
-  const sourceLabel = narrativeSourceLabel(profile.officialNarrativeMode);
-  const positioningLabel = positioningSourceLabel(profile.positioningSourceMode);
+  const sourceLabel = profile.officialNarrativeMode ? narrativeSourceLabel(profile.officialNarrativeMode) : '资料暂未补齐';
+  const positioningLabel = profile.positioningSourceMode ? positioningSourceLabel(profile.positioningSourceMode) : '已保存项目档案';
   const primaryLinks = profile.startHere.slice(0, 4);
   const moreLinks = profile.startHere.slice(4);
   const presentedCapabilities = profile.capabilities;
@@ -63,17 +88,17 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
   return (
     <div className={`${styles.page} ${styles.detailPage}`} data-rardar-route="/project">
       <nav className={styles.breadcrumb} aria-label="面包屑">
-        <Link href={isDiscover ? '/discover' : '/'}><ArrowLeft size={14} /> {isDiscover ? '发现' : '今日'}</Link><span>/</span><span>{project.repository}</span>
+        <Link href={historical ? '/historical-hot' : isDiscover ? '/discover' : '/'}><ArrowLeft size={14} /> {historical ? '历史回顾' : isDiscover ? '发现' : '今日热榜'}</Link><span>/</span><span>{project.repository}</span>
       </nav>
 
       <section className={styles.detailHero} data-testid="project-identity-hero">
         <div className={styles.detailHeroCopy}>
-          <div className={styles.detailEyebrow}><ShieldCheck size={15} /> 静态项目档案 · {todayDetail?.schemaVersion === 8 ? materialLabel(profile.materialState) : sourceLabel}</div>
+          <div className={styles.detailEyebrow}><ShieldCheck size={15} /> 静态项目档案 · {trendingDetail ? materialLabel(trendingDetail.materialState) : todayDetail?.schemaVersion === 8 ? materialLabel(profile.materialState) : sourceLabel}</div>
           <h1>{project.repository}</h1>
           {profile.officialTaglineZh ? (
             <p className={styles.officialTagline} data-testid="detail-official-tagline">{profile.officialTaglineZh}</p>
-          ) : profile.identitySummaryZh ? (
-            <p className={styles.detailSafeIdentity}>{profile.identitySummaryZh}</p>
+          ) : profile.identitySummaryZh || profile.officialSummaryZh ? (
+            <p className={styles.detailSafeIdentity}>{profile.identitySummaryZh || profile.officialSummaryZh}</p>
           ) : profile.originalDescription ? (
             <p className={styles.detailSafeIdentity}><small>原始介绍 · </small>{profile.originalDescription}</p>
           ) : (
@@ -88,14 +113,15 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
             {project.primaryLanguage && <span>{project.primaryLanguage}</span>}
             {project.topics.slice(0, 4).map((topic) => <span key={topic}>{topic}</span>)}
             {project.licenseSpdxId && <span>{project.licenseSpdxId}</span>}
-            <span>{todayDetail?.schemaVersion === 8 ? materialLabel(profile.materialState) : qualityLabel(profile.qualityState)}</span>
+            <span>{trendingDetail ? materialLabel(trendingDetail.materialState) : todayDetail?.schemaVersion === 8 ? materialLabel(profile.materialState) : qualityLabel(profile.qualityState)}</span>
+            {trendingDetail?.dualListed && !historical && <span>双榜上榜</span>}
           </div>
           <div className={styles.detailActions}>
             <a href={project.htmlUrl} target="_blank" rel="noreferrer">打开 GitHub <ArrowUpRight size={15} /></a>
             <Link href={findHref}>用这个仓库评估我的需求 <ArrowRight size={15} /></Link>
           </div>
         </div>
-        {discoverDetail ? (
+        {trendingDetail ? <TrendingHeroFacts detail={trendingDetail} historical={historical} /> : discoverDetail ? (
           <dl className={styles.heroFactPair} aria-label="发现核心事实">
             <Fact label="发现阶段" value={discoverStageLabel(discoverDetail.facts.stage)} />
             <Fact label="实际增长" value={`+${formatNumber(discoverDetail.facts.observedStarDelta)} / ${formatHours(discoverDetail.facts.observedWindowHours)}`} accent />
@@ -111,11 +137,11 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
       <div className={styles.detailFlow} data-testid="project-detail-flow">
         {discoverDetail && <DiscoverFactContext detail={discoverDetail} />}
 
-        {profile.positioningZh ? <section className={styles.detailCoreValue} data-testid="project-official-positioning">
+        {profile.positioningZh || profile.coreValueZh ? <section className={styles.detailCoreValue} data-testid="project-official-positioning">
           <div className={styles.sectionKicker}><Sparkles size={16} /> 核心定位 · {positioningLabel}</div>
-          <h2>{profile.positioningZh}</h2>
-          <EvidenceBadges values={profile.positioningEvidenceRefs} />
-        </section> : <p>核心定位暂未补齐</p>}
+          <h2>{profile.positioningZh || profile.coreValueZh}</h2>
+          <EvidenceBadges values={profile.positioningZh ? profile.positioningEvidenceRefs : profile.coreValueEvidenceRefs} />
+        </section> : <p className={styles.projectDescription}>核心定位暂未补齐，可先查看真实上榜资料和原仓库。</p>}
 
         {presentedCapabilities.length > 0 ? (
           <DetailSection
@@ -124,7 +150,7 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
             subtitle="能力来自同一份已验证项目档案；来源类型与仓库证据逐项标明。"
           >
             <ol className={styles.capabilityNarrative} data-testid="project-capability-section">
-              {presentedCapabilities.slice(0, 6).map((capability, index) => (
+              {presentedCapabilities.map((capability, index) => (
                 <li
                   key={`${capability.title}-${capability.detail}`}
                   data-testid="project-capability-item"
@@ -142,7 +168,7 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
           <div className={styles.adoptionIntro}>
             <div className={styles.sectionKicker}><Gauge size={16} /> Rardar 决策与采用</div>
             <h2>从“看懂项目”进入“是否值得复用”</h2>
-            <p>AI 只分析差异、可复用资产、成本、适合场景和落地边界；项目身份、官方能力与{isDiscover ? '发现阶段和事实顺序' : '今日名次'}不由模型改写。</p>
+            <p>AI 只分析差异、可复用资产、成本、适合场景和落地边界；项目身份、官方能力与{trendingDetail ? '来源榜单记录' : isDiscover ? '发现阶段和事实顺序' : '今日名次'}不由模型改写。读取资料不代表已经运行验证。</p>
             {profile.rardarAssessmentZh && (
               <div className={styles.rardarAssessment} data-testid="rardar-assessment">
                 <span>Rardar 判断</span>
@@ -150,9 +176,9 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
                 <EvidenceBadges values={profile.rardarAssessmentEvidenceRefs} />
               </div>
             )}
-            {profile.rardarDifferentiators.length > 0 && (
+            {(profile.rardarDifferentiators.length > 0 || profile.keyDifferentiators.length > 0) && (
               <div className={styles.rardarDifferentiatorGrid} aria-label="Rardar 关键差异">
-                {profile.rardarDifferentiators.map((item) => (
+                {(profile.rardarDifferentiators.length ? profile.rardarDifferentiators : profile.keyDifferentiators).map((item) => (
                   <Differentiator key={`${item.title}-${item.detail}`} item={item} />
                 ))}
               </div>
@@ -160,17 +186,18 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
             {profile.primaryUseCasesZh.length > 0 && (
               <div className={styles.useCaseStrip} aria-label="适合场景">
                 <Target size={16} />
-                <span>{profile.primaryUseCasesZh.slice(0, 4).join(' · ')}</span>
+                <span>{profile.primaryUseCasesZh.join(' · ')}</span>
               </div>
             )}
-            <p className={styles.findDecisionHint}>已有明确需求时，可从页面顶部进入 Top 3 横向比较。</p>
+            <p className={styles.findDecisionHint}>已有明确需求时，可从页面顶部进入 Find，核对匹配、缺口与未知条件。</p>
           </div>
           <div className={styles.adoptionAction}>
             <RardarProjectExplanation
               repository={project.repository}
-              githubRepositoryId={project.githubRepositoryId}
+              githubRepositoryId={project.githubRepositoryId ?? undefined}
+              stableId={trendingDetail?.projectId}
               generationId={generationId}
-              source={isDiscover ? 'discover' : 'today'}
+              source={trendingDetail ? historical ? 'historical_hot' : 'trending' : isDiscover ? 'discover' : 'today'}
             />
           </div>
         </section>
@@ -201,7 +228,12 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
           </DetailSection>
         )}
 
-        {!discoverDetail && (
+        {profile.positioningExcludedClauses.length > 0 && <DetailSection icon={FileSearch} title="使用与边界补充" subtitle="保留资料中的部署、操作和限制说明，不把未验证条件写成已完成验证。">
+          <div className={styles.rardarDifferentiatorGrid}>{profile.positioningExcludedClauses.map(item => <article key={`${item.role}-${item.text}`}><strong>{{ operation: '使用方式', deployment: '部署条件', validation: '验证说明', example: '使用示例', boundary: '限制与边界' }[item.role]}</strong><p>{item.text}</p><EvidenceBadges values={item.evidenceRefs} /></article>)}</div>
+        </DetailSection>}
+
+        {trendingDetail && <TrendingFactContext detail={trendingDetail} historical={historical} />}
+        {todayDetail && (
           <section className={styles.observationFacts} data-testid="project-observation-facts">
             <header><Star size={17} /><div><h2>24 小时事实</h2><p>Hero 已给出结果，这里补充基线、窗口与覆盖，不重复名次和增量。</p></div></header>
             <dl>
@@ -222,28 +254,29 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
           <summary><BookOpen size={16} /> 来源、官方原文与审计 <span>按需查看</span></summary>
           <div className={styles.provenanceDetailsBody}>
             <dl className={styles.sourceFacts}>
-              <div><dt>叙事模式</dt><dd>{profile.officialNarrativeMode}</dd></div>
+              <div><dt>叙事模式</dt><dd>{profile.officialNarrativeMode || '尚无有效解读'}</dd></div>
               <div><dt>叙事来源</dt><dd>{sourceLabel}</dd></div>
               <div><dt>核心定位来源</dt><dd>{positioningLabel}</dd></div>
               <div><dt>官方重点</dt><dd>{profile.officialHighlights.length} 项</dd></div>
               <div><dt>Rardar 判断来源</dt><dd>{profile.rardarAssessmentZh ? '独立分析层' : '未生成'}</dd></div>
-              <div><dt>来源</dt><dd>{profile.sourceLabel}</dd></div>
+              <div><dt>来源</dt><dd>{profile.sourceLabel || '尚无有效项目档案'}</dd></div>
               <div><dt>README</dt><dd>{profile.readmePath || '未取得'}</dd></div>
               <div><dt>Revision</dt><dd><code>{profile.readmeBlobSha || 'GitHub Description'}</code></dd></div>
               <div><dt>翻译状态</dt><dd>{translationLabel(profile.translationState)}</dd></div>
               <div><dt>Profile 质量</dt><dd>{qualityLabel(profile.qualityState)}</dd></div>
-              {todayDetail?.schemaVersion === 8 && profile.materialState !== 'unavailable' && (
+              {profile.generatedAt && (
                 <div><dt>已保存资料时间</dt><dd>{formatTime(profile.generatedAt)}</dd></div>
               )}
               <div><dt>{isDiscover ? 'Discover Generation' : 'Generation'}</dt><dd><code>{generationId}</code></dd></div>
-              <div><dt>Serving</dt><dd><code>{detail.servingGenerationId}</code></dd></div>
-              <div><dt>Evidence</dt><dd><code>{profile.evidenceDigest}</code></dd></div>
+              {!trendingDetail && <div><dt>Serving</dt><dd><code>{(detail as ProjectDetail | DiscoverProjectDetail).servingGenerationId}</code></dd></div>}
+              {trendingDetail?.material?.sourceGeneration && <div><dt>资料来源版本</dt><dd><code>{trendingDetail.material.sourceGeneration}</code></dd></div>}
+              <div><dt>Evidence</dt><dd><code>{profile.evidenceDigest || '尚无项目档案证据'}</code></dd></div>
             </dl>
-            {profile.selectedSections.length > 0 && <p className={styles.sourceSections}>来源章节：{profile.selectedSections.slice(0, 8).map((section) => section.heading).join(' · ')}</p>}
+            {profile.selectedSections.length > 0 && <p className={styles.sourceSections}>来源章节：{profile.selectedSections.map((section) => section.heading).join(' · ')}</p>}
             {profile.originalExcerpts.length > 0 && (
               <div className={styles.officialExcerpts}>
                 <h3>官方原文摘录</h3>
-                {profile.originalExcerpts.slice(0, 4).map((excerpt) => <blockquote key={excerpt}>{excerpt}</blockquote>)}
+                {profile.originalExcerpts.map((excerpt) => <blockquote key={excerpt}>{excerpt}</blockquote>)}
               </div>
             )}
           </div>
@@ -251,6 +284,33 @@ export default function RardarProjectDetailPage({ detail }: { detail: ProjectDet
       </div>
     </div>
   );
+}
+
+function TrendingHeroFacts({ detail, historical }: { detail: TrendingDetail; historical: boolean }) {
+  const github = detail.appearances.find(item => item.source === 'github');
+  const trendshift = detail.appearances.find(item => item.source === 'trendshift');
+  const rardarHistory = detail.historicalRardarEvidence?.[0];
+  const externalHistory = detail.historicalEvidence?.[0];
+  return <dl className={styles.heroFactPair} aria-label={historical ? '历史上榜事实' : '双榜来源事实'}>
+    {historical ? rardarHistory ? <Fact label="Rardar 历史榜名次" value={`#${rardarHistory.rank}`} /> : externalHistory ? <Fact label="来源报告历史上榜" value={`${externalHistory.reportedAppearanceCount} 次`} /> : <Fact label="已保存历史榜单" value={`${detail.historyAppearances ?? detail.appearances.length} 次`} /> : <>
+      {github && <Fact label="GitHub Trending" value={`#${github.rank}`} />}
+      {trendshift && <Fact label="Trendshift 日榜" value={`#${trendshift.rank}`} />}
+    </>}
+    {detail.totalStars !== null && <Fact label="累计 Star" value={formatNumber(detail.totalStars)} accent />}
+  </dl>;
+}
+
+function TrendingFactContext({ detail, historical }: { detail: TrendingDetail; historical: boolean }) {
+  return <section className={styles.observationFacts} data-testid="project-trending-facts">
+    <header><Star size={17} /><div><h2>{historical ? '历史上榜依据' : '来源榜单事实'}</h2><p>名次与指标保留各来源语义；资料解读不改变榜单事实。</p></div></header>
+    <dl>
+      {detail.appearances.map(item => <Fact key={`${item.source}-${item.sourceDate}`} label={`${item.source === 'github' ? 'GitHub Trending' : 'Trendshift'} 日榜`} value={`#${item.rank} · ${boardTime(item.sourceDate)} · 采集 ${boardTime(item.fetchedAt)}${item.reportedDelta !== null ? ` · 来源报告周期增长 +${formatNumber(item.reportedDelta)}` : ''}`} />)}
+      {historical && detail.firstSeenAt && <Fact label="本地最早采集" value={boardTime(detail.firstSeenAt)} />}
+      {detail.displayProfile?.generatedAt && <Fact label="项目资料生成时间" value={boardTime(detail.displayProfile.generatedAt)} />}
+    </dl>
+    {detail.historicalEvidence?.map(item => <p className={styles.projectDescription} key={item.sourceUrl}>GitHub 历史上榜 {item.reportedAppearanceCount} 次（来源报告，具体日期未知），采集 {boardTime(item.fetchedAt)}。{safeSourceUrl(item.sourceUrl) && <a href={safeSourceUrl(item.sourceUrl)} target="_blank" rel="noopener noreferrer"> 核对来源 ↗</a>}</p>)}
+    {detail.historicalRardarEvidence?.map(item => <p className={styles.projectDescription} key={`${item.sourceGeneration}-${item.rank}`}>Rardar 历史榜 #{item.rank} · 原观察窗口 {boardTime(item.windowStartedAt)} → {boardTime(item.windowEndedAt)} · 当时观测新增 {formatNumber(item.observedStarDelta)} Star · 当时累计 {formatNumber(item.totalStars)} Star。{detail.githubRepositoryId !== null && <Link href={`/project/github/${detail.githubRepositoryId}?generation=${encodeURIComponent(item.sourceGeneration)}`}> 查看原榜资料 →</Link>}</p>)}
+  </section>;
 }
 
 function DiscoverFactContext({ detail }: { detail: DiscoverProjectDetail }) {
@@ -301,7 +361,7 @@ function DiscoverFactContext({ detail }: { detail: DiscoverProjectDetail }) {
 
 function ProfileSignal({ label, values }: { label: string; values: string[] }) {
   if (values.length === 0) return null;
-  return <div><span>{label}</span><strong>{values.slice(0, 5).join(' · ')}</strong></div>;
+  return <div><span>{label}</span><strong>{values.join(' · ')}</strong></div>;
 }
 
 function Differentiator({ item }: { item: ProjectCapability }) {
@@ -323,7 +383,7 @@ function CapabilityEvidence({
   legacyProfile,
 }: {
   capability: ProjectCapability;
-  legacyProfile: ProjectDetail['profile'];
+  legacyProfile: Partial<ProjectDetail['profile']>;
 }) {
   const labels = Array.from(new Set(capability.evidenceRefs.map(evidenceSourceLabel)));
   const sourceMode = capability.sourceMode || legacyCapabilitySourceMode(capability, legacyProfile);
@@ -336,9 +396,9 @@ function CapabilityEvidence({
 
 function legacyCapabilitySourceMode(
   capability: ProjectCapability,
-  profile: ProjectDetail['profile'],
+  profile: Partial<ProjectDetail['profile']>,
 ): CapabilitySourceMode {
-  const matchesOfficialHighlight = profile.officialHighlights.some((highlight) => (
+  const matchesOfficialHighlight = profile.officialHighlights?.some((highlight) => (
     highlight.titleZh === capability.title
     && highlight.detailZh === capability.detail
     && highlight.evidenceRefs.join('\u0000') === capability.evidenceRefs.join('\u0000')
@@ -392,8 +452,8 @@ function startHereReason(label: string) {
   return '查看与采用判断最相关的官方资料';
 }
 
-function qualityLabel(value: ProjectDetail['profile']['qualityState']) {
-  return { ready: '档案可用', partial: '档案部分可用', rejected: '低质量内容已隔离' }[value];
+function qualityLabel(value: ProjectDetail['profile']['qualityState'] | undefined) {
+  return value ? { ready: '档案可用', partial: '档案部分可用', rejected: '低质量内容已隔离' }[value] : '资料暂未补齐';
 }
 
 function formatNumber(value: number) {
@@ -462,6 +522,6 @@ function formatHours(value: number) {
   return `${Number.isInteger(value) ? value : value.toFixed(1)} 小时`;
 }
 
-function translationLabel(value: ProjectDetail['profile']['translationState']) {
-  return { not_needed: '官方中文原文', translated: '官方英文内容忠实翻译', pending: 'Rardar 证据整理', unavailable: 'Rardar 证据整理' }[value];
+function translationLabel(value: ProjectDetail['profile']['translationState'] | undefined) {
+  return value ? { not_needed: '官方中文原文', translated: '官方英文内容忠实翻译', pending: '待处理', unavailable: '未取得翻译' }[value] : '尚无中文解读';
 }

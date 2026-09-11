@@ -7,18 +7,20 @@ import { useAuthContext } from '@/providers/AppProvider';
 import { todayOperationsApi, todayOperationLabel, type TodayOperation } from '@/lib/api/today-operations';
 import styles from './RardarNewsOperations.module.css';
 
-export default function RardarTodayOperations({ syncedAt }: { syncedAt: string | null }) {
+type BoardContext = { syncedAt: string | null; checkedAt?: string | null; context?: 'dual_board' | 'exact_explosion' };
+
+export default function RardarTodayOperations({ syncedAt, checkedAt, context = 'exact_explosion' }: BoardContext) {
   const { currentUser, authLoading } = useAuthContext();
   if (authLoading) return null;
   if (!currentUser) return <p className={styles.login}><Link href="/login">管理员登录</Link>后可检查并同步榜单</p>;
   if (currentUser.role !== 'admin') return null;
-  return <AdminTodayOperations syncedAt={syncedAt} userId={currentUser.id} key={currentUser.id} />;
+  return <AdminTodayOperations syncedAt={syncedAt} checkedAt={checkedAt} context={context} userId={currentUser.id} key={currentUser.id} />;
 }
 
-function AdminTodayOperations({ syncedAt, userId }: { syncedAt: string | null; userId: number }) {
+function AdminTodayOperations({ syncedAt, checkedAt, context, userId }: BoardContext & { userId: number }) {
   const router = useRouter();
   const [operation, setOperation] = useState<TodayOperation | null>(null);
-  const [lastSync, setLastSync] = useState(syncedAt);
+  const [lastSync, setLastSync] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [sending, setSending] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -39,14 +41,15 @@ function AdminTodayOperations({ syncedAt, userId }: { syncedAt: string | null; u
         const state = await todayOperationsApi.current();
         if (cancelled) return;
         const previous = lastOperation.current;
-        const next = state.latest;
+        const candidate = state.latest;
+        const next = context !== 'dual_board' || !candidate || isDualBoardOperation(candidate) ? candidate : null;
         if (previous?.id === next?.id && previous?.status === 'running' && next?.status !== 'running' && refreshed.current !== next?.id) {
           refreshed.current = next?.id ?? null;
           router.refresh();
         }
         lastOperation.current = next;
         setOperation(next);
-        setLastSync(state.lastSuccessfulSyncAt ?? syncedAt);
+        setLastSync(state.lastSuccessfulSyncAt ?? null);
         setReady(true);
         setError('');
       } catch {
@@ -56,7 +59,7 @@ function AdminTodayOperations({ syncedAt, userId }: { syncedAt: string | null; u
     }
     void poll();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [router, storageKey, syncedAt]);
+  }, [router, storageKey, syncedAt, context]);
 
   async function start() {
     if (inFlight.current || active || !ready) return;
@@ -92,9 +95,10 @@ function AdminTodayOperations({ syncedAt, userId }: { syncedAt: string | null; u
         {pendingId && !sending ? '确认上次同步结果' : '检查并同步榜单'}
       </button></div>
     </div>
-    <p>最近成功同步：{timeLabel(lastSync)} · 最近检查：{timeLabel(operation?.completedAt ?? operation?.startedAt ?? null)}</p>
+    {context === 'dual_board' ? <p>当前清单发布：{timeLabel(syncedAt)} · 最近来源检查：{timeLabel(checkedAt ?? null)}</p> : <p>当前榜单同步：{timeLabel(syncedAt)}</p>}
+    <p>最近成功手动同步：{timeLabel(lastSync)} · 最近手动操作：{timeLabel(operation?.completedAt ?? operation?.startedAt ?? null)}</p>
     {error && <p role="alert">{error}</p>}
-    {operation && <TodayOperationResult operation={operation} />}
+    {operation && <TodayOperationResult operation={operation} context={context} />}
   </section>;
 }
 
@@ -103,12 +107,18 @@ function timeLabel(value: string | null): string {
   return new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
 }
 
-export function TodayOperationResult({ operation }: { operation: TodayOperation }) {
+export function isDualBoardOperation(operation: TodayOperation) {
+  return operation.scope === 'dual_board' || operation.result?.generationId?.startsWith('boards-') === true;
+}
+
+export function TodayOperationResult({ operation, context = 'exact_explosion' }: { operation: TodayOperation; context?: BoardContext['context'] }) {
+  if (context === 'dual_board' && !isDualBoardOperation(operation)) return null;
   return <div className={styles.result} aria-live="polite">
     <strong>{todayOperationLabel(operation.status)}</strong>
     {operation.status === 'running' && <p>可以继续阅读；刷新页面后仍可查看结果，旧有效榜单会保留到验证通过。</p>}
     {['failed', 'interrupted', 'not_configured'].includes(operation.status) && <p>当前有效榜单保留，未自动重试。请检查已有只读同步配置或稍后重试。</p>}
     {operation.status === 'no_complete_board' && <p>来源尚无可替换的有效榜单，当前已保存内容保留。</p>}
-    {operation.result?.window && <p>来源观察窗口（北京时间）：{timeLabel(operation.result.window.startedAt)} → {timeLabel(operation.result.window.endedAt)}</p>}
+    {operation.status === 'partial' && <p>部分来源暂不可用，已取得的新内容和其他健康来源继续保留。</p>}
+    {context !== 'dual_board' && operation.result?.window && <p>历史来源观察窗口（北京时间）：{timeLabel(operation.result.window.startedAt)} → {timeLabel(operation.result.window.endedAt)}</p>}
   </div>;
 }

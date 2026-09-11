@@ -1,13 +1,16 @@
 'use client';
 
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { AlertTriangle, BookOpen, Boxes, Compass, Gauge, Loader2, Sparkles, Target } from 'lucide-react';
 
 import {
   explainDiscoverProjectById,
   explainProject,
   explainProjectById,
+  explainSharedProject,
+  readSharedProjectInsight,
   type ProjectExplanation,
+  type SharedProjectContext,
 } from '@/lib/rardar-product';
 import styles from './RardarFoundation.module.css';
 
@@ -15,24 +18,56 @@ export default function RardarProjectExplanation({
   repository,
   githubRepositoryId,
   generationId,
+  stableId,
   source = 'today',
 }: {
   repository: string;
   githubRepositoryId?: number;
   generationId: string;
-  source?: 'today' | 'discover';
+  stableId?: string;
+  source?: 'today' | 'discover' | SharedProjectContext;
 }) {
-  const usesStaticEvidence = githubRepositoryId !== undefined;
+  const sharedContext = source === 'trending' || source === 'historical_hot' ? source : null;
+  const usesStaticEvidence = githubRepositoryId !== undefined || sharedContext !== null;
   const [result, setResult] = useState<ProjectExplanation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [waiting, setWaiting] = useState(false);
+
+  useEffect(() => {
+    if (!sharedContext || !stableId) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function read() {
+      try {
+        const status = await readSharedProjectInsight(stableId!, generationId, sharedContext!);
+        if (!active) return;
+        if (status.state === 'ready') setResult(status.result);
+        setLoading(status.state === 'running');
+        setWaiting(status.state === 'waiting');
+        if (status.state === 'running') timer = setTimeout(read, 1500);
+      } catch {
+        // Optional stored analysis cannot make the verified project unreadable.
+      }
+    }
+    setResult(null);
+    setError(null);
+    setWaiting(false);
+    void read();
+    return () => { active = false; if (timer) clearTimeout(timer); };
+  }, [stableId, generationId, sharedContext]);
 
   async function run() {
     setLoading(true);
     setError(null);
-    setResult(null);
+    setWaiting(false);
     try {
-      if (githubRepositoryId === undefined) {
+      if (sharedContext && stableId) {
+        const status = await explainSharedProject(stableId, generationId, sharedContext);
+        setResult(status.result);
+        setWaiting(status.state === 'waiting');
+        if (status.state === 'unavailable') setError(status.errorCode || 'project_insight_unavailable');
+      } else if (githubRepositoryId === undefined) {
         setResult(await explainProject(repository, generationId));
       } else if (source === 'discover') {
         setResult(await explainDiscoverProjectById(githubRepositoryId, generationId));
@@ -44,6 +79,12 @@ export default function RardarProjectExplanation({
     } finally {
       setLoading(false);
     }
+  }
+
+  if (waiting) {
+    return <div className={styles.aiPanel} role="status"><strong>解读等待可用额度或执行机会</strong>
+      <p>已保存的项目资料可继续阅读。不会自动扩额或重复提交。</p>
+      <button type="button" onClick={run} disabled={loading}>稍后重试</button></div>;
   }
 
   if (!result && !error) {
@@ -58,7 +99,7 @@ export default function RardarProjectExplanation({
         {loading && (
           <div className={`${styles.aiPanel} ${styles.aiLoading}`} role="status" aria-live="polite">
             <div><Loader2 size={15} className={styles.spin} /><strong>正在基于静态证据分析</strong></div>
-            <p>首次生成预计需要一些时间。页面其他官方档案与{source === 'discover' ? ' Discover' : ' Today'}事实仍可继续阅读，请勿重复提交。</p>
+            <p>首次生成预计需要一些时间。其他项目资料与榜单事实仍可继续阅读；重复提交会复用当前处理。</p>
           </div>
         )}
       </>
@@ -69,7 +110,8 @@ export default function RardarProjectExplanation({
     return (
       <div className={`${styles.aiPanel} ${styles.aiUnavailable}`}>
         <div><AlertTriangle size={15} /><strong>AI 暂不可用</strong></div>
-        <p>{usesStaticEvidence ? `官方档案和${source === 'discover' ? '发现' : '今日'}事实不受影响，可以稍后安全重试。` : '事实榜单不受影响，可以稍后安全重试。'}</p>
+        <p>{error === 'project_insight_login_required' ? '请先登录，再明确发起按需解读。' : '已保存的项目资料和榜单事实不受影响，可以稍后重试。'}</p>
+        {error === 'project_insight_login_required' && <a href="/login">登录</a>}
         <button type="button" onClick={run} disabled={loading}>重试</button>
       </div>
     );
@@ -82,7 +124,7 @@ export default function RardarProjectExplanation({
       <div>
         <Sparkles size={15} />
         <strong>{usesStaticEvidence ? 'AI 深度解读' : '项目证据解读'}</strong>
-        <span>{usesStaticEvidence ? '基于当前 Serving Projection 的官方 README、目录、Release 与许可证证据' : '按需生成 · 不复述榜单事实'}</span>
+        <span>{usesStaticEvidence ? '基于已读取的仓库资料与可核对证据，不代表运行实测' : '按需生成 · 不复述榜单事实'}</span>
       </div>
       <section className={styles.insightConclusion}>
         <span>结论摘要</span>
@@ -135,7 +177,7 @@ export default function RardarProjectExplanation({
           </InsightSection>
         )}
       </div>
-      <AIProvenance result={result} usesStaticEvidence={usesStaticEvidence} />
+      <AIProvenance result={result} />
     </div>
   );
 }
@@ -174,10 +216,10 @@ function reuseCostLabel(value: 'low' | 'medium' | 'high' | 'unknown') {
   return { low: '低成本', medium: '中等成本', high: '高成本', unknown: '证据不足，成本未知' }[value];
 }
 
-function AIProvenance({ result, usesStaticEvidence }: { result: ProjectExplanation; usesStaticEvidence: boolean }) {
+function AIProvenance({ result }: { result: ProjectExplanation }) {
   return (
     <small className={styles.aiProvenance}>
-      {result.model || '已配置的 rardar 模型'} · {result.cacheHit ? 'AI 缓存命中' : '本次生成'} · {usesStaticEvidence ? '静态证据缓存命中' : (result.evidenceCacheHit ? '证据缓存命中' : '实时有界证据')}
+      {result.model || '已配置的 rardar 模型'} · {result.cacheHit ? 'AI 缓存命中' : '本次生成'} · {result.evidenceCacheHit ? '证据缓存命中' : '本次有界资料获取'}
     </small>
   );
 }

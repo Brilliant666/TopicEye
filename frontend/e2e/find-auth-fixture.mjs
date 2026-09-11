@@ -18,6 +18,10 @@ const server = createServer((request, response) => {
     response.end(JSON.stringify({ ...project, generationId: refocusBoard.generationId, publishedAt: refocusBoard.publishedAt, sources: refocusBoard.sources }));
     return;
   }
+  if (request.method === 'GET' && url.pathname.startsWith('/api/v1/rardar/project-insights/')) {
+    response.end(JSON.stringify({ state: 'unprocessed', result: null, errorCode: null, cacheHit: false }));
+    return;
+  }
   if (request.method === 'GET' && url.pathname === '/api/v1/rardar/discover/selection') {
     response.end(JSON.stringify(periodSelection));
     return;

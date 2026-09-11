@@ -1,0 +1,35 @@
+version = 1
+name = "Rardar isolated preview"
+
+[setup]
+script = ""
+
+[[actions]]
+name = "Run preview"
+icon = "run"
+platform = "win32"
+command = "pwsh -NoProfile -File ./scripts/rardar-local.ps1 preview-start"
+
+[[actions]]
+name = "Preview status"
+icon = "debug"
+platform = "win32"
+command = "pwsh -NoProfile -File ./scripts/rardar-local.ps1 preview-status"
+
+[[actions]]
+name = "Restart preview"
+icon = "run"
+platform = "win32"
+command = "pwsh -NoProfile -File ./scripts/rardar-local.ps1 preview-restart"
+
+[[actions]]
+name = "Stop preview"
+icon = "tool"
+platform = "win32"
+command = "pwsh -NoProfile -File ./scripts/rardar-local.ps1 preview-stop"
+
+[[actions]]
+name = "Build preview (when changed)"
+icon = "tool"
+platform = "win32"
+command = "pwsh -NoProfile -File ./scripts/rardar-local.ps1 preview-build"

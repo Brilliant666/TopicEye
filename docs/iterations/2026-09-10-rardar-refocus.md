@@ -45,3 +45,36 @@ Runtime's 3000/8102 health checks were unavailable before changes; it was not
 restarted or replaced. Existing daily budget was 100/100, new calls zero.
 New historical model generation and natural-day unattended execution are not
 verified by cache replay or a manually exercised scheduler function.
+
+## September 11 acceptance continuation
+
+The original PostgreSQL 16 instance was restored with its existing 16.15
+binary, without initialization or migrations. One real historical reading for
+`codecrafters-io/build-your-own-x` was generated through `historical_work` and
+the original daily budget identity: one request, then an individual cache hit
+with model generation disabled. The saved reading was observed through the
+real API and mobile detail page. These results supersede the earlier zero-call
+and database-unavailable observations; they do not prove unattended scheduling.
+
+The manually started production frontend displayed the full 33-project real
+snapshot after Load more. Normal login and authenticated configuration checks
+remain pending until the managed preview is connected to the original database.
+
+### Execution-layer diagnosis
+
+Observed desktop package: `26.903.9818.0`; bundled CLI: `0.153.4`.
+The active session reports `danger-full-access` and approval policy `never`.
+The user rules file contains allow rules only; a read-only `execpolicy check`
+found no matching rule for the preview command. No project-local rule file was
+present. Rejection messages say `CreateProcess ... rejected: blocked by policy`
+before shell creation, so these attempts are not application startup failures.
+The bounded local log query found session-level rejection records, not a named
+deny rule or an approval request. The exact internal policy decision is therefore
+unresolved, not attributed to PowerShell ExecutionPolicy, filesystem access,
+or a proven client defect. No global settings/rules were changed.
+
+The project local-environment Actions invoke the same `rardar-local.ps1`
+preview entry used by the operator/agent, not alternate launch implementations.
+They are ordinary UI actions, not a policy bypass. Their existence alone does
+not establish that automated process creation is permitted or that acceptance
+has completed.

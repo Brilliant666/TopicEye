@@ -132,7 +132,7 @@ function Get-PreviewProcessRecord([int]$ProcessId, [int]$Port) {
     if (-not $process -or -not $process.ExecutablePath -or -not $process.CommandLine) { throw "Cannot record preview process identity." }
     return [pscustomobject]@{
         pid = $ProcessId; port = $Port; executable = $process.ExecutablePath
-        createdAt = $process.CreationDate.ToUniversalTime().ToString('o')
+        createdAtTicks = $process.CreationDate.ToUniversalTime().Ticks.ToString()
         commandHash = Get-PreviewHash $process.CommandLine
         listener = $null
     }
@@ -146,7 +146,7 @@ function Assert-PreviewProcess([object]$Record, [bool]$RequireListener = $true) 
         return $false
     }
     if ($Record.executable -notin @($Python, $Node) -or $process.ExecutablePath -ine $Record.executable -or
-        $process.CreationDate.ToUniversalTime().ToString('o') -ne $Record.createdAt -or
+        $process.CreationDate.ToUniversalTime().Ticks.ToString() -ne $Record.createdAtTicks -or
         (Get-PreviewHash $process.CommandLine) -ne $Record.commandHash -or
         $process.CommandLine.IndexOf($RepoRoot, [StringComparison]::OrdinalIgnoreCase) -lt 0 -or
         $process.ExecutablePath -in @((Join-Path $PgRoot 'bin\postgres.exe'), $PgCtl)) {
@@ -158,7 +158,7 @@ function Assert-PreviewProcess([object]$Record, [bool]$RequireListener = $true) 
             -not (Test-ProcessDescendsFrom $listenerId $Record.pid)) { throw "Preview listener ownership mismatch." }
         $listener = Get-CimInstance Win32_Process -Filter "ProcessId = $listenerId"
         if ($listener.ExecutablePath -ine $Record.listener.executable -or
-            $listener.CreationDate.ToUniversalTime().ToString('o') -ne $Record.listener.createdAt -or
+            $listener.CreationDate.ToUniversalTime().Ticks.ToString() -ne $Record.listener.createdAtTicks -or
             (Get-PreviewHash $listener.CommandLine) -ne $Record.listener.commandHash) { throw "Preview listener identity changed." }
     }
     return $true

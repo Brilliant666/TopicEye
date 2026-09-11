@@ -128,13 +128,13 @@ Stop-PreviewState $state
     assert "TERMINATION_MUST_NOT_OCCUR" not in result.stderr
 
 
-@pytest.mark.parametrize("mutation", ["createdAt", "executable", "commandHash"])
+@pytest.mark.parametrize("mutation", ["createdAtTicks", "executable", "commandHash"])
 def test_pid_reuse_and_process_identity_fail_closed(tmp_path: Path, mutation: str) -> None:
     result = run_ps(tmp_path, f"""
 $command="$RepoRoot backend uvicorn --port 54181"
 $script:fake=[pscustomobject]@{{ExecutablePath=$Python;CommandLine=$command;CreationDate=[datetime]'2026-09-11T01:00:00Z'}}
 function Get-CimInstance {{ return $script:fake }}
-$record=[pscustomobject]@{{pid=123;port=54181;executable=$Python;createdAt=$script:fake.CreationDate.ToUniversalTime().ToString('o');commandHash=(Get-PreviewHash $command);listener=$null}}
+$record=[pscustomobject]@{{pid=123;port=54181;executable=$Python;createdAtTicks=$script:fake.CreationDate.ToUniversalTime().Ticks.ToString();commandHash=(Get-PreviewHash $command);listener=$null}}
 $record.{mutation}='changed'
 Assert-PreviewProcess $record $false
 """)
@@ -151,6 +151,20 @@ Assert-PreviewProcess $record $false
 """)
     assert result.returncode != 0
     assert "Unowned process" in result.stderr
+
+
+def test_process_identity_survives_state_json_roundtrip(tmp_path: Path) -> None:
+    result = run_ps(tmp_path, """
+$script:fake=[pscustomobject]@{ExecutablePath=$Python;CommandLine="$RepoRoot backend uvicorn --port 54181";CreationDate=[datetime]'2026-09-11T01:00:00Z'}
+function Get-CimInstance { return $script:fake }
+$record=Get-PreviewProcessRecord 123 54181
+$path=Join-Path $RepoRoot 'process.json'
+Write-PreviewJson $path $record
+$restored=Read-PreviewJson $path
+Assert-PreviewProcess $restored $false
+""")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "True"
 
 
 def test_healthy_start_returns_without_launch(tmp_path: Path) -> None:

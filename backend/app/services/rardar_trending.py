@@ -240,6 +240,7 @@ async def historical_work(target: Path, progress: dict, save) -> dict:
             rotation[repository] = datetime.now(UTC).isoformat()
             atomic(rotation_path, rotation)
             save()  # durable admission precedes IO/model work, including interruption
+            work = None
             try:
                 response = await client.get(f"/repos/{repository}")
                 response.raise_for_status()
@@ -272,7 +273,7 @@ async def historical_work(target: Path, progress: dict, save) -> dict:
                 )
                 # Independent repository facts; no dummy rank/delta/window needed
                 # by the reused one-project material collector.
-                with work_slice(max_requests=6, background=True):
+                with work_slice(max_requests=6, background=True) as work:
                     collected = await collect_official_project_profile(
                         facts,
                         snapshot["generationId"],
@@ -302,6 +303,11 @@ async def historical_work(target: Path, progress: dict, save) -> dict:
                 }
                 atomic(rotation_path, rotation)
             except ProviderWorkYield as exc:
+                if work is not None and work.used_requests == 0:
+                    # Release only this provisional admission after a proven
+                    # pre-request scheduling wait. Never refund paid stages,
+                    # real failures or an interrupted/unknown execution.
+                    attempts[repository] -= 1
                 result.update(status="pending", waitReason=exc.code)
                 save()
                 break

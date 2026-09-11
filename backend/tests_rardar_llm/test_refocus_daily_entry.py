@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -32,6 +33,134 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(daily, "_execution_paused", AsyncMock(return_value=False))
     monkeypatch.setattr(service, "saved_materials", lambda _target: {})
     return tmp_path / "data"
+
+
+@pytest.fixture
+def waiting_history(isolated, monkeypatch):
+    """Real daily/work-slice orchestration, with only IO/reservation simulated."""
+    from app.services import rardar_llm_control
+
+    monkeypatch.setattr(settings, "RARDAR_HISTORICAL_DAILY_LIMIT", 3)
+    monkeypatch.setattr(trending_boards, "fetch_boards", AsyncMock(return_value=[board("github", ["org/a"])]))
+    ledger = SimpleNamespace(snapshot=lambda: {"remaining": 20}, execution_lock=isolated / "provider.lock", requests=0)
+    monkeypatch.setattr(daily_provider_budget, "daily_execution_budget", AsyncMock(return_value=(ledger, {})))
+    monkeypatch.setattr(rardar_llm_control, "resolve_rardar_route_identity", AsyncMock(return_value="route"))
+    original = httpx.AsyncClient
+    monkeypatch.setattr(
+        service.httpx,
+        "AsyncClient",
+        lambda **kwargs: original(
+            **kwargs,
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(200, json={"full_name": "org/a", "id": 1, "default_branch": "main"})
+            ),
+        ),
+    )
+
+    @contextmanager
+    def reserve(*_args, **_kwargs):
+        ledger.requests += 1
+        yield
+
+    monkeypatch.setattr(daily_provider_budget, "combined_budget_execution", reserve)
+    monkeypatch.setattr(service, "project_material", lambda *_: {"profile": {"summary": "fixture"}})
+    return ledger
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reason", ["interactive_request_waiting", "provider_request_busy", "pre_window_background_limit"]
+)
+async def test_same_day_zero_request_waits_do_not_exhaust_history_allowance(
+    isolated, waiting_history, monkeypatch, reason
+):
+    waiting = True
+
+    def policy(*_args, **_kwargs):
+        if waiting:
+            daily_provider_budget._yield_work(reason)
+
+    monkeypatch.setattr(daily_provider_budget, "_check_work_policy", policy)
+
+    async def collect(*_args, **_kwargs):
+        async with daily_provider_budget.managed_budget_execution(
+            None, (waiting_history, {}), scene="rardar_project_profile"
+        ):
+            return SimpleNamespace(profile=object(), evidence=object(), profile_cache_state="rebuilt")
+
+    collector = AsyncMock(side_effect=collect)
+    monkeypatch.setattr(service, "collect_official_project_profile", collector)
+    for _ in range(4):
+        result = await daily.run_daily_operations()
+        assert result["modules"]["historical_hot"]["waitReason"] == reason
+        assert result["modules"]["historical_hot"]["failed"] == 0
+        assert waiting_history.requests == 0
+    waiting = False
+    result = await daily.run_daily_operations()
+    assert result["modules"]["historical_hot"]["processed"] == 1
+    assert waiting_history.requests == 1
+    assert collector.await_count == 5
+
+
+@pytest.mark.asyncio
+async def test_paid_work_yield_retains_admission_and_intermediate_cache(isolated, waiting_history, monkeypatch):
+    monkeypatch.setattr(daily_provider_budget, "_check_work_policy", lambda *_args, **_kwargs: None)
+    cache = isolated / "saved-stage.json"
+
+    async def collect(*_args, **_kwargs):
+        # A paid intermediate stage survives the first yield; resume must reuse it.
+        if not cache.exists():
+            async with daily_provider_budget.managed_budget_execution(
+                None, (waiting_history, {}), scene="rardar_project_profile"
+            ):
+                store.atomic(cache, {"validatedStage": True})
+        else:
+            assert store.read_json(cache) == {"validatedStage": True}
+            async with daily_provider_budget.managed_budget_execution(
+                None, (waiting_history, {}), scene="rardar_project_profile"
+            ):
+                pass
+        daily_provider_budget._yield_work("interactive_request_waiting")
+
+    collector = AsyncMock(side_effect=collect)
+    monkeypatch.setattr(service, "collect_official_project_profile", collector)
+    for _ in range(3):
+        await daily.run_daily_operations()
+    assert waiting_history.requests == 2
+    assert collector.await_count == 2  # real work keeps the existing two-attempt bound
+    state = next(daily.operation_root().glob("*-refocus-v1.json"))
+    assert store.read_json(state)["progress"]["historical"]["attempts"] == {"org/a": 2}
+    assert store.read_json(cache) == {"validatedStage": True}
+
+
+@pytest.mark.asyncio
+async def test_wait_release_preserves_previous_paid_attempt_then_resumes_cache(isolated, waiting_history, monkeypatch):
+    monkeypatch.setattr(daily_provider_budget, "_check_work_policy", lambda *_args, **_kwargs: None)
+    calls = 0
+
+    async def collect(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            async with daily_provider_budget.managed_budget_execution(
+                None, (waiting_history, {}), scene="rardar_project_profile"
+            ):
+                store.atomic(isolated / "saved-stage.json", {"validatedStage": True})
+            daily_provider_budget._yield_work("interactive_request_waiting")
+        assert store.read_json(isolated / "saved-stage.json") == {"validatedStage": True}
+        if calls < 4:
+            daily_provider_budget._yield_work("provider_request_busy")
+        return SimpleNamespace(profile=object(), evidence=object(), profile_cache_state="hit")
+
+    monkeypatch.setattr(service, "collect_official_project_profile", collect)
+    for _ in range(3):
+        await daily.run_daily_operations()
+        path = next(daily.operation_root().glob("*-refocus-v1.json"))
+        assert store.read_json(path)["progress"]["historical"]["attempts"] == {"org/a": 1}
+    final = await daily.run_daily_operations()
+    assert final["modules"]["historical_hot"]["refreshed"] == 1
+    assert waiting_history.requests == 1
+    assert store.read_json(path)["progress"]["historical"]["attempts"] == {"org/a": 2}
 
 
 @pytest.mark.asyncio

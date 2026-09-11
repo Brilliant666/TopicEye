@@ -841,7 +841,7 @@ async def _rardar_startup_catchup() -> None:
         _rardar_daily_operations._job_description,
     )
     await recover_rardar_daily_lease()
-    if _rardar_daily_window_open():
+    if settings.RARDAR_STARTUP_CATCHUP_ENABLED and _rardar_daily_window_open():
         await _rardar_daily_operations()
 
 

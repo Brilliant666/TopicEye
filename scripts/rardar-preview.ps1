@@ -315,6 +315,7 @@ function Invoke-RardarPreview([string]$Action, [switch]$RuntimeMode) {
             RARDAR_LOCAL_SHADOW_REVIEW = 'false'
             RARDAR_INTELLIGENCE_DATA_DIR = $config.dataDirectory; RARDAR_BUDGET_IDENTITY_DATA_DIR = $config.budgetIdentityDataDirectory
             RARDAR_DAILY_OPERATIONS_ENABLED = 'true'
+            RARDAR_STARTUP_CATCHUP_ENABLED = 'false'
             SCHEDULER_ENABLED = if ($RuntimeMode) { 'true' } else { 'false' }
             AUTO_CREATE_TABLES_ON_STARTUP = 'false'; STARTUP_SEQUENCE_SYNC_ENABLED = 'false'; CACHE_WARMUP_ENABLED = 'false'
             DUCKDB_STARTUP_INIT_ENABLED = 'false'; STARTUP_SEED_ENABLED = 'false'; ADMIN_SEED_ENABLED = 'false'

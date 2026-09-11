@@ -181,6 +181,7 @@ Invoke-RardarPreview preview-start -RuntimeMode
     environment = captured["environment"]
     assert environment["SCHEDULER_ENABLED"] == "true"
     assert environment["RARDAR_DAILY_OPERATIONS_ENABLED"] == "true"
+    assert environment["RARDAR_STARTUP_CATCHUP_ENABLED"] == "false"
     assert environment["RARDAR_BUDGET_IDENTITY_DATA_DIR"] == "original-data"
     assert environment["RARDAR_INTELLIGENCE_DATA_DIR"] == "original-data"
     assert environment["AUTO_CREATE_TABLES_ON_STARTUP"] == "false"
@@ -218,5 +219,42 @@ def test_actual_lifespan_sequence_gate_preserves_default_and_skips_when_disabled
     asyncio.run(context["replay"]())
     assert sync.await_count == int(enabled)
     assert "STARTUP_SEQUENCE_SYNC_ENABLED: bool = True" in (ROOT / "backend/app/core/config.py").read_text(
+        encoding="utf-8"
+    )
+
+
+@pytest.mark.parametrize("enabled,window_open", [(False, True), (True, True), (True, False)])
+def test_startup_catchup_switch_keeps_lease_recovery_without_paid_run(
+    monkeypatch, enabled: bool, window_open: bool
+) -> None:
+    module = ast.parse((ROOT / "backend/app/scheduler.py").read_text(encoding="utf-8"))
+    function = next(
+        node
+        for node in module.body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_rardar_startup_catchup"
+    )
+    program = ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[]))
+    upsert = AsyncMock()
+    recover = AsyncMock()
+    daily = AsyncMock()
+    daily._job_name = "daily"
+    daily._job_description = "daily-description"
+    fake_module = ModuleType("app.services.job_tracker")
+    fake_module._upsert_job_config = upsert
+    fake_module.recover_rardar_daily_lease = recover
+    monkeypatch.setitem(sys.modules, "app.services.job_tracker", fake_module)
+    context = {
+        "settings": SimpleNamespace(RARDAR_STARTUP_CATCHUP_ENABLED=enabled),
+        "_rardar_daily_operations": daily,
+        "_rardar_daily_window_open": lambda: window_open,
+    }
+    exec(compile(program, "<actual-startup-catchup>", "exec"), context)
+    asyncio.run(context["_rardar_startup_catchup"]())
+    upsert.assert_awaited_once_with("rardar_daily_operations", "daily", "daily-description")
+    recover.assert_awaited_once()
+    assert daily.await_count == int(enabled and window_open)
+    source = (ROOT / "backend/app/scheduler.py").read_text(encoding="utf-8")
+    assert 'CronTrigger(hour="8-23", minute=30, timezone="Asia/Shanghai")' in source
+    assert "RARDAR_STARTUP_CATCHUP_ENABLED: bool = True" in (ROOT / "backend/app/core/config.py").read_text(
         encoding="utf-8"
     )

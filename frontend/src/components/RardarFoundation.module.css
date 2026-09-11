@@ -703,6 +703,86 @@
   line-height: 1.6;
 }
 
+.boardSourceSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
+  margin: -0.35rem 0 1rem;
+  color: var(--rardar-muted-text);
+  font-size: 0.72rem;
+  line-height: 1.6;
+}
+
+.heroPhrase {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.sourceGrowthFacts {
+  max-width: 18rem;
+  gap: 0.4rem;
+}
+
+.sourceGrowthMetric {
+  display: grid;
+  justify-items: end;
+  gap: 0.12rem;
+  text-align: right;
+}
+
+.sourceGrowthMetric + .sourceGrowthMetric {
+  margin-top: 0.25rem;
+}
+
+.sourceGrowthMetric .growthSourceLabel {
+  color: var(--rardar-strong-text);
+  font-size: 0.7rem;
+}
+
+.starFacts.sourceGrowthFacts small {
+  color: #64748b;
+  font-size: 0.64rem;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.sourceGrowthFacts .totalStarsAuxiliary {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+}
+
+.growthUnavailable {
+  color: var(--rardar-muted-text);
+}
+
+.trendingHeroFacts {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 0.8rem;
+}
+
+.trendingHeroFacts .sourceGrowthFacts {
+  max-width: none;
+}
+
+.sourceRankFacts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 0.65rem;
+  margin: 0;
+  font-size: 0.74rem;
+  color: #475569;
+}
+
+.sourceRankFacts dd {
+  margin: 0.15rem 0 0;
+  font-weight: 850;
+  text-align: right;
+  color: #0f172a;
+}
+
 .tags .dualBoardBadge {
   color: #1d4ed8;
   background: #dbeafe;
@@ -3474,6 +3554,24 @@
   box-shadow: 0 22px 48px rgb(15 76 103 / 0.18);
 }
 
+.detailPositioning {
+  padding: 1.15rem 1.35rem;
+  border: 1px solid #dbeafe;
+  border-radius: 1rem;
+  background: #fff;
+}
+
+.detailPositioning .sectionKicker {
+  color: #0369a1;
+}
+
+.detailPositioning > p {
+  margin: 0.6rem 0;
+  color: #334155;
+  font-size: 0.88rem;
+  line-height: 1.8;
+}
+
 .sectionKicker {
   display: flex;
   align-items: center;
@@ -3708,6 +3806,20 @@
   margin-top: 0;
 }
 
+/* A saved full analysis is a reading section, not a multi-screen sidebar. */
+.adoptionLayer:has(.fullInsight) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.adoptionAction:has(.fullInsight) {
+  grid-column: 1 / -1;
+}
+
+.fullInsight {
+  width: 100%;
+  min-width: 0;
+}
+
 .startHerePrimary {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3910,6 +4022,38 @@
 }
 
 @media (max-width: 720px) {
+  .trendingHeroTitle .trendingSectionName,
+  .todayHero .trendingHeroTitle .heroTitleAccent {
+    display: block;
+  }
+
+  .todayHero .trendingHeroTitle .heroTitleAccent {
+    margin: 0.55rem 0 0;
+    font-size: clamp(1.18rem, 5.7vw, 1.55rem);
+    line-height: 1.45;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+
+  .sourceGrowthFacts {
+    width: 100%;
+    max-width: none;
+  }
+
+  .sourceGrowthMetric,
+  .starFacts.sourceGrowthFacts small {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .sourceRankFacts {
+    justify-content: start;
+  }
+
+  .sourceRankFacts dd {
+    text-align: left;
+  }
+
   .rankingCard {
     grid-template-columns: 3rem minmax(0, 1fr);
     align-items: start;

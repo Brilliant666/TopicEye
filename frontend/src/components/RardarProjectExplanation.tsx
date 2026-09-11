@@ -117,10 +117,15 @@ export default function RardarProjectExplanation({
     );
   }
 
-  const analysis = result?.analysis;
+  return result ? <SavedProjectInsight result={result} usesStaticEvidence={usesStaticEvidence} /> : null;
+}
+
+/** Read-only presentation shared by restored cache state and a completed explicit request. */
+export function SavedProjectInsight({ result, usesStaticEvidence = true }: { result: ProjectExplanation; usesStaticEvidence?: boolean }) {
+  const analysis = result.analysis;
   if (!analysis) return null;
   return (
-    <div className={styles.aiPanel} data-testid={`ai-explanation-${repository}`}>
+    <div className={`${styles.aiPanel} ${styles.fullInsight}`} data-testid={`ai-explanation-${result.repository}`} data-full-insight="true">
       <div>
         <Sparkles size={15} />
         <strong>{usesStaticEvidence ? 'AI 深度解读' : '项目证据解读'}</strong>

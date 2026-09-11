@@ -85,6 +85,37 @@ def _material_evidence(project: dict, *, read_only: bool = False) -> ProjectEvid
     if project.get("displayProfile") and project.get("displayEvidence"):
         profile = OfficialProjectProfile.model_validate_json(json.dumps(project["displayProfile"]), strict=True)
         projection = ProjectEvidenceProjection.model_validate_json(json.dumps(project["displayEvidence"]), strict=True)
+        revision = project.get("material", {}).get("traitRevision")
+        if revision is not None:
+            # Taxonomy is a read-time display correction, not a replacement of
+            # the original Profile used by a saved model interpretation. Keep
+            # both GET and explicit POST on that exact immutable input. Never
+            # search for an arbitrary old insight or rewrite its provenance.
+            from app.integrations.rardar.material_trait_revision import apply_saved
+            from app.services.rardar_trending import load_saved_project_profile, project_material
+
+            original_digest = revision.get("sourceProfileDigest") if isinstance(revision, dict) else None
+            if not isinstance(original_digest, str) or len(original_digest) != 64:
+                raise ValueError("project_insight_original_material_invalid")
+            target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
+            original = load_saved_project_profile(
+                target, project["repository"], original_profile_digest=original_digest
+            )
+            if original is None:
+                raise ValueError("project_insight_original_material_missing")
+            original_profile, original_evidence = original
+            current_display = apply_saved(
+                target, original_profile, original_evidence, project_material(original_profile, original_evidence)
+            )
+            if (
+                digest(original_profile.model_dump(mode="json")) != original_digest
+                or original_evidence.digest != revision.get("sourceEvidenceDigest")
+                or original_evidence != projection
+                or current_display["displayProfile"] != project["displayProfile"]
+                or current_display["material"].get("traitRevision") != revision
+            ):
+                raise ValueError("project_insight_original_material_mismatch")
+            profile, projection = original_profile, original_evidence
         # detail() only exports profiles after source/identity/ref validation.
         evidence = _static_project_evidence(SimpleNamespace(profile=profile, evidence=projection))
     else:
@@ -166,7 +197,7 @@ async def read_project_insight(identifier: str, request: SharedProjectInsightReq
     if key in _RUNNING:
         return SharedProjectInsightStatus(state="running")
     try:
-        evidence = _material_evidence(project, read_only=True)
+        evidence = await asyncio.to_thread(_material_evidence, project, read_only=True)
     except (ValueError, TypeError, OSError, ProviderBudgetError):
         return SharedProjectInsightStatus(state="unavailable", errorCode="project_insight_material_invalid")
     if evidence:
@@ -186,7 +217,7 @@ async def _execute(project: dict, request: SharedProjectInsightRequest) -> Share
     try:
         # Duplicate processes cannot spend on the same project simultaneously.
         with file_lock(directory / "execution.lock", blocking=False):
-            evidence = _material_evidence(project)
+            evidence = await asyncio.to_thread(_material_evidence, project)
             if evidence is None:
                 evidence = _stable_evidence(await collect_project_evidence(project["repository"], _facts(project)))
             if not evidence.path_refs:

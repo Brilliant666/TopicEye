@@ -4,10 +4,19 @@ export type BoardSource = {
   source: 'github' | 'trendshift'; label: string; status: 'healthy' | 'stale' | 'failed';
   sourceDate: string | null; fetchedAt: string | null; errorCode: string | null; count: number;
 };
+export type BoardAppearance = {
+  source: 'github' | 'trendshift'; rank: number; sourceDate: string | null;
+  fetchedAt: string; captureDate?: string; period: string;
+  reportedDelta: number | null; reportedDeltaPeriod?: string | null;
+  trendshiftStarsGained?: number | null; trendshiftStarsGainedLabel?: string | null;
+  trendshiftMetricPeriod?: string | null;
+  sourceStatus?: 'healthy' | 'stale' | 'failed'; totalStars?: number | null;
+};
 export type TrendingProject = {
   projectId: string; repository: string; repositoryUrl: string; githubRepositoryId: number | null;
   description: string | null; totalStars: number | null; dualListed: boolean;
-  appearances: Array<{ source: 'github' | 'trendshift'; rank: number; sourceDate: string | null; fetchedAt: string; period: string; reportedDelta: number | null }>;
+  appearances: BoardAppearance[];
+  totalStarsSource?: { source: 'github' | 'trendshift'; sourceDate: string | null; fetchedAt: string; status: 'healthy' | 'stale' | 'failed' } | null;
   materialState: 'complete' | 'partial' | 'unavailable';
   displayProfile?: ProjectDetail['profile'] | null;
   displayEvidence?: ProjectDetail['evidence'] | null;
@@ -19,8 +28,8 @@ export type TrendingProject = {
   historicalEvidence?: Array<{ source: string; sourceUrl: string; reportedAppearanceCount: number; sourceDate: string | null; fetchedAt: string }>;
   historicalRardarEvidence?: Array<{ source: 'rardar_today'; sourceGeneration: string; servingGeneration: string; rank: number; windowStartedAt: string; windowEndedAt: string; observedStarDelta: number; totalStars: number }>;
 };
-export type TrendingBoard = { schemaVersion: number; generationId: string; publishedAt: string | null; checkedAt: string | null; sources: BoardSource[]; projects: TrendingProject[] };
-export type TrendingDetail = TrendingProject & { generationId?: string; publishedAt?: string | null; sources?: BoardSource[] };
+export type TrendingBoard = { schemaVersion: number; metricSchemaVersion?: 2; generationId: string; publishedAt: string | null; checkedAt: string | null; sources: BoardSource[]; projects: TrendingProject[] };
+export type TrendingDetail = TrendingProject & { metricSchemaVersion?: 2; generationId?: string; publishedAt?: string | null; sources?: BoardSource[] };
 
 export function projectLink(projectId: string, generationId: string, historical = false) {
   return `/project/stable/${encodeURIComponent(projectId)}?${historical ? 'history=1' : `generation=${encodeURIComponent(generationId)}`}`;
@@ -39,4 +48,16 @@ export function boardTime(value: string | null | undefined) {
   if (!value) return '日期未知';
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   return Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '日期未知';
+}
+
+/** History may contain several captures; selection is independent of array order. */
+export function latestBoardAppearances(appearances: BoardAppearance[]): BoardAppearance[] {
+  return (['github', 'trendshift'] as const).flatMap(source => {
+    const rows = appearances.filter(item => item.source === source).sort((a, b) => {
+      const aTime = Date.parse(a.fetchedAt); const bTime = Date.parse(b.fetchedAt);
+      const time = (Number.isFinite(bTime) ? bTime : -Infinity) - (Number.isFinite(aTime) ? aTime : -Infinity);
+      return (Number.isNaN(time) ? 0 : time) || JSON.stringify(a).localeCompare(JSON.stringify(b));
+    });
+    return rows.length ? [rows[0]] : [];
+  });
 }

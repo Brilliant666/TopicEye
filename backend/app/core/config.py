@@ -33,7 +33,8 @@ class Settings(BaseSettings):
     RARDAR_DISCOVER_REQUEST_LIMIT: int = 40
     RARDAR_DAILY_OPERATIONS_ENABLED: bool = False
     RARDAR_STARTUP_CATCHUP_ENABLED: bool = True
-    # Work allowance, never a minimum publication/completeness requirement.
+    # Unique new historical-only projects per day; Today uses resumable slices.
+    # Never a shared attempt/request cap or publication/completeness requirement.
     RARDAR_HISTORICAL_DAILY_LIMIT: int = Field(default=3, ge=1, le=20)
 
     # ── Database ──

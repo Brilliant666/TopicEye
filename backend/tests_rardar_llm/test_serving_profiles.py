@@ -87,9 +87,8 @@ def test_single_capability_core_value_is_not_a_copy_of_the_capability_detail() -
         {"readme:section:3": "A collective list of free APIs."},
     )
 
-    assert value is not None
-    assert capability.detail not in value
-    assert refs == ["readme:section:3"]
+    assert value is None
+    assert refs == []
 
 
 def test_capability_structure_strips_markdown_blockquote_marker() -> None:
@@ -884,8 +883,8 @@ An official developer automation toolkit.
     assert first.profile.officialNarrativeMode == "rardar_derived"
     assert first.profile.qualityState == "ready"
     assert first.profile.qualityIssues == []
-    assert first.profile.coreValueZh is not None
-    assert first.profile.coreValueEvidenceRefs
+    assert first.profile.coreValueZh is None
+    assert first.profile.positioningZh and first.profile.positioningEvidenceRefs
     assert first.profile.capabilityBulletsZh == ["生成有证据支撑的项目报告。", "导出独立 HTML 交付物。"]
     assert [item.title for item in first.profile.capabilities] == ["证据项目报告", "独立 HTML 交付"]
     assert second.readme_cache_hit is True
@@ -1304,8 +1303,10 @@ Open examples/ for complete outputs.
     profile = collected.profile
     assert profile.profileSchemaVersion == "rardar-project-profile-v7"
     assert profile.identitySummaryZh == profile.officialSummaryZh
-    assert profile.coreValueZh is not None
-    assert profile.coreValueEvidenceRefs
+    assert profile.coreValueZh is None
+    # An untranslated fixture must not gain invented Chinese positioning.
+    assert profile.positioningZh is None
+    assert "positioning_missing" in profile.qualityIssues
     assert len(profile.keyDifferentiators) <= 2
     assert {"Agent Skill", "Node.js 渲染/校验工具"}.issubset(profile.productFormsZh)
     assert {"Raven", "Cursor", "Claude Code", "Codex CLI", "OpenCode", "浏览器"}.issubset(

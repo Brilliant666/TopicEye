@@ -2106,6 +2106,7 @@ _MARKDOWN_BLOCKQUOTE = re.compile(r"^\s*>+\s*")
 _MARKDOWN_LEADING_ESCAPE = re.compile(r"^\s*\\+\s*")
 _CAPABILITY_LEADING_MARKER = re.compile(r"^\s*(?:(?:>+|\\+)\s*)?(?:\[[ xX]\]\s*)?(?:[-*+]\s*)?")
 _CAPABILITY_TITLE_RULES: tuple[tuple[str, str, str | None], ...] = (
+    (r"一切皆插件|everything.{0,8}plugin", "插件化架构", None),
     (r"/asu-recap|区分个人动作.{0,24}(?:交付阶段|效果证据)", "项目事实复盘", None),
     (r"/project-guide|梳理项目学习路径", "求职项目与简历准备", None),
     (r"/offer|整理邮件和状态", "投递进度跟踪", None),
@@ -2576,26 +2577,9 @@ def _derived_core_value(
     specific = _specific_core_value(evidence_index)
     if specific:
         return specific
-    differentiators = _key_differentiators(capabilities)
-    if len(differentiators) >= 2:
-        first, second = differentiators[:2]
-        value = f"最值得继续理解的是它把「{first.title}」与「{second.title}」放在同一套项目交付中，两项能力都有官方资料可追溯。"
-        refs = list(dict.fromkeys([*first.evidenceRefs, *second.evidenceRefs]))[:12]
-        return value, refs
-    if differentiators and use_cases:
-        capability = differentiators[0]
-        use_case = use_cases[0]
-        value = f"它把「{capability.title}」直接用于「{use_case}」，让项目能力与实际采用场景形成清晰对应。"
-        refs = list(dict.fromkeys([*capability.evidenceRefs, *claim_refs.get(use_case, [])]))[:12]
-        return value, refs
-    if differentiators:
-        capability = differentiators[0]
-        value = (
-            f"该项目把「{capability.title}」作为有仓库证据支撑的主要交付能力，"
-            "让使用者可以直接判断它是否适合当前需求。"
-        )
-        if _semantic_key(value) != _semantic_key(identity):
-            return value[:240], capability.evidenceRefs
+    # An independently supported value is optional. The UI can show the
+    # evidence-backed positioning instead, without fabricating an assessment
+    # by joining capability titles or describing our reference bookkeeping.
     return None, []
 
 
@@ -2608,15 +2592,16 @@ def _profile_quality(
     capabilities: list[ServingCapability],
     allowed_refs: set[str],
     base_issues: list[str],
+    positioning: str | None = None,
 ) -> tuple[Literal["ready", "partial", "rejected"], list[str]]:
     issues = list(base_issues)
     identity_issues = _text_issue_codes(identity)
     issues.extend(f"identity_{issue}" for issue in identity_issues)
     if not _CHINESE.search(identity):
         issues.append("identity_not_chinese")
-    if core_value is None:
-        issues.append("core_value_missing")
-    else:
+    if core_value is None and not positioning:
+        issues.append("positioning_missing")
+    if core_value is not None:
         core_issues = _text_issue_codes(core_value)
         issues.extend(f"core_value_{issue}" for issue in core_issues)
         if not _CHINESE.search(core_value):
@@ -3222,7 +3207,18 @@ def _source_claims(
             None,
         )
     overview = overview_pair[1] if overview_pair else None
-    summary = overview.excerpts[0] if overview else safe_description
+    summary = (
+        next(
+            (
+                text
+                for text in overview.excerpts
+                if not re.search(r"\d[\d,.]*[kK+]*\s*(?:stars|forks|贡献者)", text, re.I)
+            ),
+            safe_description,
+        )
+        if overview
+        else safe_description
+    )
     summary_ref = (
         f"readme:section:{overview_pair[0]}" if overview_pair else ("description" if safe_description else "repository")
     )
@@ -4097,6 +4093,7 @@ async def collect_official_project_profile(
         capabilities=capabilities,
         allowed_refs=set(evidence.evidenceIndex),
         base_issues=base_quality_issues,
+        positioning=official_positioning,
     )
     if quality_state == "rejected":
         summary, fallback_issues = _safe_fallback_identity(description)
@@ -4204,6 +4201,13 @@ async def collect_official_project_profile(
         generatedAt=datetime.now(UTC),
         translationState=translation_state,
     )
+    from app.integrations.rardar.material_content_revision import derive as derive_reading
+
+    reading_fields = derive_reading(profile, evidence)
+    if reading_fields:
+        profile = OfficialProjectProfile.model_validate_json(
+            json.dumps({**profile.model_dump(mode="json"), **reading_fields}), strict=True
+        )
     # A profile assembled while a required source refresh failed is not a
     # healthy cache entry, even if fallback prose happens to satisfy the
     # presentation schema. An already proven V2 profile was returned before

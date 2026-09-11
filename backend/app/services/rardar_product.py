@@ -37,6 +37,7 @@ from app.services.rardar_intelligence import (
 from app.services.rardar_llm_control import (
     RardarLLMError,
     RardarLLMScene,
+    _schema_validation_error,
     call_rardar_llm,
     call_rardar_structured,
 )
@@ -307,6 +308,42 @@ async def explain_discover_project_by_id(
     )
 
 
+def _log_project_insight_error(repository: str, phase: str, error: Exception) -> None:
+    """Log only schema-safe locations/types, never raw model output or input."""
+    if isinstance(error, ValidationError):
+        detail = _schema_validation_error(error, ProjectExplanation)
+    elif isinstance(error, RardarLLMError):
+        detail = error
+    else:
+        detail = RardarLLMError(
+            "rardar_llm_invalid_output", validation_stage="json_parse", field_path="$", validation_type="invalid_json"
+        )
+    validation_stage = detail.validation_stage
+    if validation_stage is None:
+        validation_stage = (
+            "evidence_validation"
+            if detail.code in {"rardar_llm_invalid_evidence_ref", "rardar_llm_invalid_start_here"}
+            else "content_validation"
+            if detail.code
+            in {
+                "rardar_llm_repeated_ranking_fact",
+                "rardar_llm_generic_boundary",
+                "rardar_llm_personalized_context",
+                "rardar_llm_repeated_official_intro",
+            }
+            else "control"
+        )
+    logger.warning(
+        "Rardar insight rejected repository=%s phase=%s code=%s stage=%s field=%s type=%s",
+        repository,
+        phase,
+        detail.code,
+        validation_stage,
+        detail.field_path or "$",
+        detail.validation_type or detail.classification or "rule_rejected",
+    )
+
+
 async def _explain_project_with_evidence(
     request: ProjectExplanationRequest,
     evidence: ProjectEvidence,
@@ -376,6 +413,7 @@ async def _explain_project_with_evidence(
             **_metadata_fields(result.metadata),
         )
     except RardarLLMError as structured_error:
+        _log_project_insight_error(request.repository, "structured", structured_error)
         try:
             json_fallback = await call_rardar_llm(
                 scene=RardarLLMScene.EXPLOSION_EXPLANATION,
@@ -400,8 +438,8 @@ async def _explain_project_with_evidence(
                 evidenceKinds=sorted(evidence.allowed_refs),
                 **_metadata_fields(json_fallback.metadata),
             )
-        except (RardarLLMError, StrictJSONError, ValidationError):
-            pass
+        except (RardarLLMError, StrictJSONError, ValidationError) as fallback_error:
+            _log_project_insight_error(request.repository, "json_fallback", fallback_error)
         return ProjectExplanationResponse(
             state="unavailable",
             repository=request.repository,

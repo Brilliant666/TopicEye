@@ -53,6 +53,48 @@ def request(context="trending", generation="boards-one"):
 
 
 @pytest.mark.asyncio
+async def test_original_insight_engine_accepts_json_reuse_type_without_unnecessary_fallback(monkeypatch):
+    from app.schemas.rardar_product import ProjectExplanationRequest
+    from app.services import rardar_llm_control as control
+
+    dispatches = []
+
+    async def visible_json(*args, **kwargs):
+        dispatches.append(kwargs)
+        return _insight().model_dump_json(), {"model_name": "mock", "provider": "mock", "cache_hit": False}
+
+    async def fallback(**kwargs):
+        pytest.fail("a valid JSON enum value must not trigger a second model call")
+
+    monkeypatch.setattr(control, "call_llm_with_metadata", visible_json)
+    monkeypatch.setattr(rardar_product, "call_rardar_llm", fallback)
+    result = await rardar_product._explain_project_with_evidence(
+        ProjectExplanationRequest(repository="fixture/repository", generationId="boards-one"), _evidence()
+    )
+    assert result.state == "ready" and len(dispatches) == 1
+    assert result.analysis.reusableAssets[0].reuseType == "module_library"
+
+
+def test_reuse_types_remain_exact_and_schema_diagnostics_never_include_invalid_input(caplog):
+    from pydantic import ValidationError
+
+    from app.schemas.rardar_product import ProjectExplanation, ReuseType
+
+    for kind in ReuseType:
+        payload = _insight().model_dump(mode="json")
+        payload["reusableAssets"][0]["reuseType"] = kind.value
+        assert ProjectExplanation.model_validate(payload, strict=True).reusableAssets[0].reuseType == kind.value
+    payload["reusableAssets"][0]["reuseType"] = "sensitive-invalid-value-do-not-log"
+    with pytest.raises(ValidationError) as invalid:
+        ProjectExplanation.model_validate(payload, strict=True)
+    rardar_product._log_project_insight_error("fixture/repository", "structured", invalid.value)
+    assert "stage=structure" in caplog.text
+    assert "field=$.reusableAssets[0].reuseType" in caplog.text
+    assert "type=literal_error" in caplog.text
+    assert "sensitive-invalid-value" not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_new_board_project_uses_existing_engine_and_cross_context_saved_result(setup, monkeypatch):
     project, evidence, calls = setup
     first = await service.start_project_insight("new-project", request())

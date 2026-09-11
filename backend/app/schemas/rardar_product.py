@@ -55,7 +55,11 @@ class OfficialIntro(EvidenceBackedText):
 
 
 class ReusableAsset(StrictProductModel):
-    reuseType: ReuseType
+    # The provider returns JSON strings, not Python StrEnum instances. Keep the
+    # exact same six-value wire contract under strict model_validate(parsed).
+    reuseType: Literal[
+        "whole_product", "module_library", "provider_connector", "workflow", "reference_only", "not_recommended"
+    ]
     asset: str = Field(min_length=2, max_length=300)
     howToUse: str = Field(min_length=2, max_length=500)
     evidenceRefs: list[str] = Field(min_length=1, max_length=5)

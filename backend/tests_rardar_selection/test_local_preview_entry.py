@@ -220,6 +220,33 @@ Invoke-RardarPreview preview-start
     assert "already healthy" in result.stdout
 
 
+@pytest.mark.parametrize("dirty", [False, True])
+def test_status_reports_source_tree_cleanliness(tmp_path: Path, dirty: bool) -> None:
+    changed_file = " M backend/app/main.py" if dirty else ""
+    result = run_ps(
+        tmp_path,
+        f"""
+$env:LOCALAPPDATA=$RepoRoot; $BackendRoot=$RepoRoot; $FrontendRoot=$RepoRoot; $Psql=$PSHOME
+function Read-PreviewJson {{ return [pscustomobject]@{{status='healthy'}} }}
+function Get-PreviewConfig {{ return [pscustomobject]@{{backendPort=54181;frontendPort=54180}} }}
+function git {{ $global:LASTEXITCODE=0; if('status' -in $args){{ return '{changed_file}' }}; return ('a'*40) }}
+function Test-Path {{ return $true }}
+function Get-PreviewBuild {{ return [pscustomobject]@{{buildId='same'}} }}
+function Assert-PreviewDatabase {{ }}
+function Test-PreviewState {{ return $true }}
+function Start-AppProcess {{ throw 'MUST_NOT_LAUNCH' }}
+function Stop-PreviewState {{ throw 'MUST_NOT_STOP' }}
+function Format-List {{ process {{ $_ | ConvertTo-Json -Compress }} }}
+Invoke-RardarPreview preview-status
+""",
+    )
+    status = json.loads(result.stdout.strip())
+    assert status["worktreeClean"] is not dirty
+    assert status["healthy"] is not dirty
+    assert (result.returncode != 0) is dirty
+    assert "MUST_NOT_" not in result.stderr
+
+
 def test_build_failure_prevents_restart_stop(tmp_path: Path) -> None:
     result = run_ps(
         tmp_path,

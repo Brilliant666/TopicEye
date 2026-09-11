@@ -253,15 +253,16 @@ function Invoke-RardarPreview([string]$Action) {
         }
         $build = Get-PreviewBuild $config
         Assert-PreviewDatabase $config
+        $dirty = & git -C $RepoRoot status --short --untracked-files=all
+        $worktreeClean = $LASTEXITCODE -eq 0 -and -not $dirty
         if ($Action -eq 'preview-status') {
-            $healthy = Test-PreviewState $state $config $build $head
-            [pscustomobject]@{ healthy = $healthy; head = $head; product = "http://127.0.0.1:$($config.frontendPort)";
+            $healthy = $worktreeClean -and (Test-PreviewState $state $config $build $head)
+            [pscustomobject]@{ healthy = $healthy; worktreeClean = $worktreeClean; head = $head; product = "http://127.0.0.1:$($config.frontendPort)";
                 backend = "http://127.0.0.1:$($config.backendPort)"; config = $script:PreviewConfigPath; logs = $script:PreviewRoot } | Format-List
             if (-not $healthy) { throw "Preview is not healthy or not managed by this entry." }
             return
         }
-        $dirty = & git -C $RepoRoot status --short --untracked-files=all
-        if ($LASTEXITCODE -ne 0 -or $dirty) { throw "Preview startup requires a clean source tree so HEAD identifies the actual code." }
+        if (-not $worktreeClean) { throw "Preview startup requires a clean source tree so HEAD identifies the actual code." }
         if ($Action -eq 'preview-start' -and (Test-PreviewState $state $config $build $head)) {
             Write-Host "Preview already healthy: http://127.0.0.1:$($config.frontendPort)"; return
         }

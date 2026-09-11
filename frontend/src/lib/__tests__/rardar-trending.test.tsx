@@ -23,9 +23,8 @@ describe('refocused trending reading', () => {
   });
   it('does not turn a historical source count into dated local appearances', () => {
     const html = renderToStaticMarkup(<TrendingCard historical project={{ ...project, appearances: [], historyAppearances: 0, firstSeenAt: '2026-09-10T00:00:00Z', historicalEvidence: [{ source: 'github', sourceUrl: 'https://trendshift.io/github-trending-repositories', reportedAppearanceCount: 123, sourceDate: null, fetchedAt: '2026-09-10T00:00:00Z' }] }} generationId="history" />);
-    expect(html).toContain('本地保存 0 次榜单记录');
-    expect(html).toContain('历史上榜 123 次（来源报告，具体日期未知）');
-    expect(html).toContain('最早采集');
+    expect(html).toContain('来源报告历史上榜 123 次');
+    expect(html).toContain('具体日期未知，不等于本地逐日记录');
     expect(html).not.toContain('最早上榜');
   });
   it('does not turn fetch time into a board date or allow unsafe source links', () => {

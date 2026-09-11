@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from app.integrations.rardar.project_identity import canonical_repository, project_id_for_repository
+from app.integrations.rardar.trending_metrics import order_today
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
 
 SOURCES = {"github": "GitHub Trending", "trendshift": "Trendshift Trending"}
@@ -185,6 +186,8 @@ def load_snapshot(target: Path, generation: str | None = None) -> dict:
     for project in result["projects"]:
         project["dualListed"] = project["dualListed"] and len(healthy) == 2
     _apply_display_metrics(result, value["captures"])
+    order_today(result["projects"])
+    result["rankingSchemaVersion"] = 1
     return result
 
 

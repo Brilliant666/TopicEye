@@ -16,12 +16,16 @@ export type TrendingProject = {
   projectId: string; repository: string; repositoryUrl: string; githubRepositoryId: number | null;
   description: string | null; totalStars: number | null; dualListed: boolean;
   appearances: BoardAppearance[];
+  primaryGrowth?: (Omit<Partial<BoardAppearance>, 'source'> & { source: 'github' | 'trendshift' | 'rardar_history'; value: number; windowStartedAt?: string; windowEndedAt?: string }) | null;
+  displayRank?: number;
+  historicalContext?: { kind: 'board' | 'rardar' | 'reported_count'; source: string; rank?: number; dateKind?: 'source' | 'capture' | 'window'; date?: string; fetchedAt?: string; reportedAppearanceCount?: number } | null;
   totalStarsSource?: { source: 'github' | 'trendshift'; sourceDate: string | null; fetchedAt: string; status: 'healthy' | 'stale' | 'failed' } | null;
   materialState: 'complete' | 'partial' | 'unavailable';
   displayProfile?: ProjectDetail['profile'] | null;
   displayEvidence?: ProjectDetail['evidence'] | null;
   material?: { schemaVersion: 2; sourceKind: 'profile_cache' | 'published_serving'; sourceGeneration: string; sourceRevision: string; generatedAt: string } | null;
   language?: string | null; topics?: string[]; license?: string | null;
+  metadataSource?: { fetchedAt: string; sourceUrl: string };
   productForms?: string[]; runtimeEnvironments?: string[]; artifactTypes?: string[];
   profile: null | { summary: string; positioning: string; capabilities: string[]; generatedAt: string; sourceUrl: string; sourceLabel?: string; useCases?: string[]; limitations?: string[] | null; startHere?: Array<{ label: string; url: string }> };
   historyAppearances?: number; firstSeenAt?: string | null; lastSeenAt?: string | null;

@@ -65,9 +65,9 @@ def test_existing_v1_capture_restores_fields_without_mutation_or_union_change(tm
     assert trend["trendshiftMetricPeriod"] == "Trendshift daily (source-defined window)"
     assert trend["totalStars"] == 40109
     assert trend["sourceStatus"] == "healthy"
-    assert [p["repository"] for p in current["projects"]] == [
+    assert {p["repository"] for p in current["projects"]} == {
         p["repository"] for p in persisted["projection"]["projects"]
-    ]
+    }
     assert path.read_bytes() == original
     assert not store.publish_sources(tmp_path, sources())["changed"]
 

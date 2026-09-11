@@ -5,6 +5,7 @@ import pytest
 
 from app.integrations.rardar import material_content_revision as revision
 from app.integrations.rardar.profile_cache_v2 import ProfileStoreEnvelopeV2
+from app.integrations.rardar.serving_schemas import OfficialProjectProfile
 from app.services import rardar_trending as service
 from tests_rardar_llm.test_managed_materials import seed
 
@@ -87,3 +88,43 @@ async def test_non_template_core_and_positioning_aliases_are_preserved(tmp_path)
     )
     fields = revision.derive(original, record.evidence)
     assert fields["positioningZh"] == fields["officialPositioningZh"] == "支持声明式服务配置与可检索的运行日志。"
+
+
+@pytest.mark.asyncio
+async def test_fidelity_qualification_is_idempotent_for_future_collector_profiles(tmp_path):
+    record = ProfileStoreEnvelopeV2.model_validate_json((await seed(tmp_path)).read_bytes(), strict=True)
+    detail = "提供交通和摄像头等实时数据。"
+    capability = record.profile.capabilities[0].model_copy(update={"detail": detail, "evidenceRefs": ["description"]})
+    profile = record.profile.model_copy(
+        update={
+            "capabilities": [capability],
+            "capabilityBulletsZh": [detail],
+            "claimEvidenceRefs": {**record.profile.claimEvidenceRefs, detail: ["description"]},
+        }
+    )
+    evidence = record.evidence.model_copy(
+        update={
+            "evidenceIndex": {
+                **record.evidence.evidenceIndex,
+                "description": "Most feeds are live or regularly refreshed. Traffic is simulated. Camera poses and launch trajectories are coarse estimates.",
+            }
+        }
+    )
+    fields = revision.derive(profile, evidence)
+    repaired = OfficialProjectProfile.model_validate_json(
+        json.dumps({**profile.model_dump(mode="json"), **fields}), strict=True
+    )
+    assert repaired.capabilities[0].detail.count("交通为模拟") == 1
+    assert revision.derive(repaired, evidence) == {}
+
+
+@pytest.mark.asyncio
+async def test_optional_revision_path_rejection_is_local_not_a_page_failure(tmp_path, monkeypatch):
+    record = ProfileStoreEnvelopeV2.model_validate_json((await seed(tmp_path)).read_bytes(), strict=True)
+
+    def reject(*args, **kwargs):
+        raise revision.ProviderBudgetError("unsafe_path")
+
+    monkeypatch.setattr(revision, "plain", reject)
+    with pytest.raises(ValueError, match="material_content_revision_path_invalid"):
+        revision.apply_saved(tmp_path, record.profile, record.evidence, {})

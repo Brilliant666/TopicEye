@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.integrations.rardar.serving_schemas import OfficialProjectProfile
-from app.services.llm.provider_budget import atomic, digest, file_lock, plain
+from app.services.llm.provider_budget import ProviderBudgetError, atomic, digest, file_lock, plain
 
 VERSION = "rardar-material-reading-v1"
 TEMPLATE = re.compile(
@@ -122,7 +122,9 @@ def derive(profile, evidence) -> dict:
             for capability in value[group]:
                 old = capability["detail"]
                 if re.search(r"交通|摄像头", old):
-                    revised = old.replace("等实时数据", "等数据图层") + " " + boundary
+                    revised = old.replace("等实时数据", "等数据图层")
+                    if boundary not in revised:
+                        revised += " " + boundary
                     capability["detail"] = revised
                     capability["shortDetail"] = None
                     capability["evidenceRefs"] = list(dict.fromkeys([*capability["evidenceRefs"], *fidelity_refs]))
@@ -174,7 +176,10 @@ def apply_saved(target: Path, profile, evidence, material: dict) -> dict:
     from app.services.rardar_trending import project_material
 
     path = _path(target, profile)
-    plain(path, missing=True)
+    try:
+        plain(path, missing=True)
+    except ProviderBudgetError as exc:
+        raise ValueError("material_content_revision_path_invalid") from exc
     if not path.exists():
         return material
     if path.stat().st_size > 200_000:

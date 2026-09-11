@@ -20,6 +20,14 @@ def response():
     }
 
 
+def test_optional_unsafe_metadata_path_does_not_break_board(tmp_path, monkeypatch):
+    def denied(*args, **kwargs):
+        raise metadata.ProviderBudgetError("unsafe_path")
+
+    monkeypatch.setattr(metadata, "read_json", denied)
+    assert metadata.apply({"projects": [project()]}, tmp_path)["projects"] == [project()]
+
+
 @pytest.mark.asyncio
 async def test_metadata_without_profile_keeps_board_facts_and_reuses_cache(tmp_path):
     calls = []

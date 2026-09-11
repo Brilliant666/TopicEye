@@ -6,7 +6,7 @@ from time import monotonic
 
 from app.integrations.rardar.project_identity import canonical_repository
 from app.integrations.rardar.trending_store import read_json
-from app.services.llm.provider_budget import atomic, digest, file_lock, plain
+from app.services.llm.provider_budget import ProviderBudgetError, atomic, digest, file_lock, plain
 
 
 def _path(target: Path, repository: str) -> Path:
@@ -14,7 +14,10 @@ def _path(target: Path, repository: str) -> Path:
 
 
 def read(target: Path, project: dict) -> dict | None:
-    record = read_json(_path(target, project["repository"]), maximum=30_000)
+    try:
+        record = read_json(_path(target, project["repository"]), maximum=30_000)
+    except ProviderBudgetError as exc:
+        raise ValueError("repository_metadata_path_invalid") from exc
     if not record:
         return None
     if not isinstance(record, dict) or record.get("schemaVersion") != 1:

@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,15 @@ def test_markdown_cleanup_preserves_technical_meaning():
         revision.clean("> **支持 C# 与 snake_case**，版本 > 3；[原文](https://example.test)。")
         == "支持 C# 与 snake_case，版本 > 3；原文。"
     )
+
+
+def test_banner_fallback_keeps_actual_description_reference():
+    from app.integrations.rardar.serving_profiles import _source_claims
+
+    banner = SimpleNamespace(purpose="overview", excerpts=["140K+ stars | 21K+ forks"], listItems=[])
+    summary, reference, *_ = _source_claims([banner], "A configuration collection for coding agents.")
+    assert summary == "A configuration collection for coding agents."
+    assert reference == "description"
 
 
 @pytest.mark.asyncio

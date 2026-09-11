@@ -3220,7 +3220,9 @@ def _source_claims(
         else safe_description
     )
     summary_ref = (
-        f"readme:section:{overview_pair[0]}" if overview_pair else ("description" if safe_description else "repository")
+        f"readme:section:{overview_pair[0]}"
+        if overview_pair and summary in overview_pair[1].excerpts
+        else ("description" if safe_description else "repository")
     )
     capability_sections = [section for section in sections if section.purpose == "capabilities"]
     use_case_sections = [section for section in sections if section.purpose == "use_cases"]

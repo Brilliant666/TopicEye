@@ -78,3 +78,11 @@ preview entry used by the operator/agent, not alternate launch implementations.
 They are ordinary UI actions, not a policy bypass. Their existence alone does
 not establish that automated process creation is permitted or that acceptance
 has completed.
+### 2026-09-11 固定预览入口实测
+
+- 同一 `scripts/rardar-local.ps1` 现提供 `preview-build/start/status/restart/stop`；Codex local environment Actions 调用相同入口。普通启动不安装、不构建、不启动数据库或调度。
+- 独立 `.next-preview` 和 54190/54191 已由执行工具实际启动；重复 start 复用健康进程，restart 定向替换本预览，原 PostgreSQL PID 保持不变。当前环境不再需要人工维持前后端终端。
+- 配置/状态/日志保存在本机 `%LOCALAPPDATA%/TopicEye/rardar-previews/<worktree-hash>`；预览资料隔离，预算绑定原 Runtime 身份。只读正式预算查询为 2026-09-11 Asia/Shanghai 1/100、交互预留10，本轮启动验收新增请求0。
+- 真实 Playwright 浏览器通过实际54190应用和54191后端，在1440及390宽度读取33项完整去重列表、57项历史列表与 codecrafters 已保存新解读；暂停模块显示明确说明，无页面异常或横向溢出。没有拦截或替换API响应。
+- Codex浏览器控制连接仍返回 `nodeRepl.fetch request failed`；这与正常启动入口成功是不同结果。登录页面和Find表单可读，但登录后的管理操作与Find实际需求提交尚未完成，PR继续Draft。
+- 先前 `blocked by policy` 已确认属于shell创建前拒绝；当前用户allow规则没有提供对应拒绝解释，无法从已有记录确定隐藏策略的具体判定。未修改规则、权限或安全配置。

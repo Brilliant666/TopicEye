@@ -1,7 +1,8 @@
 """Growth display over immutable v1 captures; no network, database or model calls."""
 
 from copy import deepcopy
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -161,6 +162,75 @@ def test_history_keeps_newest_capture_per_source_day_with_one_appearance(tmp_pat
     assert trend["trendshiftMetricPeriod"]
     assert project["firstSeenAt"] == "2026-09-11T12:30:00+00:00"
     assert project["lastSeenAt"] == "2026-09-11T13:50:00+00:00"
+
+
+def test_history_first_and_last_seen_compare_absolute_time(tmp_path):
+    first = board("github", ["fixture/time-order"], when="2026-09-11T10:00:00+08:00")
+    last = board("github", ["fixture/time-order"], when="2026-09-11T03:00:00+00:00")
+    first["entries"][0]["reportedDelta"] = 1
+    last["entries"][0]["reportedDelta"] = 2
+    store.publish_sources(tmp_path, [first])
+    store.publish_sources(tmp_path, [last])
+    project = store.historical_snapshot(tmp_path)["projects"][0]
+    assert project["firstSeenAt"] == first["fetchedAt"]
+    assert project["lastSeenAt"] == last["fetchedAt"]
+    assert project["historyAppearances"] == 1
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("external", [False, True])
+@pytest.mark.parametrize("archive", [False, True])
+def test_rardar_only_historical_total_uses_latest_window_without_overriding_external(
+    tmp_path, monkeypatch, reverse, external, archive
+):
+    from app.services import rardar_trending as service
+    from tests_rardar_selection.test_profile_cache_v2 import _project
+
+    # Reduced facts from retained UI/UX Skill publications: original traversal
+    # reached Aug 28 first although the displayed growth used Sep 9.
+    repository = "nextlevelbuilder/ui-ux-pro-max-skill"
+    publications = []
+    for day, total, delta in [("2026-08-28", 121969, 612), ("2026-09-09", 126131, 320)]:
+        ended = datetime.fromisoformat(f"{day}T08:00:00+08:00")
+        fact = _project().model_copy(
+            update={
+                "repository": repository,
+                "htmlUrl": f"https://github.com/{repository}",
+                "windowStartedAt": ended - timedelta(days=1),
+                "windowEndedAt": ended,
+                "totalStars": total,
+                "observedStarDelta": delta,
+            }
+        )
+        publications.append(SimpleNamespace(project=fact, generationId=day, servingGenerationId=f"serving-{day}"))
+    monkeypatch.setattr(
+        service, "_retained_serving_details", lambda _target: iter(publications[::-1] if reverse else publications)
+    )
+    if archive:
+        store.import_historical_evidence(
+            tmp_path,
+            {
+                "source": "github",
+                "sourceUrl": "https://trendshift.io/github-trending-repositories",
+                "period": "historical-all-days",
+                "fetchedAt": "2026-09-11T12:00:00+00:00",
+                "entries": [{"repository": repository, "reportedAppearanceCount": 3, "totalStars": 127000}],
+            },
+        )
+    if external:
+        capture = board("github", [repository], when="2026-09-11T12:30:00+00:00")
+        capture["entries"][0]["totalStars"] = 130000
+        store.publish_sources(tmp_path, [capture])
+    project = service._history_with_materials(tmp_path, {})["projects"][0]
+    assert project["historicalRardarEvidence"][0]["totalStars"] == 126131
+    assert project["totalStars"] == (130000 if external else 126131)
+    if external:
+        assert project["totalStarsSource"]["source"] == "github"
+    else:
+        assert not project.get("totalStarsSource")
+        assert project["appearances"] == []
+    if archive:
+        assert project["historicalEvidence"][0]["reportedAppearanceCount"] == 3
 
 
 def test_invalid_new_growth_metric_is_rejected_without_erasing_cache(tmp_path):

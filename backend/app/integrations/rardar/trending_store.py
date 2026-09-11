@@ -519,7 +519,11 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
         _apply_material(project, material)
         # Latest-per-day display must not move the actual first saved observation.
         times = [x["fetchedAt"] for x in total_candidates[key]]
-        project.update(historyAppearances=len(seen[key]), firstSeenAt=min(times), lastSeenAt=max(times))
+        project.update(
+            historyAppearances=len(seen[key]),
+            firstSeenAt=min(times, key=datetime.fromisoformat),
+            lastSeenAt=max(times, key=datetime.fromisoformat),
+        )
     return apply_materials(
         {
             **current,

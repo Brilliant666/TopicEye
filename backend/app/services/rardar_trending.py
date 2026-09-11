@@ -280,7 +280,15 @@ def _history_with_materials(target: Path, materials: dict) -> dict:
         )
     for project in projects.values():
         if project.get("historicalRardarEvidence"):
-            project["historicalRardarEvidence"].sort(key=lambda item: item["windowEndedAt"], reverse=True)
+            project["historicalRardarEvidence"].sort(
+                key=lambda item: datetime.fromisoformat(item["windowEndedAt"]), reverse=True
+            )
+            if not project.get("appearances"):
+                # Without an external daily capture, display the retained
+                # Rardar window's growth and total together. An archive's
+                # all-time appearance count does not identify that window.
+                project["totalStars"] = project["historicalRardarEvidence"][0]["totalStars"]
+                project.pop("totalStarsSource", None)
     snapshot["projects"] = list(projects.values())
     snapshot = apply_materials(snapshot, materials)
     snapshot["projects"].sort(key=lambda p: (p["profile"] is None, -(p["totalStars"] or 0), p["repository"]))

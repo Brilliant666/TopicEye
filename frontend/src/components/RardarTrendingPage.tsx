@@ -48,8 +48,8 @@ export function TrendingCard({ project, generationId, historical = false, index 
 export function HistoricalContext({ project }: { project: TrendingProject }) {
   const context = project.historicalContext;
   if (!context) return <p className={styles.projectDescription}>历史日期未取得</p>;
-  if (context.kind === 'reported_count') return <p className={styles.projectDescription}>来源报告曾上 GitHub 日榜 {context.reportedAppearanceCount} 次 · 具体日期未知，本地无对应逐日记录</p>;
-  return <p className={styles.projectDescription}>{context.kind === 'rardar' ? 'Rardar 历史榜' : boardSourceName[context.source as keyof typeof boardSourceName]} #{context.rank} · {context.dateKind === 'capture' ? '采集于 ' : context.dateKind === 'window' ? '窗口结束 ' : '榜单日期 '}{boardTime(context.date)}</p>;
+  if (context.kind === 'reported_count') return <p className={styles.projectDescription}>曾上 GitHub 日榜 · 具体日期未知</p>;
+  return <p className={styles.projectDescription}>{context.kind === 'rardar' ? 'Rardar 历史榜' : boardSourceName[context.source as keyof typeof boardSourceName]} · {context.dateKind === 'capture' ? '采集于 ' : context.dateKind === 'window' ? '窗口结束 ' : '榜单日期 '}{boardTime(context.date)}</p>;
 }
 
 export default function RardarTrendingPage({ board, historical = false }: { board: TrendingBoard | null; historical?: boolean }) {

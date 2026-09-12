@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import RardarGrowthFacts from '@/components/RardarGrowthFacts';
-import RardarTrendingPage, { TrendingCard } from '@/components/RardarTrendingPage';
+import RardarTrendingPage, { HistoricalContext, TrendingCard } from '@/components/RardarTrendingPage';
 import RardarProjectDetailPage from '@/components/RardarProjectDetailPage';
 import { latestBoardAppearances, totalStarsProvenance, type BoardAppearance, type TrendingProject } from '@/lib/rardar-trending';
 
@@ -44,6 +44,15 @@ describe('single selected growth presentation', () => {
     const old = { ...github, fetchedAt: '2026-09-11T08:59:59+08:00' };
     expect(latestBoardAppearances([old, trendshift, github])).toEqual([github, trendshift]);
     expect(latestBoardAppearances([github, trendshift, old])).toEqual([github, trendshift]);
+  });
+  it('keeps historical context concise when counts are omitted', () => {
+    const html = renderToStaticMarkup(<HistoricalContext project={{ ...project, historicalContext: { kind: 'reported_count', source: 'github' } }} />);
+    expect(html).toContain('曾上 GitHub 日榜 · 具体日期未知');
+    expect(html).not.toContain('undefined');
+    expect(html).not.toContain('次');
+    const dated = renderToStaticMarkup(<HistoricalContext project={{ ...project, historicalContext: { kind: 'board', source: 'github', rank: 7, dateKind: 'source', date: '2026-09-01' } }} />);
+    expect(dated).toContain('GitHub Trending · 榜单日期 2026-09-01');
+    expect(dated).not.toContain('#7');
   });
   it.each([0, null])('history preserves zero versus unknown total (%s)', totalStars => {
     const html = renderToStaticMarkup(<RardarGrowthFacts historical project={{ ...project, totalStars, primaryGrowth: null }} />);

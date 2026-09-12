@@ -254,7 +254,11 @@ def test_startup_catchup_switch_keeps_lease_recovery_without_paid_run(
     recover.assert_awaited_once()
     assert daily.await_count == int(enabled and window_open)
     source = (ROOT / "backend/app/scheduler.py").read_text(encoding="utf-8")
-    assert 'CronTrigger(hour="8-23", minute=30, timezone="Asia/Shanghai")' in source
+    # Catch-up and the two daily slots must enter the same guarded operation;
+    # the retired hourly cadence is no longer the product contract.
+    assert "trigger=_rardar_daily_trigger()," in source
+    assert "return OrTrigger(" in source
+    assert 'CronTrigger(hour="8-23", minute=30, timezone="Asia/Shanghai")' not in source
     assert "RARDAR_STARTUP_CATCHUP_ENABLED: bool = True" in (ROOT / "backend/app/core/config.py").read_text(
         encoding="utf-8"
     )

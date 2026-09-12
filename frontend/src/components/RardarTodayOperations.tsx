@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthContext } from '@/providers/AppProvider';
 import { todayOperationsApi, todayOperationLabel, type TodayOperation } from '@/lib/api/today-operations';
 import styles from './RardarNewsOperations.module.css';
+import { beijingTime } from '@/lib/rardar-trending';
 
 type BoardContext = { syncedAt: string | null; checkedAt?: string | null; context?: 'dual_board' | 'exact_explosion' };
 
@@ -104,7 +105,7 @@ function AdminTodayOperations({ syncedAt, checkedAt, context, userId }: BoardCon
 
 function timeLabel(value: string | null): string {
   if (!value || !Number.isFinite(Date.parse(value))) return '暂无记录';
-  return new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false });
+  return beijingTime(value);
 }
 
 export function isDualBoardOperation(operation: TodayOperation) {

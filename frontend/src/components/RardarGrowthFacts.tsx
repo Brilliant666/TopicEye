@@ -11,7 +11,7 @@ export default function RardarGrowthFacts({ project, historical = false }: { pro
     {item ? <div className={styles.sourceGrowthMetric} data-growth-source={item.source} data-growth-value={item.value}>
       <span className={styles.growthSourceLabel}>{historical ? '历史 Star 增长' : 'Star 增长'} · {growthSourceLabel[item.source]}</span>
       <strong>{item.value >= 0 ? '+' : ''}{item.value.toLocaleString()}</strong>
-      {item.sourceStatus && item.sourceStatus !== 'healthy' && <small>保留缓存 · 采集 {boardTime(item.fetchedAt)}</small>}
+      {item.sourceStatus && item.sourceStatus !== 'healthy' && <small>{historical ? '历史记录' : '保留缓存'} · 采集 {boardTime(item.fetchedAt)} 北京时间</small>}
     </div> : <span className={styles.growthUnavailable}>增长暂未取得</span>}
     <span className={styles.totalStarsAuxiliary}><Star size={14} aria-hidden="true" />{typeof project.totalStars === 'number' ? `${project.totalStars.toLocaleString()} 累计 Star` : '累计 Star 未取得'}</span>
   </div>;

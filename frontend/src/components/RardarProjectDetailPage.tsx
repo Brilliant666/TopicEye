@@ -24,7 +24,7 @@ import {
   type ProjectDetail,
 } from '@/lib/rardar-intelligence';
 import type { DiscoverProjectDetail } from '@/lib/rardar-discover';
-import { boardTime, safeSourceUrl, type TrendingDetail } from '@/lib/rardar-trending';
+import { beijingTime, boardPeriodLabel, boardTime, safeSourceUrl, type TrendingDetail } from '@/lib/rardar-trending';
 import styles from './RardarFoundation.module.css';
 import RardarProjectExplanation from './RardarProjectExplanation';
 import RardarGrowthFacts from './RardarGrowthFacts';
@@ -310,7 +310,7 @@ function TrendingFactContext({ detail, historical }: { detail: TrendingDetail; h
   return <section className={styles.observationFacts} data-testid="project-trending-facts">
     <header><Star size={17} /><div><h2>{historical ? '历史上榜依据' : '来源榜单事实'}</h2><p>名次与指标保留各来源语义；资料解读不改变榜单事实。</p></div></header>
     <dl>
-      {detail.appearances.map(item => <Fact key={`${item.source}-${item.sourceDate}-${item.fetchedAt}`} label={`${item.source === 'github' ? 'GitHub Trending' : 'Trendshift'} 日榜`} value={`#${item.rank} · ${boardTime(item.sourceDate)} · 采集 ${boardTime(item.fetchedAt)}`} />)}
+      {detail.appearances.map(item => <Fact key={`${item.source}-${item.sourceDate}-${item.fetchedAt}`} label={`${item.source === 'github' ? 'GitHub Trending' : 'Trendshift'} 日榜`} value={`#${item.rank} · ${boardPeriodLabel(item)} · 成功采集 ${beijingTime(item.fetchedAt)}`} />)}
       {historical && detail.firstSeenAt && <Fact label="本地最早采集" value={boardTime(detail.firstSeenAt)} />}
       {detail.displayProfile?.generatedAt && <Fact label="项目资料生成时间" value={boardTime(detail.displayProfile.generatedAt)} />}
       {detail.primaryGrowth && <Fact label="主增长统计口径" value={detail.primaryGrowth.source === 'rardar_history' ? `${boardTime(detail.primaryGrowth.windowStartedAt)} → ${boardTime(detail.primaryGrowth.windowEndedAt)}` : detail.primaryGrowth.reportedDeltaPeriod || detail.primaryGrowth.trendshiftMetricPeriod || '来源日榜，未声明精确窗口'} />}

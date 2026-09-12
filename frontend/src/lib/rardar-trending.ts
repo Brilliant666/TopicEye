@@ -1,10 +1,21 @@
 import type { ProjectDetail } from './rardar-intelligence';
 
-export type BoardSource = {
+export type BoardPeriod = {
+  periodStartAt?: string | null; periodEndAt?: string | null; sourceTimezone?: string | null;
+  acquisitionMode?: 'ended_utc_day' | 'daily_snapshot'; targetPeriodDate?: string | null;
+};
+export type RefreshPolicy = {
+  timezone: 'Asia/Shanghai'; readinessMinutes: number; compensationDelayMinutes: number;
+  timingBasis: string;
+  duePeriod: { sourceDate: string; startAt: string; endAt: string; readyAt: string };
+  schedule: Array<{ runDate: string; mainAt: string; compensationAt: string; targetSourceDate: string; periodStartAt: string; periodEndAt: string }>;
+};
+export type BoardSource = BoardPeriod & {
   source: 'github' | 'trendshift'; label: string; status: 'healthy' | 'stale' | 'failed';
   sourceDate: string | null; fetchedAt: string | null; errorCode: string | null; count: number;
+  checkedAt?: string | null;
 };
-export type BoardAppearance = {
+export type BoardAppearance = BoardPeriod & {
   source: 'github' | 'trendshift'; rank: number; sourceDate: string | null;
   fetchedAt: string; captureDate?: string; period: string;
   reportedDelta: number | null; reportedDeltaPeriod?: string | null;
@@ -32,7 +43,7 @@ export type TrendingProject = {
   historicalEvidence?: Array<{ source: string; sourceUrl: string; reportedAppearanceCount: number; sourceDate: string | null; fetchedAt: string }>;
   historicalRardarEvidence?: Array<{ source: 'rardar_today'; sourceGeneration: string; servingGeneration: string; rank: number; windowStartedAt: string; windowEndedAt: string; observedStarDelta: number; totalStars: number }>;
 };
-export type TrendingBoard = { schemaVersion: number; metricSchemaVersion?: 2; generationId: string; publishedAt: string | null; checkedAt: string | null; sources: BoardSource[]; projects: TrendingProject[] };
+export type TrendingBoard = { schemaVersion: number; metricSchemaVersion?: 2; generationId: string; publishedAt: string | null; checkedAt: string | null; sources: BoardSource[]; projects: TrendingProject[]; refreshPolicy?: RefreshPolicy };
 export type TrendingDetail = TrendingProject & { metricSchemaVersion?: 2; generationId?: string; publishedAt?: string | null; sources?: BoardSource[] };
 
 export function projectLink(projectId: string, generationId: string, historical = false) {
@@ -52,6 +63,20 @@ export function boardTime(value: string | null | undefined) {
   if (!value) return '日期未知';
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   return Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) : '日期未知';
+}
+
+/** Only timezone-aware instants are rendered; source calendar dates are not instants. */
+export function beijingTime(value: string | null | undefined) {
+  if (!value || !/(?:Z|[+-]\d{2}:\d{2})$/i.test(value) || !Number.isFinite(Date.parse(value))) return '时间未知';
+  return `${boardTime(value)} 北京时间`;
+}
+
+export function boardPeriodLabel(source: BoardPeriod & { sourceDate: string | null }) {
+  if (source.acquisitionMode === 'ended_utc_day' && source.periodStartAt && source.periodEndAt) {
+    return `已结束 UTC 日 ${source.sourceDate ?? '日期未知'} · ${beijingTime(source.periodStartAt)} → ${beijingTime(source.periodEndAt)}（右端不含）`;
+  }
+  const date = source.sourceDate ? `源榜日期 ${source.sourceDate}${source.sourceTimezone ? `（${source.sourceTimezone}）` : '（源时区未记录）'} · ` : '源榜日期未知 · ';
+  return `${date}${source.acquisitionMode === 'daily_snapshot' ? '日榜快照' : '已保存日榜记录'}，未确认完整统计窗口`;
 }
 
 /** History may contain several captures; selection is independent of array order. */

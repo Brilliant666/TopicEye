@@ -20,7 +20,6 @@ from app.integrations.rardar.trending_store import (
     apply_materials,
     historical_snapshot,
     load_snapshot,
-    publish_sources,
     read_json,
 )
 from app.services.llm.provider_budget import ProviderBudgetError, atomic, digest, file_lock, plain
@@ -324,27 +323,12 @@ def load_saved_project_profile(
 
 
 async def refresh_boards(target: Path | None = None) -> dict:
-    from app.integrations.rardar.trending_boards import fetch_boards
+    from app.services.rardar_daily_refresh import run_refresh
 
     if target is None and not settings.RARDAR_INTELLIGENCE_DATA_DIR:
         raise ValueError("rardar_boards_not_configured")
     target = target or Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
-    results = await fetch_boards()
-    materials = await asyncio.to_thread(saved_materials, target)
-    installed = await asyncio.to_thread(publish_sources, target, results, materials=materials)
-    current = load_snapshot(target)
-    metadata = await refresh_metadata(target, current["projects"])
-    return {
-        **installed,
-        "metadata": metadata,
-        "sources": current["sources"],
-        "providerCalls": 0,
-        "status": "partial"
-        if any(x["status"] != "healthy" for x in current["sources"])
-        else "updated"
-        if installed["changed"]
-        else "unchanged",
-    }
+    return await run_refresh(target, trigger="manual")
 
 
 async def refresh_metadata(target: Path, projects: list[dict] | None = None) -> dict:
@@ -762,6 +746,7 @@ async def run_daily_refocus() -> dict:
     # Reuse the scheduler's existing operation lock and status files. Version the
     # cycle file so an old completed Discover run cannot suppress the new scope.
     from app.services.rardar_daily_operations import ZONE, _execution_paused, _record_interruption, operation_root
+    from app.services.rardar_daily_refresh import run_refresh
 
     if not settings.RARDAR_INTELLIGENCE_DATA_DIR:
         return {"status": "not_configured", "reason": "data_not_configured"}
@@ -782,14 +767,10 @@ async def run_daily_refocus() -> dict:
             modules = state["modules"]
             for name in ("discover", "news_refresh", "news_enhance"):
                 modules[name] = {"status": "paused", "reason": "product_scope_paused"}
-            try:
-                modules["today"] = await refresh_boards()
-            except Exception:
-                modules["today"] = {"status": "failed", "errorCode": "board_refresh_failed", "oldResultPreserved": True}
-            save()
-            if await _execution_paused():
-                modules["historical_hot"] = {"status": "pending", "waitReason": "administrator_paused"}
-            else:
+
+            async def material_work():
+                if await _execution_paused():
+                    return {"status": "pending", "waitReason": "administrator_paused"}
                 try:
                     modules["historical_hot"] = await historical_work(
                         Path(settings.RARDAR_INTELLIGENCE_DATA_DIR),
@@ -798,6 +779,22 @@ async def run_daily_refocus() -> dict:
                     )
                 except Exception:
                     modules["historical_hot"] = {"status": "failed", "errorCode": "historical_material_failed"}
+                save()
+                return modules["historical_hot"]
+
+            try:
+                result = await run_refresh(
+                    Path(settings.RARDAR_INTELLIGENCE_DATA_DIR), trigger="automatic", material_work=material_work
+                )
+                if result["status"] == "skipped":
+                    state.update(status="skipped", reason=result["reason"], completedAt=datetime.now(UTC).isoformat())
+                    save()
+                    return {k: v for k, v in state.items() if k != "progress"}
+                modules["today"] = {k: v for k, v in result.items() if k != "materials"}
+                if result.get("materials"):
+                    modules["historical_hot"] = result["materials"]
+            except Exception:
+                modules["today"] = {"status": "failed", "errorCode": "board_refresh_failed", "oldResultPreserved": True}
             modules["find"] = {"status": "on_demand", "interactivePriority": True}
             state.update(
                 status="partial"

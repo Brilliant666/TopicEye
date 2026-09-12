@@ -50,9 +50,10 @@ async def test_daily_config_preserves_policy_fields_and_rejects_over_cap(monkeyp
     assert save.await_count == 1
 
 
-def test_startup_window_does_not_gate_explicit_manual_action():
-    assert not scheduler_module._rardar_daily_window_open(datetime(2026, 9, 10, 0, 29, tzinfo=UTC))
-    assert scheduler_module._rardar_daily_window_open(datetime(2026, 9, 10, 0, 30, tzinfo=UTC))
+def test_startup_window_does_not_gate_explicit_manual_action(monkeypatch):
+    monkeypatch.setattr(scheduler_module.settings, "RARDAR_BOARD_READINESS_MINUTES", 60)
+    assert not scheduler_module._rardar_daily_window_open(datetime(2026, 9, 10, 0, 59, tzinfo=UTC))
+    assert scheduler_module._rardar_daily_window_open(datetime(2026, 9, 10, 1, 0, tzinfo=UTC))
 
 
 @pytest.mark.asyncio
@@ -188,6 +189,8 @@ async def test_rardar_only_registers_daily_job_and_startup_catchup(monkeypatch):
     monkeypatch.setattr(scheduler_module, "scheduler", fake)
     monkeypatch.setattr(scheduler_module.settings, "RARDAR_PRODUCT_MODE", True)
     monkeypatch.setattr(scheduler_module.settings, "RARDAR_DAILY_OPERATIONS_ENABLED", True)
+    monkeypatch.setattr(scheduler_module.settings, "RARDAR_BOARD_READINESS_MINUTES", 60)
+    monkeypatch.setattr(scheduler_module.settings, "RARDAR_BOARD_COMPENSATION_DELAY_MINUTES", 120)
     catchup = AsyncMock()
     monkeypatch.setattr(scheduler_module, "_rardar_startup_catchup", catchup)
     scheduler_module.start_scheduler()
@@ -195,7 +198,18 @@ async def test_rardar_only_registers_daily_job_and_startup_catchup(monkeypatch):
 
     await asyncio.sleep(0)
     assert [call.kwargs["id"] for call in fake.add_job.call_args_list] == ["rardar_daily_operations"]
-    assert str(fake.add_job.call_args.kwargs["trigger"].timezone) == "Asia/Shanghai"
+    trigger = fake.add_job.call_args.kwargs["trigger"]
+    assert all(str(part.timezone) == "Asia/Shanghai" for part in trigger.triggers)
+    # Query the registered effective trigger, not merely a new default string.
+    cursor = datetime(2026, 9, 12, 0, tzinfo=UTC)
+    slots = []
+    from datetime import timedelta
+
+    for _ in range(4):
+        fired = trigger.get_next_fire_time(None, cursor)
+        slots.append(fired.astimezone(UTC))
+        cursor = fired + timedelta(seconds=1)
+    assert slots == [datetime(2026, 9, day, hour, tzinfo=UTC) for day in (12, 13) for hour in (1, 3)]
     fake.start.assert_called_once()
     catchup.assert_awaited_once()
 

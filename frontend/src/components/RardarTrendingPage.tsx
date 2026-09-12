@@ -6,7 +6,7 @@ import { ArrowRight, ArrowUpRight, BookOpen, Clock3, FolderGit2, ShieldCheck, Sp
 import RardarTodayOperations from './RardarTodayOperations';
 import RardarGrowthFacts from './RardarGrowthFacts';
 import { narrativeSourceLabel, positioningSourceLabel } from '@/lib/rardar-intelligence';
-import { boardTime, projectLink, safeSourceUrl, type TrendingBoard, type TrendingProject } from '@/lib/rardar-trending';
+import { beijingTime, boardPeriodLabel, boardTime, projectLink, safeSourceUrl, type TrendingBoard, type TrendingProject } from '@/lib/rardar-trending';
 import styles from './RardarFoundation.module.css';
 
 export const boardSourceName = { github: 'GitHub Trending', trendshift: 'Trendshift' };
@@ -33,7 +33,7 @@ export function TrendingCard({ project, generationId, historical = false, index 
       </div>
       {historical ? <HistoricalContext project={project} /> : <div className={styles.boardAppearanceList}>{project.appearances.map(appearance => <span key={appearance.source}>{boardSourceName[appearance.source]} #{appearance.rank}</span>)}</div>}
       <details className={styles.provenanceDetails}><summary>{historical ? '历史记录' : '来源与更新时间'}</summary><div className={styles.provenanceDetailsBody}>
-        {project.appearances.map(item => <p key={`${item.source}-${item.fetchedAt}`}>{boardSourceName[item.source]} #{item.rank} · {item.sourceDate ? `榜单日期 ${item.sourceDate}` : `采集于 ${boardTime(item.fetchedAt)}`} · {item.period} · {item.source === 'github' ? item.reportedDeltaPeriod : item.trendshiftMetricPeriod}</p>)}
+        {project.appearances.map(item => <p key={`${item.source}-${item.fetchedAt}`}>{boardSourceName[item.source]} #{item.rank} · {boardPeriodLabel(item)} · 成功采集 {beijingTime(item.fetchedAt)} · {item.source === 'github' ? item.reportedDeltaPeriod : item.trendshiftMetricPeriod}</p>)}
           {project.totalStarsSource && <p>累计 Star 来源：{boardSourceName[project.totalStarsSource.source]} · 采集 {boardTime(project.totalStarsSource.fetchedAt)}</p>}
           {project.metadataSource && <p>语言、主题和许可证：GitHub 仓库元数据 · 读取 {boardTime(project.metadataSource.fetchedAt)}</p>}
         {historical && project.historicalEvidence?.map(item => <p key={item.sourceUrl}>来源报告历史上榜 {item.reportedAppearanceCount} 次；具体日期未知，不等于本地逐日记录。{safeSourceUrl(item.sourceUrl) && <a href={safeSourceUrl(item.sourceUrl)} target="_blank" rel="noopener noreferrer">核对来源 ↗</a>}</p>)}
@@ -62,14 +62,15 @@ export default function RardarTrendingPage({ board, historical = false }: { boar
       <div className={styles.foundationNotice}><span className={styles.noticePill}><ShieldCheck size={15} /> 真实来源 · 原始名次</span><span className={styles.noticePill}><Sparkles size={15} /> 共享项目档案 · 按需深度解读</span></div>
     </div></section>
     <div className={styles.sectionHeading}><div><h2>{historical ? '历史项目回顾' : '双榜项目清单'}</h2><p>{historical ? '已有解读优先，再按累计 Star 浏览；历史表现不代表今日增长。' : '按来源报告的 Star 增长降序排列；双榜项目优先采用 GitHub Trending。'}</p></div>{board?.publishedAt && <span className={styles.timestamp}>清单发布 {boardTime(board.publishedAt)}</span>}</div>
-    {!historical && board && <p className={styles.boardSourceSummary} aria-label="两源读取状态">{board.sources.map(source => <span key={source.source}>{source.label}：{source.status === 'healthy' ? '读取成功' : source.status === 'stale' ? '历史缓存' : '读取失败'} · 源榜 {boardTime(source.sourceDate)} · 采集 {boardTime(source.fetchedAt)}</span>)}</p>}
+    {!historical && board && <p className={styles.boardSourceSummary} aria-label="两源读取状态">{board.sources.map(source => <span key={source.source}>{source.label}：{source.status === 'healthy' ? '读取成功' : source.status === 'stale' ? '保留旧记录，待更新' : '读取失败'} · {source.sourceDate ? `源榜 ${source.sourceDate}${source.sourceTimezone ? `（${source.sourceTimezone}）` : ''}` : '源榜日期未知'} · 成功采集 {beijingTime(source.fetchedAt)}</span>)}</p>}
     {!board ? <section className={styles.emptyExactCard} role="status"><Clock3 size={28} /><div><h3>已保存清单暂时不可用</h3><p>请稍后重试；普通阅读不会触发采集或模型请求。</p></div></section> : <>
       <section className={styles.rankingList} aria-label={historical ? '历史回顾项目' : '双榜今日热榜'}>{board.projects.slice(0, visible).map((project, index) => <TrendingCard key={project.projectId} project={project} generationId={board.generationId} historical={historical} index={index} />)}</section>
       {board.projects.length === 0 && <section className={styles.emptyExactCard}><BookOpen size={28} /><p>尚无已保存的{historical ? '历史上榜记录' : '有效榜单'}。</p></section>}
       {visible < board.projects.length && <div className={styles.expandBoard}><button type="button" className={styles.boardLoadMore} onClick={() => setVisible(value => value + 20)}>加载更多（剩余 {board.projects.length - visible} 项）</button></div>}
       <details className={styles.provenanceDetails}><summary><BookOpen size={16} /> 来源与更新时间 <span>{board.projects.length} 个去重项目</span></summary><div className={styles.provenanceDetailsBody}>
-        {!historical && board.sources.map(source => <p key={source.source}><strong>{source.label}</strong> · {source.count} 项 · 榜单日期 {boardTime(source.sourceDate)} · {source.status === 'healthy' ? '读取成功' : source.status === 'stale' ? '显示历史缓存，来源尚未更新' : '来源暂不可用'} · 采集 {boardTime(source.fetchedAt)}</p>)}
-        <p>本次清单发布：{boardTime(board.publishedAt)}{!historical && ` · 最近来源检查：${boardTime(board.checkedAt)}`}</p>
+        {!historical && board.sources.map(source => <p key={source.source}><strong>{source.label}</strong> · {source.count} 项 · {boardPeriodLabel(source)} · {source.status === 'healthy' ? '读取成功' : source.status === 'stale' ? '保留旧记录，尚未取得应更新周期' : '来源暂不可用'} · 成功采集 {beijingTime(source.fetchedAt)} · 最近检查 {beijingTime(source.checkedAt)}</p>)}
+        <p>本次清单发布：{beijingTime(board.publishedAt)}{!historical && ` · 最近来源检查：${beijingTime(board.checkedAt)}`}</p>
+        {!historical && board.refreshPolicy && <p>按来源周期日更，正常每日一次主更新、最多一次有条件补偿。当前应读取 Trendshift UTC 日期：{board.refreshPolicy.duePeriod.sourceDate}；源周期结束后等待 {board.refreshPolicy.readinessMinutes} 分钟（{board.refreshPolicy.timingBasis === 'provisional_safety_margin' ? '暂定安全余量，非来源更新承诺' : '当前配置'}）。GitHub 日榜保留其实际采集时间，不推定精确完整日窗口。</p>}
       </div></details>
     </>}
     {!historical && <RardarTodayOperations syncedAt={board?.publishedAt ?? null} checkedAt={board?.checkedAt ?? null} context="dual_board" />}

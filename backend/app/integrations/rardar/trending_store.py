@@ -11,13 +11,13 @@ from __future__ import annotations
 import json
 import re
 from copy import deepcopy
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
-from zoneinfo import ZoneInfo
 
 from app.integrations.rardar.project_identity import canonical_repository, project_id_for_repository
 from app.integrations.rardar.trending_metrics import order_today
+from app.integrations.rardar.trending_periods import due_period, policy_status
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
 
 SOURCES = {"github": "GitHub Trending", "trendshift": "Trendshift Trending"}
@@ -98,6 +98,20 @@ def validate_source(source: dict) -> None:
         raise ValueError("trending_time_invalid")
     if source.get("sourceDate") is not None:
         datetime.strptime(source["sourceDate"], "%Y-%m-%d")
+    if source.get("targetPeriodDate") is not None:
+        datetime.strptime(source["targetPeriodDate"], "%Y-%m-%d")
+    if source.get("acquisitionMode") == "ended_utc_day":
+        from app.integrations.rardar.trending_periods import source_period
+
+        period = source_period(source["sourceDate"])
+        if (
+            source.get("source") != "trendshift"
+            or source.get("sourceDate") != source.get("targetPeriodDate")
+            or source.get("periodStartAt") != period["startAt"]
+            or source.get("periodEndAt") != period["endAt"]
+            or when < datetime.fromisoformat(period["endAt"])
+        ):
+            raise ValueError("trending_source_period_invalid")
     entries = source.get("entries")
     if not isinstance(entries, list) or not entries or len(entries) > 2000:
         raise ValueError("trending_untrusted_empty_or_size")
@@ -172,22 +186,27 @@ def load_snapshot(target: Path, generation: str | None = None) -> dict:
     result["generationId"] = generation
     # The list and a detail pinned to the current generation share source health.
     # A historical generation never inherits a later generation's source check.
-    check = read_json(root / "last-check.json") if pointer and pointer["generationId"] == generation else None
+    is_current = bool(pointer and pointer["generationId"] == generation)
+    check = read_json(root / "last-check.json") if is_current else None
     if check:
         result["checkedAt"] = check["checkedAt"]
         # A failed latest check does not rewrite the immutable healthy snapshot.
         errors = {x["source"]: x.get("errorCode") for x in check["sources"] if x["status"] == "failed"}
         for source in result["sources"]:
+            source_check = next((x for x in check["sources"] if x["source"] == source["source"]), {})
+            source["checkedAt"] = source_check.get("checkedAt", check["checkedAt"])
             if source["source"] in errors:
                 source.update(status="stale" if source["count"] else "failed", errorCode=errors[source["source"]])
     for source in result["sources"]:
-        source["status"] = _source_status(source, source["status"])
+        if is_current:
+            source["status"] = _source_status(source, source["status"])
     healthy = {s["source"] for s in result["sources"] if s["status"] == "healthy"}
     for project in result["projects"]:
         project["dualListed"] = project["dualListed"] and len(healthy) == 2
     _apply_display_metrics(result, value["captures"])
     order_today(result["projects"])
     result["rankingSchemaVersion"] = 1
+    result["refreshPolicy"] = policy_status()
     return result
 
 
@@ -220,14 +239,27 @@ def _appearance(item: dict, source: dict) -> dict:
         "reportedDeltaPeriod": item.get("reportedDeltaPeriod"),
         "trendshiftMetric": item.get("trendshiftMetric"),
         "trendshiftStarsGained": item.get("trendshiftStarsGained"),
+        **{
+            key: source[key]
+            for key in ("targetPeriodDate", "acquisitionMode", "periodStartAt", "periodEndAt", "sourceTimezone")
+            if key in source
+        },
     }
 
 
 def _source_status(source: dict, status: str) -> str:
-    now = datetime.now(UTC)
-    if source.get("fetchedAt") and now - datetime.fromisoformat(source["fetchedAt"]) > timedelta(hours=30):
-        return "stale"
-    if source.get("sourceDate") and source["sourceDate"] < now.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat():
+    due = due_period(datetime.now(UTC))
+    if source.get("targetPeriodDate"):
+        if source["targetPeriodDate"] < due["sourceDate"]:
+            return "stale"
+    elif source.get("sourceDate"):
+        # Legacy records retain their actual date, not an invented ended-day
+        # claim. Shanghai midnight alone is not a stale boundary.
+        if source["sourceDate"] < due["sourceDate"]:
+            return "stale"
+    elif source.get("fetchedAt") and datetime.fromisoformat(source["fetchedAt"]) < datetime.fromisoformat(
+        due["readyAt"]
+    ):
         return "stale"
     return status
 
@@ -237,7 +269,7 @@ def _metric_appearance(item: dict, source: dict, status: str) -> dict:
     return {
         **_appearance(item, source),
         "totalStars": item.get("totalStars"),
-        "sourceStatus": _source_status(source, status),
+        "sourceStatus": status,
         "trendshiftStarsGainedLabel": item.get("trendshiftStarsGainedLabel"),
         "trendshiftMetricPeriod": item.get("trendshiftMetricPeriod"),
     }
@@ -306,7 +338,7 @@ def merge_sources(captures: list[dict], statuses: dict[str, str]) -> list[dict]:
         appearances = project["appearances"]
         # No inferred publisher date. Same capture day is labelled as such;
         # explicit source dates, when present, must agree as well.
-        days = {a["sourceDate"] or a["captureDate"] for a in appearances}
+        days = {a.get("targetPeriodDate") or a["sourceDate"] or a["captureDate"] for a in appearances}
         project["dualListed"] = (
             len(appearances) == 2
             and len(days) == 1
@@ -337,7 +369,7 @@ def publish_sources(target: Path, results: list[dict], *, materials: dict | None
                 if source["status"] != "healthy":
                     raise ValueError("trending_source_unavailable")
                 validate_source(source)
-                capture = {k: v for k, v in source.items() if k not in {"status", "errorCode"}}
+                capture = {k: v for k, v in source.items() if k not in {"status", "errorCode", "checkedAt"}}
                 old = retained.get(key)
 
                 def semantic_capture(value):
@@ -362,7 +394,14 @@ def publish_sources(target: Path, results: list[dict], *, materials: dict | None
             {
                 "checkedAt": checked,
                 "sources": [
-                    {"source": key, "status": "failed" if key in errors else "healthy", "errorCode": errors.get(key)}
+                    {
+                        "source": key,
+                        "status": "failed" if key in errors else "healthy",
+                        "errorCode": errors.get(key),
+                        "checkedAt": next(
+                            (s.get("checkedAt", checked) for s in results if s["source"] == key), checked
+                        ),
+                    }
                     for key in SOURCES
                 ],
             },
@@ -400,6 +439,17 @@ def publish_sources(target: Path, results: list[dict], *, materials: dict | None
                 "sourceUrl": retained.get(key, {}).get("sourceUrl"),
                 "count": len(retained.get(key, {}).get("entries", [])),
                 "errorCode": errors.get(key),
+                **{
+                    field: retained[key][field]
+                    for field in (
+                        "targetPeriodDate",
+                        "acquisitionMode",
+                        "periodStartAt",
+                        "periodEndAt",
+                        "sourceTimezone",
+                    )
+                    if key in retained and field in retained[key]
+                },
             }
             for key in SOURCES
         ]
@@ -442,7 +492,6 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
     projects: dict[str, dict] = {}
     seen: dict[str, dict[tuple, dict]] = {}
     total_candidates: dict[str, list[dict]] = {}
-    current_statuses = {source["source"]: source["status"] for source in current["sources"]}
     archive = _root(target) / "historical-evidence"
     plain(archive, missing=True)
     for path in sorted(archive.glob("*.json")) if archive.exists() else []:
@@ -482,7 +531,7 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
                     "source": record["source"],
                     "sourceDate": None,
                     "fetchedAt": record["fetchedAt"],
-                    "sourceStatus": _source_status(record, "healthy"),
+                    "sourceStatus": "healthy",
                     "totalStars": item.get("totalStars"),
                 }
             ]
@@ -502,7 +551,7 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
                 capture["source"],
                 capture.get("sourceDate") or capture.get("captureDate", capture["fetchedAt"][:10]),
             )
-            appearance = _metric_appearance(item, capture, current_statuses.get(capture["source"], "healthy"))
+            appearance = _metric_appearance(item, capture, "healthy")
             total_candidates[key].append(appearance)
             previous = seen[key].get(occurrence)
             if previous is None or datetime.fromisoformat(appearance["fetchedAt"]) > datetime.fromisoformat(

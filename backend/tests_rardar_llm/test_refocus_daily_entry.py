@@ -18,7 +18,12 @@ from app.api.v1 import rardar
 from app.core.config import settings
 from app.integrations.rardar import trending_boards, trending_store as store
 from app.schemas.rardar_today_operations import TodayOperationRequest
-from app.services import rardar_daily_operations as daily, rardar_today_operations as ops, rardar_trending as service
+from app.services import (
+    rardar_daily_operations as daily,
+    rardar_daily_refresh as refresh,
+    rardar_today_operations as ops,
+    rardar_trending as service,
+)
 from app.services.llm import daily_provider_budget
 from app.services.llm.provider_budget import ProviderBudgetError
 from tests_rardar_llm.test_rardar_trending_store import board
@@ -32,16 +37,31 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(ops, "operation_root", lambda: tmp_path / "operations")
     monkeypatch.setattr(daily, "_execution_paused", AsyncMock(return_value=False))
     monkeypatch.setattr(service, "saved_materials", lambda _target: {})
+    monkeypatch.setattr(service, "refresh_metadata", AsyncMock(return_value={"checked": 0}))
+    monkeypatch.setattr(trending_boards, "fetch_board", AsyncMock(side_effect=AssertionError("unexpected source IO")))
+    original_instant = refresh.instant
+    monkeypatch.setattr(
+        refresh, "instant", lambda now=None: original_instant(now or datetime(2026, 9, 12, 2, tzinfo=UTC))
+    )
     return tmp_path / "data"
 
 
 @pytest.fixture
 def waiting_history(isolated, monkeypatch):
-    """Real daily/work-slice orchestration, with only IO/reservation simulated."""
+    """Real historical-only admission/work slices, with only IO simulated."""
     from app.services import rardar_llm_control
 
     monkeypatch.setattr(settings, "RARDAR_HISTORICAL_DAILY_LIMIT", 3)
-    monkeypatch.setattr(trending_boards, "fetch_boards", AsyncMock(return_value=[board("github", ["org/a"])]))
+    store.import_historical_evidence(
+        isolated,
+        {
+            "source": "github",
+            "period": "historical-all-days",
+            "sourceUrl": "https://trendshift.io/github-trending-repositories",
+            "fetchedAt": datetime.now(UTC).isoformat(),
+            "entries": [{"repository": "org/a", "reportedAppearanceCount": 1}],
+        },
+    )
     ledger = SimpleNamespace(snapshot=lambda: {"remaining": 20}, execution_lock=isolated / "provider.lock", requests=0)
     monkeypatch.setattr(daily_provider_budget, "daily_execution_budget", AsyncMock(return_value=(ledger, {})))
     monkeypatch.setattr(rardar_llm_control, "resolve_rardar_route_identity", AsyncMock(return_value="route"))
@@ -90,14 +110,15 @@ async def test_same_day_zero_request_waits_do_not_exhaust_history_allowance(
 
     collector = AsyncMock(side_effect=collect)
     monkeypatch.setattr(service, "collect_official_project_profile", collector)
+    progress = {}
     for _ in range(4):
-        result = await daily.run_daily_operations()
-        assert result["modules"]["historical_hot"]["waitReason"] == reason
-        assert result["modules"]["historical_hot"]["failed"] == 0
+        result = await service.historical_work(isolated, progress, lambda: None)
+        assert result["waitReason"] == reason
+        assert result["failed"] == result["historicalAdmitted"] == 0
         assert waiting_history.requests == 0
     waiting = False
-    result = await daily.run_daily_operations()
-    assert result["modules"]["historical_hot"]["processed"] == 1
+    result = await service.historical_work(isolated, progress, lambda: None)
+    assert result["processed"] == result["historicalAdmitted"] == 1
     assert waiting_history.requests == 1
     assert collector.await_count == 5
 
@@ -124,12 +145,12 @@ async def test_paid_work_yield_retains_admission_and_intermediate_cache(isolated
 
     collector = AsyncMock(side_effect=collect)
     monkeypatch.setattr(service, "collect_official_project_profile", collector)
+    progress = {}
     for _ in range(3):
-        await daily.run_daily_operations()
+        await service.historical_work(isolated, progress, lambda: None)
     assert waiting_history.requests == 3
     assert collector.await_count == 3  # normal paid continuation is not a failed retry
-    state = next(daily.operation_root().glob("*-refocus-v1.json"))
-    record = store.read_json(state)["progress"]["historical"]["materialWork"]["projects"]["org/a"]
+    record = progress["materialWork"]["projects"]["org/a"]
     assert record["providerRequests"] == 3
     assert record["failures"] == 0
     assert record["status"] == "yielded"
@@ -156,25 +177,32 @@ async def test_wait_release_preserves_previous_paid_attempt_then_resumes_cache(i
         return SimpleNamespace(profile=object(), evidence=object(), profile_cache_state="hit")
 
     monkeypatch.setattr(service, "collect_official_project_profile", collect)
+    progress = {}
     for _ in range(3):
-        await daily.run_daily_operations()
-        path = next(daily.operation_root().glob("*-refocus-v1.json"))
-        records = store.read_json(path)["progress"]["historical"]["materialWork"]["projects"]
+        await service.historical_work(isolated, progress, lambda: None)
+        records = progress["materialWork"]["projects"]
         assert list(records) == ["org/a"]
         assert records["org/a"]["providerRequests"] == 1
         assert records["org/a"]["failures"] == 0
-    final = await daily.run_daily_operations()
-    assert final["modules"]["historical_hot"]["refreshed"] == 1
+    final = await service.historical_work(isolated, progress, lambda: None)
+    assert final["refreshed"] == 1
     assert waiting_history.requests == 1
-    final_record = store.read_json(path)["progress"]["historical"]["materialWork"]["projects"]["org/a"]
+    final_record = progress["materialWork"]["projects"]["org/a"]
     assert final_record["providerRequests"] == 1
     assert final_record["status"] == "completed"
 
 
 @pytest.mark.asyncio
 async def test_scheduler_fetches_both_boards_despite_exhausted_models(isolated, monkeypatch):
-    fetch = AsyncMock(return_value=[board("github", ["org/a"]), board("trendshift", ["org/b"])])
-    monkeypatch.setattr(trending_boards, "fetch_boards", fetch)
+    async def source(key, *, target_date):
+        return {
+            **board(key, ["org/a" if key == "github" else "org/b"]),
+            "targetPeriodDate": target_date,
+            "acquisitionMode": "daily_snapshot",
+        }
+
+    fetch = AsyncMock(side_effect=source)
+    monkeypatch.setattr(trending_boards, "fetch_board", fetch)
     monkeypatch.setattr(
         daily_provider_budget,
         "daily_execution_budget",
@@ -190,14 +218,17 @@ async def test_scheduler_fetches_both_boards_despite_exhausted_models(isolated, 
     assert result["modules"]["discover"]["status"] == "paused"
     assert result["modules"]["news_refresh"]["status"] == "paused"
     assert result["modules"]["find"]["interactivePriority"]
-    fetch.assert_awaited_once()
+    assert fetch.await_count == 2
     retired.assert_not_called()
     assert len(store.load_snapshot(isolated)["projects"]) == 2
 
 
 @pytest.mark.asyncio
 async def test_unconfigured_budget_is_pending_not_material_failure(isolated, monkeypatch):
-    monkeypatch.setattr(trending_boards, "fetch_boards", AsyncMock(return_value=[board("github", ["org/a"])]))
+    async def source(key, *, target_date):
+        return {**board(key, ["org/a"]), "targetPeriodDate": target_date, "acquisitionMode": "daily_snapshot"}
+
+    monkeypatch.setattr(trending_boards, "fetch_board", AsyncMock(side_effect=source))
     monkeypatch.setattr(
         daily_provider_budget,
         "daily_execution_budget",
@@ -265,11 +296,11 @@ async def test_old_rebound_reading_is_checked_without_repeated_daily_work(isolat
 @pytest.mark.asyncio
 async def test_scheduler_source_failure_preserves_previous_board(isolated, monkeypatch):
     store.publish_sources(isolated, [board("github", ["org/a"]), board("trendshift", ["org/b"])])
-    monkeypatch.setattr(trending_boards, "fetch_boards", AsyncMock(side_effect=ValueError("invalid source")))
+    monkeypatch.setattr(trending_boards, "fetch_board", AsyncMock(side_effect=ValueError("invalid source")))
     monkeypatch.setattr(service, "historical_work", AsyncMock(return_value={"status": "completed", "reused": 0}))
     before = (isolated / "trending-boards/current.json").read_bytes()
     result = await daily.run_daily_operations()
-    assert result["modules"]["today"]["status"] == "failed"
+    assert result["modules"]["today"]["status"] == "partial"
     assert result["modules"]["today"]["oldResultPreserved"]
     assert (isolated / "trending-boards/current.json").read_bytes() == before
 

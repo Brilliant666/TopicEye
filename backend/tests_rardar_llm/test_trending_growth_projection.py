@@ -100,7 +100,8 @@ def test_equal_time_tie_uses_fixed_source_not_rank(tmp_path):
 
 def test_old_source_date_loses_to_fresh_even_if_fetched_later(tmp_path):
     captures = sources()
-    captures[1]["sourceDate"] = "2026-09-10"
+    # At Sep 11 14:00 UTC, Sep 10 is the policy's due ended day, not stale.
+    captures[1]["sourceDate"] = "2026-09-09"
     store.publish_sources(tmp_path, captures)
     project = overlap(store.load_snapshot(tmp_path))
     assert project["totalStars"] == 40030

@@ -1,8 +1,8 @@
 """Read two distinct public daily boards; never infer exact 24-hour facts.
 
-Trendshift's homepage ItemList is its own ranking, NOT /github-trending.
-Only the public rendered listing is consumed; no Signal API key is required.
-Absolute board dates are unknown when the page only says Today/daily.
+Trendshift's homepage/calendar is its own ranking, NOT /github-trending.
+Only public page data and its observed date-picker action are consumed; no
+Signal API key is required. GitHub's absolute daily window remains unknown.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import asyncio
 import hashlib
 import json
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -175,15 +175,21 @@ def _trendshift_rows(soup: BeautifulSoup) -> dict[str, dict[str, Any]]:
     return {}
 
 
-def parse_board(source: str, html: str, *, fetched_at: datetime | None = None) -> dict[str, Any]:
+def parse_board(
+    source: str, html: str, *, fetched_at: datetime | None = None, target_date: str | None = None
+) -> dict[str, Any]:
     now = fetched_at or datetime.now(UTC)
     if now.tzinfo is None:
         raise ValueError("fetched_at_requires_timezone")
+    if target_date is not None:
+        _target_date(target_date)
     label, url = SOURCES[source]
     entries = (parse_github if source == "github" else parse_trendshift)(html)
     dates = {entry.get("sourceDate") for entry in entries}
+    if source == "trendshift" and len(dates) != 1:
+        raise BoardParseError("mixed_source_dates")
     source_date = next(iter(dates)) if source == "trendshift" and len(dates) == 1 else None
-    return {
+    result = {
         "source": source,
         "label": label,
         "sourceUrl": url,
@@ -191,35 +197,213 @@ def parse_board(source: str, html: str, *, fetched_at: datetime | None = None) -
         "sourceDate": source_date,
         "period": "daily",
         "periodLabel": "Today (source-relative; absolute window not published)",
+        "targetPeriodDate": target_date,
+        "acquisitionMode": "daily_snapshot",
+        "historicalDateFetchSupported": False,
+        "historicalDateFetchNote": (
+            "Public calendar uses deployment-bound server actions; no stable date-specific interface is configured."
+            if source == "trendshift"
+            else "GitHub daily/stars today does not publish a verified absolute UTC period here."
+        ),
         "captureDate": now.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat(),
         "fetchedAt": now.astimezone(UTC).isoformat(),
+        "checkedAt": now.astimezone(UTC).isoformat(),
         "entries": entries,
         "errorCode": None,
         "contentDigest": hashlib.sha256(html.encode()).hexdigest(),
         "scope": "complete public daily repository listing; no language filter",
         "sourceDateNote": "Repository dateModified is not interpreted as the board date.",
     }
+    if source_date:
+        start = datetime.combine(date.fromisoformat(source_date), datetime.min.time(), tzinfo=UTC)
+        result.update(
+            sourceTimezone="UTC",
+            periodStartAt=start.isoformat(),
+            periodEndAt=(start + timedelta(days=1)).isoformat(),
+            periodLabel="UTC calendar day (Trendshift reported; not local exact 24-hour observation)",
+            sourceDateNote=(
+                "Source row date and Today (UTC) identify the source calendar day. "
+                "Daily snapshot is not a verified final historical day; source finalization delay is unknown."
+            ),
+        )
+    return result
 
 
-async def fetch_board(source: str) -> dict[str, Any]:
+def _target_date(value: str) -> date:
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise ValueError("invalid_target_date")
+    return date.fromisoformat(value)
+
+
+def _date_action_assets(html: str) -> list[str]:
+    """Resolve only assets declared for the public date-picker component."""
+    soup = BeautifulSoup(html, "html.parser")
+    wires = []
+    for script in soup.find_all("script"):
+        text = script.get_text()
+        if text.startswith("self.__next_f.push("):
+            try:
+                payload = json.loads(text[len("self.__next_f.push(") :].rstrip().removesuffix(")"))
+                if isinstance(payload[1], str):
+                    wires.append(payload[1])
+            except (ValueError, TypeError, IndexError):
+                continue
+    wire = "\n".join(wires)
+    refs = set(re.findall(r'\["\$","\$L([a-f0-9]+)",null,\{"initialData":', wire))
+    if len(refs) != 1:
+        return []
+    match = re.search(r"(?:^|\n)" + re.escape(refs.pop()) + r":I([^\n]+)", wire)
+    if not match:
+        return []
+    try:
+        assets = json.loads(match[1])[1]
+    except (ValueError, TypeError, IndexError):
+        return []
+    if not isinstance(assets, list):
+        return []
+    return [
+        "https://trendshift.io" + path
+        for path in reversed(assets[-4:])
+        if isinstance(path, str) and re.fullmatch(r"/_next/static/chunks/[A-Za-z0-9_-]+\.js", path)
+    ]
+
+
+def _date_action_id(javascript: str) -> str | None:
+    matches = set(
+        re.findall(
+            r'createServerReference\)\("([a-f0-9]{40,64})",[^;]{0,180}?"getRepositoryRecommendationsByDate"\)',
+            javascript,
+        )
+    )
+    return matches.pop() if len(matches) == 1 else None
+
+
+def parse_trendshift_date_response(wire: str, *, target_date: str, fetched_at: datetime) -> dict[str, Any]:
+    """Observed public calendar response: rows carry rank, date and gains together."""
+    target = _target_date(target_date)
+    if fetched_at.tzinfo is None:
+        raise ValueError("fetched_at_requires_timezone")
+    start = datetime.combine(target, datetime.min.time(), tzinfo=UTC)
+    end = start + timedelta(days=1)
+    if end > fetched_at:
+        raise BoardParseError("target_period_not_ended")
+    records = {}
+    try:
+        for line in wire.splitlines():
+            key, separator, value = line.partition(":")
+            if separator and re.fullmatch(r"[a-f0-9]+", key):
+                records[key] = json.loads(value)
+        pointer = records["0"]["a"]
+        if not isinstance(pointer, str) or not re.fullmatch(r"\$@[a-f0-9]+", pointer):
+            raise ValueError("invalid action reference")
+        rows = records[pointer[2:]]
+    except (ValueError, TypeError, KeyError) as exc:
+        raise BoardParseError("invalid_date_response") from exc
+    if not isinstance(rows, list) or not rows:
+        raise BoardParseError("empty_date_response")
+    entries = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("date") != f"{target_date}T00:00:00Z":
+            raise BoardParseError("source_date_mismatch")
+        if type(row.get("rank")) is not int or row["rank"] <= 0:
+            raise BoardParseError("invalid_rank_sequence")
+        if not all(type(row.get(k)) is int and row[k] >= 0 for k in ("repository_stars", "repository_stars_gained")):
+            raise BoardParseError("invalid_date_metrics")
+        if type(row.get("repository_id")) is not int or row["repository_id"] <= 0:
+            raise BoardParseError("invalid_source_repository_id")
+        entries.append(
+            {
+                "repository": _repository(row.get("full_name", "")),
+                "rank": row.get("rank"),
+                "description": row.get("repository_description") or None,
+                "totalStars": row["repository_stars"],
+                "trendshiftStarsGained": row["repository_stars_gained"],
+                "trendshiftStarsGainedLabel": None,
+                "trendshiftMetricPeriod": "Trendshift UTC calendar day",
+                "sourceDate": target_date,
+                "reportedDelta": None,
+                "reportedDeltaPeriod": None,
+                "sourceRepositoryUrl": f'https://trendshift.io/repositories/{row["repository_id"]}',
+            }
+        )
+    return {
+        "source": "trendshift",
+        "label": SOURCES["trendshift"][0],
+        "sourceUrl": SOURCES["trendshift"][1],
+        "status": "healthy",
+        "sourceDate": target_date,
+        "targetPeriodDate": target_date,
+        "acquisitionMode": "ended_utc_day",
+        "historicalDateFetchSupported": True,
+        "period": "daily",
+        "periodLabel": "UTC calendar day (Trendshift reported)",
+        "sourceTimezone": "UTC",
+        "periodStartAt": start.isoformat(),
+        "periodEndAt": end.isoformat(),
+        "captureDate": fetched_at.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat(),
+        "fetchedAt": fetched_at.astimezone(UTC).isoformat(),
+        "checkedAt": fetched_at.astimezone(UTC).isoformat(),
+        "entries": _validate_entries(entries),
+        "errorCode": None,
+        "contentDigest": hashlib.sha256(wire.encode()).hexdigest(),
+        "scope": "complete public date-picker repository response; all languages",
+        "sourceDateNote": "Rank and growth come from the same dated response; source finalization delay remains unknown.",
+    }
+
+
+async def _read_response(response: httpx.Response, types: tuple[str, ...], *, limit: int = _MAX_BYTES) -> str:
+    response.raise_for_status()
+    if not any(value in response.headers.get("content-type", "") for value in types):
+        raise BoardParseError("unexpected_content_type")
+    chunks, size = [], 0
+    async for chunk in response.aiter_bytes():
+        size += len(chunk)
+        if size > limit:
+            raise BoardParseError("source_response_too_large")
+        chunks.append(chunk)
+    return b"".join(chunks).decode("utf-8", errors="strict")
+
+
+async def _fetch_ended_trendshift(client: httpx.AsyncClient, html: str, target_date: str) -> dict[str, Any] | None:
+    for asset in _date_action_assets(html):
+        async with client.stream("GET", asset) as response:
+            javascript = await _read_response(response, ("javascript",), limit=1_000_000)
+        action = _date_action_id(javascript)
+        if not action:
+            continue
+        async with client.stream(
+            "POST",
+            SOURCES["trendshift"][1],
+            headers={"Accept": "text/x-component", "Content-Type": "text/plain;charset=UTF-8", "Next-Action": action},
+            content=json.dumps([target_date, "all"], separators=(",", ":")),
+        ) as response:
+            wire = await _read_response(response, ("text/x-component",))
+        return parse_trendshift_date_response(wire, target_date=target_date, fetched_at=datetime.now(UTC))
+    return None
+
+
+async def fetch_board(source: str, *, target_date: str | None = None) -> dict[str, Any]:
+    """One public snapshot; a requested ended day is never fabricated.
+
+    Trendshift's observed public date action is discovered from its current
+    component assets, not a hard-coded deployment hash or invented API. A
+    changed component can fall back to an explicitly labelled daily snapshot.
+    """
+    if target_date is not None:
+        _target_date(target_date)
     label, url = SOURCES[source]
     now = datetime.now(UTC)
     try:
         kwargs = build_scraper_client_kwargs(url, timeout=30, follow_redirects=False)
         kwargs["headers"]["Accept"] = "text/html"
-        async with httpx.AsyncClient(**kwargs) as client, client.stream("GET", url) as response:
-            response.raise_for_status()
-            if "text/html" not in response.headers.get("content-type", ""):
-                raise BoardParseError("unexpected_content_type")
-            chunks: list[bytes] = []
-            size = 0
-            async for chunk in response.aiter_bytes():
-                size += len(chunk)
-                if size > _MAX_BYTES:
-                    raise BoardParseError("source_response_too_large")
-                chunks.append(chunk)
-            html = b"".join(chunks).decode("utf-8", errors="strict")
-        return parse_board(source, html, fetched_at=now)
+        async with httpx.AsyncClient(**kwargs) as client:
+            async with client.stream("GET", url) as response:
+                html = await _read_response(response, ("text/html",), limit=_MAX_BYTES)
+            if source == "trendshift" and target_date:
+                historical = await _fetch_ended_trendshift(client, html, target_date)
+                if historical is not None:
+                    return historical
+        return parse_board(source, html, fetched_at=datetime.now(UTC), target_date=target_date)
     except Exception as exc:
         # Never persist transport exception text, proxy URLs or credentials.
         code = str(exc) if isinstance(exc, BoardParseError) else type(exc).__name__
@@ -229,9 +413,13 @@ async def fetch_board(source: str) -> dict[str, Any]:
             "sourceUrl": url,
             "status": "failed",
             "sourceDate": None,
+            "targetPeriodDate": target_date,
+            "acquisitionMode": "daily_snapshot",
+            "historicalDateFetchSupported": False,
             "period": "daily",
             "captureDate": now.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat(),
-            "fetchedAt": now.isoformat(),
+            "fetchedAt": None,
+            "checkedAt": datetime.now(UTC).isoformat(),
             "entries": [],
             "errorCode": code,
         }

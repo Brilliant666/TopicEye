@@ -35,7 +35,8 @@ describe('single selected growth presentation', () => {
   });
   it('keeps cache state visible without making current freshness claims', () => {
     const html = renderToStaticMarkup(<RardarGrowthFacts historical project={{ ...project, primaryGrowth: { ...github, value: 627, sourceStatus: 'stale' } }} />);
-    expect(html).toContain('保留缓存');
+    expect(html).toContain('历史记录');
+    expect(html).not.toContain('保留缓存');
     expect(html).toContain('历史 Star 增长');
     expect(html).not.toContain('今日新增');
   });

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import RardarDailyOperations, { DailyExecutionSummary } from '@/components/RardarDailyOperations';
+import RardarDailyOperations, { DailyExecutionSummary, DailyRefreshSchedule } from '@/components/RardarDailyOperations';
 
 const state = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock('@/lib/api/_core', () => ({ request: state.request }));
@@ -18,7 +18,8 @@ describe('Rardar daily admin controls', () => {
   });
   it('explains daily shared limits and offline behavior without starting work during render', () => {
     const html = renderToStaticMarkup(<RardarDailyOperations />);
-    expect(html).toContain('每日 08:30');
+    expect(html).toContain('最多一次主更新、一次有条件补偿');
+    expect(html).not.toContain('每小时检查');
     expect(html).toContain('立即检查 / 补跑');
     expect(html).toContain('恢复日程');
     expect(html).toContain('未配置（仅零模型同步）');
@@ -26,6 +27,15 @@ describe('Rardar daily admin controls', () => {
     expect(html).toContain('电脑休眠或进程退出期间不运行');
     expect(state.request).not.toHaveBeenCalled();
     expect(html).not.toContain('provider-budget.json');
+  });
+
+  it('renders configured UTC instants as Beijing time without claiming compensation always runs', () => {
+    const html = renderToStaticMarkup(<DailyRefreshSchedule policy={{ timezone: 'Asia/Shanghai', readinessMinutes: 60, compensationDelayMinutes: 120, timingBasis: 'provisional_safety_margin', duePeriod: { sourceDate: '2026-09-11', startAt: '2026-09-11T00:00:00Z', endAt: '2026-09-12T00:00:00Z', readyAt: '2026-09-12T01:00:00Z' }, schedule: [{ runDate: '2026-09-12', mainAt: '2026-09-12T01:00:00Z', compensationAt: '2026-09-12T03:00:00Z', targetSourceDate: '2026-09-11', periodStartAt: '2026-09-11T00:00:00Z', periodEndAt: '2026-09-12T00:00:00Z' }] }} />);
+    expect(html).toContain('主更新 2026/9/12 09:00:00 北京时间');
+    expect(html).toContain('条件补偿 2026/9/12 11:00:00 北京时间');
+    expect(html).toContain('暂定安全余量，不是来源就绪承诺');
+    expect(html).toContain('全部完成时不再抓取或调用模型');
+    expect(state.request).not.toHaveBeenCalled();
   });
 
   it('distinguishes effective historical admission limit from Today work slices and real failures', () => {

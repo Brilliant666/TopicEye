@@ -22,6 +22,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.combining import OrTrigger
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select
@@ -824,7 +825,7 @@ async def _normalize_content_events() -> dict:
     "rardar_daily_operations",
     name="Rardar 每日增量更新",
     timeout=14400,
-    description="每日08:30（上海）检查；每小时续接，日内额度与进度共用；本机休眠期间不运行",
+    description="北京时间每日一次主更新、最多一次条件补偿；持久检查点共用；本机休眠期间不运行",
 )
 async def _rardar_daily_operations() -> dict:
     from app.services.rardar_daily_operations import run_daily_operations
@@ -846,10 +847,17 @@ async def _rardar_startup_catchup() -> None:
 
 
 def _rardar_daily_window_open(now: datetime | None = None) -> bool:
-    from zoneinfo import ZoneInfo
+    from app.integrations.rardar.trending_periods import day_plan, instant
 
-    local = (now or datetime.now(UTC)).astimezone(ZoneInfo("Asia/Shanghai"))
-    return (local.hour, local.minute) >= (8, 30)
+    return instant(now) >= datetime.fromisoformat(day_plan(now)["mainAt"])
+
+
+def _rardar_daily_trigger():
+    from app.integrations.rardar.trending_periods import ZONE, day_plan
+
+    plan = day_plan()
+    slots = [datetime.fromisoformat(plan[key]).astimezone(ZONE) for key in ("mainAt", "compensationAt")]
+    return OrTrigger([CronTrigger(hour=t.hour, minute=t.minute, timezone=ZONE) for t in slots])
 
 
 def start_scheduler() -> None:
@@ -864,9 +872,9 @@ def start_scheduler() -> None:
             return
         scheduler.add_job(
             _rardar_daily_operations,
-            trigger=CronTrigger(hour="8-23", minute=30, timezone="Asia/Shanghai"),
+            trigger=_rardar_daily_trigger(),
             id="rardar_daily_operations",
-            name="Rardar 每日更新与有界续接",
+            name="Rardar 每日主更新与条件补偿",
             replace_existing=True,
         )
         scheduler.start()

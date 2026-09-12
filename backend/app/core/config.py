@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     # Unique new historical-only projects per day; Today uses resumable slices.
     # Never a shared attempt/request cap or publication/completeness requirement.
     RARDAR_HISTORICAL_DAILY_LIMIT: int = Field(default=3, ge=1, le=20)
+    # Provisional safety margin after a UTC source day ends, not an upstream SLA.
+    RARDAR_BOARD_READINESS_MINUTES: int = Field(default=60, ge=1, le=360)
+    RARDAR_BOARD_COMPENSATION_DELAY_MINUTES: int = Field(default=120, ge=30, le=480)
+    # A daily run advances several existing small slices, yielding between them.
+    RARDAR_DAILY_MATERIAL_SLICES: int = Field(default=6, ge=1, le=12)
 
     # ── Database ──
     # 留空则启动时报错；本地开发请在 .env 中设置（参考 .env.example）。

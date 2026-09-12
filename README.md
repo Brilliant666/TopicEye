@@ -179,13 +179,39 @@ News/Discover collection and enhancement entries are paused, and candidate-pool
 and watchlist pages are retired. Data/shared materials remain. This does not
 disable those capabilities in the independent TopicEye profile.
 
-Use the Today administrator's **检查并同步双榜** action, or the configured backend
+Use the Today administrator's **检查并同步榜单** action, or the configured backend
 entry `python -m scripts.refresh_rardar_boards` (zero model requests).
 `--history-once` imports the public historical appearance index with unknown
 individual dates retained. The existing daily scheduler runs board refresh plus
 bounded historical interpretation under the existing daily budget; Find does not
 wait for a whole background inventory. See
 [current scope and storage contract](docs/platform/RARDAR_PLATFORM_FOUNDATION.md#current-product-scope--rardar-refocus-01).
+
+**Daily refresh policy (2026-09-12):** the formal Rardar scheduler has one main
+opportunity at **09:00 Asia/Shanghai (01:00 UTC)** and one conditional compensation
+at **11:00 Asia/Shanghai (03:00 UTC)**. These are UTC day-end plus a provisional
+60-minute readiness margin, then a 120-minute retry delay; they are not upstream
+update-time promises. Server settings `RARDAR_BOARD_READINESS_MINUTES` and
+`RARDAR_BOARD_COMPENSATION_DELAY_MINUTES` configure these bounded daily slots.
+Restart the existing application after a setting change; never add another timer.
+
+Trendshift uses the public calendar's dated response for the most recent due
+ended UTC day. The action identity is discovered from current public assets;
+unrecognized calendar capability falls back to an explicitly labelled daily
+snapshot, while wrong-date/invalid responses fail closed. GitHub remains its
+source-defined daily snapshot with unknown absolute window. The two growth
+metrics are not claimed to share an exact 24-hour interval.
+
+Manual/CLI/automatic runs share per-source durable receipts and a writer lock.
+Compensation checks saved state first and only retries unfinished work; completed
+sources are not fetched again. Same-day restarts cannot create a third round.
+Each automatic opportunity advances up to six existing material work slices,
+with the original daily budget, historical-project limit and Find priority.
+`RARDAR_DAILY_MATERIAL_SLICES` changes the bounded number of slices, not an
+allowance. Manual board sync never starts paid material work. Sleeping computers
+do not execute schedules; enabled startup catch-up uses the same due-period and
+round guards, not an hourly backlog. The managed local launcher currently leaves
+startup catch-up disabled. See the [daily refresh record](docs/iterations/2026-09-12-rardar-daily-refresh.md).
 
 The following earlier local-MVP instructions remain historical compatibility
 reference. Their News/Discover commands are deliberately rejected in the refocused

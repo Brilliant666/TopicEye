@@ -161,9 +161,25 @@ async def daily_config_status(
         if key in {"sliceRequestLimit", "interactiveReserve", "preMorningBackgroundLimit", "workSlices", "waitReason"}
         and isinstance(value, str | int | type(None))
     }
+    from app.integrations.rardar.trending_periods import policy_status
+    from app.scheduler import scheduler
     from app.services.rardar_trending import material_execution_settings
 
-    return {**usage, "dailyStatus": summary, "materialExecution": material_execution_settings()}
+    job = scheduler.get_job("rardar_daily_operations") if scheduler.running else None
+    schedule = policy_status()
+    schedule["runtime"] = {
+        "schedulerRunning": scheduler.running,
+        "jobId": job.id if job else None,
+        "trigger": str(job.trigger) if job else None,
+        "nextTriggerAt": job.next_run_time.isoformat() if job and job.next_run_time else None,
+    }
+
+    return {
+        **usage,
+        "dailyStatus": summary,
+        "materialExecution": material_execution_settings(),
+        "refreshSchedule": schedule,
+    }
 
 
 async def control_rardar_daily_job(action: str) -> dict:

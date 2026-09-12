@@ -67,6 +67,14 @@ describe('Today daily operator entry', () => {
     expect(state.request).not.toHaveBeenCalled();
   });
 
+  it('does not claim latest or published when an automatic sync owns the shared lock', () => {
+    const html = renderToStaticMarkup(<TodayOperationResult operation={{ ...operation('skipped'), scope: 'dual_board', result: null }} context="dual_board" />);
+    expect(html).toContain('已有同步正在执行，本次未重复启动');
+    expect(html).not.toContain('已是最新');
+    expect(html).not.toContain('已更新');
+    expect(state.request).not.toHaveBeenCalled();
+  });
+
   it.each(['updated', 'unchanged', 'no_complete_board', 'failed', 'interrupted', 'not_configured'] as const)('shows honest terminal status %s without replacing the observed window with check time', (status) => {
     const html = renderToStaticMarkup(<TodayOperationResult operation={operation(status)} />);
     expect(html).toContain(todayOperationLabel(status));

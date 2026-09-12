@@ -2941,25 +2941,43 @@ async def _official_translation(
     cache_root: Path,
     translator: OfficialNarrativeTranslator,
     model_route_identity: str | None = None,
+    cache_evidence_identity: str | None = None,
 ) -> GenerationOutcome[OfficialNarrativeTranslation]:
-    revision = evidence.readmeBlobSha or evidence.digest
+    revision = evidence.readmeBlobSha or cache_evidence_identity or evidence.digest
     identity = _model_route_cache_identity(
         {
             "githubRepositoryId": project.githubRepositoryId,
             "revision": revision,
             "schema": _OFFICIAL_TRANSLATION_CACHE_SCHEMA,
             "prompt": _OFFICIAL_NARRATIVE_PROMPT_VERSION,
-            "evidenceDigest": evidence.digest,
+            "evidenceDigest": cache_evidence_identity or evidence.digest,
             "narrativeMode": "official_translated",
         },
         model_route_identity,
     )
     path = cache_root / "official-translations" / str(project.githubRepositoryId) / f"{identity}.json"
     cached = _load_json(path)
+    legacy_hit = False
+    if cached is None and cache_evidence_identity:
+        legacy_identity = _model_route_cache_identity(
+            {
+                "githubRepositoryId": project.githubRepositoryId,
+                "revision": evidence.readmeBlobSha or evidence.digest,
+                "schema": _OFFICIAL_TRANSLATION_CACHE_SCHEMA,
+                "prompt": _OFFICIAL_NARRATIVE_PROMPT_VERSION,
+                "evidenceDigest": evidence.digest,
+                "narrativeMode": "official_translated",
+            },
+            model_route_identity,
+        )
+        cached = _load_json(path.with_name(f"{legacy_identity}.json"))
+        legacy_hit = cached is not None
     if cached:
         try:
             value = OfficialNarrativeTranslation.model_validate(cached, strict=True)
             _validate_official_translation(value, narrative)
+            if legacy_hit:
+                _atomic_json(path, cached)
             return GenerationOutcome(value=value, calls=0, cache_hit=True)
         except (ValueError, ProfileTranslationError):
             pass
@@ -3010,23 +3028,40 @@ async def _official_positioning_translation(
     cache_root: Path,
     translator: OfficialPositioningTranslator,
     model_route_identity: str | None = None,
+    cache_evidence_identity: str | None = None,
 ) -> GenerationOutcome[OfficialPositioningTranslation]:
-    revision = evidence.readmeBlobSha or evidence.digest
+    revision = evidence.readmeBlobSha or cache_evidence_identity or evidence.digest
     identity = _model_route_cache_identity(
         {
             "githubRepositoryId": project.githubRepositoryId,
             "revision": revision,
             "prompt": _OFFICIAL_POSITIONING_PROMPT_VERSION,
             "sourcePositioning": source_positioning,
+            **({"contentEvidenceIdentity": cache_evidence_identity} if cache_evidence_identity else {}),
         },
         model_route_identity,
     )
     path = cache_root / "official-positionings" / str(project.githubRepositoryId) / f"{identity}.json"
     cached = _load_json(path)
+    legacy_hit = False
+    if cached is None and cache_evidence_identity:
+        legacy_identity = _model_route_cache_identity(
+            {
+                "githubRepositoryId": project.githubRepositoryId,
+                "revision": evidence.readmeBlobSha or evidence.digest,
+                "prompt": _OFFICIAL_POSITIONING_PROMPT_VERSION,
+                "sourcePositioning": source_positioning,
+            },
+            model_route_identity,
+        )
+        cached = _load_json(path.with_name(f"{legacy_identity}.json"))
+        legacy_hit = cached is not None
     if cached:
         try:
             value = OfficialPositioningTranslation.model_validate(cached, strict=True)
             _validate_official_positioning_translation(value)
+            if legacy_hit:
+                _atomic_json(path, cached)
             return GenerationOutcome(value=value, calls=0, cache_hit=True)
         except (ValueError, ProfileTranslationError):
             pass
@@ -3118,8 +3153,9 @@ async def _translation(
     translator: Translator,
     stage: Literal["translation", "positioning"],
     model_route_identity: str | None = None,
+    cache_evidence_identity: str | None = None,
 ) -> GenerationOutcome[ProfileTranslation]:
-    revision = evidence.readmeBlobSha or evidence.digest
+    revision = evidence.readmeBlobSha or cache_evidence_identity or evidence.digest
     identity = _model_route_cache_identity(
         {
             "githubRepositoryId": project.githubRepositoryId,
@@ -3128,16 +3164,36 @@ async def _translation(
             "prompt": _RARDAR_ASSESSMENT_PROMPT_VERSION,
             "namespace": "rardar_assessment",
             "narrativeMode": "rardar_derived",
+            **({"contentEvidenceIdentity": cache_evidence_identity} if cache_evidence_identity else {}),
         },
         model_route_identity,
     )
     path = cache_root / "rardar-assessments" / str(project.githubRepositoryId) / f"{identity}.json"
     cached = _load_json(path)
+    legacy_hit = False
+    # The old SHA-keyed assessment did not bind Description or other evidence.
+    # Without an input fingerprint, do not promote it to a content-bound key.
+    if cached is None and cache_evidence_identity and evidence.readmeBlobSha is None:
+        legacy_identity = _model_route_cache_identity(
+            {
+                "githubRepositoryId": project.githubRepositoryId,
+                "revision": evidence.readmeBlobSha or evidence.digest,
+                "schema": _PROFILE_SCHEMA,
+                "prompt": _RARDAR_ASSESSMENT_PROMPT_VERSION,
+                "namespace": "rardar_assessment",
+                "narrativeMode": "rardar_derived",
+            },
+            model_route_identity,
+        )
+        cached = _load_json(path.with_name(f"{legacy_identity}.json"))
+        legacy_hit = cached is not None
     if cached:
         try:
             value = ProfileTranslation.model_validate(cached, strict=True)
             _validate_translation(value, set(evidence.evidenceIndex))
             if value.positioning is not None and value.capabilities:
+                if legacy_hit:
+                    _atomic_json(path, cached)
                 return GenerationOutcome(value=value, calls=0, cache_hit=True)
         except (ValueError, ProfileTranslationError):
             pass
@@ -3578,6 +3634,7 @@ async def collect_official_project_profile(
     allow_model_generation: bool = True,
     model_route_identity: str | None = None,
     force_retryable: bool = False,
+    save_partial_introduction: bool = False,
 ) -> CollectedProjectProfile:
     use_profile_cache_v2 = model_route_identity is not None
     tree, readme, github_requests, readme_cache_hit, source_failures = await _collect_github_source(
@@ -3769,7 +3826,33 @@ async def collect_official_project_profile(
         ProfileGenerationFailure("source" if stage != "negative_cache" else "cache", code, False)
         for stage, code in source_failures
     ]
+
+    def retain_introduction(text, refs, mode, label, *, newly_generated=False):
+        if not save_partial_introduction:
+            return
+        from app.integrations.rardar.project_introductions import save as save_introduction
+
+        with suppress(ValueError):
+            save_introduction(
+                cache_root,
+                evidence,
+                text,
+                refs,
+                source_mode=mode,
+                source_label=label,
+                generated_at=datetime.now(UTC).isoformat() if newly_generated else None,
+            )
+
     deterministic_fallback_used = False
+    # Only the resumable introduction path uses content-bound stage caches.
+    # Publication generation is not model input. Keep the original evidence
+    # and digest intact; all source content, paths and repository identity stay
+    # in this separate fingerprint. Legacy callers retain their cache keys.
+    cache_evidence_identity = (
+        _digest(evidence.model_dump(mode="json", exclude={"generationId", "digest"}))
+        if save_partial_introduction
+        else None
+    )
     if official_narrative.mature and source_language == "en" and translate and allow_model_generation:
         outcome = await _official_translation(
             project=project,
@@ -3778,8 +3861,17 @@ async def collect_official_project_profile(
             cache_root=cache_root,
             translator=narrative_translator,
             model_route_identity=model_route_identity,
+            cache_evidence_identity=cache_evidence_identity,
         )
         official_translation = outcome.value
+        if official_translation is not None:
+            retain_introduction(
+                official_translation.translatedPositioning,
+                [official_narrative.positioning_ref] if official_narrative.positioning_ref else [],
+                "validated_translation",
+                "官方 README（译）",
+                newly_generated=outcome.calls > 0,
+            )
         translation_calls += outcome.calls
         translation_cache_hit = outcome.cache_hit
         if outcome.error_code:
@@ -3798,8 +3890,17 @@ async def collect_official_project_profile(
             cache_root=cache_root,
             translator=positioning_translator,
             model_route_identity=model_route_identity,
+            cache_evidence_identity=cache_evidence_identity,
         )
         official_positioning_translation = outcome.value
+        if official_positioning_translation is not None:
+            retain_introduction(
+                official_positioning_translation.translatedPositioning,
+                [official_narrative.positioning_ref] if official_narrative.positioning_ref else [],
+                "validated_translation",
+                "官方 README（译）",
+                newly_generated=outcome.calls > 0,
+            )
         translation_calls += outcome.calls
         translation_cache_hit = outcome.cache_hit
         if outcome.error_code:
@@ -3896,6 +3997,7 @@ async def collect_official_project_profile(
                 translator=translator,
                 stage=stage,
                 model_route_identity=model_route_identity,
+                cache_evidence_identity=cache_evidence_identity,
             )
             translated = outcome.value
             translation_calls += outcome.calls
@@ -4087,6 +4189,17 @@ async def collect_official_project_profile(
         claim_refs[core_value] = core_value_refs
     for differentiator in key_differentiators:
         claim_refs[differentiator.detail] = differentiator.evidenceRefs
+    # Rardar's reading surface can retain a valid introduction even when the
+    # separate positioning/capability contract below is not yet satisfied.
+    # No truncated output, new model stage, or relaxation of full Profile gates.
+    if save_partial_introduction and translation_state in {"translated", "not_needed"}:
+        retain_introduction(
+            summary,
+            official_tagline_refs if summary == official_tagline else claim_refs.get(summary, []),
+            "official_zh" if translation_state == "not_needed" and translated is None else "validated_translation",
+            source_label,
+            newly_generated=translation_calls > 0,
+        )
     quality_state, quality_issues = _profile_quality(
         identity=summary,
         core_value=core_value,

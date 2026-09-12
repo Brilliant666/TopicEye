@@ -20,10 +20,10 @@ def read(target: Path, project: dict) -> dict | None:
         raise ValueError("repository_metadata_path_invalid") from exc
     if not record:
         return None
-    if not isinstance(record, dict) or record.get("schemaVersion") != 1:
+    if not isinstance(record, dict) or record.get("schemaVersion") not in (1, 2):
         raise ValueError("repository_metadata_invalid")
     payload = record.get("payload")
-    if not isinstance(payload, dict) or set(payload) != {
+    fields = {
         "repository",
         "githubRepositoryId",
         "language",
@@ -31,7 +31,10 @@ def read(target: Path, project: dict) -> dict | None:
         "license",
         "fetchedAt",
         "sourceUrl",
-    }:
+    }
+    if record["schemaVersion"] == 2:
+        fields |= {"description", "totalStars", "totalStarsFetchedAt"}
+    if not isinstance(payload, dict) or set(payload) != fields:
         raise ValueError("repository_metadata_invalid")
     repository = canonical_repository(project["repository"])
     if (
@@ -54,6 +57,18 @@ def read(target: Path, project: dict) -> dict | None:
     fetched = datetime.fromisoformat(payload["fetchedAt"])
     if fetched.tzinfo is None or fetched > datetime.now(UTC) + timedelta(minutes=5):
         raise ValueError("repository_metadata_timestamp_invalid")
+    if record["schemaVersion"] == 2:
+        if payload["description"] is not None and not isinstance(payload["description"], str):
+            raise ValueError("repository_metadata_invalid")
+        stars, measured = payload["totalStars"], payload["totalStarsFetchedAt"]
+        if stars is not None and (type(stars) is not int or stars < 0):
+            raise ValueError("repository_metadata_invalid")
+        if (stars is None) != (measured is None):
+            raise ValueError("repository_metadata_invalid")
+        if measured is not None:
+            measured_at = datetime.fromisoformat(measured)
+            if measured_at.tzinfo is None or measured_at > fetched:
+                raise ValueError("repository_metadata_timestamp_invalid")
     return payload
 
 
@@ -80,20 +95,41 @@ def save(target: Path, project: dict, meta: dict) -> dict:
         license_id = None
     if license_id is not None and not isinstance(license_id, str):
         raise ValueError("repository_metadata_invalid")
+    stars, description = meta.get("stargazers_count"), meta.get("description")
+    if stars is not None and (type(stars) is not int or stars < 0):
+        raise ValueError("repository_metadata_invalid")
+    if description is not None and not isinstance(description, str):
+        raise ValueError("repository_metadata_invalid")
+    now = datetime.now(UTC).isoformat()
     payload = {
         "repository": repository,
         "githubRepositoryId": meta["id"],
         "language": language,
         "topics": topics,
         "license": license_id,
-        "fetchedAt": datetime.now(UTC).isoformat(),
+        "fetchedAt": now,
         "sourceUrl": f"https://api.github.com/repos/{repository}",
+        "description": description,
+        "totalStars": stars,
+        "totalStarsFetchedAt": now if stars is not None else None,
     }
     path = _path(target, repository)
     plain(path, missing=True)
     path.parent.mkdir(parents=True, exist_ok=True)
     with file_lock(path.with_suffix(".lock")):
-        atomic(path, {"schemaVersion": 1, "payload": payload, "digest": digest(payload)})
+        try:
+            previous = read(target, project)
+        except (ValueError, OSError):
+            previous = None
+        if (
+            stars is None
+            and previous
+            and previous.get("totalStars") is not None
+            and previous["githubRepositoryId"] == meta["id"]
+        ):
+            payload["totalStars"] = previous["totalStars"]
+            payload["totalStarsFetchedAt"] = previous["totalStarsFetchedAt"]
+        atomic(path, {"schemaVersion": 2, "payload": payload, "digest": digest(payload)})
     return payload
 
 
@@ -107,6 +143,21 @@ def apply(snapshot: dict, target: Path) -> dict:
             project.update({key: metadata[key] for key in ("language", "topics", "license")})
             project["githubRepositoryId"] = metadata["githubRepositoryId"]
             project["metadataSource"] = {key: metadata[key] for key in ("fetchedAt", "sourceUrl")}
+            if not project.get("description") and metadata.get("description"):
+                project["description"] = metadata["description"]
+                project["descriptionSource"] = dict(project["metadataSource"])
+            if snapshot.get("kind") == "historical" and metadata.get("totalStars") is not None:
+                project["totalStars"] = metadata["totalStars"]
+                project["totalStarsSource"] = {
+                    "source": "github_metadata",
+                    "sourceUrl": metadata["sourceUrl"],
+                    "sourceDate": None,
+                    "fetchedAt": metadata["totalStarsFetchedAt"],
+                    "observedAt": metadata["totalStarsFetchedAt"],
+                    "timeKind": "observed",
+                    "historicalSaved": False,
+                    "status": "saved",
+                }
     return snapshot
 
 

@@ -310,7 +310,7 @@ describe('Rardar project detail', () => {
     if (original) {
       expect(html).toContain('原始介绍');
       expect(html).toContain(original);
-    } else expect(html).toContain('项目介绍暂未补齐');
+    } else expect(html).toContain('暂未取得可用的项目介绍');
   });
 
   it('renders all twenty v8 facts even when every AI profile is unavailable', () => {

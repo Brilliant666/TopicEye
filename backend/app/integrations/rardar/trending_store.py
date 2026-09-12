@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from app.integrations.rardar.project_identity import canonical_repository, project_id_for_repository
-from app.integrations.rardar.trending_metrics import order_today
+from app.integrations.rardar.trending_metrics import order_today, select_historical_total
 from app.integrations.rardar.trending_periods import due_period, policy_status
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
 
@@ -501,6 +501,16 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
         validate_historical_evidence(record)
         for item in record["entries"]:
             key = canonical_repository(item["repository"])
+            total_candidates.setdefault(key, []).append(
+                {
+                    "source": record["source"],
+                    "sourceUrl": record["sourceUrl"],
+                    "sourceDate": None,
+                    "fetchedAt": record["fetchedAt"],
+                    "sourceStatus": "healthy",
+                    "totalStars": item.get("totalStars"),
+                }
+            )
             previous = projects.get(key)
             if previous and previous["historicalEvidence"][0]["fetchedAt"] >= record["fetchedAt"]:
                 continue
@@ -526,15 +536,6 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
                 ],
             }
             seen[key] = {}
-            total_candidates[key] = [
-                {
-                    "source": record["source"],
-                    "sourceDate": None,
-                    "fetchedAt": record["fetchedAt"],
-                    "sourceStatus": "healthy",
-                    "totalStars": item.get("totalStars"),
-                }
-            ]
     for path in sorted(root.glob("*.json")) if root.exists() else []:
         capture = read_json(path)
         if not capture or path.stem != digest(capture):
@@ -551,7 +552,19 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
                 capture["source"],
                 capture.get("sourceDate") or capture.get("captureDate", capture["fetchedAt"][:10]),
             )
-            appearance = _metric_appearance(item, capture, "healthy")
+            # History needs the saved cumulative value and appearance basis,
+            # not the daily growth projection used by Today.
+            appearance = {
+                "source": capture["source"],
+                "sourceUrl": capture["sourceUrl"],
+                "sourceDate": capture.get("sourceDate"),
+                "captureDate": capture.get("captureDate", capture["fetchedAt"][:10]),
+                "fetchedAt": capture["fetchedAt"],
+                "rank": item["rank"],
+                "totalStars": item.get("totalStars"),
+                "sourceStatus": "healthy",
+                "period": "daily",
+            }
             total_candidates[key].append(appearance)
             previous = seen[key].get(occurrence)
             if previous is None or datetime.fromisoformat(appearance["fetchedAt"]) > datetime.fromisoformat(
@@ -566,7 +579,7 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
                 list(SOURCES).index(item["source"]),
             ),
         )
-        _select_total_stars(project, total_candidates[key])
+        select_historical_total(project, total_candidates[key])
         material = (materials or {}).get(key, {})
         _apply_material(project, material)
         # Latest-per-day display must not move the actual first saved observation.

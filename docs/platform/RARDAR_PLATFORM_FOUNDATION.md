@@ -14,8 +14,22 @@ labelled public historical GitHub Trending appearance index. Reported lifetime
 appearance counts and unknown appearance dates are not converted into local
 daily observations. Existing verified project materials remain readable with
 their original revision/time; new work reuses the existing single-project Profile
-collector. `RARDAR_HISTORICAL_DAILY_LIMIT` defaults to three attempted projects,
-not a publication quota. Attempts are durable and failed projects rotate.
+collector. `RARDAR_HISTORICAL_DAILY_LIMIT` bounds daily project admissions, not
+a publication quota. Cooperative waits before a request do not consume a slot;
+attempts are durable and failed projects rotate.
+
+Validated Chinese introductions can be saved independently in the existing
+Profile cache while the full Profile remains partial. Identity, source evidence
+and references remain mandatory; this does not weaken complete Profile or Find
+validation. Missing introductions get priority within the existing bounded work,
+and partial projects remain eligible for continuation. Unchanged source material
+reuses validated translation stages across board generations.
+
+Historical list/detail metrics use only the latest valid cumulative Star value,
+preferring saved repository metadata, with its original source and data time.
+Lower new values and zero are valid; missing values retain a trustworthy saved
+fallback. Historical projections no longer derive growth. Immutable source
+captures and Today's growth selection, sorting and date-specific reads remain.
 
 Find remains public-GitHub, requirement-first and on demand, with the existing
 daily shared limit and interactive reserve. The current 100-request daily cap is
@@ -28,8 +42,8 @@ materials, TopicEye's independent product mode and generic source management
 remain. News is deferred to independent TrendRadar use; Activity remains a future
 content decision, not a renamed news collector.
 
-The existing 08:30 Asia/Shanghai APScheduler job and bounded catch-up call the
-same zero-model board refresh used by the Today administrator operation. They then
+The existing 09:00 Asia/Shanghai main update and 11:00 conditional compensation
+call the same zero-model board refresh used by the Today administrator operation. They then
 attempt bounded Historical Hot work, respecting the administrator pause, existing
 request lock, daily allowance and Find priority. Sleeping/offline local machines
 do not run it; this branch neither deploys an always-on service nor changes the

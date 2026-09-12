@@ -457,3 +457,47 @@ async def test_started_round_freezes_source_period_across_shanghai_midnight(io, 
     assert state["rounds"][0]["targetSourceDate"] == "2026-09-11"
     assert state["rounds"][0]["completedAt"] == after.astimezone(UTC).isoformat()
     assert not (target / "trending-boards/daily-refresh/day-2026-09-13.json").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("incomplete", [{"failed": [{"repository": "github/project"}]}, {"pending": 1}])
+async def test_partial_metadata_receipt_is_resumed_without_refetching_boards(io, monkeypatch, incomplete):
+    target, fetch = io
+    metadata = AsyncMock(side_effect=[incomplete, {"failed": [], "pending": 0, "reused": 1, "updated": 1}])
+    monkeypatch.setattr(service, "refresh_metadata", metadata)
+    await refresh.run_refresh(target, now=at(), trigger="automatic")
+    receipt = store.read_json(target / "trending-boards/daily-refresh/period-2026-09-11.json")
+    assert not receipt["metadataComplete"]
+    resumed = await refresh.run_refresh(target, now=at(11), trigger="automatic")
+    assert resumed["automaticRound"] == "compensation"
+    assert resumed["sourceRequests"] == 0
+    assert metadata.await_count == 2 and fetch.await_count == 2
+    final = await refresh.run_refresh(target, now=at(12), trigger="automatic")
+    assert final["reason"] == "daily_round_limit"
+
+
+@pytest.mark.asyncio
+async def test_manual_source_recovery_invalidates_completed_materials_durably(io):
+    target, fetch = io
+    normal = fetch.side_effect
+
+    async def failed_source(source, **kwargs):
+        if source == "trendshift":
+            return {"source": source, "status": "failed", "errorCode": "network"}
+        return await normal(source, **kwargs)
+
+    material = AsyncMock(return_value={"status": "completed", "remaining": 0})
+    fetch.side_effect = failed_source
+    await refresh.run_refresh(target, now=at(), trigger="automatic", material_work=material)
+    assert day_state(target)["materials"]["status"] == "completed"
+    fetch.side_effect = normal
+    manual = await refresh.run_refresh(target, now=at(10))
+    assert manual["changed"] and manual["requestedSources"] == ["trendshift"]
+    assert manual["providerCalls"] == 0
+    material.assert_awaited_once()
+    assert "materials" not in day_state(target)
+    assert len(day_state(target)["rounds"]) == 1
+    resumed = await refresh.run_refresh(target, now=at(11), trigger="automatic", material_work=material)
+    assert resumed["automaticRound"] == "compensation"
+    assert resumed["sourceRequests"] == 0
+    assert material.await_count == 2 and fetch.await_count == 3

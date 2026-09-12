@@ -193,6 +193,7 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
                         # the main's material work was legitimately complete.
                         if day.get("materials", {}).get("status") == "completed":
                             day.pop("materials", None)
+                            atomic(day_path, day)
                     cycle["publishedReceipts"] = {
                         key: r["digest"] for key, r in cycle["sources"].items() if r["status"] == "healthy"
                     }
@@ -205,7 +206,9 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
             if current.get("generationId") and not cycle.get("metadataComplete") and not publication_failed:
                 try:
                     cycle["metadata"] = await service.refresh_metadata(target, current["projects"])
-                    cycle["metadataComplete"] = True
+                    cycle["metadataComplete"] = not (
+                        cycle["metadata"].get("failed") or cycle["metadata"].get("pending")
+                    )
                     save_cycle()
                 except Exception:
                     cycle["metadataError"] = "metadata_refresh_failed"

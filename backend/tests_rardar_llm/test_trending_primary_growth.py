@@ -56,11 +56,11 @@ def test_ties_and_unknowns():
 def test_history_selects_period_before_source():
     project = {"appearances": [appearance("github", 999, "2026-09-10"), appearance("trendshift", 3, "2026-09-11", 7)]}
     apply_history_context(project)
-    assert project["primaryGrowth"]["value"] == 3
+    assert project["primaryGrowth"] is None
     assert project["historicalContext"]["rank"] == 7
     project["appearances"].append(appearance("github", 0, "2026-09-11", 8))
     apply_history_context(project)
-    assert project["primaryGrowth"]["value"] == 0
+    assert project["primaryGrowth"] is None
     assert project["historicalContext"]["rank"] == 8
 
 
@@ -77,7 +77,8 @@ def test_history_dated_window_precedes_undated_capture_and_count():
         ],
     }
     apply_history_context(project)
-    assert project["primaryGrowth"]["value"] == 666
+    assert project["primaryGrowth"] is None
+    assert "observedStarDelta" not in project["historicalContext"]
     assert project["historicalContext"]["rank"] == 7
     project.pop("historicalRardarEvidence")
     apply_history_context(project)
@@ -104,7 +105,8 @@ def test_mixed_timezone_instants_do_not_choose_older_history():
         ],
     }
     apply_history_context(project)
-    assert project["primaryGrowth"]["value"] == 2
+    assert project["primaryGrowth"] is None
+    assert project["historicalContext"]["rank"] == 2
 
 
 def test_complete_user_saved_snapshot_regression():

@@ -158,9 +158,9 @@ def test_history_keeps_newest_capture_per_source_day_with_one_appearance(tmp_pat
     assert project["historyAppearances"] == 2
     assert project["totalStars"] == 40200
     trend = next(a for a in project["appearances"] if a["source"] == "trendshift")
-    assert trend["trendshiftStarsGained"] == 1950
+    assert "trendshiftStarsGained" not in trend
     assert trend["fetchedAt"] == "2026-09-11T13:50:00+00:00"
-    assert trend["trendshiftMetricPeriod"]
+    assert "trendshiftMetricPeriod" not in trend
     assert project["firstSeenAt"] == "2026-09-11T12:30:00+00:00"
     assert project["lastSeenAt"] == "2026-09-11T13:50:00+00:00"
 
@@ -224,11 +224,11 @@ def test_rardar_only_historical_total_uses_latest_window_without_overriding_exte
         store.publish_sources(tmp_path, [capture])
     project = service._history_with_materials(tmp_path, {})["projects"][0]
     assert project["historicalRardarEvidence"][0]["totalStars"] == 126131
-    assert project["totalStars"] == (130000 if external else 126131)
+    assert project["totalStars"] == (130000 if external else 127000 if archive else 126131)
     if external:
         assert project["totalStarsSource"]["source"] == "github"
     else:
-        assert not project.get("totalStarsSource")
+        assert project["totalStarsSource"]["source"] == ("github" if archive else "rardar_history")
         assert project["appearances"] == []
     if archive:
         assert project["historicalEvidence"][0]["reportedAppearanceCount"] == 3

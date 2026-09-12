@@ -1,9 +1,9 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import RardarGrowthFacts from '@/components/RardarGrowthFacts';
-import RardarTrendingPage, { TrendingCard } from '@/components/RardarTrendingPage';
+import RardarTrendingPage, { HistoricalContext, TrendingCard } from '@/components/RardarTrendingPage';
 import RardarProjectDetailPage from '@/components/RardarProjectDetailPage';
-import { latestBoardAppearances, type BoardAppearance, type TrendingProject } from '@/lib/rardar-trending';
+import { latestBoardAppearances, totalStarsProvenance, type BoardAppearance, type TrendingProject } from '@/lib/rardar-trending';
 
 vi.mock('@/components/RardarTodayOperations', () => ({ default: () => null }));
 const github: BoardAppearance = { source: 'github', rank: 2, sourceDate: '2026-09-10', fetchedAt: '2026-09-11T01:00:00Z', period: 'daily', reportedDelta: 627, reportedDeltaPeriod: 'GitHub reported stars today', sourceStatus: 'healthy', totalStars: 40030 };
@@ -33,11 +33,11 @@ describe('single selected growth presentation', () => {
     expect(html).toContain('<strong>+1,924</strong>');
     expect(html).not.toContain('1.9k');
   });
-  it('keeps cache state visible without making current freshness claims', () => {
+  it('history ignores legacy growth and uses only the saved total', () => {
     const html = renderToStaticMarkup(<RardarGrowthFacts historical project={{ ...project, primaryGrowth: { ...github, value: 627, sourceStatus: 'stale' } }} />);
-    expect(html).toContain('历史记录');
+    expect(html).toContain('<strong>40,109</strong>');
     expect(html).not.toContain('保留缓存');
-    expect(html).toContain('历史 Star 增长');
+    expect(html).not.toContain('增长');
     expect(html).not.toContain('今日新增');
   });
   it('retains absolute-time helper behavior for archival callers', () => {
@@ -45,12 +45,75 @@ describe('single selected growth presentation', () => {
     expect(latestBoardAppearances([old, trendshift, github])).toEqual([github, trendshift]);
     expect(latestBoardAppearances([github, trendshift, old])).toEqual([github, trendshift]);
   });
-  it.each([false, true])('card and ordinary detail display the exact API metric (historical=%s)', historical => {
+  it('keeps historical context concise when counts are omitted', () => {
+    const html = renderToStaticMarkup(<HistoricalContext project={{ ...project, historicalContext: { kind: 'reported_count', source: 'github' } }} />);
+    expect(html).toContain('曾上 GitHub 日榜 · 具体日期未知');
+    expect(html).not.toContain('undefined');
+    expect(html).not.toContain('次');
+    const dated = renderToStaticMarkup(<HistoricalContext project={{ ...project, historicalContext: { kind: 'board', source: 'github', rank: 7, dateKind: 'source', date: '2026-09-01' } }} />);
+    expect(dated).toContain('GitHub Trending · 榜单日期 2026-09-01');
+    expect(dated).not.toContain('#7');
+  });
+  it.each([0, null])('history preserves zero versus unknown total (%s)', totalStars => {
+    const html = renderToStaticMarkup(<RardarGrowthFacts historical project={{ ...project, totalStars, primaryGrowth: null }} />);
+    expect(html).toContain(totalStars === 0 ? '<strong>0</strong>' : '累计 Star 未取得');
+    expect(html).not.toContain('增长');
+  });
+  it('keeps source data date separate from later local capture', () => {
+    const text = totalStarsProvenance({ source: 'trendshift', sourceDate: '2026-09-01', fetchedAt: '2026-09-12T00:00:00Z', status: 'healthy', historicalSaved: true, timeKind: 'source_date' });
+    expect(text).toContain('历史保存值 · 来源数据日期 2026-09-01');
+    expect(text).toContain('本地采集');
+    expect(text).not.toContain('实时');
+    expect(totalStarsProvenance({ source: 'github_metadata', sourceDate: null, fetchedAt: github.fetchedAt, status: 'healthy', observedAt: github.fetchedAt, timeKind: 'observed' })).toContain('GitHub 仓库元数据 · 数据读取');
+  });
+  it('history legacy evidence does not leak a second total or any growth', () => {
+    const old = { ...project, historicalRardarEvidence: [{ source: 'rardar_today' as const, sourceGeneration: 'old', servingGeneration: 'old-serving', rank: 3, windowStartedAt: '2026-08-01T00:00:00Z', windowEndedAt: '2026-08-02T00:00:00Z', observedStarDelta: 9876, totalStars: 99999 }] };
+    for (const element of [<TrendingCard key="card" historical project={old} generationId="history" />, <RardarProjectDetailPage key="detail" historical detail={old} />]) {
+      const html = renderToStaticMarkup(element);
+      expect(html).not.toContain('9,876');
+      expect(html).not.toContain('99,999');
+      expect(html).not.toContain('主增长');
+      expect(html).not.toContain('Star 增长');
+      expect(html).toContain('累计 Star');
+    }
+  });
+  it('renders valid partial introduction on both routes without inventing complete profile', () => {
+    const partial = { ...project, materialState: 'partial' as const, profile: { summary: '用于组织小团队技术文档的工具。', positioning: null, capabilities: [], generatedAt: github.fetchedAt, sourceUrl: 'https://github.com/fixture/metrics#readme', sourceLabel: 'Rardar 中文简介' } };
+    for (const historical of [false, true]) {
+      for (const element of [<TrendingCard key="card" project={partial} generationId="boards-fixture" historical={historical} />, <RardarProjectDetailPage key="detail" detail={partial} historical={historical} />]) {
+        const html = renderToStaticMarkup(element);
+        expect(html).toContain(partial.profile.summary);
+        expect(html).toContain('部分');
+        expect(html).not.toContain('暂未取得可用的项目介绍');
+      }
+    }
+  });
+  it('only labels confirmed source failure, and does not cover existing text with errors', () => {
+    for (const stage of ['source', 'profile', 'translation'] as const) {
+      const item = { ...project, description: null, materialAttempt: { status: 'failed', stage } };
+      const html = renderToStaticMarkup(<TrendingCard project={item} generationId="fixture" />);
+      expect(html.includes('资料读取失败')).toBe(stage === 'source');
+    }
+    const html = renderToStaticMarkup(<TrendingCard project={{ ...project, materialAttempt: { status: 'failed', stage: 'source' } }} generationId="fixture" />);
+    expect(html).toContain(project.description);
+    expect(html).not.toContain('资料读取失败');
+    expect(html).toContain('中文解读待补充');
+  });
+  it('partial introduction exposes source excerpt without inventing generation time', () => {
+    const html = renderToStaticMarkup(<RardarProjectDetailPage historical detail={{ ...project, displayProfile: null, materialState: 'partial', profile: { summary: '用于团队协作的文档工具。', positioning: null, capabilities: [], generatedAt: null, savedAt: github.fetchedAt, sourceUrl: project.repositoryUrl, summaryEvidence: [{ ref: 'readme:1', text: 'A documentation tool for team collaboration.', url: `${project.repositoryUrl}#readme` }] }, material: { schemaVersion: 2, sourceKind: 'partial_introduction', sourceGeneration: 'fixture', sourceRevision: 'fixture', generatedAt: null, savedAt: github.fetchedAt }, totalStarsSource: { source: 'rardar_history', sourceDate: null, fetchedAt: null, status: 'saved', timeKind: 'unknown', historicalSaved: true } }} />);
+    expect(html).toContain('中文简介依据');
+    expect(html).toContain('A documentation tool for team collaboration.');
+    expect(html).toContain(`${project.repositoryUrl}#readme`);
+    expect(html).toContain('中文简介保存时间');
+    expect(html).not.toContain('中文简介生成时间');
+    expect(html).toContain('数据时间未知');
+  });
+  it.each([false, true])('card and detail preserve route-specific metrics (historical=%s)', historical => {
     for (const element of [<TrendingCard key="card" project={project} generationId="boards-fixture" historical={historical} />, <RardarProjectDetailPage key="detail" detail={{ ...project, generationId: 'boards-fixture' }} historical={historical} />]) {
       const html = renderToStaticMarkup(element);
-      expect(html).toContain('<strong>+627</strong>');
+      expect(html).toContain(historical ? '<strong>40,109</strong>' : '<strong>+627</strong>');
       expect(html).not.toContain('<strong>+637</strong>');
-      expect(html.match(/data-growth-source=/g)).toHaveLength(1);
+      expect(html.match(/data-growth-source=/g) || []).toHaveLength(historical ? 0 : 1);
     }
   });
   it('keeps full source provenance available separately and GET rendering has no fetch', () => {

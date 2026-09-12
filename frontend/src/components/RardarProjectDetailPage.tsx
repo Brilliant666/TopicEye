@@ -24,7 +24,7 @@ import {
   type ProjectDetail,
 } from '@/lib/rardar-intelligence';
 import type { DiscoverProjectDetail } from '@/lib/rardar-discover';
-import { beijingTime, boardPeriodLabel, boardTime, safeSourceUrl, type TrendingDetail } from '@/lib/rardar-trending';
+import { beijingTime, boardPeriodLabel, boardTime, introductionUnavailableText, safeSourceUrl, totalStarsProvenance, type TrendingDetail } from '@/lib/rardar-trending';
 import styles from './RardarFoundation.module.css';
 import RardarProjectExplanation from './RardarProjectExplanation';
 import RardarGrowthFacts from './RardarGrowthFacts';
@@ -81,7 +81,7 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
     : null;
   const generationId = trendingDetail ? trendingDetail.generationId || 'history' : discoverDetail ? discoverDetail.discoverGenerationId : todayDetail!.generationId;
   const findHref = `/find?repositoryUrl=${encodeURIComponent(project.htmlUrl)}`;
-  const sourceLabel = profile.officialNarrativeMode ? narrativeSourceLabel(profile.officialNarrativeMode) : '资料暂未补齐';
+  const sourceLabel = profile.officialNarrativeMode ? narrativeSourceLabel(profile.officialNarrativeMode) : trendingDetail?.profile?.summary ? trendingDetail.profile.sourceLabel || '已保存中文简介' : '资料暂未补齐';
   const positioningLabel = profile.positioningSourceMode ? positioningSourceLabel(profile.positioningSourceMode) : '已保存项目档案';
   const primaryLinks = profile.startHere.slice(0, 4);
   const moreLinks = profile.startHere.slice(4);
@@ -101,11 +101,14 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
             <p className={styles.officialTagline} data-testid="detail-official-tagline">{profile.officialTaglineZh}</p>
           ) : profile.identitySummaryZh || profile.officialSummaryZh ? (
             <p className={styles.detailSafeIdentity}>{profile.identitySummaryZh || profile.officialSummaryZh}</p>
+          ) : trendingDetail?.profile?.summary ? (
+            <p className={styles.detailSafeIdentity}><small>{trendingDetail.profile.sourceLabel || '已保存中文简介'} · </small>{trendingDetail.profile.summary}</p>
           ) : profile.originalDescription ? (
-            <p className={styles.detailSafeIdentity}><small>原始介绍 · </small>{profile.originalDescription}</p>
+            <p className={styles.detailSafeIdentity}><small>原始介绍{!/[\u3400-\u9fff]/u.test(profile.originalDescription) ? ' · 中文解读待补充' : ''} · </small>{profile.originalDescription}</p>
           ) : (
-            <p>项目介绍暂未补齐，仓库与榜单事实仍可查看。</p>
+            <p>{trendingDetail ? introductionUnavailableText(trendingDetail) : '暂未取得可用的项目介绍，仓库与榜单事实仍可查看。'}</p>
           )}
+          {!savedProfile && trendingDetail?.profile?.summaryEvidence && trendingDetail.profile.summaryEvidence.length > 0 && <details className={styles.provenanceDetails}><summary>中文简介依据</summary><div className={styles.provenanceDetailsBody}>{trendingDetail.profile.summaryEvidence.map(item => <blockquote key={item.ref}><p>{item.text}</p>{safeSourceUrl(item.url) && <a href={safeSourceUrl(item.url)} target="_blank" rel="noopener noreferrer">查看原始资料 ↗</a>}</blockquote>)}</div></details>}
           <div className={styles.profileSignalGrid} aria-label="项目形态、环境与交付形式">
             <ProfileSignal label="产品形态" values={profile.productFormsZh} />
             <ProfileSignal label="适用环境" values={profile.supportedEnvironmentsZh} />
@@ -240,7 +243,7 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
           <div className={styles.rardarDifferentiatorGrid}>{profile.positioningExcludedClauses.map(item => <article key={`${item.role}-${item.text}`}><strong>{{ operation: '使用方式', deployment: '部署条件', validation: '验证说明', example: '使用示例', boundary: '限制与边界' }[item.role]}</strong><p>{item.text}</p><EvidenceBadges values={item.evidenceRefs} /></article>)}</div>
         </DetailSection>}
 
-        {trendingDetail && <TrendingFactContext detail={trendingDetail} historical={historical} />}
+        {trendingDetail && (historical ? <details className={styles.provenanceDetails}><summary>历史来源与数据时间</summary><TrendingFactContext detail={trendingDetail} historical /></details> : <TrendingFactContext detail={trendingDetail} historical={false} />)}
         {todayDetail && (
           <section className={styles.observationFacts} data-testid="project-observation-facts">
             <header><Star size={17} /><div><h2>24 小时事实</h2><p>Hero 已给出结果，这里补充基线、窗口与覆盖，不重复名次和增量。</p></div></header>
@@ -313,12 +316,15 @@ function TrendingFactContext({ detail, historical }: { detail: TrendingDetail; h
       {detail.appearances.map(item => <Fact key={`${item.source}-${item.sourceDate}-${item.fetchedAt}`} label={`${item.source === 'github' ? 'GitHub Trending' : 'Trendshift'} 日榜`} value={`#${item.rank} · ${boardPeriodLabel(item)} · 成功采集 ${beijingTime(item.fetchedAt)}`} />)}
       {historical && detail.firstSeenAt && <Fact label="本地最早采集" value={boardTime(detail.firstSeenAt)} />}
       {detail.displayProfile?.generatedAt && <Fact label="项目资料生成时间" value={boardTime(detail.displayProfile.generatedAt)} />}
-      {detail.primaryGrowth && <Fact label="主增长统计口径" value={detail.primaryGrowth.source === 'rardar_history' ? `${boardTime(detail.primaryGrowth.windowStartedAt)} → ${boardTime(detail.primaryGrowth.windowEndedAt)}` : detail.primaryGrowth.reportedDeltaPeriod || detail.primaryGrowth.trendshiftMetricPeriod || '来源日榜，未声明精确窗口'} />}
-      {detail.totalStarsSource && <Fact label="累计 Star 来源" value={`${detail.totalStarsSource.source === 'github' ? 'GitHub Trending' : 'Trendshift'} · 采集 ${boardTime(detail.totalStarsSource.fetchedAt)}`} />}
+      {!detail.displayProfile && detail.profile?.generatedAt && <Fact label="中文简介生成时间" value={boardTime(detail.profile.generatedAt)} />}
+      {!detail.displayProfile && detail.profile?.savedAt && <Fact label="中文简介保存时间" value={boardTime(detail.profile.savedAt)} />}
+      {!historical && detail.primaryGrowth && <Fact label="主增长统计口径" value={detail.primaryGrowth.source === 'rardar_history' ? `${boardTime(detail.primaryGrowth.windowStartedAt)} → ${boardTime(detail.primaryGrowth.windowEndedAt)}` : detail.primaryGrowth.reportedDeltaPeriod || detail.primaryGrowth.trendshiftMetricPeriod || '来源日榜，未声明精确窗口'} />}
+      {detail.totalStarsSource && <Fact label="累计 Star 来源" value={totalStarsProvenance(detail.totalStarsSource)} />}
       {detail.metadataSource && <Fact label="语言、主题和许可证" value={`GitHub 仓库元数据 · 读取 ${boardTime(detail.metadataSource.fetchedAt)}`} />}
     </dl>
+    {!detail.displayProfile && detail.profile && safeSourceUrl(detail.profile.sourceUrl) && <p className={styles.projectDescription}><a href={safeSourceUrl(detail.profile.sourceUrl)} target="_blank" rel="noopener noreferrer">核对中文简介原始资料 ↗</a></p>}
     {detail.historicalEvidence?.map(item => <p className={styles.projectDescription} key={item.sourceUrl}>GitHub 历史上榜 {item.reportedAppearanceCount} 次（来源报告，具体日期未知），采集 {boardTime(item.fetchedAt)}。{safeSourceUrl(item.sourceUrl) && <a href={safeSourceUrl(item.sourceUrl)} target="_blank" rel="noopener noreferrer"> 核对来源 ↗</a>}</p>)}
-    {detail.historicalRardarEvidence?.map(item => <p className={styles.projectDescription} key={`${item.sourceGeneration}-${item.rank}`}>Rardar 历史榜 #{item.rank} · 原观察窗口 {boardTime(item.windowStartedAt)} → {boardTime(item.windowEndedAt)} · 当时观测新增 {formatNumber(item.observedStarDelta)} Star · 当时累计 {formatNumber(item.totalStars)} Star。{detail.githubRepositoryId !== null && <Link href={`/project/github/${detail.githubRepositoryId}?generation=${encodeURIComponent(item.sourceGeneration)}`}> 查看原榜资料 →</Link>}</p>)}
+    {detail.historicalRardarEvidence?.map(item => <p className={styles.projectDescription} key={`${item.sourceGeneration}-${item.rank}`}>Rardar 历史榜 #{item.rank} · 原观察窗口 {boardTime(item.windowStartedAt)} → {boardTime(item.windowEndedAt)}{!historical && typeof item.observedStarDelta === 'number' && ` · 当时观测新增 ${formatNumber(item.observedStarDelta)} Star · 当时累计 ${formatNumber(item.totalStars)} Star`}。{detail.githubRepositoryId !== null && <Link href={`/project/github/${detail.githubRepositoryId}?generation=${encodeURIComponent(item.sourceGeneration)}`}> 查看原榜资料 →</Link>}</p>)}
   </section>;
 }
 

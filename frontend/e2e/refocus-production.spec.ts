@@ -14,7 +14,7 @@ test('dual-board union is not truncated and unknown metadata does not block deta
   expect((await page.locator('article[data-project-id]').evaluateAll(elements => elements.map(element => element.getAttribute('data-project-id')))).sort()).toEqual(fixture.projects.map((project: { projectId: string }) => project.projectId).sort());
   await page.getByRole('link', { name: 'fixture/project-22', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'fixture/project-22' })).toBeVisible();
-  await expect(page.getByText('项目介绍暂未补齐，仓库与榜单事实仍可查看。')).toBeVisible();
+  await expect(page.getByText('暂未取得可用的项目介绍，仓库与榜单事实仍可查看。')).toBeVisible();
   await expect(page.getByRole('link', { name: '打开 GitHub' })).toHaveAttribute('href', 'https://github.com/fixture/project-22');
   await expect(page.getByTestId('project-trending-facts')).toContainText('Trendshift 日榜');
   await expect(page.getByTestId('project-trending-facts')).not.toContainText('基线 Star');
@@ -31,9 +31,16 @@ test('historical list has separate detail and only active product navigation', a
   await expect(nav.getByRole('link')).toHaveCount(4);
   await expect(nav.getByRole('link', { name: '热点资讯' })).toHaveCount(0);
   await expect(page.getByText('双榜上榜', { exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-growth-source]')).toHaveCount(0);
+  await expect(page.getByLabel('累计 Star', { exact: true }).first()).toBeVisible();
   await page.getByRole('link', { name: 'fixture/project-0', exact: true }).click();
   await expect(page).toHaveURL(/history=1/);
   await expect(page.getByRole('heading', { name: 'fixture/project-0' })).toBeVisible();
+  await expect(page.locator('[data-growth-source]')).toHaveCount(0);
+  await expect(page.getByLabel('累计 Star', { exact: true })).toBeVisible();
+  await page.getByText('历史来源与数据时间', { exact: true }).click();
+  await expect(page.getByTestId('project-trending-facts')).toBeVisible();
+  await expect(page.getByTestId('project-trending-facts')).not.toContainText('主增长统计口径');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 

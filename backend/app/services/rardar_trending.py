@@ -237,11 +237,18 @@ def saved_materials(target: Path, *, original_profile_digest: str | None = None)
                     remember(record.profile, record.evidence)
                 except (ValueError, TypeError, OSError):
                     continue  # invalid optional cache is never installed as healthy content
+    if original_profile_digest is None:
+        from app.integrations.rardar import project_introductions
+
+        for name in ("profile-cache", "selection-profile-cache"):
+            for repository, introduction in project_introductions.saved(target / name).items():
+                if repository not in found:
+                    found[repository] = project_introductions.material(introduction)
     return found
 
 
 def _history_with_materials(target: Path, materials: dict) -> dict:
-    from app.integrations.rardar.trending_metrics import apply_history_context
+    from app.integrations.rardar.trending_metrics import apply_history_context, select_historical_total
 
     snapshot = historical_snapshot(target, materials=materials)
     projects = {project["repository"]: project for project in snapshot["projects"]}
@@ -284,7 +291,6 @@ def _history_with_materials(target: Path, materials: dict) -> dict:
                 "rank": fact.rank,
                 "windowStartedAt": fact.windowStartedAt.isoformat(),
                 "windowEndedAt": fact.windowEndedAt.isoformat(),
-                "observedStarDelta": fact.observedStarDelta,
                 "totalStars": fact.totalStars,
             }
         )
@@ -293,18 +299,17 @@ def _history_with_materials(target: Path, materials: dict) -> dict:
             project["historicalRardarEvidence"].sort(
                 key=lambda item: datetime.fromisoformat(item["windowEndedAt"]), reverse=True
             )
-            if not project.get("appearances"):
-                # Without an external daily capture, display the retained
-                # Rardar window's growth and total together. An archive's
-                # all-time appearance count does not identify that window.
-                project["totalStars"] = project["historicalRardarEvidence"][0]["totalStars"]
-                project.pop("totalStarsSource", None)
+            candidates = list(project["historicalRardarEvidence"])
+            if project.get("totalStarsSource"):
+                candidates.append({**project["totalStarsSource"], "totalStars": project.get("totalStars")})
+            select_historical_total(project, candidates)
     snapshot["projects"] = list(projects.values())
     snapshot = apply_materials(snapshot, materials)
+    snapshot = trending_metadata.apply(snapshot, target)
     snapshot["projects"].sort(key=lambda p: (p["profile"] is None, -(p["totalStars"] or 0), p["repository"]))
     for project in snapshot["projects"]:
         apply_history_context(project)
-    return trending_metadata.apply(snapshot, target)
+    return snapshot
 
 
 def load_saved_project_profile(
@@ -314,7 +319,7 @@ def load_saved_project_profile(
     material = saved_materials(target, original_profile_digest=original_profile_digest).get(
         canonical_repository(repository)
     )
-    if material is None:
+    if material is None or material.get("displayProfile") is None:
         return None
     return (
         OfficialProjectProfile.model_validate_json(json.dumps(material["displayProfile"]), strict=True),
@@ -346,18 +351,33 @@ async def refresh_metadata(target: Path, projects: list[dict] | None = None) -> 
 
 def today() -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
-    return trending_metadata.apply(apply_materials(load_snapshot(target), saved_materials(target)), target)
+    return _material_attempts(
+        trending_metadata.apply(apply_materials(load_snapshot(target), saved_materials(target)), target), target
+    )
 
 
 def history() -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
-    return _history_with_materials(target, saved_materials(target))
+    return _material_attempts(_history_with_materials(target, saved_materials(target)), target)
+
+
+def _material_attempts(snapshot: dict, target: Path) -> dict:
+    progress = read_json(target / "trending-boards" / "material-work.json") or {}
+    attempts = progress.get("_attempts", {})
+    for project in snapshot["projects"]:
+        attempt = attempts.get(project["repository"])
+        if isinstance(attempt, dict):
+            project["materialAttempt"] = {
+                key: attempt[key] for key in ("status", "stage", "errorCode", "checkedAt") if key in attempt
+            }
+    return snapshot
 
 
 def detail(identifier: str, generation: str | None, *, historical: bool = False) -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
     snapshot = history() if historical else apply_materials(load_snapshot(target, generation), saved_materials(target))
     trending_metadata.apply(snapshot, target)
+    _material_attempts(snapshot, target)
     for project in snapshot["projects"]:
         if project["projectId"] == identifier:
             return {
@@ -411,6 +431,7 @@ async def _collect_project_material(target: Path, project: dict, generation: str
         client=client,
         translate=True,
         model_route_identity=route,
+        save_partial_introduction=True,
     )
 
 
@@ -428,7 +449,7 @@ async def generate_project_material(target: Path, project_id: str) -> dict:
     project = next((p for p in snapshot["projects"] if p["projectId"] == project_id), None)
     if project is None:
         raise LookupError("trending_project_not_found")
-    if project.get("displayProfile") is not None:
+    if project.get("displayProfile") is not None and project.get("materialState") != "partial":
         return {"status": "reused", "projectId": project_id, "providerCalls": 0}
     work = None
     try:
@@ -446,7 +467,11 @@ async def generate_project_material(target: Path, project_id: str) -> dict:
             # awaits. Re-read the shared validated cache after acquiring the lock.
             current = _history_with_materials(target, saved_materials(target))
             saved = next((p for p in current["projects"] if p["projectId"] == project_id), None)
-            if saved is not None and saved.get("displayProfile") is not None:
+            if (
+                saved is not None
+                and saved.get("displayProfile") is not None
+                and saved.get("materialState") != "partial"
+            ):
                 return {"status": "reused", "projectId": project_id, "providerCalls": 0}
             day = calendar_day()
             path = root / f"{day}-refocus-v1.json"
@@ -458,11 +483,23 @@ async def generate_project_material(target: Path, project_id: str) -> dict:
                 only_project_id=project_id,
                 budget_context=budget,
             )
+            state.setdefault("manualRepairs", []).append(
+                {
+                    "trigger": "manual_material_repair",
+                    "projectId": project_id,
+                    "completedAt": datetime.now(UTC).isoformat(),
+                    "providerCalls": result["providerRequests"],
+                    "status": result["status"],
+                }
+            )
+            atomic(path, state)
             if not (result["processed"] or result["refreshed"]):
                 return {
-                    "status": "pending",
+                    "status": "partial" if result.get("introductionsAvailable") else "pending",
                     "waitReason": result.get("waitReason", "material_not_completed"),
                     "providerCalls": result["providerRequests"],
+                    "introductionAvailable": bool(result.get("introductionsAvailable")),
+                    "profileComplete": False,
                 }
             return {
                 "status": "processed" if result["processed"] else "reused",
@@ -566,6 +603,7 @@ async def historical_work(
         "providerSliceRequestLimit": MATERIAL_PROVIDER_SLICE_LIMIT,
         "providerRequests": 0,
         "visited": 0,
+        "introductionsAvailable": 0,
     }
     rotation_path = target / "trending-boards" / "material-work.json"
     rotation = read_json(rotation_path) or {}
@@ -573,7 +611,7 @@ async def historical_work(
 
     def due(project: dict) -> bool:
         profile = project["profile"]
-        if profile is None:
+        if profile is None or project.get("materialState") == "partial":
             return True
         checked = datetime.fromisoformat(profile["generatedAt"])
         prior = checks.get(project["repository"], {})
@@ -630,7 +668,9 @@ async def historical_work(
     pending.sort(key=lambda p: (rotation.get(p["repository"], ""), -(p["totalStars"] or 0), p["repository"]))
     # One candidate appears once even if it belongs to both pages. Continue
     # admitted partial stages before fresh work within each rotating scope.
-    pending.sort(key=lambda p: (p["repository"] not in records, rotation.get(p["repository"], "")))
+    pending.sort(
+        key=lambda p: (p.get("profile") is not None, p["repository"] not in records, rotation.get(p["repository"], ""))
+    )
     queues = {
         "today": [p for p in pending if p["repository"] in today_repositories],
         "historical": [p for p in pending if p["repository"] not in today_repositories],
@@ -678,6 +718,7 @@ async def historical_work(
                 result["visited"] += 1
                 save()  # durable admission precedes IO/model work, including interruption
                 used_before = work.used_requests
+                collected = None
                 try:
                     collected = await _collect_project_material(
                         target, project, snapshot["generationId"], client, route
@@ -719,18 +760,41 @@ async def historical_work(
                         atomic(rotation_path, rotation)
                     result.update(status="pending", waitReason=exc.code)
                     break
-                except (ValueError, OSError, httpx.HTTPError, ProviderBudgetError):
+                except (ValueError, OSError, httpx.HTTPError, ProviderBudgetError) as exc:
                     record["status"] = "failed"
                     record["failures"] += 1
+                    # A safe classification, not the possibly sensitive exception.
+                    record["errorCode"] = (
+                        getattr(collected, "profile_failure_code", None)
+                        or getattr(exc, "code", None)
+                        or type(exc).__name__
+                    )
+                    record["stage"] = (
+                        "source"
+                        if isinstance(exc, httpx.HTTPError) or str(record["errorCode"]).startswith("profile_source_")
+                        else "profile"
+                    )
+                    record["checkedAt"] = datetime.now(UTC).isoformat()
                     result["failed"] += 1
                 finally:
                     used = work.used_requests - used_before
                     record["providerRequests"] += used
                     result["providerRequests"] += used
+                    rotation.setdefault("_attempts", {})[repository] = {
+                        "status": record["status"],
+                        "stage": record.get("stage"),
+                        "errorCode": record.get("errorCode") if record["status"] == "failed" else None,
+                        "checkedAt": datetime.now(UTC).isoformat(),
+                    }
+                    atomic(rotation_path, rotation)
                     save()
                 save()
                 await asyncio.sleep(0)
     outstanding = metrics(completed)
+    from app.integrations.rardar.project_introductions import saved as saved_introductions
+
+    introductions = saved_introductions(target / "profile-cache")
+    result["introductionsAvailable"] = sum(p["repository"] in introductions for p in pending)
     if outstanding and result["status"] == "completed":
         retryable = [p for p in outstanding if retry_debit(p["repository"]) < MATERIAL_FAILURE_LIMIT]
         reason = "next_scheduled_pass"

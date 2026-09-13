@@ -18,7 +18,11 @@ def work(tmp_path, monkeypatch):
     today = ["current/one", "current/two", "current/three", "current/four"]
     history = ["history/one", "history/two", "history/three", "history/four"]
     projects = [
-        {"repository": repo, "projectId": service.project_id_for_repository(repo), "profile": None, "totalStars": 10}
+        {
+            "repository": repo, "projectId": service.project_id_for_repository(repo), "profile": None,
+            "totalStars": 10,
+            "appearances": [{"source": "github", "reportedDelta": 200, "fetchedAt": datetime.now(UTC).isoformat()}],
+        }
         for repo in today + history
     ]
     monkeypatch.setattr(service, "saved_materials", lambda _: {})

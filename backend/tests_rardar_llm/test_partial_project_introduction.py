@@ -21,7 +21,9 @@ async def test_valid_zh_intro_survives_incomplete_profile_and_reads_all_contexts
     monkeypatch.setattr(settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(serving_profiles, "_profile_quality", lambda **_: ("rejected", ["capability_missing"]))
     project = _project().model_copy(update={"description": ""})
-    installed = trending_store.publish_sources(tmp_path, [board("github", [project.repository])])
+    source = board("github", [project.repository])
+    source["entries"][0]["reportedDelta"] = 200
+    installed = trending_store.publish_sources(tmp_path, [source])
     pointer = (tmp_path / "trending-boards/current.json").read_bytes()
     async with httpx.AsyncClient(
         base_url="https://api.github.com", transport=httpx.MockTransport(_handler([]))
@@ -43,6 +45,7 @@ async def test_valid_zh_intro_survives_incomplete_profile_and_reads_all_contexts
     value = values[project.repository.lower()]
     assert value["summary"] and value["sourceMode"] == "official_zh"
     assert value["generatedAt"] is None  # no invented model-generation date
+    service.publish_history_review(tmp_path, trigger="manual_initialization")
     rows = [service.today()["projects"][0], service.history()["projects"][0]]
     rows += [
         service.detail(rows[0]["projectId"], installed["generationId"]),
@@ -87,6 +90,7 @@ async def test_partial_intro_does_not_finish_daily_profile_work(tmp_path, monkey
         "materialState": "partial",
         "profile": {"summary": "有依据的中文简介", "generatedAt": None},
         "totalStars": 0,
+        "appearances": [{"source": "github", "reportedDelta": 200, "fetchedAt": datetime.now(UTC).isoformat()}],
     }
     monkeypatch.setattr(service, "saved_materials", lambda _: {})
     monkeypatch.setattr(service, "_history_with_materials", lambda *_: {"projects": [project], "generationId": "g"})

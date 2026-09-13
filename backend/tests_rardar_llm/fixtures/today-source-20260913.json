@@ -1,0 +1,774 @@
+{
+  "provenance": {
+    "file": "Rardar · Developer Intelligence1.html",
+    "extraction": "Saved HTML inline RSC board; field whitelist only; no auth, Profile or response bodies exported."
+  },
+  "generationId": "boards-178b71bb926bf54cd107fc2ff57d11335d7933923155d96597892a84f94b5799",
+  "publishedAt": "2026-09-13T01:00:32.730177+00:00",
+  "sources": [
+    {
+      "source": "github",
+      "label": "GitHub Trending",
+      "status": "stale",
+      "sourceDate": null,
+      "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+      "checkedAt": "2026-09-13T01:00:30.375698+00:00",
+      "errorCode": "source_unavailable_or_invalid",
+      "count": 16
+    },
+    {
+      "source": "trendshift",
+      "label": "Trendshift Trending",
+      "status": "healthy",
+      "sourceDate": "2026-09-12",
+      "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+      "checkedAt": "2026-09-13T01:00:32.241907+00:00",
+      "errorCode": null,
+      "count": 25,
+      "sourceTimezone": "UTC",
+      "periodStartAt": "2026-09-12T00:00:00+00:00",
+      "periodEndAt": "2026-09-13T00:00:00+00:00"
+    }
+  ],
+  "projects": [
+    {
+      "repository": "bilawalsidhu/gods-eye-view",
+      "totalStars": 26983,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 2,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 3680,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        },
+        {
+          "source": "trendshift",
+          "rank": 11,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 80,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 3680
+      }
+    },
+    {
+      "repository": "ayghri/i-have-adhd",
+      "totalStars": 41640,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 1,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 3463,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        },
+        {
+          "source": "trendshift",
+          "rank": 1,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 98,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 3463
+      }
+    },
+    {
+      "repository": "github/spec-kit",
+      "totalStars": 135852,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 15,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 1015,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 1015
+      }
+    },
+    {
+      "repository": "obra/superpowers",
+      "totalStars": 285482,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 9,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 729,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 729
+      }
+    },
+    {
+      "repository": "nashsu/llm_wiki",
+      "totalStars": 18864,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 8,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 647,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 647
+      }
+    },
+    {
+      "repository": "alsk1992/cloddsbot",
+      "totalStars": 2243,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 7,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 626,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 626
+      }
+    },
+    {
+      "repository": "vastsa/pi-desktop",
+      "totalStars": 2879,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 5,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 552,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 552
+      }
+    },
+    {
+      "repository": "armory3d/armorpaint",
+      "totalStars": 4780,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 6,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 350,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 350
+      }
+    },
+    {
+      "repository": "p1neapplexpress/openflux",
+      "totalStars": 1215,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 12,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 198,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 198
+      }
+    },
+    {
+      "repository": "sonarr/sonarr",
+      "totalStars": 15776,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 10,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 191,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 191
+      }
+    },
+    {
+      "repository": "jordan-gibbs/hyperresearch",
+      "totalStars": 2566,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 13,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 153,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        },
+        {
+          "source": "trendshift",
+          "rank": 22,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 22,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 153
+      }
+    },
+    {
+      "repository": "melgarafael/deskcommcrm",
+      "totalStars": 1313,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 4,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 152,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        },
+        {
+          "source": "trendshift",
+          "rank": 25,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 19,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 152
+      }
+    },
+    {
+      "repository": "jihe520/mathmodelagent",
+      "totalStars": 4930,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 11,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 129,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 129
+      }
+    },
+    {
+      "repository": "alphaxiv/openresearch",
+      "totalStars": 1416,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 14,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 120,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 120
+      }
+    },
+    {
+      "repository": "pascalorg/editor",
+      "totalStars": 23717,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 16,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 106,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 106
+      }
+    },
+    {
+      "repository": "nab138/iloader",
+      "totalStars": 2951,
+      "appearances": [
+        {
+          "source": "github",
+          "rank": 3,
+          "sourceDate": null,
+          "fetchedAt": "2026-09-12T06:31:05.538900+00:00",
+          "reportedDelta": 50,
+          "trendshiftStarsGained": null,
+          "sourceStatus": "stale"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "github",
+        "value": 50
+      }
+    },
+    {
+      "repository": "postlayerrespect26/fps-booster-for-wiindows",
+      "totalStars": 2057,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 4,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 39,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 39
+      }
+    },
+    {
+      "repository": "covetradesmanrivet/acrobat-reader-pro",
+      "totalStars": 847,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 5,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 39,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 39
+      }
+    },
+    {
+      "repository": "bluecockatooshrink/autocad-setup",
+      "totalStars": 836,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 6,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 39,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 39
+      }
+    },
+    {
+      "repository": "pitelephantdawn/kms-pico-for-win",
+      "totalStars": 806,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 2,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 39,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 39
+      }
+    },
+    {
+      "repository": "tealelderplait/cinema-4d",
+      "totalStars": 805,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 3,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 39,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 39
+      }
+    },
+    {
+      "repository": "sapientinc/praxist",
+      "totalStars": 6562,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 18,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 38,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 38
+      }
+    },
+    {
+      "repository": "ghoulformpray/monero-miner",
+      "totalStars": 2259,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 14,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 38,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 38
+      }
+    },
+    {
+      "repository": "tankmacspout/discord-quest-completer",
+      "totalStars": 1061,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 7,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 38,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 38
+      }
+    },
+    {
+      "repository": "scalarlinkaxe/optimizer-toolkit",
+      "totalStars": 947,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 9,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 37,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 37
+      }
+    },
+    {
+      "repository": "jiji262/douyin-downloader",
+      "totalStars": 10169,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 10,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 35,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 35
+      }
+    },
+    {
+      "repository": "evomap/autoresearch",
+      "totalStars": 3433,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 15,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 34,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 34
+      }
+    },
+    {
+      "repository": "calesthio/openmontage",
+      "totalStars": 57304,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 19,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 29,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 29
+      }
+    },
+    {
+      "repository": "google/artemis",
+      "totalStars": 2456,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 21,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 27,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 27
+      }
+    },
+    {
+      "repository": "tonhowtf/omniget",
+      "totalStars": 10123,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 20,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 25,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 25
+      }
+    },
+    {
+      "repository": "arcboxlabs/arcbox",
+      "totalStars": 5073,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 23,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 24,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 24
+      }
+    },
+    {
+      "repository": "jbarbier/claude.md",
+      "totalStars": 580,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 16,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 16,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 16
+      }
+    },
+    {
+      "repository": "colemurray/background-agents",
+      "totalStars": 2761,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 8,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 15,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 15
+      }
+    },
+    {
+      "repository": "hi-nikola/hand-drawn-explainer-video-nikola",
+      "totalStars": 178,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 13,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 15,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 15
+      }
+    },
+    {
+      "repository": "moorcheh-ai/memanto",
+      "totalStars": 1906,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 12,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 13,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 13
+      }
+    },
+    {
+      "repository": "sungeer/waitress",
+      "totalStars": 94,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 17,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 9,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 9
+      }
+    },
+    {
+      "repository": "rastavich/owldrop",
+      "totalStars": 25,
+      "appearances": [
+        {
+          "source": "trendshift",
+          "rank": 24,
+          "sourceDate": "2026-09-12",
+          "fetchedAt": "2026-09-13T01:00:32.241907+00:00",
+          "reportedDelta": null,
+          "trendshiftStarsGained": 6,
+          "sourceStatus": "healthy"
+        }
+      ],
+      "expectedPrimary": {
+        "source": "trendshift",
+        "value": 6
+      }
+    }
+  ]
+}

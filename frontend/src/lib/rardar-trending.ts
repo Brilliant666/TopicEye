@@ -44,7 +44,18 @@ export type TrendingProject = {
   historicalEvidence?: Array<{ source: string; sourceUrl: string; reportedAppearanceCount: number; sourceDate: string | null; fetchedAt: string }>;
   historicalRardarEvidence?: Array<{ source: 'rardar_today'; sourceGeneration: string; servingGeneration: string; rank: number; windowStartedAt: string; windowEndedAt: string; observedStarDelta?: number; totalStars: number }>;
 };
-export type TrendingBoard = { schemaVersion: number; metricSchemaVersion?: 2; generationId: string; publishedAt: string | null; checkedAt: string | null; sources: BoardSource[]; projects: TrendingProject[]; refreshPolicy?: RefreshPolicy };
+export type DailyHistoryReview = {
+  date: string; publishedAt: string; projectIds: string[]; candidateCount: number;
+  relaxedRecentWindow: boolean; limit: number; lookbackDays: number; trigger: string;
+};
+export type TrendingBoard = {
+  schemaVersion: number; metricSchemaVersion?: 2; generationId: string;
+  publishedAt: string | null; checkedAt: string | null; sources: BoardSource[];
+  projects: TrendingProject[]; refreshPolicy?: RefreshPolicy;
+  rawProjectCount?: number; eligibleProjectCount?: number; unknownGrowthCount?: number;
+  minimumDailyGrowth?: number; dailyReview?: DailyHistoryReview | null;
+  state?: string;
+};
 export type TrendingDetail = TrendingProject & { metricSchemaVersion?: 2; generationId?: string; publishedAt?: string | null; sources?: BoardSource[] };
 
 export function projectLink(projectId: string, generationId: string, historical = false) {

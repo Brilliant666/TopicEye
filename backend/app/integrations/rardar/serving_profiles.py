@@ -875,6 +875,8 @@ def _warning_only(value: str) -> bool:
 
 
 def _valid_intro_prose(raw: str, *, tagline: bool = False) -> str | None:
+    from app.integrations.rardar.project_introductions import introduction_boilerplate
+
     if (
         not raw
         or _navigation_noise(raw)
@@ -884,7 +886,7 @@ def _valid_intro_prose(raw: str, *, tagline: bool = False) -> str | None:
     ):
         return None
     cleaned = _clean_inline(raw, 2000)
-    if not cleaned or _warning_only(cleaned):
+    if not cleaned or _warning_only(cleaned) or introduction_boilerplate(cleaned):
         return None
     if re.search(r"(?:当前|current)\s*(?:开发\s*)?版本|\bv?\d+\.\d+\.\d+\b", cleaned, re.IGNORECASE):
         return None
@@ -3248,6 +3250,8 @@ def _source_claims(
     sections: list[ReadmeSection],
     description: str | None,
 ) -> tuple[str | None, str, list[str], list[str], list[str], dict[str, list[str]]]:
+    from app.integrations.rardar.project_introductions import introduction_boilerplate
+
     safe_description = _safe_source_text(description)
     overview_pair = next(
         (
@@ -3269,6 +3273,7 @@ def _source_claims(
                 text
                 for text in overview.excerpts
                 if not re.search(r"\d[\d,.]*[kK+]*\s*(?:stars|forks|贡献者)", text, re.I)
+                and not introduction_boilerplate(text)
             ),
             safe_description,
         )

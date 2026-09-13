@@ -179,6 +179,23 @@ News/Discover collection and enhancement entries are paused, and candidate-pool
 and watchlist pages are retired. Data/shared materials remain. This does not
 disable those capabilities in the independent TopicEye profile.
 
+**Focused reading (2026-09-13):** Today keeps the complete source archive but
+its default view uses the single selected source growth, then filters at
+`RARDAR_TODAY_MINIMUM_DAILY_GROWTH=200` before sorting/pagination. A valid GitHub
+value, including zero, wins over Trendshift; unknown is not zero. Source dates
+and stale status remain visible. Below-threshold project details remain readable.
+
+Historical review publishes `RARDAR_HISTORICAL_REVIEW_SIZE=8` readable projects
+once per Shanghai date, avoiding the previous `RARDAR_HISTORICAL_REVIEW_LOOKBACK=7`
+published dates where possible, otherwise filling least-recently shown projects.
+Selection and order are random, independent of Stars, and persisted under
+`historical-daily/`; GET loads only that batch. 09:00 publishes, 11:00 only fills
+a missing batch; reading, materials and restart never redraw it. First deployment
+may use `python -m scripts.refresh_rardar_boards --publish-history-review` for a
+zero-outbound, explicitly manual initialization, not a simulated natural run.
+Automatic material slices prioritize eligible Today gaps, selected review gaps,
+then bounded history preparation; the same shared budget/Find reserve applies.
+
 Use the Today administrator's **检查并同步榜单** action, or the configured backend
 entry `python -m scripts.refresh_rardar_boards` (zero model requests).
 `--history-once` imports the public historical appearance index with unknown

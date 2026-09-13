@@ -247,7 +247,10 @@ async def test_old_rebound_reading_is_checked_without_repeated_daily_work(isolat
     store.publish_sources(isolated, [board("github", ["org/a"])])
     now = datetime.now(UTC)
     profile = {"summary": "saved", "generatedAt": (now - timedelta(days=40)).isoformat(), "sourceGeneration": "old"}
-    project = {"repository": "org/a", "profile": profile, "totalStars": 10}
+    project = {
+        "repository": "org/a", "projectId": service.project_id_for_repository("org/a"),
+        "profile": profile, "totalStars": 10,
+    }
     monkeypatch.setattr(
         service, "historical_snapshot", lambda *_args, **_kwargs: {"projects": [project], "generationId": "current"}
     )

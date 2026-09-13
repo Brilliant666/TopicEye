@@ -75,10 +75,10 @@ def _material_pending(day: dict) -> bool:
     )
 
 
-async def run_refresh(target: Path, *, now=None, trigger: str = "manual", material_work=None) -> dict:
+async def run_refresh(target: Path, *, now=None, trigger: str = "manual", material_work=None, review_work=None) -> dict:
     if trigger not in {"manual", "automatic"}:
         raise ValueError("daily_trigger_invalid")
-    if trigger == "manual" and material_work is not None:
+    if trigger == "manual" and (material_work is not None or review_work is not None):
         raise ValueError("manual_sync_cannot_generate_materials")
     clock = instant(now)
     plan = day_plan(clock)
@@ -119,6 +119,7 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
                     _needs_sources(cycle)
                     or _needs_publication(cycle)
                     or (bool(cycle.get("publishedReceipts")) and not cycle.get("metadataComplete", False))
+                    or (review_work is not None and day.get("historyReview", {}).get("status") != "published")
                 )
                 if not pending and material_work and _material_pending(day):
                     pending = await material_budget_available()
@@ -138,6 +139,16 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
                 }
                 rounds.append(active)
                 atomic(day_path, day)  # admission is durable before external IO
+
+            if trigger == "automatic" and review_work is not None:
+                try:
+                    # Local history is independent of today's source health and
+                    # Provider allowance. The persisted daily IDs decide reuse.
+                    review = await review_work(clock, active["kind"])
+                    day["historyReview"] = {"status": "published", **review}
+                except Exception:
+                    day["historyReview"] = {"status": "failed", "errorCode": "history_review_publication_failed"}
+                atomic(day_path, day)
 
             def save_cycle():
                 atomic(cycle_path, cycle)
@@ -205,7 +216,9 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
             current = load_snapshot(target)
             if current.get("generationId") and not cycle.get("metadataComplete") and not publication_failed:
                 try:
-                    cycle["metadata"] = await service.refresh_metadata(target, current["projects"])
+                    cycle["metadata"] = await service.refresh_metadata(
+                        target, service.today_candidates(target)["projects"]
+                    )
                     cycle["metadataComplete"] = not (
                         cycle["metadata"].get("failed") or cycle["metadata"].get("pending")
                     )
@@ -259,6 +272,8 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
                 atomic(day_path, day)
                 result["automaticRound"] = active["kind"]
                 result["materials"] = {**material_result, **day.get("materialTotals", {})}
+                if review_work is not None:
+                    result["historyReview"] = day.get("historyReview")
             return result
     except ProviderBudgetError as exc:
         if exc.code != "provider_budget_busy":

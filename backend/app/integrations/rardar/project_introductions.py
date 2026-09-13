@@ -5,6 +5,7 @@ them; a later Profile failure cannot erase a successfully validated introduction
 """
 
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -14,8 +15,59 @@ from app.integrations.rardar.serving_schemas import ProjectEvidenceProjection
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
 
 
+def introduction_boilerplate(value: str | None) -> bool:
+    """Exclude acknowledgements/navigation and empty slogans, not project claims.
+
+    This is a selection rule, not a replacement for evidence/identity validation.
+    In particular a Chinese translation credit is not a Chinese project intro.
+    """
+    text = re.sub(r"<[^>]+>", " ", value or "").strip(" *#_>\n\t")
+    return bool(
+        re.search(
+            r"^(?:特别)?(?:感谢|致谢|鸣谢|多谢)|^(?:special\s+)?thanks?\b"
+            r"|^(?:简体|繁体|中文|英文|本|该).{0,12}(?:版|译文|翻译).{0,35}"
+            r"(?:由|感谢|译者|润色|校对|贡献)"
+            r"|^(?:translated|translation|proofread|localized)\s+(?:by|thanks|credits)\b",
+            text,
+            re.IGNORECASE,
+        )
+        or re.fullmatch(
+            r"(?:欢迎(?:使用|来到|体验)?.{0,30}|让(?:未来|世界|开发|生活).{0,20}更.{0,12}"
+            r"|为.{0,20}而生|重新定义.{0,20}|你的下一个.{0,20})[！!。.]?",
+            text,
+        )
+    )
+
+
+def readable_chinese_introduction(value: str | None) -> bool:
+    """Whether already validated material is useful as a short Chinese intro.
+
+    Partial material can qualify; full Profile completeness is intentionally not
+    required. This predicate alone never establishes that a claim has evidence.
+    """
+    from app.integrations.rardar.serving_profiles import _publishable_primary_text
+
+    return bool(_publishable_primary_text(value) and not introduction_boilerplate(value))
+
+
+def official_summary_replacement(summary: str | None, evidence: ProjectEvidenceProjection) -> tuple[str, list[str]] | None:
+    """Repair only boilerplate using an exact existing native-Chinese excerpt.
+
+    Caller must first validate the saved Profile/evidence envelope. No new
+    claim, translated text, source timestamp, or Profile is manufactured here.
+    """
+    if readable_chinese_introduction(summary):
+        return None
+    for ref in ("readme:narrative:positioning", "readme:narrative:tagline"):
+        source = evidence.evidenceIndex.get(ref, "")
+        text = source.split(": ", 1)[1] if source.startswith(evidence.readmePath or "README") and ": " in source else source
+        if readable_chinese_introduction(text):
+            return text, [ref]
+    return None
+
+
 def _validate(payload: dict) -> ProjectEvidenceProjection:
-    from app.integrations.rardar.serving_profiles import _digest, _publishable_primary_text
+    from app.integrations.rardar.serving_profiles import _digest
 
     evidence = ProjectEvidenceProjection.model_validate_json(json.dumps(payload["evidence"]), strict=True)
     refs = payload["evidenceRefs"]
@@ -24,7 +76,7 @@ def _validate(payload: dict) -> ProjectEvidenceProjection:
         or payload["repository"] != canonical_repository(evidence.repository)
         or payload["githubRepositoryId"] != evidence.githubRepositoryId
         or _digest(evidence.model_dump(mode="json", exclude={"digest"})) != evidence.digest
-        or not _publishable_primary_text(payload["summary"])
+        or not readable_chinese_introduction(payload["summary"])
         or not refs
         or any(ref not in evidence.evidenceIndex or not evidence.evidenceIndex[ref].strip() for ref in refs)
         or payload["sourceMode"] not in {"official_zh", "validated_translation"}

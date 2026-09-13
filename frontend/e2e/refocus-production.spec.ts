@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
 
-test('dual-board union is not truncated and unknown metadata does not block detail', async ({ page, request }) => {
+test('eligible dual-board list is not truncated and unknown metadata does not block detail', async ({ page, request }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/');
   await expect(page.getByRole('heading', { name: /^今日热榜/, level: 1 })).toBeVisible();
   await expect(page.locator('article[data-project-id]')).toHaveCount(20);
   await expect(page.getByText('双榜上榜', { exact: true })).toHaveCount(1);
-  await expect(page.getByText('23 个去重项目', { exact: false })).toBeVisible();
+  await expect(page.getByText('23 个达标项目', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: '加载更多（剩余 3 项）' }).click();
   await expect(page.locator('article[data-project-id]')).toHaveCount(23);
   const fixture = await (await request.get('http://127.0.0.1:3411/api/v1/rardar/trending-today')).json();
@@ -27,6 +27,14 @@ test('dual-board union is not truncated and unknown metadata does not block deta
 test('historical list has separate detail and only active product navigation', async ({ page }) => {
   await page.goto('/historical-hot');
   await expect(page.getByRole('heading', { name: /^历史回顾/, level: 1 })).toBeVisible();
+  await expect(page.locator('article[data-project-id]')).toHaveCount(8);
+  await expect(page.getByRole('button', { name: /加载更多/ })).toHaveCount(0);
+  await expect(page.getByText('本期回顾 · 8 项', { exact: true })).toBeVisible();
+  await expect(page.getByText('回顾日期 2026-09-09', { exact: false })).toBeVisible();
+  const savedOrder = await page.locator('article[data-project-id]').evaluateAll(elements => elements.map(element => element.getAttribute('data-project-id')));
+  await page.reload();
+  await expect(page.locator('article[data-project-id]')).toHaveCount(8);
+  expect(await page.locator('article[data-project-id]').evaluateAll(elements => elements.map(element => element.getAttribute('data-project-id')))).toEqual(savedOrder);
   const nav = page.getByRole('navigation', { name: (page.viewportSize()?.width ?? 1440) < 768 ? 'Rardar 移动导航' : 'Rardar 主导航', exact: true });
   await expect(nav.getByRole('link')).toHaveCount(4);
   await expect(nav.getByRole('link', { name: '热点资讯' })).toHaveCount(0);

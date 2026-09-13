@@ -36,7 +36,7 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(daily, "operation_root", lambda: tmp_path / "daily")
     monkeypatch.setattr(ops, "operation_root", lambda: tmp_path / "operations")
     monkeypatch.setattr(daily, "_execution_paused", AsyncMock(return_value=False))
-    monkeypatch.setattr(service, "saved_materials", lambda _target: {})
+    monkeypatch.setattr(service, "saved_materials", lambda _target, **_kwargs: {})
     monkeypatch.setattr(service, "refresh_metadata", AsyncMock(return_value={"checked": 0}))
     monkeypatch.setattr(trending_boards, "fetch_board", AsyncMock(side_effect=AssertionError("unexpected source IO")))
     original_instant = refresh.instant

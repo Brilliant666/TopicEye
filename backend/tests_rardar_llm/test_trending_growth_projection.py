@@ -207,7 +207,7 @@ def test_rardar_only_historical_total_uses_latest_window_without_overriding_exte
         # loading every retained detail/Profile body is deliberately avoided.
         publications.append(SimpleNamespace(exactRanked=[fact], generationId=day, servingGenerationId=f"serving-{day}"))
     monkeypatch.setattr(
-        service, "_retained_serving_snapshots", lambda _target: iter(publications[::-1] if reverse else publications)
+        service, "_retained_serving_snapshots", lambda _target, **_kwargs: iter(publications[::-1] if reverse else publications)
     )
     if archive:
         store.import_historical_evidence(

@@ -485,8 +485,27 @@ def publish_sources(target: Path, results: list[dict], *, materials: dict | None
         return {"changed": True, "generationId": identifier, "count": len(projects)}
 
 
-def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
+def historical_snapshot(target: Path, *, materials: dict | None = None, repositories: set[str] | None = None) -> dict:
+    from app.integrations.rardar.read_cache import cached, signature
+
+    root = _root(target)
+    facts = cached(
+        ("historical-facts", str(target.absolute()), signature(root / "captures", root / "historical-evidence")),
+        lambda: _historical_facts(target),
+        select=lambda value: {
+            "metricSchemaVersion": value["metricSchemaVersion"],
+            "kind": value["kind"],
+            "projects": list(value["byRepository"].values())
+            if repositories is None
+            else [value["byRepository"][repo] for repo in sorted(repositories) if repo in value["byRepository"]],
+        },
+    )
+    # Source freshness/checks are evaluated now, not frozen in the fact cache.
     current = load_snapshot(target)
+    return apply_materials({**current, **facts}, materials or {})
+
+
+def _historical_facts(target: Path) -> dict:
     root = _root(target) / "captures"
     plain(root, missing=True)
     projects: dict[str, dict] = {}
@@ -580,8 +599,6 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
             ),
         )
         select_historical_total(project, total_candidates[key])
-        material = (materials or {}).get(key, {})
-        _apply_material(project, material)
         # Latest-per-day display must not move the actual first saved observation.
         times = [x["fetchedAt"] for x in total_candidates[key]]
         project.update(
@@ -589,17 +606,16 @@ def historical_snapshot(target: Path, *, materials: dict | None = None) -> dict:
             firstSeenAt=min(times, key=datetime.fromisoformat),
             lastSeenAt=max(times, key=datetime.fromisoformat),
         )
-    return apply_materials(
-        {
-            **current,
-            "metricSchemaVersion": 2,
-            "projects": sorted(
+    return {
+        "metricSchemaVersion": 2,
+        "byRepository": {
+            p["repository"]: p
+            for p in sorted(
                 projects.values(), key=lambda p: (p["profile"] is None, -(p["totalStars"] or 0), p["repository"])
-            ),
-            "kind": "historical",
+            )
         },
-        materials or {},
-    )
+        "kind": "historical",
+    }
 
 
 def validate_historical_evidence(record: dict) -> None:

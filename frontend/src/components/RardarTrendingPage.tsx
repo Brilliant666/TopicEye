@@ -12,7 +12,7 @@ import styles from './RardarFoundation.module.css';
 export const boardSourceName = { github: 'GitHub Trending', trendshift: 'Trendshift' };
 
 export function TrendingCard({ project, generationId, historical = false, index }: { project: TrendingProject; generationId: string; historical?: boolean; index?: number }) {
-  const profile = project.displayProfile;
+  const profile = project.displayCard ?? project.displayProfile;
   const detailHref = projectLink(project.projectId, generationId, historical);
   const summary = profile?.officialTaglineZh || profile?.identitySummaryZh || profile?.officialSummaryZh || project.profile?.summary;
   const positioning = profile?.coreValueZh || profile?.positioningZh || project.profile?.positioning;

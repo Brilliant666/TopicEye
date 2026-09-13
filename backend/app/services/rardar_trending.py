@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.integrations.rardar import trending_metadata
 from app.integrations.rardar.profile_cache_v2 import ProfileStoreEnvelopeV2, _read_plain
 from app.integrations.rardar.project_identity import canonical_repository, project_id_for_repository
+from app.integrations.rardar.read_cache import cached, signature
 from app.integrations.rardar.serving_profiles import _digest, collect_official_project_profile
 from app.integrations.rardar.serving_schemas import OfficialProjectProfile, ProjectEvidenceProjection
 from app.integrations.rardar.trending_store import (
@@ -155,7 +156,32 @@ def project_material(profile, evidence, *, source_kind: str = "profile_cache", m
     }
 
 
-def _retained_serving_snapshots(target: Path):
+def _retained_serving_snapshots(target: Path, *, repositories: set[str] | None = None):
+    key = (
+        "retained-facts",
+        str(target.absolute()),
+        signature(target / "serving" / "current.json", target / "serving" / "sources"),
+    )
+    yield from cached(
+        key,
+        lambda: [
+            (value, {canonical_repository(row.repository): row for row in value.exactRanked})
+            for value in _read_retained_serving_snapshots(target)
+        ],
+        select=lambda values: [
+            value.model_copy(
+                update={
+                    "exactRanked": list(index.values())
+                    if repositories is None
+                    else [index[repo] for repo in sorted(repositories) if repo in index]
+                }
+            )
+            for value, index in values
+        ],
+    )
+
+
+def _read_retained_serving_snapshots(target: Path):
     """Read source-indexed fact summaries, not every project's Profile body."""
     from app.integrations.rardar.serving import ServingProjectionLoader
 
@@ -182,7 +208,7 @@ def _retained_serving_details(target: Path, *, repositories: set[str] | None = N
     from app.integrations.rardar.serving import ServingProjectionLoader
 
     loader = ServingProjectionLoader(target)
-    for snapshot in _retained_serving_snapshots(target):
+    for snapshot in _retained_serving_snapshots(target, repositories=repositories):
         for row in snapshot.exactRanked:
             if repositories is not None and canonical_repository(row.repository) not in repositories:
                 continue
@@ -209,18 +235,57 @@ def _selected_material_ids(target: Path, repositories: set[str] | None) -> set[i
                 known[repo].add(metadata["githubRepositoryId"])
         except (ValueError, OSError):
             pass
-    for snapshot in _retained_serving_snapshots(target):
+    for snapshot in _retained_serving_snapshots(target, repositories=repositories):
         for row in snapshot.exactRanked:
             repo = canonical_repository(row.repository)
             if repo in known:
                 known[repo].add(row.githubRepositoryId)
     # Captures contain identities but never full Profile/evidence bodies.
-    for row in historical_snapshot(target)["projects"]:
+    for row in historical_snapshot(target, repositories=repositories)["projects"]:
         if row["repository"] in known and type(row.get("githubRepositoryId")) is int:
             known[row["repository"]].add(row["githubRepositoryId"])
-    if any(not ids for ids in known.values()):
-        return None
+    missing = {repo for repo, ids in known.items() if not ids}
+    if missing:
+        # A legacy repository can lack metadata/capture numeric identity. Build
+        # its validated identity lookup once per bounded epoch, never broaden
+        # the requested material scope to all project bodies.
+        roots = [
+            target / name / directory
+            for name in ("profile-cache", "selection-profile-cache")
+            for directory in ("profile-store/v2", "introductions")
+        ]
+        legacy = cached(
+            ("legacy-material-identities", str(target.absolute()), signature(*roots)),
+            lambda: _legacy_material_ids(target),
+        )
+        for repo in missing:
+            known[repo].update(legacy.get(repo, ()))
     return {identifier for ids in known.values() for identifier in ids}
+
+
+def _legacy_material_ids(target: Path) -> dict:
+    from app.integrations.rardar import project_introductions
+
+    found = {}
+    for name in ("profile-cache", "selection-profile-cache"):
+        root = target / name / "profile-store" / "v2"
+        plain(root, missing=True)
+        for path in root.glob("*/*.json"):
+            try:
+                record = ProfileStoreEnvelopeV2.model_validate_json(_read_plain(path, root=target), strict=True)
+                if (
+                    str(record.cacheIdentity.repositoryId) != path.parent.name
+                    or record.cacheIdentity.identityDigest != path.stem
+                ):
+                    continue
+                found.setdefault(canonical_repository(record.profile.repository), set()).add(
+                    record.profile.githubRepositoryId
+                )
+            except (ValueError, TypeError, OSError):
+                continue
+        for repository, value in project_introductions.saved(target / name).items():
+            found.setdefault(repository, set()).add(value["githubRepositoryId"])
+    return found
 
 
 def saved_materials(
@@ -228,7 +293,40 @@ def saved_materials(
 ) -> dict:
     if repositories is not None:
         repositories = {canonical_repository(repo) for repo in repositories}
+        if not repositories:
+            return {}
+    # Explicit global callers (publication/work selection) retain their exact
+    # semantics. Interactive reads use only the bounded repository scope.
+    if repositories is None:
+        return _read_saved_materials(target, original_profile_digest=original_profile_digest)
     selected_ids = _selected_material_ids(target, repositories)
+    paths = [target / "serving" / "current.json", target / "serving" / "sources"]
+    for name in ("profile-cache", "selection-profile-cache"):
+        paths.extend(
+            target / name / directory for directory in ("display-content-revisions", "display-trait-revisions")
+        )
+        for identifier in selected_ids:
+            paths.extend(
+                target / name / directory / str(identifier) for directory in ("profile-store/v2", "introductions")
+            )
+    return cached(
+        (
+            "scoped-materials",
+            str(target.absolute()),
+            tuple(sorted(repositories)),
+            original_profile_digest,
+            signature(*paths),
+        ),
+        lambda: _read_saved_materials(
+            target,
+            original_profile_digest=original_profile_digest,
+            repositories=repositories,
+            selected_ids=selected_ids,
+        ),
+    )
+
+
+def _read_saved_materials(target, *, original_profile_digest=None, repositories=None, selected_ids=None):
     found, times = {}, {}
 
     def remember(profile, evidence, *, source_kind="profile_cache", metadata=None):
@@ -270,10 +368,15 @@ def saved_materials(
     for name in ("profile-cache", "selection-profile-cache"):
         root = target / name / "profile-store" / "v2"
         plain(root, missing=True)
-        for directory in sorted(root.iterdir()) if root.exists() else []:
-            if selected_ids is not None and directory.name not in {str(identifier) for identifier in selected_ids}:
-                continue
-            plain(directory)
+        directories = (
+            [root / str(identifier) for identifier in sorted(selected_ids)]
+            if selected_ids is not None
+            else sorted(root.iterdir())
+            if root.exists()
+            else []
+        )
+        for directory in directories:
+            plain(directory, missing=True)
             if not directory.is_dir():
                 continue
             for path in sorted(directory.glob("*.json")):
@@ -313,16 +416,20 @@ def saved_materials(
     return found
 
 
-def _history_with_materials(target: Path, materials: dict) -> dict:
+def _history_with_materials(target: Path, materials: dict, *, repositories: set[str] | None = None) -> dict:
     from app.integrations.rardar.trending_metrics import apply_history_context, select_historical_total
 
-    snapshot = historical_snapshot(target, materials=materials)
+    snapshot = historical_snapshot(target, materials=materials, repositories=repositories)
     projects = {project["repository"]: project for project in snapshot["projects"]}
     seen = set()
     for publication, fact in (
-        (saved, row) for saved in _retained_serving_snapshots(target) for row in saved.exactRanked
+        (saved, row)
+        for saved in _retained_serving_snapshots(target, repositories=repositories)
+        for row in saved.exactRanked
     ):
         repository = canonical_repository(fact.repository)
+        if repositories is not None and repository not in repositories:
+            continue
         existing = projects.get(repository)
         if existing and existing.get("githubRepositoryId") not in (None, fact.githubRepositoryId):
             continue
@@ -383,7 +490,7 @@ def load_saved_project_profile(
     target: Path, repository: str, *, original_profile_digest: str | None = None
 ) -> tuple[OfficialProjectProfile, ProjectEvidenceProjection] | None:
     """Shared validated material for on-demand explanation, without fact rebinding."""
-    material = saved_materials(target, original_profile_digest=original_profile_digest).get(
+    material = saved_materials(target, original_profile_digest=original_profile_digest, repositories={repository}).get(
         canonical_repository(repository)
     )
     if material is None or material.get("displayProfile") is None:
@@ -424,14 +531,49 @@ def today_candidates(target: Path) -> dict:
 
 def today() -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
-    return _material_attempts(
-        trending_metadata.apply(apply_materials(today_candidates(target), saved_materials(target)), target), target
+    snapshot = today_candidates(target)
+    return _list_cards(
+        _material_attempts(
+            trending_metadata.apply(
+                apply_materials(
+                    snapshot, saved_materials(target, repositories={p["repository"] for p in snapshot["projects"]})
+                ),
+                target,
+            ),
+            target,
+        )
     )
 
 
 def history() -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
-    return daily_history_view(target)
+    return _list_cards(daily_history_view(target))
+
+
+def _list_cards(snapshot: dict) -> dict:
+    """Keep visible card content, not full detail evidence, across the wire."""
+    fields = (
+        "officialTaglineZh",
+        "identitySummaryZh",
+        "officialSummaryZh",
+        "coreValueZh",
+        "positioningZh",
+        "productFormsZh",
+        "officialNarrativeMode",
+        "positioningSourceMode",
+    )
+    for project in snapshot["projects"]:
+        profile = project.pop("displayProfile", None)
+        project.pop("displayEvidence", None)
+        project["displayCard"] = {key: profile[key] for key in fields if key in profile} if profile else None
+        if project.get("profile"):
+            project["profile"] = {
+                key: value
+                for key, value in project["profile"].items()
+                if key
+                not in {"capabilities", "useCases", "limitations", "startHere", "summaryEvidence", "evidenceRefs"}
+            }
+    return snapshot
 
 
 def publish_history_review(target: Path, *, now=None, trigger="main") -> dict:
@@ -471,7 +613,9 @@ def daily_history_view(target: Path) -> dict:
             "state": "pending_daily_review",
         }
     repositories = {item["repository"] for item in batch["identities"]}
-    snapshot = _history_with_materials(target, saved_materials(target, repositories=repositories))
+    snapshot = _history_with_materials(
+        target, saved_materials(target, repositories=repositories), repositories=repositories
+    )
     by_id = {p["projectId"]: p for p in snapshot["projects"]}
     identities = {item["projectId"]: item for item in batch["identities"]}
     selected = []
@@ -524,10 +668,25 @@ def _material_attempts(snapshot: dict, target: Path) -> dict:
 
 def detail(identifier: str, generation: str | None, *, historical: bool = False) -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
-    snapshot = (
-        _history_with_materials(target, saved_materials(target))
-        if historical
-        else apply_materials(load_snapshot(target, generation), saved_materials(target))
+    if historical:
+        candidates = historical_snapshot(target)["projects"]
+        repositories = {p["repository"] for p in candidates if p["projectId"] == identifier}
+        for retained in _retained_serving_snapshots(target):
+            repositories.update(
+                canonical_repository(p.repository)
+                for p in retained.exactRanked
+                if project_id_for_repository(p.repository) == identifier
+            )
+        if not repositories:
+            raise LookupError("trending_project_not_found")
+        facts = _history_with_materials(target, {}, repositories=repositories)
+    else:
+        facts = load_snapshot(target, generation)
+    selected = [p for p in facts["projects"] if p["projectId"] == identifier]
+    if not selected:
+        raise LookupError("trending_project_not_found")
+    snapshot = apply_materials(
+        {**facts, "projects": selected}, saved_materials(target, repositories={p["repository"] for p in selected})
     )
     trending_metadata.apply(snapshot, target)
     _material_attempts(snapshot, target)

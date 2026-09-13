@@ -33,7 +33,8 @@ def test_default_service_only_loads_selected_bodies_and_keeps_missing_slot(tmp_p
         requested.append(repositories)
         return {repo: {"profile": {"summary": f"SAVED-BODY-{repo}"}} for repo in repositories}
 
-    def snapshot(_target, saved):
+    def snapshot(_target, saved, *, repositories=None):
+        assert repositories == requested[-1]
         return {
             "generationId": "synthetic-archive",
             "publishedAt": "2026-09-12T01:00:00Z",

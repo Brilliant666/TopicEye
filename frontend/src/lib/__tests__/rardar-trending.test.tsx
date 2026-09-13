@@ -1,11 +1,44 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import RardarTrendingPage, { TrendingCard } from '@/components/RardarTrendingPage';
-import { boardTime, loadTrending, projectLink, safeSourceUrl, type TrendingBoard, type TrendingProject } from '@/lib/rardar-trending';
+import { boardTime, loadTrending, projectLink, safeSourceUrl, type TrendingBoard, type TrendingCardNarrative, type TrendingProject } from '@/lib/rardar-trending';
 
 vi.mock('@/components/RardarTodayOperations', () => ({ default: () => null }));
 const project: TrendingProject = { projectId: 'new-repo--12345678901234567890', repository: 'new/repo', repositoryUrl: 'https://github.com/new/repo', githubRepositoryId: null, totalStars: null, description: null, dualListed: true, appearances: [{ source: 'github', rank: 1, sourceDate: null, fetchedAt: '2026-09-10T00:00:00Z', period: 'daily', reportedDelta: null }, { source: 'trendshift', rank: 4, sourceDate: '2026-09-09', fetchedAt: '2026-09-10T00:00:00Z', period: 'daily', reportedDelta: null }], materialState: 'unavailable', profile: null };
 describe('refocused trending reading', () => {
+  it.each([false, true])('preserves every rendered card field with the light narrative (historical=%s)', historical => {
+    const displayCard: TrendingCardNarrative = {
+      officialTaglineZh: '在实际资料中查找项目能力。', identitySummaryZh: '后备身份介绍',
+      officialSummaryZh: '后备官方摘要', coreValueZh: '用可核对的资料帮助团队选型。',
+      positioningZh: '后备定位', productFormsZh: ['命令行工具', '库'],
+      officialNarrativeMode: 'official_translated', positioningSourceMode: 'official_translated',
+    };
+    const full = {
+      ...project, materialState: 'complete' as const, language: 'TypeScript', topics: ['docs'], license: 'MIT',
+      historicalContext: { kind: 'board' as const, source: 'github', dateKind: 'source' as const, date: '2026-09-09' },
+      displayProfile: { ...displayCard, capabilities: [{ title: '仅详情能力', detail: '完整正文不随卡片传输。' }] } as TrendingProject['displayProfile'],
+      displayEvidence: { evidenceIndex: { 'readme:1': { text: '仅详情原始证据' } } } as unknown as TrendingProject['displayEvidence'],
+    };
+    const light = { ...full, displayCard, displayProfile: undefined, displayEvidence: undefined };
+    const render = (value: TrendingProject) => renderToStaticMarkup(<TrendingCard project={value} generationId="boards-saved" historical={historical} index={0} />);
+    expect(render(light)).toBe(render(full));
+    expect(render(light)).toContain('用可核对的资料帮助团队选型。');
+    expect(render(light)).toContain(historical ? '历史记录' : '来源与更新时间');
+    expect(render(light)).not.toContain('仅详情');
+  });
+
+  it('retains independent partial introduction and positioning fallbacks without a full profile', () => {
+    const partial: TrendingProject = { ...project, materialState: 'partial', displayCard: null, profile: {
+      summary: '独立保存的中文介绍。', positioning: '已有定位。', capabilities: [], generatedAt: null,
+      sourceUrl: project.repositoryUrl, sourceLabel: '来源翻译',
+    } };
+    const html = renderToStaticMarkup(<TrendingCard project={partial} generationId="boards-saved" />);
+    expect(html).toContain('独立保存的中文介绍。');
+    expect(html).toContain('核心定位 · 已保存解读');
+    expect(html).toContain('资料部分可用');
+    expect(html).not.toContain('档案可用');
+  });
+
   it('renders identity and detail without numeric id, Profile, Star or local baseline', () => {
     const html = renderToStaticMarkup(<TrendingCard project={project} generationId="boards-test" />);
     expect(html).toContain('new/repo');

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
@@ -111,7 +112,7 @@ async def trending_today(response: Response):
         raise HTTPException(status_code=404, detail="Not found")
     response.headers["Cache-Control"] = "no-store"
     try:
-        return rardar_trending.today()
+        return await asyncio.to_thread(rardar_trending.today)
     except (ValueError, OSError):
         raise HTTPException(status_code=503, detail="trending_snapshot_invalid") from None
 
@@ -124,7 +125,7 @@ async def historical_hot(response: Response):
         raise HTTPException(status_code=404, detail="Not found")
     response.headers["Cache-Control"] = "no-store"
     try:
-        return rardar_trending.history()
+        return await asyncio.to_thread(rardar_trending.history)
     except (ValueError, OSError):
         raise HTTPException(status_code=503, detail="historical_snapshot_invalid") from None
 
@@ -136,7 +137,7 @@ async def trending_project(project_id: str, generation: str = Query(min_length=1
     if not is_rardar_product():
         raise HTTPException(status_code=404, detail="Not found")
     try:
-        return rardar_trending.detail(project_id, generation)
+        return await asyncio.to_thread(rardar_trending.detail, project_id, generation)
     except LookupError:
         raise HTTPException(status_code=404, detail="project_not_found") from None
     except (ValueError, OSError):
@@ -150,7 +151,7 @@ async def historical_project(project_id: str):
     if not is_rardar_product():
         raise HTTPException(status_code=404, detail="Not found")
     try:
-        return rardar_trending.detail(project_id, None, historical=True)
+        return await asyncio.to_thread(rardar_trending.detail, project_id, None, historical=True)
     except LookupError:
         raise HTTPException(status_code=404, detail="project_not_found") from None
     except (ValueError, OSError):

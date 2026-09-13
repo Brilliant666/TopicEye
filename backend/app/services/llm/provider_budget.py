@@ -227,6 +227,10 @@ class ProviderBudgetLedger:
     def _replay(self) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         plain(self.events)
         raw = self.events.read_bytes()
+        return self._replay_bytes(raw)
+
+    def _replay_bytes(self, raw: bytes) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Validate a journal copy without opening or locking the source store."""
         if len(raw) > 2_000_000 or not raw.endswith(b"\n"):
             raise ProviderBudgetError()
         try:

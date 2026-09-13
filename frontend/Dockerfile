@@ -12,6 +12,10 @@ COPY . .
 # production image falls back to the host-only development API URL.
 ARG BACKEND_API_URL=http://backend:8000
 ENV BACKEND_API_URL=${BACKEND_API_URL}
+# The product profile is compiled into client code and the root rewrite.
+# Runtime-only configuration cannot turn a TopicEye build into Rardar.
+ARG RARDAR_PRODUCT_MODE=false
+ENV RARDAR_PRODUCT_MODE=${RARDAR_PRODUCT_MODE}
 RUN npm run build
 
 EXPOSE 3000

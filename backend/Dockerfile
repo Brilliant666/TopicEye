@@ -24,10 +24,11 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt && \
-    rm -rf /root/.cache/pip && \
+RUN set -eu; \
+    pip install --no-cache-dir -r requirements.txt; \
+    rm -rf /root/.cache/pip; \
     # Strip build-only tools and caches from venv to shrink runtime image
-    pip uninstall -y pip setuptools wheel && \
+    pip uninstall -y pip setuptools wheel; \
     find /opt/venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null; \
     find /opt/venv -type d -name "tests" -exec rm -rf {} + 2>/dev/null; \
     find /opt/venv -type d -name "test" -exec rm -rf {} + 2>/dev/null; \

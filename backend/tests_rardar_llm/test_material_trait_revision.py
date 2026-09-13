@@ -43,7 +43,7 @@ async def test_revision_is_explicit_immutable_and_shared_without_new_generation(
     monkeypatch.setattr(
         service,
         "_retained_serving_details",
-        lambda _: [
+        lambda _, repositories=None: [
             SimpleNamespace(
                 profile=original,
                 evidence=record.evidence,

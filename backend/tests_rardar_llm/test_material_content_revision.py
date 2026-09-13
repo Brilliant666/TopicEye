@@ -98,18 +98,22 @@ async def test_translation_credit_repair_preserves_original_evidence_and_generat
     credit = "简体中文版由维护者创建，文字由贡献者润色。感谢。"
     purpose = "下载视频和课程，并在本地桌面应用中阅读、转写和学习。"
     key = "readme:narrative:positioning"
-    evidence = record.evidence.model_copy(update={
-        "evidenceIndex": {**record.evidence.evidenceIndex, key: f"{record.evidence.readmePath}: {purpose}"},
-    })
+    evidence = record.evidence.model_copy(
+        update={
+            "evidenceIndex": {**record.evidence.evidenceIndex, key: f"{record.evidence.readmePath}: {purpose}"},
+        }
+    )
     evidence = evidence.model_copy(update={"digest": _digest(evidence.model_dump(mode="json", exclude={"digest"}))})
-    original = record.profile.model_copy(update={
-        "identitySummaryZh": credit,
-        "officialSummaryZh": credit,
-        "officialTaglineZh": credit,
-        "officialTaglineEvidenceRefs": ["description"],
-        "evidenceDigest": evidence.digest,
-        "claimEvidenceRefs": {**record.profile.claimEvidenceRefs, credit: ["description"]},
-    })
+    original = record.profile.model_copy(
+        update={
+            "identitySummaryZh": credit,
+            "officialSummaryZh": credit,
+            "officialTaglineZh": credit,
+            "officialTaglineEvidenceRefs": ["description"],
+            "evidenceDigest": evidence.digest,
+            "claimEvidenceRefs": {**record.profile.claimEvidenceRefs, credit: ["description"]},
+        }
+    )
     before = original.model_dump(mode="json")
     material = service.project_material(original, evidence)
     assert revision.install(tmp_path, original, evidence)["state"] == "installed"

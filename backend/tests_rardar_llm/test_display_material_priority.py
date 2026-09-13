@@ -1,4 +1,5 @@
 """Real work ordering with simulated collection, preserving the daily allowance."""
+
 import pytest
 
 from app.core.config import settings

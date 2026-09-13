@@ -14,8 +14,13 @@ from app.services.llm.provider_budget import atomic, digest
 
 def projects(count):
     return [
-        {"id": project_id_for_repository(f"owner/project-{index}"), "repository": f"owner/project-{index}",
-         "githubRepositoryId": index + 1, "totalStars": index * 100, "profile": {"summary": "真实的项目介绍"}}
+        {
+            "id": project_id_for_repository(f"owner/project-{index}"),
+            "repository": f"owner/project-{index}",
+            "githubRepositoryId": index + 1,
+            "totalStars": index * 100,
+            "profile": {"summary": "真实的项目介绍"},
+        }
         for index in range(count)
     ]
 
@@ -84,6 +89,7 @@ def test_selection_is_star_independent_and_not_input_order_dependent(tmp_path, m
 def test_concurrent_publications_commit_one_order_and_one_day(tmp_path):
     def run(index):
         return daily.publish(tmp_path, projects(63 + index), now=at(), trigger="main")
+
     with ThreadPoolExecutor(max_workers=4) as pool:
         values = list(pool.map(run, range(4)))
     assert all(value == values[0] for value in values)
@@ -95,8 +101,10 @@ def test_invalid_or_failed_next_publication_preserves_previous_and_does_not_back
     with pytest.raises(ValueError, match="identity_mismatch"):
         daily.publish(tmp_path, [{**projects(1)[0], "id": "wrong"}], now=at("2026-09-15"), trigger="main")
     assert daily.read_latest(tmp_path) == first
+
     def fail(*args):
         raise OSError("simulated disk write failure")
+
     monkeypatch.setattr(daily, "atomic", fail)
     with pytest.raises(OSError):
         daily.publish(tmp_path, projects(10), now=at("2026-09-15"), trigger="main")

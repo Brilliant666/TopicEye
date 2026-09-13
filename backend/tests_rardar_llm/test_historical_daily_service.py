@@ -16,13 +16,15 @@ from tests_rardar_selection.test_profile_cache_v2 import _project
 
 def test_default_service_only_loads_selected_bodies_and_keeps_missing_slot(tmp_path, monkeypatch):
     rows = [
-        {"repository": f"org/repo-{index}", "projectId": service.project_id_for_repository(f"org/repo-{index}"),
-         "githubRepositoryId": index + 1, "profile": None}
+        {
+            "repository": f"org/repo-{index}",
+            "projectId": service.project_id_for_repository(f"org/repo-{index}"),
+            "githubRepositoryId": index + 1,
+            "profile": None,
+        }
         for index in range(132)
     ]
-    batch = historical_daily.publish(
-        tmp_path, rows, now=datetime(2026, 9, 13, 9, tzinfo=ZONE), trigger="main"
-    )
+    batch = historical_daily.publish(tmp_path, rows, now=datetime(2026, 9, 13, 9, tzinfo=ZONE), trigger="main")
     monkeypatch.setattr(settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(tmp_path))
     requested = []
 
@@ -33,7 +35,9 @@ def test_default_service_only_loads_selected_bodies_and_keeps_missing_slot(tmp_p
 
     def snapshot(_target, saved):
         return {
-            "generationId": "synthetic-archive", "publishedAt": "2026-09-12T01:00:00Z", "sources": [],
+            "generationId": "synthetic-archive",
+            "publishedAt": "2026-09-12T01:00:00Z",
+            "sources": [],
             "projects": [{**row, **saved.get(row["repository"], {})} for row in rows],
         }
 
@@ -55,8 +59,10 @@ def test_default_service_only_loads_selected_bodies_and_keeps_missing_slot(tmp_p
 
 def test_default_service_does_not_create_first_batch_or_load_catalog_on_get(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(tmp_path))
+
     def forbidden(*_args, **_kwargs):
         raise AssertionError("GET must not load catalog materials before first publication")
+
     monkeypatch.setattr(service, "saved_materials", forbidden)
     assert service.history()["state"] == "pending_daily_review"
     assert not (tmp_path / "historical-daily").exists()
@@ -68,8 +74,10 @@ def test_real_retained_fact_loader_never_opens_project_bodies_for_history_index(
     root = _root(tmp_path)
     _install_two(root)
     clear_serving_cache()
+
     def forbidden(*_args, **_kwargs):
         raise AssertionError("history fact index must not read Profile/detail bodies")
+
     monkeypatch.setattr(ServingProjectionLoader, "load_project_with_etag", forbidden)
     snapshot = service._history_with_materials(root, {})
     assert snapshot["projects"]
@@ -87,9 +95,11 @@ def test_real_retained_detail_loader_reads_only_requested_repositories(tmp_path,
     selected = today.exactRanked[0]
     original = ServingProjectionLoader.load_project_with_etag
     called = []
+
     def tracked(self, identifier, generation=None):
         called.append(identifier)
         return original(self, identifier, generation)
+
     monkeypatch.setattr(ServingProjectionLoader, "load_project_with_etag", tracked)
     values = list(service._retained_serving_details(root, repositories={selected.repository.lower()}))
     assert values
@@ -104,7 +114,8 @@ async def test_real_profile_loader_uses_known_numeric_index_before_reading_envel
     selected_path = await seed(tmp_path)
     project = _project()
     trending_metadata.save(
-        tmp_path, {"repository": project.repository, "githubRepositoryId": project.githubRepositoryId},
+        tmp_path,
+        {"repository": project.repository, "githubRepositoryId": project.githubRepositoryId},
         {"full_name": project.repository, "id": project.githubRepositoryId},
     )
     other = selected_path.parent.parent / str(project.githubRepositoryId + 100)
@@ -112,9 +123,11 @@ async def test_real_profile_loader_uses_known_numeric_index_before_reading_envel
     (other / "unrelated.json").write_text("{}", encoding="utf-8")
     original = service._read_plain
     reads = []
+
     def tracked(path, **kwargs):
         reads.append(path)
         return original(path, **kwargs)
+
     monkeypatch.setattr(service, "_read_plain", tracked)
     loaded = service.saved_materials(tmp_path, repositories={project.repository.lower()})
     assert set(loaded) == {project.repository.lower()}

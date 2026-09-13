@@ -50,7 +50,9 @@ def readable_chinese_introduction(value: str | None) -> bool:
     return bool(_publishable_primary_text(value) and not introduction_boilerplate(value))
 
 
-def official_summary_replacement(summary: str | None, evidence: ProjectEvidenceProjection) -> tuple[str, list[str]] | None:
+def official_summary_replacement(
+    summary: str | None, evidence: ProjectEvidenceProjection
+) -> tuple[str, list[str]] | None:
     """Repair only boilerplate using an exact existing native-Chinese excerpt.
 
     Caller must first validate the saved Profile/evidence envelope. No new
@@ -60,7 +62,11 @@ def official_summary_replacement(summary: str | None, evidence: ProjectEvidenceP
         return None
     for ref in ("readme:narrative:positioning", "readme:narrative:tagline"):
         source = evidence.evidenceIndex.get(ref, "")
-        text = source.split(": ", 1)[1] if source.startswith(evidence.readmePath or "README") and ": " in source else source
+        text = (
+            source.split(": ", 1)[1]
+            if source.startswith(evidence.readmePath or "README") and ": " in source
+            else source
+        )
         if readable_chinese_introduction(text):
             return text, [ref]
     return None

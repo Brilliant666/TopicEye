@@ -57,7 +57,7 @@ export default function RardarTrendingPage({ board, historical = false }: { boar
   const publishedAt = historical ? board?.dailyReview?.publishedAt : board?.publishedAt;
   const shownProjects = historical ? board?.projects : board?.projects.slice(0, visible);
   const minimumGrowth = board?.minimumDailyGrowth ?? 200;
-  const noHealthySource = board?.sources.length && board.sources.every(source => source.status !== 'healthy');
+  const noHealthySource = !board?.sources.length || board.sources.every(source => source.status !== 'healthy');
   return <div className={`${styles.page} ${styles.todayPage}`} data-rardar-route={historical ? '/historical-hot' : '/'}>
     <section className={`${styles.hero} ${styles.todayHero}`} data-testid="today-hero"><div className={styles.heroContent}>
       <p className={styles.eyebrow}>{historical ? 'History · Project Review' : 'Today · Trending Repositories'}</p>

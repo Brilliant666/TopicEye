@@ -88,6 +88,12 @@ describe('daily focused lists', () => {
     expect(failed).toContain('来源暂不可用，暂时没有可展示的达标项目');
   });
 
+  it('does not report healthy empty results when no source facts exist', () => {
+    const html = renderToStaticMarkup(<RardarTrendingPage board={{ ...board, sources: [], state: 'pending' }} />);
+    expect(html).toContain('来源暂不可用，暂时没有可展示的达标项目');
+    expect(html).not.toContain('本次有效来源中暂无');
+  });
+
   it('keeps Today pagination limited to the already eligible server list', () => {
     const projects = Array.from({ length: 21 }, (_, index) => ({ ...project, projectId: `eligible-${index}`, repository: `eligible/repo-${index}` }));
     const html = renderToStaticMarkup(<RardarTrendingPage board={{ ...board, projects, rawProjectCount: 70, eligibleProjectCount: 21 }} />);

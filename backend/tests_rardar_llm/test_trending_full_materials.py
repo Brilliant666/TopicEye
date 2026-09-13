@@ -189,7 +189,9 @@ async def test_today_newcomer_and_historical_backlog_share_bounded_work(tmp_path
         return_value=SimpleNamespace(profile=object(), evidence=object(), profile_cache_state="rebuilt")
     )
     monkeypatch.setattr(service, "collect_official_project_profile", collector)
-    monkeypatch.setattr(service, "project_material", lambda *_: {"profile": {"summary": "fixture"}})
+    monkeypatch.setattr(
+        service, "project_material", lambda *_: {"profile": {"summary": "用于管理数据处理任务并查看执行日志的工具。"}}
+    )
     progress = {}
     first = await service.historical_work(tmp_path, progress, lambda: None)
     assert first["processed"] == 2

@@ -594,6 +594,7 @@ async def generate_project_material(target: Path, project_id: str) -> dict:
     This is not called by GET or board refresh. It fixes membership to a real
     saved current/history project and never creates an additional budget pool.
     """
+    from app.integrations.rardar.project_introductions import readable_chinese_introduction
     from app.services.llm.daily_provider_budget import ProviderWorkYield, calendar_day, daily_execution_budget
     from app.services.rardar_daily_operations import operation_root
 
@@ -602,7 +603,11 @@ async def generate_project_material(target: Path, project_id: str) -> dict:
     project = next((p for p in snapshot["projects"] if p["projectId"] == project_id), None)
     if project is None:
         raise LookupError("trending_project_not_found")
-    if project.get("displayProfile") is not None and project.get("materialState") != "partial":
+    if (
+        project.get("displayProfile") is not None
+        and project.get("materialState") != "partial"
+        and readable_chinese_introduction((project.get("profile") or {}).get("summary"))
+    ):
         return {"status": "reused", "projectId": project_id, "providerCalls": 0}
     work = None
     try:
@@ -767,8 +772,14 @@ async def historical_work(
     checks = rotation.setdefault("_successfulChecks", {})
 
     def due(project: dict) -> bool:
+        from app.integrations.rardar.project_introductions import readable_chinese_introduction
+
         profile = project["profile"]
-        if profile is None or project.get("materialState") == "partial":
+        if (
+            profile is None
+            or not readable_chinese_introduction(profile.get("summary", ""))
+            or project.get("materialState") == "partial"
+        ):
             return True
         checked = datetime.fromisoformat(profile["generatedAt"])
         prior = checks.get(project["repository"], {})
@@ -873,6 +884,10 @@ async def historical_work(
                         target, project, snapshot["generationId"], client, route
                     )
                     material = project_material(collected.profile, collected.evidence)
+                    from app.integrations.rardar.project_introductions import readable_chinese_introduction
+
+                    if not readable_chinese_introduction(material.get("profile", {}).get("summary")):
+                        raise ValueError("historical_intro_not_readable")
                     if collected.profile_cache_state in {"hit", "rebound", "migrated"}:
                         result["refreshed"] += 1
                         if project["profile"] is None:

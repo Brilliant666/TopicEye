@@ -14,24 +14,39 @@ CREDIT = "简体中文版由维护者创建，文字由贡献者润色。感谢�
 PURPOSE = "下载课程、视频和书籍，然后对保存的内容进行转写、转换、阅读和学习。一个免费的桌面应用，不用命令行。"
 
 
-@pytest.mark.parametrize("text", [
-    None, "", CREDIT, "感谢所有参与翻译和校对的贡献者。", "为开发者而生！",
-    "让开发更美好。", "翻译待补全", "English | 中文 | 日本語", "![状态](https://example.com/badge.svg)",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        None,
+        "",
+        CREDIT,
+        "感谢所有参与翻译和校对的贡献者。",
+        "为开发者而生！",
+        "让开发更美好。",
+        "翻译待补全",
+        "English | 中文 | 日本語",
+        "![状态](https://example.com/badge.svg)",
+    ],
+)
 def test_non_introductions_do_not_qualify(text):
     assert not readable_chinese_introduction(text)
 
 
-@pytest.mark.parametrize("text", [
-    PURPOSE, "一个支持离线全文搜索的中文文档工具。", "提供感谢信生成和模板管理的桌面应用。",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        PURPOSE,
+        "一个支持离线全文搜索的中文文档工具。",
+        "提供感谢信生成和模板管理的桌面应用。",
+    ],
+)
 def test_readable_partial_introduction_does_not_require_full_profile(text):
     assert readable_chinese_introduction(text)
 
 
 def test_actual_readme_selection_skips_translation_credit():
     # Minimal public-source reproduction; no repository-name special case.
-    markdown = f'<h1>Example</h1>\n\n<p><sub>{CREDIT}</sub></p>\n\n<p><b>{PURPOSE}</b></p>\n\n## 安装\n'
+    markdown = f"<h1>Example</h1>\n\n<p><sub>{CREDIT}</sub></p>\n\n<p><b>{PURPOSE}</b></p>\n\n## 安装\n"
     narrative = _extract_official_narrative(markdown, "README_zh_CN.md", None)
     summary, ref, *_ = _source_claims(_parse_readme(markdown, "README_zh_CN.md"), None)
     assert narrative.tagline == PURPOSE

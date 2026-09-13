@@ -54,18 +54,21 @@ async def test_today_and_history_read_new_material_without_source_refresh(tmp_pa
     source["entries"][0]["reportedDelta"] = 200
     installed = store.publish_sources(tmp_path, [source])
     before = (tmp_path / "trending-boards" / "current.json").read_bytes()
-    assert service.today()["projects"][0]["displayProfile"] is None
+    assert service.today()["projects"][0]["displayCard"] is None
     await seed(tmp_path)
     service.publish_history_review(tmp_path, trigger="manual_initialization")
     today, history = service.today(), service.history()
     first, second = today["projects"][0], history["projects"][0]
-    assert first["displayProfile"] == second["displayProfile"]
-    assert first["displayEvidence"] == second["displayEvidence"]
+    assert first["displayCard"] == second["displayCard"]
+    assert "displayProfile" not in first and "displayEvidence" not in first
+    assert "displayProfile" not in second and "displayEvidence" not in second
     assert today["generationId"] == installed["generationId"]
     assert (tmp_path / "trending-boards" / "current.json").read_bytes() == before
     detail = service.detail(first["projectId"], installed["generationId"])
     historical = service.detail(first["projectId"], None, historical=True)
-    assert detail["displayProfile"] == historical["displayProfile"] == first["displayProfile"]
+    assert detail["displayProfile"] == historical["displayProfile"]
+    assert detail["displayEvidence"] == historical["displayEvidence"]
+    assert all(detail["displayProfile"][key] == value for key, value in first["displayCard"].items())
     assert detail["displayProfile"]["generationId"] == "fixture"  # no rebinding to board
     assert detail["appearances"][0]["reportedDelta"] == 200
 

@@ -52,7 +52,8 @@ async def test_valid_zh_intro_survives_incomplete_profile_and_reads_all_contexts
         service.detail(rows[0]["projectId"], None, historical=True),
     ]
     assert all(r["profile"]["summary"] == value["summary"] for r in rows)
-    assert all(r["materialState"] == "partial" and r["displayProfile"] is None for r in rows)
+    assert all(r["materialState"] == "partial" and r.get("displayProfile") is None for r in rows)
+    assert all("displayProfile" not in r and r["displayCard"] is None for r in rows[:2])
     assert service.load_saved_project_profile(tmp_path, project.repository) is None
     assert (tmp_path / "trending-boards/current.json").read_bytes() == pointer
     again = intro.save(

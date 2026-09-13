@@ -23,6 +23,10 @@ export type BoardAppearance = BoardPeriod & {
   trendshiftMetricPeriod?: string | null;
   sourceStatus?: 'healthy' | 'stale' | 'failed'; totalStars?: number | null;
 };
+/** Validated reading fields needed by a list card; full evidence stays on detail. */
+export type TrendingCardNarrative = Pick<ProjectDetail['profile'],
+  'officialTaglineZh' | 'identitySummaryZh' | 'officialSummaryZh' | 'coreValueZh'
+  | 'positioningZh' | 'productFormsZh' | 'officialNarrativeMode' | 'positioningSourceMode'>;
 export type TrendingProject = {
   projectId: string; repository: string; repositoryUrl: string; githubRepositoryId: number | null;
   description: string | null; totalStars: number | null; dualListed: boolean;
@@ -33,13 +37,14 @@ export type TrendingProject = {
   totalStarsSource?: { source: 'github' | 'trendshift' | 'github_metadata' | 'rardar_history'; sourceDate: string | null; fetchedAt: string | null; status: 'healthy' | 'stale' | 'failed' | 'saved'; sourceUrl?: string; observedAt?: string | null; timeKind?: 'observed' | 'source_date' | 'unknown'; historicalSaved?: boolean } | null;
   materialState: 'complete' | 'partial' | 'unavailable';
   materialAttempt?: { status: string; stage?: 'source' | 'translation' | 'profile' | null; errorCode?: string | null; checkedAt?: string | null } | null;
+  displayCard?: TrendingCardNarrative | null;
   displayProfile?: ProjectDetail['profile'] | null;
   displayEvidence?: ProjectDetail['evidence'] | null;
   material?: { schemaVersion: 2; sourceKind: 'profile_cache' | 'published_serving' | 'partial_introduction'; sourceGeneration: string; sourceRevision: string; generatedAt: string | null; savedAt?: string } | null;
   language?: string | null; topics?: string[]; license?: string | null;
   metadataSource?: { fetchedAt: string; sourceUrl: string };
   productForms?: string[]; runtimeEnvironments?: string[]; artifactTypes?: string[];
-  profile: null | { summary: string; positioning: string | null; capabilities: string[]; generatedAt: string | null; savedAt?: string; sourceUrl: string; sourceLabel?: string; summaryEvidence?: Array<{ ref: string; text: string; url: string }>; useCases?: string[]; limitations?: string[] | null; startHere?: Array<{ label: string; url: string }> };
+  profile: null | { summary: string; positioning: string | null; capabilities?: string[]; generatedAt: string | null; savedAt?: string; sourceUrl: string; sourceLabel?: string; summaryEvidence?: Array<{ ref: string; text: string; url: string }>; useCases?: string[]; limitations?: string[] | null; startHere?: Array<{ label: string; url: string }> };
   historyAppearances?: number; firstSeenAt?: string | null; lastSeenAt?: string | null;
   historicalEvidence?: Array<{ source: string; sourceUrl: string; reportedAppearanceCount: number; sourceDate: string | null; fetchedAt: string }>;
   historicalRardarEvidence?: Array<{ source: 'rardar_today'; sourceGeneration: string; servingGeneration: string; rank: number; windowStartedAt: string; windowEndedAt: string; observedStarDelta?: number; totalStars: number }>;

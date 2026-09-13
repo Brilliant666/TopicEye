@@ -47,6 +47,25 @@ def order_today(projects: list[dict]) -> None:
         project["displayRank"] = rank
 
 
+def qualifying_today(snapshot: dict, *, minimum: int) -> dict:
+    """A read-only view over the entire saved union, never a new source fact."""
+    projects = [dict(project) for project in snapshot["projects"]]
+    order_today(projects)
+    unknown = sum(project["primaryGrowth"] is None for project in projects)
+    selected = [p for p in projects if p["primaryGrowth"] is not None and p["primaryGrowth"]["value"] >= minimum]
+    for rank, project in enumerate(selected, 1):
+        project["displayRank"] = rank
+    return {
+        **snapshot,
+        "projects": selected,
+        "minimumDailyGrowth": minimum,
+        "rawProjectCount": len(projects),
+        "eligibleProjectCount": len(selected),
+        "unknownGrowthCount": unknown,
+        "belowMinimumCount": len(projects) - len(selected) - unknown,
+    }
+
+
 def apply_history_context(project: dict) -> None:
     """Keep a concise appearance basis, without deriving historical growth."""
     project["primaryGrowth"] = None

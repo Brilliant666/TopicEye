@@ -16,11 +16,22 @@ const fullProfile = {
 };
 export const refocusBoard = {
   schemaVersion: 1, generationId, publishedAt: '2026-09-10T00:00:00Z', checkedAt: '2026-09-10T00:00:00Z',
+  rawProjectCount: 31, eligibleProjectCount: 23, unknownGrowthCount: 3, minimumDailyGrowth: 200,
   sources: ['github', 'trendshift'].map(source => ({ source, label: source === 'github' ? 'GitHub Trending' : 'Trendshift', status: 'healthy', sourceDate: null, fetchedAt: '2026-09-10T00:00:00Z', count: 12, errorCode: null })),
   projects: Array.from({ length: 23 }, (_, i) => ({
     projectId: `fixture-project-${i}--` + 'b'.repeat(20), repository: `fixture/project-${i}`, repositoryUrl: `https://github.com/fixture/project-${i}`, githubRepositoryId: null,
     description: i === 0 ? 'A real-material shape, synthetic fixture content.' : null, totalStars: null, dualListed: i === 0,
+    primaryGrowth: { source: i % 2 ? 'github' : 'trendshift', value: 223 - i },
     appearances: (i === 0 ? ['github', 'trendshift'] : [i % 2 ? 'github' : 'trendshift']).map(source => ({ source, rank: i + 1, sourceDate: null, fetchedAt: '2026-09-10T00:00:00Z', period: 'daily', reportedDelta: null })),
     materialState: i === 0 ? 'complete' : 'unavailable', profile: null, displayProfile: i === 0 ? fullProfile : null, historyAppearances: 1, firstSeenAt: null, lastSeenAt: null,
   })),
+};
+export const refocusHistory = {
+  ...refocusBoard,
+  projects: refocusBoard.projects.slice(0, 8).map((project, index) => ({
+    ...project, primaryGrowth: null,
+    profile: index ? { summary: '仅用于验证每日回顾页面的合成中文介绍。', positioning: null, capabilities: [], generatedAt: null, sourceUrl: project.repositoryUrl } : null,
+    materialState: index ? 'partial' : 'complete',
+  })),
+  dailyReview: { date: '2026-09-09', publishedAt: '2026-09-09T01:00:00Z', projectIds: refocusBoard.projects.slice(0, 8).map(project => project.projectId), candidateCount: 63, relaxedRecentWindow: false, limit: 8, lookbackDays: 7, trigger: 'main' },
 };

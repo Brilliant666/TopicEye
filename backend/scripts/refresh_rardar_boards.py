@@ -20,9 +20,20 @@ def main():
     parser.add_argument(
         "--history-once", action="store_true", help="Also import the public historical appearance index; no AI"
     )
+    parser.add_argument(
+        "--publish-history-review",
+        action="store_true",
+        help="Only initialize today's saved history review from local materials; no boards, metadata or AI",
+    )
     args = parser.parse_args()
 
     async def run():
+        if args.publish_history_review:
+            if args.metadata_only or args.history_once:
+                parser.error("--publish-history-review cannot be combined with source refresh options")
+            from app.services.rardar_trending import publish_history_review
+
+            return publish_history_review(Path(settings.RARDAR_INTELLIGENCE_DATA_DIR), trigger="manual_initialization")
         result = (
             await refresh_metadata(Path(settings.RARDAR_INTELLIGENCE_DATA_DIR))
             if args.metadata_only

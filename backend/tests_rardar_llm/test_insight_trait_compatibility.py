@@ -28,7 +28,7 @@ async def saved(tmp_path, monkeypatch):
         }
     )
     retained = [SimpleNamespace(profile=original, evidence=envelope.evidence, project=None)]
-    monkeypatch.setattr(materials, "_retained_serving_details", lambda _: retained)
+    monkeypatch.setattr(materials, "_retained_serving_details", lambda _, repositories=None: retained)
     monkeypatch.setattr(insight.settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(insight, "resolve_rardar_route_identity", AsyncMock(return_value="fixture-route"))
     insight._RUNNING.clear()

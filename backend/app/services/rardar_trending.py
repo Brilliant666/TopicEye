@@ -155,8 +155,8 @@ def project_material(profile, evidence, *, source_kind: str = "profile_cache", m
     }
 
 
-def _retained_serving_details(target: Path):
-    """Enumerate only source-indexed publications through the original loader."""
+def _retained_serving_snapshots(target: Path):
+    """Read source-indexed fact summaries, not every project's Profile body."""
     from app.integrations.rardar.serving import ServingProjectionLoader
 
     loader = ServingProjectionLoader(target)
@@ -172,21 +172,70 @@ def _retained_serving_details(target: Path):
             if snapshot.servingGenerationId in visited:
                 continue
             visited.add(snapshot.servingGenerationId)
-            for row in snapshot.exactRanked:
-                try:
-                    detail, _ = loader.load_project_with_etag(row.githubRepositoryId, snapshot.generationId)
-                    yield detail
-                except (ValueError, OSError, RuntimeError):
-                    continue
+            yield snapshot
         except (ValueError, OSError, RuntimeError):
             pass
 
 
-def saved_materials(target: Path, *, original_profile_digest: str | None = None) -> dict:
+def _retained_serving_details(target: Path, *, repositories: set[str] | None = None):
+    """Load requested bodies only, retaining the original manifest validators."""
+    from app.integrations.rardar.serving import ServingProjectionLoader
+
+    loader = ServingProjectionLoader(target)
+    for snapshot in _retained_serving_snapshots(target):
+        for row in snapshot.exactRanked:
+            if repositories is not None and canonical_repository(row.repository) not in repositories:
+                continue
+            try:
+                detail, _ = loader.load_project_with_etag(row.githubRepositoryId, snapshot.generationId)
+                yield detail
+            except (ValueError, OSError, RuntimeError):
+                continue
+
+
+def _selected_material_ids(target: Path, repositories: set[str] | None) -> set[int] | None:
+    """Use existing small identity indexes; unknown legacy IDs retain fallback.
+
+    This is a read optimization, not new authority: every selected envelope's
+    repository, numeric identity and file binding are still validated below.
+    """
+    if repositories is None:
+        return None
+    known = {repo: set() for repo in repositories}
+    for repo in repositories:
+        try:
+            metadata = trending_metadata.read(target, {"repository": repo})
+            if metadata:
+                known[repo].add(metadata["githubRepositoryId"])
+        except (ValueError, OSError):
+            pass
+    for snapshot in _retained_serving_snapshots(target):
+        for row in snapshot.exactRanked:
+            repo = canonical_repository(row.repository)
+            if repo in known:
+                known[repo].add(row.githubRepositoryId)
+    # Captures contain identities but never full Profile/evidence bodies.
+    for row in historical_snapshot(target)["projects"]:
+        if row["repository"] in known and type(row.get("githubRepositoryId")) is int:
+            known[row["repository"]].add(row["githubRepositoryId"])
+    if any(not ids for ids in known.values()):
+        return None
+    return {identifier for ids in known.values() for identifier in ids}
+
+
+def saved_materials(
+    target: Path, *, original_profile_digest: str | None = None, repositories: set[str] | None = None
+) -> dict:
+    if repositories is not None:
+        repositories = {canonical_repository(repo) for repo in repositories}
+    selected_ids = _selected_material_ids(target, repositories)
     found, times = {}, {}
 
     def remember(profile, evidence, *, source_kind="profile_cache", metadata=None):
         from app.integrations.rardar.material_trait_revision import apply_saved
+
+        if repositories is not None and canonical_repository(profile.repository) not in repositories:
+            return
 
         # Internal insight compatibility lookup: select the exact immutable
         # original, not whichever newer interpretation happens to be latest.
@@ -213,7 +262,7 @@ def saved_materials(target: Path, *, original_profile_digest: str | None = None)
 
     # Published v8/legacy projections remain readable through their existing
     # validators even when an older cache-envelope schema is no longer current.
-    for detail in _retained_serving_details(target):
+    for detail in _retained_serving_details(target, repositories=repositories):
         try:
             remember(detail.profile, detail.evidence, source_kind="published_serving", metadata=detail.project)
         except (ValueError, OSError, RuntimeError):
@@ -222,6 +271,8 @@ def saved_materials(target: Path, *, original_profile_digest: str | None = None)
         root = target / name / "profile-store" / "v2"
         plain(root, missing=True)
         for directory in sorted(root.iterdir()) if root.exists() else []:
+            if selected_ids is not None and directory.name not in {str(identifier) for identifier in selected_ids}:
+                continue
             plain(directory)
             if not directory.is_dir():
                 continue
@@ -241,8 +292,23 @@ def saved_materials(target: Path, *, original_profile_digest: str | None = None)
         from app.integrations.rardar import project_introductions
 
         for name in ("profile-cache", "selection-profile-cache"):
-            for repository, introduction in project_introductions.saved(target / name).items():
-                if repository not in found:
+            if selected_ids is None:
+                introductions = project_introductions.saved(target / name)
+            else:
+                introductions = {}
+                root = target / name / "introductions"
+                plain(root, missing=True)
+                for identifier in selected_ids:
+                    for path in sorted((root / str(identifier)).glob("*.json")):
+                        try:
+                            value = project_introductions.read(path)
+                            previous = introductions.get(value["repository"])
+                            if previous is None or value["savedAt"] > previous["savedAt"]:
+                                introductions[value["repository"]] = value
+                        except (ValueError, KeyError, TypeError, OSError):
+                            continue
+            for repository, introduction in introductions.items():
+                if repository not in found and (repositories is None or repository in repositories):
                     found[repository] = project_introductions.material(introduction)
     return found
 
@@ -253,8 +319,9 @@ def _history_with_materials(target: Path, materials: dict) -> dict:
     snapshot = historical_snapshot(target, materials=materials)
     projects = {project["repository"]: project for project in snapshot["projects"]}
     seen = set()
-    for detail in _retained_serving_details(target):
-        fact = detail.project
+    for publication, fact in (
+        (saved, row) for saved in _retained_serving_snapshots(target) for row in saved.exactRanked
+    ):
         repository = canonical_repository(fact.repository)
         existing = projects.get(repository)
         if existing and existing.get("githubRepositoryId") not in (None, fact.githubRepositoryId):
@@ -286,8 +353,8 @@ def _history_with_materials(target: Path, materials: dict) -> dict:
         project.setdefault("historicalRardarEvidence", []).append(
             {
                 "source": "rardar_today",
-                "sourceGeneration": detail.generationId,
-                "servingGeneration": detail.servingGenerationId,
+                "sourceGeneration": publication.generationId,
+                "servingGeneration": publication.servingGenerationId,
                 "rank": fact.rank,
                 "windowStartedAt": fact.windowStartedAt.isoformat(),
                 "windowEndedAt": fact.windowEndedAt.isoformat(),
@@ -345,20 +412,102 @@ async def refresh_metadata(target: Path, projects: list[dict] | None = None) -> 
         headers={"User-Agent": "TopicEye-Rardar/2.0"},
     ) as client:
         return await trending_metadata.refresh(
-            target, projects if projects is not None else load_snapshot(target)["projects"], client
+            target, projects if projects is not None else today_candidates(target)["projects"], client
         )
+
+
+def today_candidates(target: Path) -> dict:
+    from app.integrations.rardar.trending_metrics import qualifying_today
+
+    return qualifying_today(load_snapshot(target), minimum=settings.RARDAR_TODAY_MINIMUM_DAILY_GROWTH)
 
 
 def today() -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
     return _material_attempts(
-        trending_metadata.apply(apply_materials(load_snapshot(target), saved_materials(target)), target), target
+        trending_metadata.apply(apply_materials(today_candidates(target), saved_materials(target)), target), target
     )
 
 
 def history() -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
-    return _material_attempts(_history_with_materials(target, saved_materials(target)), target)
+    return daily_history_view(target)
+
+
+def publish_history_review(target: Path, *, now=None, trigger="main") -> dict:
+    """Zero-outbound daily publication, independent of board and model health."""
+    from app.integrations.rardar import historical_daily
+    from app.integrations.rardar.project_introductions import readable_chinese_introduction
+
+    snapshot = _history_with_materials(target, saved_materials(target))
+    eligible = [
+        p
+        for p in snapshot["projects"]
+        if p.get("profile") and readable_chinese_introduction(p["profile"].get("summary", ""))
+    ]
+    return historical_daily.publish(
+        target,
+        eligible,
+        now=now or datetime.now(UTC),
+        trigger=trigger,
+        limit=settings.RARDAR_HISTORICAL_REVIEW_SIZE,
+        avoidance_days=settings.RARDAR_HISTORICAL_REVIEW_LOOKBACK,
+    )
+
+
+def daily_history_view(target: Path) -> dict:
+    from app.integrations.rardar import historical_daily
+
+    batch = historical_daily.read_latest(target)
+    if batch is None:
+        return {
+            "schemaVersion": 1,
+            "generationId": None,
+            "publishedAt": None,
+            "checkedAt": None,
+            "sources": [],
+            "projects": [],
+            "dailyReview": None,
+            "state": "pending_daily_review",
+        }
+    repositories = {item["repository"] for item in batch["identities"]}
+    snapshot = _history_with_materials(target, saved_materials(target, repositories=repositories))
+    by_id = {p["projectId"]: p for p in snapshot["projects"]}
+    identities = {item["projectId"]: item for item in batch["identities"]}
+    selected = []
+    for identifier in batch["projectIds"]:
+        project = by_id.get(identifier)
+        identity = identities[identifier]
+        if project is None or (
+            identity.get("githubRepositoryId") is not None
+            and project.get("githubRepositoryId") not in (None, identity["githubRepositoryId"])
+        ):
+            project = {
+                **identity,
+                "repositoryUrl": f"https://github.com/{identity['repository']}",
+                "description": None,
+                "totalStars": None,
+                "appearances": [],
+                "dualListed": False,
+                "profile": None,
+                "materialState": "unavailable",
+                "materialAttempt": {
+                    "status": "failed",
+                    "stage": "source",
+                    "errorCode": "saved_project_unavailable",
+                },
+            }
+        selected.append(project)
+    return _material_attempts(
+        {
+            **snapshot,
+            "projects": selected,
+            "publishedAt": batch["publishedAt"],
+            "dailyReview": {k: v for k, v in batch.items() if k != "identities"},
+            "state": "ready",
+        },
+        target,
+    )
 
 
 def _material_attempts(snapshot: dict, target: Path) -> dict:
@@ -375,7 +524,11 @@ def _material_attempts(snapshot: dict, target: Path) -> dict:
 
 def detail(identifier: str, generation: str | None, *, historical: bool = False) -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
-    snapshot = history() if historical else apply_materials(load_snapshot(target, generation), saved_materials(target))
+    snapshot = (
+        _history_with_materials(target, saved_materials(target))
+        if historical
+        else apply_materials(load_snapshot(target, generation), saved_materials(target))
+    )
     trending_metadata.apply(snapshot, target)
     _material_attempts(snapshot, target)
     for project in snapshot["projects"]:
@@ -441,6 +594,7 @@ async def generate_project_material(target: Path, project_id: str) -> dict:
     This is not called by GET or board refresh. It fixes membership to a real
     saved current/history project and never creates an additional budget pool.
     """
+    from app.integrations.rardar.project_introductions import readable_chinese_introduction
     from app.services.llm.daily_provider_budget import ProviderWorkYield, calendar_day, daily_execution_budget
     from app.services.rardar_daily_operations import operation_root
 
@@ -449,7 +603,11 @@ async def generate_project_material(target: Path, project_id: str) -> dict:
     project = next((p for p in snapshot["projects"] if p["projectId"] == project_id), None)
     if project is None:
         raise LookupError("trending_project_not_found")
-    if project.get("displayProfile") is not None and project.get("materialState") != "partial":
+    if (
+        project.get("displayProfile") is not None
+        and project.get("materialState") != "partial"
+        and readable_chinese_introduction((project.get("profile") or {}).get("summary"))
+    ):
         return {"status": "reused", "projectId": project_id, "providerCalls": 0}
     work = None
     try:
@@ -588,7 +746,11 @@ async def historical_work(
     materials = saved_materials(target)
     snapshot = _history_with_materials(target, materials)
     projects = snapshot["projects"]
-    today_repositories = {p["repository"] for p in load_snapshot(target)["projects"]}
+    today_repositories = {p["repository"] for p in today_candidates(target)["projects"]}
+    from app.integrations.rardar import historical_daily
+
+    review = historical_daily.read_latest(target)
+    review_ids = set(review["projectIds"]) if review else set()
     result = {
         "checked": len(projects),
         "reused": sum(p["profile"] is not None for p in projects),
@@ -610,8 +772,14 @@ async def historical_work(
     checks = rotation.setdefault("_successfulChecks", {})
 
     def due(project: dict) -> bool:
+        from app.integrations.rardar.project_introductions import readable_chinese_introduction
+
         profile = project["profile"]
-        if profile is None or project.get("materialState") == "partial":
+        if (
+            profile is None
+            or not readable_chinese_introduction(profile.get("summary", ""))
+            or project.get("materialState") == "partial"
+        ):
             return True
         checked = datetime.fromisoformat(profile["generatedAt"])
         prior = checks.get(project["repository"], {})
@@ -671,19 +839,11 @@ async def historical_work(
     pending.sort(
         key=lambda p: (p.get("profile") is not None, p["repository"] not in records, rotation.get(p["repository"], ""))
     )
-    queues = {
-        "today": [p for p in pending if p["repository"] in today_repositories],
-        "historical": [p for p in pending if p["repository"] not in today_repositories],
-    }
-    scope = rotation.get("_nextMaterialScope", "today")
-    if scope not in queues:
-        scope = "today"
-    pending = []
-    while any(queues.values()):
-        if not queues[scope]:
-            scope = "historical" if scope == "today" else "today"
-        pending.append(queues[scope].pop(0))
-        scope = "historical" if scope == "today" else "today"
+    # Reading gaps are ordered by the actual published scope. The existing
+    # slice, interactive reservation and retry debit remain authoritative.
+    pending.sort(
+        key=lambda p: (0 if p["repository"] in today_repositories else 1 if p["projectId"] in review_ids else 2)
+    )
     completed = set()
     with work_slice(max_requests=MATERIAL_PROVIDER_SLICE_LIMIT, background=True) as work:
         async with httpx.AsyncClient(
@@ -724,6 +884,10 @@ async def historical_work(
                         target, project, snapshot["generationId"], client, route
                     )
                     material = project_material(collected.profile, collected.evidence)
+                    from app.integrations.rardar.project_introductions import readable_chinese_introduction
+
+                    if not readable_chinese_introduction(material.get("profile", {}).get("summary")):
+                        raise ValueError("historical_intro_not_readable")
                     if collected.profile_cache_state in {"hit", "rebound", "migrated"}:
                         result["refreshed"] += 1
                         if project["profile"] is None:
@@ -846,9 +1010,20 @@ async def run_daily_refocus() -> dict:
                 save()
                 return modules["historical_hot"]
 
+            async def review_work(clock, trigger):
+                result = await asyncio.to_thread(
+                    publish_history_review, Path(settings.RARDAR_INTELLIGENCE_DATA_DIR), now=clock, trigger=trigger
+                )
+                modules["historical_review"] = {"status": "published", **result}
+                save()
+                return result
+
             try:
                 result = await run_refresh(
-                    Path(settings.RARDAR_INTELLIGENCE_DATA_DIR), trigger="automatic", material_work=material_work
+                    Path(settings.RARDAR_INTELLIGENCE_DATA_DIR),
+                    trigger="automatic",
+                    material_work=material_work,
+                    review_work=review_work,
                 )
                 if result["status"] == "skipped":
                     state.update(status="skipped", reason=result["reason"], completedAt=datetime.now(UTC).isoformat())
@@ -857,6 +1032,8 @@ async def run_daily_refocus() -> dict:
                 modules["today"] = {k: v for k, v in result.items() if k != "materials"}
                 if result.get("materials"):
                     modules["historical_hot"] = result["materials"]
+                if result.get("historyReview"):
+                    modules["historical_review"] = result["historyReview"]
             except Exception:
                 modules["today"] = {"status": "failed", "errorCode": "board_refresh_failed", "oldResultPreserved": True}
             modules["find"] = {"status": "on_demand", "interactivePriority": True}

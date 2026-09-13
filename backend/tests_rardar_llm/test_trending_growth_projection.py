@@ -203,9 +203,11 @@ def test_rardar_only_historical_total_uses_latest_window_without_overriding_exte
                 "observedStarDelta": delta,
             }
         )
-        publications.append(SimpleNamespace(project=fact, generationId=day, servingGenerationId=f"serving-{day}"))
+        # Archive facts now come from the validated Today snapshot index;
+        # loading every retained detail/Profile body is deliberately avoided.
+        publications.append(SimpleNamespace(exactRanked=[fact], generationId=day, servingGenerationId=f"serving-{day}"))
     monkeypatch.setattr(
-        service, "_retained_serving_details", lambda _target: iter(publications[::-1] if reverse else publications)
+        service, "_retained_serving_snapshots", lambda _target: iter(publications[::-1] if reverse else publications)
     )
     if archive:
         store.import_historical_evidence(

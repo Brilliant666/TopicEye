@@ -1,7 +1,7 @@
 // Synthetic HTTP auth fixture only. No database, GitHub or Provider access.
 import { createServer } from 'node:http';
 import { periodSelection } from './selection-period-fixture.mjs';
-import { refocusBoard } from './refocus-fixture.mjs';
+import { refocusBoard, refocusHistory } from './refocus-fixture.mjs';
 
 let adminReads = 0;
 const server = createServer((request, response) => {
@@ -9,7 +9,7 @@ const server = createServer((request, response) => {
   response.setHeader('Cache-Control', 'no-store');
   const url = new URL(request.url, 'http://127.0.0.1');
   if (request.method === 'GET' && ['/api/v1/rardar/trending-today', '/api/v1/rardar/historical-hot'].includes(url.pathname)) {
-    response.end(JSON.stringify(refocusBoard));
+    response.end(JSON.stringify(url.pathname.endsWith('/historical-hot') ? refocusHistory : refocusBoard));
     return;
   }
   if (request.method === 'GET' && /\/rardar\/(trending-projects|historical-projects)\//.test(url.pathname)) {

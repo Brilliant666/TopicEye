@@ -50,10 +50,13 @@ async def test_newly_exposed_claims_and_path_bindings_are_not_unchecked(tmp_path
 @pytest.mark.asyncio
 async def test_today_and_history_read_new_material_without_source_refresh(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(tmp_path))
-    installed = store.publish_sources(tmp_path, [board("github", [_project().repository])])
+    source = board("github", [_project().repository])
+    source["entries"][0]["reportedDelta"] = 200
+    installed = store.publish_sources(tmp_path, [source])
     before = (tmp_path / "trending-boards" / "current.json").read_bytes()
     assert service.today()["projects"][0]["displayProfile"] is None
     await seed(tmp_path)
+    service.publish_history_review(tmp_path, trigger="manual_initialization")
     today, history = service.today(), service.history()
     first, second = today["projects"][0], history["projects"][0]
     assert first["displayProfile"] == second["displayProfile"]
@@ -64,7 +67,7 @@ async def test_today_and_history_read_new_material_without_source_refresh(tmp_pa
     historical = service.detail(first["projectId"], None, historical=True)
     assert detail["displayProfile"] == historical["displayProfile"] == first["displayProfile"]
     assert detail["displayProfile"]["generationId"] == "fixture"  # no rebinding to board
-    assert detail["appearances"][0]["reportedDelta"] is None
+    assert detail["appearances"][0]["reportedDelta"] == 200
 
 
 @pytest.mark.asyncio
@@ -108,7 +111,9 @@ def test_retained_publication_is_read_through_source_manifest_and_not_current_on
     monkeypatch.setattr(settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(root))
     materials = service.saved_materials(root)
     assert old.exactRanked[0].repository.lower() in materials
-    snapshot = service.history()
+    # Retained archive evidence is still accessible internally and by detail;
+    # the public history endpoint now contains only its fixed daily selection.
+    snapshot = service._history_with_materials(root, materials)
     row = next(p for p in snapshot["projects"] if p["repository"] == old.exactRanked[0].repository.lower())
     assert row["displayProfile"] is not None
     assert row["appearances"] == []
@@ -148,7 +153,9 @@ async def test_today_newcomer_and_historical_backlog_share_bounded_work(tmp_path
     from app.services import rardar_llm_control
     from app.services.llm import daily_provider_budget
 
-    store.publish_sources(tmp_path, [board("github", ["current/new-repo"])])
+    source = board("github", ["current/new-repo"])
+    source["entries"][0]["reportedDelta"] = 200
+    store.publish_sources(tmp_path, [source])
     store.import_historical_evidence(
         tmp_path,
         {
@@ -182,7 +189,9 @@ async def test_today_newcomer_and_historical_backlog_share_bounded_work(tmp_path
         return_value=SimpleNamespace(profile=object(), evidence=object(), profile_cache_state="rebuilt")
     )
     monkeypatch.setattr(service, "collect_official_project_profile", collector)
-    monkeypatch.setattr(service, "project_material", lambda *_: {"profile": {"summary": "fixture"}})
+    monkeypatch.setattr(
+        service, "project_material", lambda *_: {"profile": {"summary": "用于管理数据处理任务并查看执行日志的工具。"}}
+    )
     progress = {}
     first = await service.historical_work(tmp_path, progress, lambda: None)
     assert first["processed"] == 2

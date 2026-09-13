@@ -8,7 +8,8 @@ from pathlib import Path
 from app.integrations.rardar.serving_schemas import OfficialProjectProfile
 from app.services.llm.provider_budget import ProviderBudgetError, atomic, digest, file_lock, plain
 
-VERSION = "rardar-material-reading-v1"
+VERSION = "rardar-material-reading-v2"
+LEGACY_VERSION = "rardar-material-reading-v1"
 TEMPLATE = re.compile(
     r"最值得继续理解的是它把|该项目把「.*作为有仓库证据支撑的主要交付能力|它把「.*让项目能力与实际采用场景形成清晰对应"
 )
@@ -26,7 +27,7 @@ def first_sentence(text: str) -> str:
     return re.split(r"(?<=[。！？])\s*", text, maxsplit=1)[0].strip()
 
 
-def derive(profile, evidence) -> dict:
+def derive(profile, evidence, *, repair_introduction: bool = True) -> dict:
     value = profile.model_dump(mode="json")
     refs = value["claimEvidenceRefs"]
 
@@ -42,7 +43,17 @@ def derive(profile, evidence) -> dict:
         value.update(rardarAssessmentZh=None, rardarAssessmentEvidenceRefs=[])
     summary = value.get("identitySummaryZh") or value["officialSummaryZh"]
     summary_refs = refs.get(summary, [])
-    if len(STATS.findall(summary)) >= 2:
+    replacement = None
+    if repair_introduction:
+        from app.integrations.rardar.project_introductions import official_summary_replacement
+
+        replacement = official_summary_replacement(summary, evidence)
+    if replacement is not None:
+        summary, summary_refs = replacement
+        first = first_sentence(summary)
+        if len(first) >= 10:
+            summary = first
+    elif len(STATS.findall(summary)) >= 2:
         for key, text in evidence.evidenceIndex.items():
             if key.endswith("narrative:tagline"):
                 candidate = clean(text.split(": ", 1)[-1])
@@ -59,6 +70,19 @@ def derive(profile, evidence) -> dict:
     if summary != value.get("identitySummaryZh"):
         for field in ("identitySummaryZh", "officialSummaryZh", "officialTaglineZh"):
             claim(field, summary, summary_refs, "officialTaglineEvidenceRefs" if field == "officialTaglineZh" else None)
+    if replacement is not None:
+        from app.integrations.rardar.serving_profiles import _primary_semantic_duplicate
+
+        if value.get("positioningZh") and _primary_semantic_duplicate(summary, value["positioningZh"]):
+            # Promote the useful statement once; do not invent a second role
+            # merely to replace a translation credit in the old summary slot.
+            value.update(
+                positioningZh=None,
+                positioningEvidenceRefs=[],
+                positioningSourceMode="insufficient",
+                positioningIncludedRoles=[],
+                positioningExcludedClauses=[],
+            )
     positioning = value.get("positioningZh") or ""
     if len(positioning) > 160 or re.search(r"生产环境|高强度日常|获胜者", positioning):
         shorter = first_sentence(positioning)
@@ -138,8 +162,8 @@ def derive(profile, evidence) -> dict:
     return {key: item for key, item in value.items() if item != original.get(key)}
 
 
-def _path(target, profile):
-    identity = {"sourceProfile": digest(profile.model_dump(mode="json")), "version": VERSION}
+def _path(target, profile, version=VERSION):
+    identity = {"sourceProfile": digest(profile.model_dump(mode="json")), "version": version}
     return target / "profile-cache" / "display-content-revisions" / f"{digest(identity)}.json"
 
 
@@ -181,17 +205,25 @@ def apply_saved(target: Path, profile, evidence, material: dict) -> dict:
     except ProviderBudgetError as exc:
         raise ValueError("material_content_revision_path_invalid") from exc
     if not path.exists():
-        return material
+        # Older immutable display revisions retain their original algorithm;
+        # introducing a new repair must not invalidate unrelated saved repairs.
+        path = _path(target, profile, LEGACY_VERSION)
+        try:
+            plain(path, missing=True)
+        except ProviderBudgetError as exc:
+            raise ValueError("material_content_revision_path_invalid") from exc
+        if not path.exists():
+            return material
     if path.stat().st_size > 200_000:
         raise ValueError("material_content_revision_oversized")
     record = json.loads(path.read_bytes())
     if not isinstance(record, dict) or not isinstance(record.get("derivedAt"), str):
         raise ValueError("material_content_revision_invalid")
     if (
-        record.get("version") != VERSION
+        record.get("version") not in {VERSION, LEGACY_VERSION}
         or record.get("sourceProfileDigest") != digest(profile.model_dump(mode="json"))
         or record.get("sourceEvidenceDigest") != evidence.digest
-        or record.get("fields") != derive(profile, evidence)
+        or record.get("fields") != derive(profile, evidence, repair_introduction=record.get("version") == VERSION)
         or record.get("digest") != digest({k: v for k, v in record.items() if k != "digest"})
         or record.get("sourceGeneratedAt") != profile.generatedAt.isoformat()
         or datetime.fromisoformat(record["derivedAt"]).tzinfo is None

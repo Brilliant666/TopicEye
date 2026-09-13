@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TrendingCard } from '@/components/RardarTrendingPage';
-import { boardTime, loadTrending, projectLink, safeSourceUrl, type TrendingProject } from '@/lib/rardar-trending';
+import RardarTrendingPage, { TrendingCard } from '@/components/RardarTrendingPage';
+import { boardTime, loadTrending, projectLink, safeSourceUrl, type TrendingBoard, type TrendingProject } from '@/lib/rardar-trending';
 
 vi.mock('@/components/RardarTodayOperations', () => ({ default: () => null }));
 const project: TrendingProject = { projectId: 'new-repo--12345678901234567890', repository: 'new/repo', repositoryUrl: 'https://github.com/new/repo', githubRepositoryId: null, totalStars: null, description: null, dualListed: true, appearances: [{ source: 'github', rank: 1, sourceDate: null, fetchedAt: '2026-09-10T00:00:00Z', period: 'daily', reportedDelta: null }, { source: 'trendshift', rank: 4, sourceDate: '2026-09-09', fetchedAt: '2026-09-10T00:00:00Z', period: 'daily', reportedDelta: null }], materialState: 'unavailable', profile: null };
@@ -39,5 +39,66 @@ describe('refocused trending reading', () => {
     expect(await loadTrending('trending-today', fetcher)).toBeNull();
     expect(fetcher).toHaveBeenCalledOnce();
     expect(fetcher.mock.calls[0][1]).toMatchObject({ cache: 'no-store' });
+  });
+});
+
+const board: TrendingBoard = {
+  schemaVersion: 1, generationId: 'boards-saved', publishedAt: '2026-09-13T01:00:00Z',
+  checkedAt: '2026-09-13T01:00:01Z', sources: [], projects: [],
+};
+
+describe('daily focused lists', () => {
+  it('renders the server-selected history batch in its saved order without loading a catalog', () => {
+    const projects = [8, 3, 5].map(value => ({ ...project, projectId: `saved-${value}`, repository: `saved/repo-${value}` }));
+    const html = renderToStaticMarkup(<RardarTrendingPage historical board={{ ...board, projects, dailyReview: {
+      date: '2026-09-12', publishedAt: '2026-09-12T01:00:00Z', projectIds: projects.map(item => item.projectId),
+      candidateCount: 132, limit: 8, lookbackDays: 7, relaxedRecentWindow: false, trigger: 'main',
+    } }} />);
+    expect(html).toContain('本期回顾 · 3 项');
+    expect(html).toContain('回顾日期 2026-09-12');
+    expect(html).not.toContain('2026/9/13');
+    expect(html).not.toContain('132');
+    expect(html).not.toContain('加载更多');
+    expect(html).not.toContain('按累计 Star');
+    expect(html).toContain('展示序号不是热度排名');
+    expect(html.indexOf('saved/repo-8')).toBeLessThan(html.indexOf('saved/repo-3'));
+    expect(html.indexOf('saved/repo-3')).toBeLessThan(html.indexOf('saved/repo-5'));
+  });
+
+  it('shows an unpublished review instead of pretending board publication is review publication', () => {
+    const html = renderToStaticMarkup(<RardarTrendingPage historical board={{ ...board, state: 'pending_daily_review' }} />);
+    expect(html).toContain('尚未发布每日回顾');
+    expect(html).not.toContain('2026/9/13');
+    expect(html).not.toContain('加载更多');
+  });
+
+  it('reports the configured growth cutoff and distinct raw, eligible and unknown counts', () => {
+    const html = renderToStaticMarkup(<RardarTrendingPage board={{ ...board, projects: [project], rawProjectCount: 37, eligibleProjectCount: 1, unknownGrowthCount: 4, minimumDailyGrowth: 200 }} />);
+    expect(html).toContain('展示来源报告日增长≥200的项目');
+    expect(html).toContain('双榜项目优先采用GitHub Trending');
+    expect(html).toContain('来源去重共 37 项 · 达标 1 项 · 主增长未知 4 项');
+    expect(html).toContain('1 个达标项目');
+  });
+
+  it('distinguishes healthy below-cutoff emptiness from unavailable sources', () => {
+    const healthySource = { source: 'github' as const, label: 'GitHub Trending', status: 'healthy' as const, sourceDate: '2026-09-12', fetchedAt: '2026-09-13T01:00:00Z', errorCode: null, count: 2 };
+    const healthy = renderToStaticMarkup(<RardarTrendingPage board={{ ...board, sources: [healthySource] }} />);
+    expect(healthy).toContain('本次有效来源中暂无日增长达到 200 的项目');
+    const failed = renderToStaticMarkup(<RardarTrendingPage board={{ ...board, sources: [{ ...healthySource, status: 'failed' }] }} />);
+    expect(failed).toContain('来源暂不可用，暂时没有可展示的达标项目');
+  });
+
+  it('does not report healthy empty results when no source facts exist', () => {
+    const html = renderToStaticMarkup(<RardarTrendingPage board={{ ...board, sources: [], state: 'pending' }} />);
+    expect(html).toContain('来源暂不可用，暂时没有可展示的达标项目');
+    expect(html).not.toContain('本次有效来源中暂无');
+  });
+
+  it('keeps Today pagination limited to the already eligible server list', () => {
+    const projects = Array.from({ length: 21 }, (_, index) => ({ ...project, projectId: `eligible-${index}`, repository: `eligible/repo-${index}` }));
+    const html = renderToStaticMarkup(<RardarTrendingPage board={{ ...board, projects, rawProjectCount: 70, eligibleProjectCount: 21 }} />);
+    expect((html.match(/data-project-id=/g) ?? [])).toHaveLength(20);
+    expect(html).toContain('加载更多（剩余 1 项）');
+    expect(html).not.toContain('eligible/repo-20');
   });
 });

@@ -83,7 +83,9 @@ def waiting_history(isolated, monkeypatch):
         yield
 
     monkeypatch.setattr(daily_provider_budget, "combined_budget_execution", reserve)
-    monkeypatch.setattr(service, "project_material", lambda *_: {"profile": {"summary": "fixture"}})
+    monkeypatch.setattr(
+        service, "project_material", lambda *_: {"profile": {"summary": "用于管理数据处理任务并查看执行日志的工具。"}}
+    )
     return ledger
 
 
@@ -246,8 +248,17 @@ async def test_old_rebound_reading_is_checked_without_repeated_daily_work(isolat
 
     store.publish_sources(isolated, [board("github", ["org/a"])])
     now = datetime.now(UTC)
-    profile = {"summary": "saved", "generatedAt": (now - timedelta(days=40)).isoformat(), "sourceGeneration": "old"}
-    project = {"repository": "org/a", "profile": profile, "totalStars": 10}
+    profile = {
+        "summary": "用于管理数据处理任务并查看执行日志的工具。",
+        "generatedAt": (now - timedelta(days=40)).isoformat(),
+        "sourceGeneration": "old",
+    }
+    project = {
+        "repository": "org/a",
+        "projectId": service.project_id_for_repository("org/a"),
+        "profile": profile,
+        "totalStars": 10,
+    }
     monkeypatch.setattr(
         service, "historical_snapshot", lambda *_args, **_kwargs: {"projects": [project], "generationId": "current"}
     )
@@ -379,7 +390,9 @@ async def test_historical_one_failure_does_not_block_next_project(isolated, monk
         return_value=SimpleNamespace(profile=object(), evidence=object(), profile_cache_state="rebuilt")
     )
     monkeypatch.setattr(service, "collect_official_project_profile", collector)
-    monkeypatch.setattr(service, "project_material", lambda *_: {"profile": {"summary": "fixture"}})
+    monkeypatch.setattr(
+        service, "project_material", lambda *_: {"profile": {"summary": "用于管理数据处理任务并查看执行日志的工具。"}}
+    )
     result = await service.historical_work(isolated, {}, lambda: None)
     assert result["failed"] == 1
     assert result["processed"] == 1

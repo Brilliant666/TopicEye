@@ -18,7 +18,13 @@ def work(tmp_path, monkeypatch):
     today = ["current/one", "current/two", "current/three", "current/four"]
     history = ["history/one", "history/two", "history/three", "history/four"]
     projects = [
-        {"repository": repo, "projectId": service.project_id_for_repository(repo), "profile": None, "totalStars": 10}
+        {
+            "repository": repo,
+            "projectId": service.project_id_for_repository(repo),
+            "profile": None,
+            "totalStars": 10,
+            "appearances": [{"source": "github", "reportedDelta": 200, "fetchedAt": datetime.now(UTC).isoformat()}],
+        }
         for repo in today + history
     ]
     monkeypatch.setattr(service, "saved_materials", lambda _: {})
@@ -32,13 +38,18 @@ def work(tmp_path, monkeypatch):
     ledger = SimpleNamespace(snapshot=lambda: {"remaining": 80})
     monkeypatch.setattr(daily_provider_budget, "daily_execution_budget", AsyncMock(return_value=(ledger, {})))
     monkeypatch.setattr(rardar_llm_control, "resolve_rardar_route_identity", AsyncMock(return_value="unchanged-route"))
-    monkeypatch.setattr(service, "project_material", lambda *_: {"profile": {"summary": "fixture"}})
+    monkeypatch.setattr(
+        service, "project_material", lambda *_: {"profile": {"summary": "用于管理数据处理任务并查看执行日志的工具。"}}
+    )
     called = []
 
     async def collect(_target, project, _generation, _client, _route):
         called.append(project["repository"])
-        project["profile"] = {"summary": "fixture", "generatedAt": datetime.now(UTC).isoformat()}
-        project["displayProfile"] = {"officialSummaryZh": "fixture"}
+        project["profile"] = {
+            "summary": "用于管理数据处理任务并查看执行日志的工具。",
+            "generatedAt": datetime.now(UTC).isoformat(),
+        }
+        project["displayProfile"] = {"officialSummaryZh": "用于管理数据处理任务并查看执行日志的工具。"}
         return SimpleNamespace(profile=object(), evidence=object(), profile_cache_state="rebuilt")
 
     monkeypatch.setattr(service, "_collect_project_material", collect)
@@ -60,6 +71,48 @@ async def test_used_historical_admissions_do_not_stop_today_and_resume_same_day(
 
 
 @pytest.mark.asyncio
+async def test_recent_boilerplate_intro_still_due_but_fresh_readable_profile_is_reused(work):
+    work.projects[:] = work.projects[:2]
+    work.projects[0]["profile"] = {
+        "summary": "感谢所有翻译贡献者为本项目提供帮助。",
+        "generatedAt": datetime.now(UTC).isoformat(),
+    }
+    work.projects[1]["profile"] = {
+        "summary": "用于管理数据处理任务并查看执行日志的工具。",
+        "generatedAt": datetime.now(UTC).isoformat(),
+    }
+    result = await service.historical_work(work.target, {}, lambda: None)
+    assert result["processed"] == 1
+    assert work.calls == ["current/one"]
+
+
+@pytest.mark.asyncio
+async def test_cache_hit_with_same_bad_intro_is_not_completed_or_successfully_checked(work, monkeypatch):
+    work.projects[:] = work.projects[:1]
+    bad = {"summary": "感谢所有翻译贡献者为本项目提供帮助。", "generatedAt": datetime.now(UTC).isoformat()}
+    work.projects[0]["profile"] = bad
+    monkeypatch.setattr(service, "project_material", lambda *_: {"profile": bad})
+    monkeypatch.setattr(
+        service,
+        "_collect_project_material",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                profile=object(),
+                evidence=object(),
+                profile_cache_state="hit",
+            )
+        ),
+    )
+    progress = {}
+    result = await service.historical_work(work.target, progress, lambda: None)
+    assert result["failed"] == 1
+    assert result["processed"] == result["refreshed"] == 0
+    assert progress["materialWork"]["projects"]["current/one"]["status"] == "failed"
+    state = service.read_json(work.target / "trending-boards" / "material-work.json")
+    assert "current/one" not in state["_successfulChecks"]
+
+
+@pytest.mark.asyncio
 async def test_paid_cooperative_continuations_are_not_real_failures_or_new_projects(work, monkeypatch):
     work.projects[:] = work.projects[:1]
     calls = 0
@@ -70,7 +123,10 @@ async def test_paid_cooperative_continuations_are_not_real_failures_or_new_proje
         daily_provider_budget._work_slice.get().used_requests += 1  # simulated reservation only
         if calls <= 3:
             raise daily_provider_budget.ProviderWorkYield("work_slice_exhausted")
-        work.projects[0]["profile"] = {"summary": "fixture", "generatedAt": datetime.now(UTC).isoformat()}
+        work.projects[0]["profile"] = {
+            "summary": "用于管理数据处理任务并查看执行日志的工具。",
+            "generatedAt": datetime.now(UTC).isoformat(),
+        }
         return SimpleNamespace(profile=object(), evidence=object(), profile_cache_state="rebuilt")
 
     monkeypatch.setattr(service, "_collect_project_material", collect)
@@ -236,7 +292,10 @@ async def test_one_pass_shares_six_request_slice_and_next_pass_keeps_daily_consu
                 None, (ledger, {}), scene="rardar_project_profile"
             ):
                 pass
-        project["profile"] = {"summary": "fixture", "generatedAt": datetime.now(UTC).isoformat()}
+        project["profile"] = {
+            "summary": "用于管理数据处理任务并查看执行日志的工具。",
+            "generatedAt": datetime.now(UTC).isoformat(),
+        }
         return SimpleNamespace(profile=object(), evidence=object(), profile_cache_state="rebuilt")
 
     monkeypatch.setattr(service, "_collect_project_material", collect)

@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # Unique new historical-only projects per day; Today uses resumable slices.
     # Never a shared attempt/request cap or publication/completeness requirement.
     RARDAR_HISTORICAL_DAILY_LIMIT: int = Field(default=3, ge=1, le=20)
+    RARDAR_TODAY_MINIMUM_DAILY_GROWTH: int = Field(default=200, ge=0)
+    RARDAR_HISTORICAL_REVIEW_SIZE: int = Field(default=8, ge=1, le=50)
+    RARDAR_HISTORICAL_REVIEW_LOOKBACK: int = Field(default=7, ge=0, le=365)
     # Provisional safety margin after a UTC source day ends, not an upstream SLA.
     RARDAR_BOARD_READINESS_MINUTES: int = Field(default=60, ge=1, le=360)
     RARDAR_BOARD_COMPENSATION_DELAY_MINUTES: int = Field(default=120, ge=30, le=480)

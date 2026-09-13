@@ -91,6 +91,66 @@ async def test_non_template_core_and_positioning_aliases_are_preserved(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_translation_credit_repair_preserves_original_evidence_and_generation(tmp_path):
+    from app.integrations.rardar.serving_profiles import _digest
+
+    record = ProfileStoreEnvelopeV2.model_validate_json((await seed(tmp_path)).read_bytes(), strict=True)
+    credit = "简体中文版由维护者创建，文字由贡献者润色。感谢。"
+    purpose = "下载视频和课程，并在本地桌面应用中阅读、转写和学习。"
+    key = "readme:narrative:positioning"
+    evidence = record.evidence.model_copy(
+        update={
+            "evidenceIndex": {**record.evidence.evidenceIndex, key: f"{record.evidence.readmePath}: {purpose}"},
+        }
+    )
+    evidence = evidence.model_copy(update={"digest": _digest(evidence.model_dump(mode="json", exclude={"digest"}))})
+    original = record.profile.model_copy(
+        update={
+            "identitySummaryZh": credit,
+            "officialSummaryZh": credit,
+            "officialTaglineZh": credit,
+            "officialTaglineEvidenceRefs": ["description"],
+            "evidenceDigest": evidence.digest,
+            "claimEvidenceRefs": {**record.profile.claimEvidenceRefs, credit: ["description"]},
+        }
+    )
+    before = original.model_dump(mode="json")
+    material = service.project_material(original, evidence)
+    assert revision.install(tmp_path, original, evidence)["state"] == "installed"
+    repaired = revision.apply_saved(tmp_path, original, evidence, material)
+    assert repaired["profile"]["summary"] == purpose
+    for field in ("identitySummaryZh", "officialSummaryZh", "officialTaglineZh"):
+        assert repaired["displayProfile"][field] == purpose
+    assert repaired["displayProfile"]["claimEvidenceRefs"][purpose] == [key]
+    assert repaired["displayProfile"]["generatedAt"] == before["generatedAt"]
+    assert repaired["displayEvidence"] == material["displayEvidence"]
+    assert original.model_dump(mode="json") == before
+    assert revision.install(tmp_path, original, evidence)["state"] == "reused"
+
+
+@pytest.mark.asyncio
+async def test_legacy_reading_revision_still_validates_with_its_original_policy(tmp_path):
+    from datetime import UTC, datetime
+
+    record = ProfileStoreEnvelopeV2.model_validate_json((await seed(tmp_path)).read_bytes(), strict=True)
+    profile, evidence = record.profile, record.evidence
+    payload = {
+        "version": revision.LEGACY_VERSION,
+        "sourceProfileDigest": revision.digest(profile.model_dump(mode="json")),
+        "sourceEvidenceDigest": evidence.digest,
+        "sourceGeneratedAt": profile.generatedAt.isoformat(),
+        "derivedAt": datetime.now(UTC).isoformat(),
+        "fields": revision.derive(profile, evidence, repair_introduction=False),
+    }
+    payload["digest"] = revision.digest(payload)
+    path = revision._path(tmp_path, profile, revision.LEGACY_VERSION)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    value = revision.apply_saved(tmp_path, profile, evidence, service.project_material(profile, evidence))
+    assert value["material"]["contentRevision"]["version"] == revision.LEGACY_VERSION
+
+
+@pytest.mark.asyncio
 async def test_fidelity_qualification_is_idempotent_for_future_collector_profiles(tmp_path):
     record = ProfileStoreEnvelopeV2.model_validate_json((await seed(tmp_path)).read_bytes(), strict=True)
     detail = "提供交通和摄像头等实时数据。"

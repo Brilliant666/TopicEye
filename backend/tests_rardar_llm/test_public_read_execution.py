@@ -22,7 +22,13 @@ async def test_public_read_runs_off_event_loop(monkeypatch, name):
 
     service = "today" if name == "trending_today" else "history" if name == "historical_hot" else "detail"
     monkeypatch.setattr(rardar_trending, service, read)
-    args = (Response(),) if service != "detail" else ("project", "generation") if name == "trending_project" else ("project",)
+    args = (
+        (Response(),)
+        if service != "detail"
+        else ("project", "generation")
+        if name == "trending_project"
+        else ("project",)
+    )
     assert await getattr(rardar, name)(*args) == {"ok": True}
     assert seen[0][0] != loop_thread
     if name == "historical_project":

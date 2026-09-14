@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_admin_user, get_current_user
 from app.core.config import settings
-from app.core.database import get_db
+from app.core.database import async_session, get_db
 from app.core.product_profile import is_rardar_product
 from app.core.rardar_scope import RardarModulePaused, require_module_execution
 from app.integrations.rardar import ExplosionBoardResponse, RardarArtifactError
@@ -18,6 +18,7 @@ from app.integrations.rardar.discover_serving_schemas import DiscoverApiResponse
 from app.integrations.rardar.selection_schemas import SelectionApiResponse, SelectionProjectDetail
 from app.integrations.rardar.serving_schemas import ServingProjectDetail, ServingTodaySnapshot
 from app.schemas.rardar_discover_operations import DiscoverOperationRequest, DiscoverPrepareRequest
+from app.schemas.rardar_find_runs import FindRun, FindRunList
 from app.schemas.rardar_hotspot_news import HotspotNewsResponse
 from app.schemas.rardar_news_operations import NewsOperationRequest
 from app.schemas.rardar_product import (
@@ -35,6 +36,7 @@ from app.services import (
     rardar_news_operations as news_operations,
     rardar_today_operations as today_operations,
 )
+from app.services.rardar_find_runs import FindRunError, service as find_runs
 from app.services.rardar_hotspot_news import load_hotspot_news
 from app.services.rardar_intelligence import (
     load_discover_project_detail,
@@ -50,7 +52,6 @@ from app.services.rardar_product import (
     explain_discover_project_by_id,
     explain_project,
     explain_project_by_id,
-    find_projects,
 )
 
 router = APIRouter(prefix="/rardar", tags=["rardar"])
@@ -630,8 +631,90 @@ async def discover_project_insight(
         raise HTTPException(status_code=status_code, detail={"code": exc.code}) from exc
 
 
-@router.post("/find-projects", response_model=FindProjectResponse)
-async def find_project_candidates(payload: FindProjectRequest) -> FindProjectResponse:
+async def _find_user_id(request: Request) -> int:
+    # Finish authentication's short transaction before a synchronous model wait.
     if not is_rardar_product():
         raise HTTPException(status_code=404, detail="Not found")
-    return await find_projects(payload)
+    async with async_session() as db:
+        authorization = request.headers.get("authorization", "")
+        # The edge's Basic header is not an application token. A real app cookie
+        # is still required when it is present; Basic alone never authenticates.
+        bearer = authorization if authorization.lower().startswith("bearer ") else None
+        user = await get_current_user(request, authorization=bearer, db=db)
+        user_id = user.id
+        # Keep the existing session sliding renewal/token last-used updates.
+        await db.commit()
+        return user_id
+
+
+@router.post("/find-projects", response_model=FindProjectResponse)
+async def find_project_candidates(
+    payload: FindProjectRequest, request: Request, response: Response, user_id=Depends(_find_user_id)
+) -> FindProjectResponse:
+    # Legacy API clients must keep their own key and can recover using /by-key.
+    _find_access(request, response, write=True)
+    try:
+        run = await find_runs.create(user_id, payload, request.headers.get("idempotency-key", ""))
+        run = await find_runs.execute(user_id, run["runId"])
+        response.headers["X-Find-Run-Id"] = run["runId"]
+        if run["result"] is None:
+            raise FindRunError("find_result_not_available")
+        return FindProjectResponse.model_validate(run["result"])
+    except FindRunError as error:
+        raise HTTPException(status_code=error.status_code, detail={"code": error.code}) from None
+
+
+def _find_access(request: Request, response: Response, *, write=False):
+    if not is_rardar_product():
+        raise HTTPException(status_code=404, detail="Not found")
+    response.headers["Cache-Control"] = "private, no-store"
+    # Basic Auth protects the edge, not the application user or CSRF boundary.
+    bearer = request.headers.get("authorization", "").lower().startswith("bearer ")
+    if (
+        write
+        and not bearer
+        and (
+            request.headers.get("origin") not in settings.cors_origins
+            or request.headers.get("sec-fetch-site") == "cross-site"
+        )
+    ):
+        raise HTTPException(status_code=403, detail={"code": "find_origin_rejected"})
+
+
+async def _find_result(operation):
+    try:
+        return await operation
+    except FindRunError as error:
+        raise HTTPException(status_code=error.status_code, detail={"code": error.code}) from None
+
+
+@router.post("/find-runs", response_model=FindRun)
+async def create_find_run(
+    payload: FindProjectRequest, request: Request, response: Response, user_id=Depends(_find_user_id)
+):
+    _find_access(request, response, write=True)
+    return await _find_result(find_runs.create(user_id, payload, request.headers.get("idempotency-key", "")))
+
+
+@router.get("/find-runs", response_model=FindRunList)
+async def recent_find_runs(request: Request, response: Response, user_id=Depends(_find_user_id)):
+    _find_access(request, response)
+    return await _find_result(find_runs.recent(user_id))
+
+
+@router.get("/find-runs/by-key/{key}", response_model=FindRun)
+async def find_run_by_key(key: str, request: Request, response: Response, user_id=Depends(_find_user_id)):
+    _find_access(request, response)
+    return await _find_result(find_runs.by_key(user_id, key))
+
+
+@router.get("/find-runs/{run_id}", response_model=FindRun)
+async def get_find_run(run_id: str, request: Request, response: Response, user_id=Depends(_find_user_id)):
+    _find_access(request, response)
+    return await _find_result(find_runs.get(user_id, run_id))
+
+
+@router.post("/find-runs/{run_id}/execute", response_model=FindRun)
+async def execute_find_run(run_id: str, request: Request, response: Response, user_id=Depends(_find_user_id)):
+    _find_access(request, response, write=True)
+    return await _find_result(find_runs.execute(user_id, run_id))

@@ -12,6 +12,7 @@ def _client(monkeypatch) -> TestClient:
     app = FastAPI()
     app.include_router(rardar_api.router, prefix="/api/v1")
     monkeypatch.setattr(rardar_api, "is_rardar_product", lambda: True)
+    monkeypatch.setattr(rardar_api.settings, "CORS_ORIGINS", "http://testserver")
     return TestClient(app)
 
 
@@ -91,8 +92,9 @@ def test_stable_insight_endpoint_uses_numeric_identity_and_generation_only(monke
 
 
 def test_find_endpoint_returns_facts_when_ai_is_unavailable(monkeypatch) -> None:
-    async def find(payload):
-        return FindProjectResponse(
+    async def create(user_id, payload, key):
+        assert user_id == 7 and key == "legacy-test-key-0001"
+        result = FindProjectResponse(
             requirement=payload.requirement,
             repositoryUrl=payload.repositoryUrl,
             searchState="limited",
@@ -101,21 +103,38 @@ def test_find_endpoint_returns_facts_when_ai_is_unavailable(monkeypatch) -> None
             quickCandidates=[],
             aiState="insufficient_candidates",
             promptVersion="rardar-find-project-v4",
-        )
+        ).model_dump(mode="json")
+        return {"runId": "legacy-run", "result": result}
 
-    monkeypatch.setattr(rardar_api, "find_projects", find)
-    response = _client(monkeypatch).post(
+    saved = {}
+
+    async def capture_create(*args):
+        saved.update(await create(*args))
+        return saved
+
+    async def execute(user_id, run_id):
+        assert user_id == 7 and run_id == "legacy-run"
+        return saved
+
+    monkeypatch.setattr(rardar_api.find_runs, "create", capture_create)
+    monkeypatch.setattr(rardar_api.find_runs, "execute", execute)
+    client = _client(monkeypatch)
+    client.app.dependency_overrides[rardar_api._find_user_id] = lambda: 7
+    response = client.post(
         "/api/v1/rardar/find-projects",
+        headers={"Origin": rardar_api.settings.cors_origins[0], "Idempotency-Key": "legacy-test-key-0001"},
         json={"requirement": "我需要一个可复用的视频工具", "repositoryUrl": None},
     )
     assert response.status_code == 200
     assert response.json()["aiState"] == "insufficient_candidates"
+    assert response.headers["x-find-run-id"] == "legacy-run"
 
 
 def test_product_endpoints_are_hidden_outside_rardar_mode(monkeypatch) -> None:
     monkeypatch.setattr(rardar_api, "is_rardar_product", lambda: False)
     client = TestClient(FastAPI())
     client.app.include_router(rardar_api.router, prefix="/api/v1")
+    client.app.dependency_overrides[rardar_api._find_user_id] = lambda: 7
     response = client.post(
         "/api/v1/rardar/find-projects",
         json={"requirement": "我需要一个可复用的视频工具", "repositoryUrl": None},

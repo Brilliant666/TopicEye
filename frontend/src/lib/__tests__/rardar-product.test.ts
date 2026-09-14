@@ -28,18 +28,27 @@ describe('Rardar product client', () => {
       aiState: 'unavailable',
     };
     const bodies: unknown[] = [];
+    const keys: Array<string | null> = [];
     vi.stubGlobal('fetch', vi.fn(async (_path: string, init: RequestInit) => {
       bodies.push(JSON.parse(String(init.body)));
+      keys.push(new Headers(init.headers).get('Idempotency-Key'));
       return new Response(JSON.stringify(payload), { status: 200 });
     }));
 
-    await findProjects('我需要一个可复用的视频工具', null);
-    await findProjects('这个项目有哪些模块可以复用', 'https://github.com/owner/repository');
+    await findProjects('我需要一个可复用的视频工具', null, 'test-recovery-key-0001');
+    await findProjects('这个项目有哪些模块可以复用', 'https://github.com/owner/repository', 'test-recovery-key-0002');
+    expect(keys).toEqual(['test-recovery-key-0001', 'test-recovery-key-0002']);
 
     expect(bodies).toEqual([
       { requirement: '我需要一个可复用的视频工具', repositoryUrl: null },
       { requirement: '这个项目有哪些模块可以复用', repositoryUrl: 'https://github.com/owner/repository' },
     ]);
+  });
+
+  it('rejects a missing legacy recovery key before making a request', () => {
+    const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
+    expect(() => findProjects('私有需求示例', null, '')).toThrow('find_idempotency_key_invalid');
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it('binds detail insight to numeric repository ID and generation only', async () => {

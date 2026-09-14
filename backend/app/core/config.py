@@ -216,6 +216,9 @@ class Settings(BaseSettings):
     RARDAR_FIND_COMPLETION_TIMEOUT_SECONDS: float = Field(default=180.0, ge=0.1, le=180.0)
     # Comparison output default, not a change to the shared model record.
     RARDAR_FIND_COMPARISON_MAX_TOKENS: int = Field(default=4096, ge=1, le=4096)
+    # Per-operation outbound ceiling, shared by planning, comparison and retries.
+    # Acceptance may configure a smaller bound; the daily budget still applies.
+    RARDAR_FIND_RUN_REQUEST_LIMIT: int = Field(default=8, ge=0, le=8)
     ANALYSIS_WORKER_CONCURRENCY: int = 3
     ANALYSIS_MAX_ATTEMPTS: int = 5
     ANALYSIS_RETRY_BASE_DELAY_SECONDS: int = 60

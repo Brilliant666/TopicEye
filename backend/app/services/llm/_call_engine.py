@@ -49,6 +49,12 @@ from app.services.llm._rate_limit import (
 )
 from app.services.llm.daily_provider_budget import daily_execution_budget, managed_budget_execution
 from app.services.llm.error_safety import safe_llm_error
+from app.services.llm.find_operation import (
+    active_find_operation,
+    find_request_admission,
+    find_request_event,
+    reserve_find_request,
+)
 from app.services.llm.provider_budget import ProviderBudgetError, execution_budget
 
 logger = logging.getLogger(__name__)
@@ -224,7 +230,11 @@ async def _call_llm_single(
     if reasoning_effort is None:
         kwargs["temperature"] = temperature
     kwargs.update(_litellm_extra_kwargs(model_config))
-    if budget is not None or (scene.startswith("rardar_") and settings.RARDAR_DAILY_OPERATIONS_ENABLED):
+    if (
+        budget is not None
+        or active_find_operation()
+        or (scene.startswith("rardar_") and settings.RARDAR_DAILY_OPERATIONS_ENABLED)
+    ):
         # Every network attempt must pass through our durable reservation.
         kwargs["num_retries"] = 0
     completion_timeout = _completion_timeout_seconds(kwargs.get("timeout"), scene=scene)
@@ -249,25 +259,37 @@ async def _call_llm_single(
 
     start = time.monotonic()
     try:
-        async with acquire_completion_slot(model_config, scene):
+        async with find_request_admission(), acquire_completion_slot(model_config, scene):
             run_guard.before_attempt()
             # Resolve at dispatch, not before rate-limit / pool waiting: a
             # request crossing midnight must consume the actual dispatch day.
             daily_budget = await daily_execution_budget(scene)
             if daily_budget is not None:
                 kwargs["num_retries"] = 0
-            async with managed_budget_execution(budget, daily_budget, scene=scene):
+            async with managed_budget_execution(budget, daily_budget, scene=scene) as dispatch_daily:
+                await reserve_find_request(scene=scene, model=model, daily=dispatch_daily)
                 deadline = asyncio.timeout(completion_timeout)
                 try:
                     async with deadline:
+                        find_request_event("dispatched")
                         response = await acompletion(**kwargs)
+                        find_request_event("completed")
                 except (TimeoutError, LiteLLMTimeout, httpx.TimeoutException) as exc:
+                    find_request_event("failed")
                     run_guard.failed("timeout")
                     if scene == _FIND_SCENE:
                         classification = "local_completion_deadline" if deadline.expired() else "sdk_timeout"
                         raise FindCompletionTimeout(classification) from exc
                     raise
-                except Exception:
+                except Exception as exc:
+                    find_request_event("failed")
+                    # Explicit HTTP rejection is settled, unlike a timeout or
+                    # connection loss. Do not infer status from exception text.
+                    status = getattr(exc, "status_code", None)
+                    if status is None:
+                        status = getattr(getattr(exc, "response", None), "status_code", None)
+                    if isinstance(status, int) and 400 <= status <= 599 and status != 408:
+                        find_request_event("known_failed")
                     run_guard.failed("transport")
                     raise
         duration_ms = int((time.monotonic() - start) * 1000)

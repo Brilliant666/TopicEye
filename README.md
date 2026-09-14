@@ -648,6 +648,37 @@ checkpoints and consumable budgets. They are not database backups. Do not commit
 snapshots to Git. Production releases update reviewed code/config/schema, not
 the server's current data or ledger from a local copy.
 
+### Private Find results
+
+Find requires the existing application login (edge Basic Auth is separate).
+An explicit submit first saves a private run, then executes it. `/find?runId=...`
+and the current user's recent list read PostgreSQL, including original evidence
+text; clearing browser state does not delete saved results. Old sessionStorage
+results are not automatically imported.
+
+API clients create `POST /api/v1/rardar/find-runs` with a stable
+`Idempotency-Key`, then explicitly POST `/api/v1/rardar/find-runs/{runId}/execute`.
+Recover a lost response using GET `/api/v1/rardar/find-runs/by-key/{key}` or GET
+`/api/v1/rardar/find-runs/{runId}`; do not generate another key automatically.
+Legacy `/find-projects` also requires application authentication and a key.
+Cookie writes require an allowed Origin. GETs are private/no-store and never
+fetch sources or use AI.
+
+`RARDAR_FIND_RUN_REQUEST_LIMIT` is the server's operation ceiling (default 8,
+configurable downward), not extra daily credit or a claim that all routes have
+exactly eight attempts. Planning, comparison and fallback attempts share the
+persisted bound and existing daily budget. Acceptance must configure a ceiling
+no larger than its remaining authorization before creating the single run.
+`requestsUsed` counts conservative pre-HTTP reservations, not successful calls;
+dispatch/return metadata remain separate. Completed/partial/no-match, budget
+stop, failure and uncertain/interrupted outcomes are distinct.
+
+Execution is synchronous with a bounded lease. After process loss it expires
+into interrupted/uncertain readback, never automatic paid resume. The additive
+`71b6c47e90a1` migration follows the existing backup/migration release path. Code
+rollback can leave the extra table intact; never drop private results or restore
+a historical budget to roll back code.
+
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, code style, and workflow. Feel free to open an issue with the `good first issue` label to find a starter task.

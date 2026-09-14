@@ -1,5 +1,29 @@
 import { expect, test } from '@playwright/test';
-import type { FindProjectResponse } from '../src/lib/rardar-product';
+import type { FindProjectResponse, FindRun } from '../src/lib/rardar-product';
+import type { Page } from '@playwright/test';
+
+async function durableFixture(page: Page, result: FindProjectResponse, terminal: FindRun['status'] = 'completed') {
+  let posts = 0;
+  let stored: FindRun | null = null;
+  await page.context().route('**/api/v1/rardar/find-runs**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() === 'POST') {
+      posts += 1;
+      if (path.endsWith('/execute')) {
+        stored = { ...stored!, status: terminal, result, requestsUsed: 1 };
+      } else {
+        expect(route.request().headers()['idempotency-key']).toBeTruthy();
+        stored = { runId: 'synthetic-run', status: 'created', stage: 'created', request: route.request().postDataJSON(), result: null, errorCode: null, createdAt: '2026-09-14T00:00:00Z', updatedAt: '2026-09-14T00:00:00Z', finishedAt: null, requestLimit: 2, requestsUsed: 0, schemaVersion: 'rardar-find-run-v1' };
+      }
+      await route.fulfill({ json: stored });
+    } else if (path.endsWith('/find-runs')) {
+      await route.fulfill({ json: { runs: stored ? [{ ...stored, result: undefined, request: undefined, requirementSummary: stored.request.requirement }] : [] } });
+    } else {
+      await route.fulfill({ status: stored ? 200 : 404, json: stored || {} });
+    }
+  });
+  return { posts: () => posts };
+}
 
 // Explicitly synthetic repositories and claims; never presented as live probes.
 function fixture(count: number, timeout = false): FindProjectResponse {
@@ -36,26 +60,20 @@ function fixture(count: number, timeout = false): FindProjectResponse {
   };
 }
 
-for (const identity of ['anonymous', 'admin']) {
+for (const identity of ['admin']) {
   for (const count of [0, 1, 2, 3]) {
     test(`${identity}: production Find renders ${count} comparisons without inventing slots`, async ({ page, context, request }) => {
       if (identity === 'admin') await context.addCookies([{ name: 'topiceye_auth', value: 'synthetic-admin', url: 'http://127.0.0.1:3410', httpOnly: true }]);
       const statsBefore = await (await request.get('http://127.0.0.1:3411/fixture-stats')).json();
-      let posts = 0;
       const result = fixture(count);
-      await page.route('**/api/v1/rardar/find-projects', async (route) => {
-        expect(route.request().method()).toBe('POST');
-        expect(route.request().postDataJSON().requirement).toBe(result.requirement);
-        posts += 1;
-        await route.fulfill({ json: result });
-      });
+      const transport = await durableFixture(page, result);
       const errors: string[] = [];
       page.on('pageerror', (error) => errors.push(error.message));
       const response = await page.goto('/find');
       expect(response?.status()).toBe(200);
       await expect(page.locator('[data-rardar-shell]')).toHaveCount(1);
       await expect(page.getByLabel('你想完成什么？')).toBeVisible();
-      expect(posts).toBe(0);
+      expect(transport.posts()).toBe(0);
       await page.getByLabel('你想完成什么？').fill(result.requirement);
       await page.getByLabel('公开 GitHub 仓库 URL （可选）').fill(result.repositoryUrl!);
       await page.getByRole('button', { name: '开始找项目', exact: true }).click();
@@ -74,10 +92,21 @@ for (const identity of ['anonymous', 'admin']) {
       }
       await comparison.scrollIntoViewIfNeeded();
       await comparison.screenshot({ path: test.info().outputPath('comparison.png') });
+      await expect(page).toHaveURL(/runId=synthetic-run/);
+      await page.evaluate(() => sessionStorage.clear()); // Server result survives loss of all tab storage.
       await page.reload();
       await expect(page.getByRole('heading', { name: `需求与证据对照 · ${count} 个重点方案` })).toBeVisible();
       await page.getByRole('region', { name: '最近需求结果' }).getByRole('button').first().click();
-      expect(posts).toBe(1); // UI restores a view only; not a server-cache claim.
+      expect(transport.posts()).toBe(2); // Create + execute; every later view is GET only.
+      await page.goto('/find?runId=synthetic-run');
+      await expect(page.getByRole('heading', { name: `需求与证据对照 · ${count} 个重点方案` })).toBeVisible();
+      expect(transport.posts()).toBe(2);
+      const newTab = await context.newPage();
+      await newTab.goto('http://127.0.0.1:3410/find?runId=synthetic-run');
+      await expect(newTab.getByRole('heading', { name: `需求与证据对照 · ${count} 个重点方案` })).toBeVisible();
+      expect(await newTab.evaluate(() => sessionStorage.length)).toBe(0);
+      expect(transport.posts()).toBe(2);
+      await newTab.close();
       const dimensions = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
       expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width);
       expect(errors).toEqual([]);
@@ -89,9 +118,9 @@ for (const identity of ['anonymous', 'admin']) {
   }
 }
 
-test('timeout keeps candidates and sources readable on real production route', async ({ page }) => {
-  let posts = 0;
-  await page.route('**/api/v1/rardar/find-projects', async (route) => { posts += 1; await route.fulfill({ json: fixture(0, true) }); });
+test('timeout keeps candidates and sources readable on real production route', async ({ page, context }) => {
+  await context.addCookies([{ name: 'topiceye_auth', value: 'synthetic-admin', url: 'http://127.0.0.1:3410', httpOnly: true }]);
+  const transport = await durableFixture(page, fixture(0, true), 'partial');
   await page.goto('/find');
   await page.getByRole('button', { name: '开始找项目', exact: true }).click();
   await expect(page.getByText('AI 比较暂不可用', { exact: true })).toBeVisible();
@@ -101,5 +130,45 @@ test('timeout keeps candidates and sources readable on real production route', a
   await expect(page.getByRole('link', { name: '查看来源：readme ↗' }).first()).toHaveAttribute('href', /README\.md$/);
   await page.reload();
   await expect(page.getByText('AI 比较暂不可用', { exact: true })).toBeVisible();
-  expect(posts).toBe(1);
+  expect(transport.posts()).toBe(2);
+});
+
+test('anonymous Find requires app login and cannot submit', async ({ page }) => {
+  let posts = 0;
+  page.on('request', (request) => { if (request.method() === 'POST') posts += 1; });
+  await page.goto('/find');
+  await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toBeDisabled();
+  await expect(page.getByRole('link', { name: '登录后开始找项目或读取已保存结果' })).toBeVisible();
+  expect(posts).toBe(0);
+});
+
+for (const [status, label] of [['budget_stopped', '达到请求上限'], ['interrupted', '执行已中断'], ['uncertain', '请求结果尚未确认']] as const) {
+  test(`saved ${status} remains readable without resubmission`, async ({ page, context }) => {
+    await context.addCookies([{ name: 'topiceye_auth', value: 'synthetic-admin', url: 'http://127.0.0.1:3410', httpOnly: true }]);
+    const transport = await durableFixture(page, fixture(0, true), status);
+    await page.goto('/find');
+    await page.getByRole('button', { name: '开始找项目', exact: true }).click();
+    await expect(page.getByRole('region', { name: '保存与运行状态' })).toContainText(label);
+    await page.getByRole('button', { name: '回查同一次运行（不重新执行）' }).click();
+    await page.reload();
+    await expect(page.getByRole('region', { name: '保存与运行状态' })).toContainText(label);
+    expect(transport.posts()).toBe(2);
+  });
+}
+
+test('lost execute response reads same saved run instead of another POST', async ({ page, context }) => {
+  await context.addCookies([{ name: 'topiceye_auth', value: 'synthetic-admin', url: 'http://127.0.0.1:3410', httpOnly: true }]);
+  const result = fixture(1);
+  const transport = await durableFixture(page, result);
+  let executePosts = 0;
+  await page.route('**/api/v1/rardar/find-runs/synthetic-run/execute', async (route) => {
+    executePosts += 1;
+    await route.abort('connectionfailed');
+  });
+  await page.goto('/find');
+  await page.getByRole('button', { name: '开始找项目', exact: true }).click();
+  await expect(page.getByRole('region', { name: '保存与运行状态' })).toContainText('运行已保存，尚未执行');
+  await page.getByRole('button', { name: '回查同一次运行（不重新执行）' }).click();
+  expect(executePosts).toBe(1);
+  expect(transport.posts()).toBe(1);
 });

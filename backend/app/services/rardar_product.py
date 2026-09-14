@@ -770,9 +770,13 @@ async def find_projects(
     config: Settings = settings,
     *,
     client: httpx.AsyncClient | None = None,
+    operation_id: str | None = None,
+    progress=None,
 ) -> FindProjectResponse:
-    operation_id = uuid4().hex
+    operation_id = operation_id or uuid4().hex
     profile = await _plan_requirement(request)
+    if progress:
+        await progress("recalling", None)
     candidates, state, sources, label = await _recall_candidates(
         request,
         config=config,
@@ -833,6 +837,10 @@ async def find_projects(
     }
     if not candidates:
         return FindProjectResponse(aiState="insufficient_candidates", **base)
+    if progress:
+        await progress(
+            "comparing", FindProjectResponse(aiState="unavailable", errorCode="find_comparison_pending", **base)
+        )
     # Prompt excerpts are bounded; response sources and validation retain full collected evidence.
     facts = {repository: _find_prompt_evidence(material, profile) for repository, material in evidence.items()}
     messages = [

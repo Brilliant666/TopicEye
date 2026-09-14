@@ -1,6 +1,8 @@
 'use client';
 
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useAuthContext } from '@/providers/AppProvider';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -14,7 +16,8 @@ import {
 } from 'lucide-react';
 
 import {
-  findProjects,
+  submitFindRun, readFindRun, readFindRunByKey, listFindRuns, executeFindRun,
+  type FindRun, type FindRunSummary,
   REUSE_TYPE_LABELS,
   type FindProjectResponse,
   type QuickProjectCandidate,
@@ -26,52 +29,112 @@ const examples = [
   '我在做开发者热点雷达，需要 GitHub 趋势采集、证据保存和项目匹配能力。',
 ];
 const sessionKey = 'rardar-find-last-result-v2';
+const pendingPrefix = 'rardar-find-pending-v1-';
 
-export default function RardarFindProjectPage({
+type FindPageProps = {
+  initialRepositoryUrl?: string; importedRepository?: string | null;
+  invalidPrefill?: boolean; initialRunId?: string;
+};
+
+export default function RardarFindProjectPage(props: FindPageProps) {
+  const { currentUser } = useAuthContext();
+  // A different account gets a fresh form immediately, not after an async effect.
+  return <FindProjectSession key={currentUser?.id ?? 'anonymous'} {...props} />;
+}
+
+function FindProjectSession({
   initialRepositoryUrl = '',
   importedRepository = null,
   invalidPrefill = false,
-}: {
-  initialRepositoryUrl?: string;
-  importedRepository?: string | null;
-  invalidPrefill?: boolean;
-}) {
+  initialRunId = '',
+}: FindPageProps) {
+  const { currentUser, authLoading } = useAuthContext();
   const [requirement, setRequirement] = useState(examples[0]);
   const [repositoryUrl, setRepositoryUrl] = useState(initialRepositoryUrl);
   const [result, setResult] = useState<FindProjectResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [recent, setRecent] = useState<FindProjectResponse[]>([]);
+  const [recent, setRecent] = useState<FindRunSummary[]>([]);
+  const [run, setRun] = useState<FindRun | null>(null);
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
+  const [viewOwner, setViewOwner] = useState<number | undefined>(undefined);
+  const [recentOwner, setRecentOwner] = useState<number | undefined>(undefined);
+  const busy = useRef(false);
+  const activeIdentity = useRef(false);
+  useLayoutEffect(() => {
+    activeIdentity.current = true;
+    return () => { activeIdentity.current = false; };
+  }, []);
+  const userId = currentUser?.id;
+  const applyRun = useCallback((next: FindRun) => {
+    if (!activeIdentity.current) return false;
+    setViewOwner(userId);
+    setRun(next); setResult(next.result); setRequirement(next.request.requirement);
+    setRepositoryUrl(next.request.repositoryUrl || '');
+    window.history.replaceState(null, '', `/find?runId=${encodeURIComponent(next.runId)}`);
+    return true;
+  }, [userId]);
+  const loadRecent = useCallback(async () => { if (!activeIdentity.current) return; const saved = await listFindRuns(); if (!activeIdentity.current) return; setRecentOwner(userId); setRecent(saved.runs); }, [userId]);
 
   useEffect(() => {
-    if (initialRepositoryUrl || invalidPrefill) return;
-    try {
-      const raw = sessionStorage.getItem(sessionKey);
-      if (!raw) return;
-      const saved = JSON.parse(raw);
-      if (validSavedFindResults(saved)) {
-        setRecent(saved.results.slice(0, 3));
-        setResult(saved.results[0]);
-        setRequirement(saved.results[0].requirement);
-        setRepositoryUrl(saved.results[0].repositoryUrl || '');
-      } else sessionStorage.removeItem(sessionKey);
-    } catch { /* Storage may be unavailable; never issue a request to restore a view. */ }
-  }, [initialRepositoryUrl, invalidPrefill]);
+    let active = true;
+    setRun(null); setResult(null); setRecent([]); setPendingKey(null);
+    setRequirement(examples[0]); setRepositoryUrl(initialRepositoryUrl);
+    try { sessionStorage.removeItem(sessionKey); } catch { /* Old browser-only results are not server history. */ }
+    if (!userId || authLoading) return;
+    let key: string | null = null;
+    try { key = sessionStorage.getItem(`${pendingPrefix}${userId}`); } catch { /* optional temporary ID */ }
+    setPendingKey(key);
+    void listFindRuns().then((saved) => { if (active) { setRecentOwner(userId); setRecent(saved.runs); } }).catch((reason) => { if (active) setError(reason.message); });
+    const saved = initialRunId ? readFindRun(initialRunId) : key ? readFindRunByKey(key) : null;
+    if (saved) void saved.then((next) => { if (active) applyRun(next); }).catch((reason) => { if (active) setError(reason.message); });
+    return () => { active = false; };
+  }, [initialRunId, initialRepositoryUrl, userId, authLoading, applyRun]);
+
+  useEffect(() => {
+    if (!userId || run?.status !== 'running') return;
+    const timer = setInterval(() => { void readFindRun(run.runId).then(applyRun).catch(() => { if (activeIdentity.current) setError('暂时无法回查；不会自动重新执行。'); }); }, 3000);
+    return () => clearInterval(timer);
+  }, [userId, run?.runId, run?.status, applyRun]);
+
+  async function recover() {
+    if (!activeIdentity.current) return;
+    setError(null);
+    try { if (run) applyRun(await readFindRun(run.runId)); else if (pendingKey) applyRun(await readFindRunByKey(pendingKey)); }
+    catch (reason) { if (activeIdentity.current) setError(reason instanceof Error ? reason.message : '暂时无法回查'); }
+  }
+
+  async function openSaved(id: string) {
+    if (!activeIdentity.current) return;
+    try { applyRun(await readFindRun(id)); }
+    catch (reason) { if (activeIdentity.current) setError(reason instanceof Error ? reason.message : '读取失败'); }
+  }
+
+  async function continueCreated(id: string) {
+    if (!activeIdentity.current || busy.current) return;
+    busy.current = true; setLoading(true);
+    try { applyRun(await executeFindRun(id)); await loadRecent(); }
+    catch { if (activeIdentity.current) setError('执行响应未确认，请回查原运行。'); }
+    finally { if (activeIdentity.current) { busy.current = false; setLoading(false); } }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (!activeIdentity.current || busy.current || !userId || pendingKey || run) return;
+    busy.current = true;
     setLoading(true);
     setError(null);
     try {
-      const next = await findProjects(requirement.trim(), repositoryUrl.trim() || null);
-      setResult(next);
-      const results = [next, ...recent.filter((item) => item.requirement !== next.requirement || item.repositoryUrl !== next.repositoryUrl)].slice(0, 3);
-      setRecent(results);
-      try { sessionStorage.setItem(sessionKey, JSON.stringify({ expiresAt: Date.now() + 24 * 60 * 60 * 1000, results })); } catch { /* Reading still works without browser storage. */ }
+      const key = crypto.randomUUID();
+      // Persist only the recovery key before the first POST, never private result bodies.
+      sessionStorage.setItem(`${pendingPrefix}${userId}`, key);
+      setPendingKey(key);
+      applyRun(await submitFindRun({ requirement: requirement.trim(), repositoryUrl: repositoryUrl.trim() || null }, key, applyRun));
+      await loadRecent();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'rardar_request_failed');
+      if (activeIdentity.current) setError(reason instanceof Error ? reason.message : 'rardar_request_failed');
     } finally {
-      setLoading(false);
+      if (activeIdentity.current) { setLoading(false); busy.current = false; }
     }
   }
 
@@ -120,18 +183,25 @@ export default function RardarFindProjectPage({
           onChange={(event) => setRepositoryUrl(event.target.value)}
           placeholder="https://github.com/owner/repository"
         />
-        <button className={styles.findSubmit} type="submit" disabled={loading || requirement.trim().length < 6}>
+        <button className={styles.findSubmit} type="submit" disabled={authLoading || !currentUser || loading || !!pendingKey || !!run || requirement.trim().length < 6}>
           {loading ? <Loader2 size={17} className={styles.spin} /> : <Search size={17} />}
           {loading ? '正在召回候选并比较' : '开始找项目'}
         </button>
+        {!authLoading && !currentUser && <p><Link href={`/login?redirect=${encodeURIComponent(initialRunId ? `/find?runId=${initialRunId}` : '/find')}`}>登录后开始找项目或读取已保存结果</Link></p>}
         {error && <p className={styles.formError}><AlertTriangle size={15} /> 请求失败：{error}</p>}
       </form>
 
-      {recent.length > 0 && <section className={styles.aiPanel} aria-label="最近需求结果"><h2>最近需求结果</h2><p>仅在此标签页保留最近三组，最长 24 小时。查看不会重新检索或调用模型。</p>{recent.map((item, index) => <button type="button" className={styles.sourceLine} key={`${item.requirement}-${item.repositoryUrl}`} onClick={() => { setResult(item); setRequirement(item.requirement); setRepositoryUrl(item.repositoryUrl || ''); }}>{index + 1}. {item.requirement}</button>)}</section>}
-      {result && <FindResults result={result} />}
-      {result && <button type="button" className={styles.sourceLine} onClick={() => { setResult(null); setRecent([]); try { sessionStorage.removeItem(sessionKey); } catch { /* optional storage */ } }}>清除本标签页保存的需求与结果</button>}
+      {currentUser && viewOwner === userId && run && <section className={styles.aiPanel} aria-label="保存与运行状态"><h2>{findRunLabel(run.status)}</h2><p>模型请求 {run.requestsUsed} / {run.requestLimit} · {run.stage}</p><Link href={`/find?runId=${encodeURIComponent(run.runId)}`} prefetch={false}>此结果的固定地址</Link>{run.errorCode && <p>停止原因：{run.errorCode}</p>}{run.status === 'created' && <button disabled={loading} type="button" onClick={() => void continueCreated(run.runId)}>继续执行此已创建运行</button>}</section>}
+      {(run || pendingKey) && <button type="button" className={styles.sourceLine} onClick={() => void recover()}>回查同一次运行（不重新执行）</button>}
+      {currentUser && recentOwner === userId && recent.length > 0 && <section className={styles.aiPanel} aria-label="最近需求结果"><h2>最近需求结果</h2><p>保存在服务器，仅当前授权账号可读。查看不会重新检索或调用模型。旧标签页中的结果不会自动导入。</p>{recent.map((item) => <button type="button" className={styles.sourceLine} key={item.runId} onClick={() => void openSaved(item.runId)}>{item.requirementSummary} · {findRunLabel(item.status)}</button>)}</section>}
+      {currentUser && viewOwner === userId && result && <FindResults result={result} />}
+      {(run || pendingKey) && <button type="button" className={styles.sourceLine} disabled={loading || run?.status === 'running'} onClick={() => { if (!window.confirm('开始新的查找可能产生新的模型请求。仅清理本页状态，不删除服务器记录；未确认的原运行仍可从最近记录回查。')) return; setRun(null); setResult(null); setPendingKey(null); setError(null); window.history.replaceState(null, '', '/find'); try { sessionStorage.removeItem(`${pendingPrefix}${userId}`); } catch { /* optional storage */ } }}>清理本页并开始新的查找（保留服务器记录）</button>}
     </div>
   );
+}
+
+export function findRunLabel(status: FindRun['status']) {
+  return { created: '运行已保存，尚未执行', running: '正在处理，可稍后回查', completed: '完整结果已保存', no_candidates: '本次未找到候选，结果已保存', partial: '部分结果已保存，比较未完整完成', failed: '处理失败，运行记录已保存', budget_stopped: '达到请求上限，已停止新增调用', interrupted: '执行已中断，不会自动付费重跑', uncertain: '请求结果尚未确认，不会自动重发' }[status];
 }
 
 export function FindResults({ result }: { result: FindProjectResponse }) {
@@ -139,7 +209,7 @@ export function FindResults({ result }: { result: FindProjectResponse }) {
     <div className={styles.findResults}>
       <section className={styles.aiPanel} aria-label="本次需求">
         <h2>本次需求</h2><p>{result.requirement}</p>
-        <dl><dt>主要用途</dt><dd>{result.requirementProfile.purpose}</dd><dt>必须满足</dt><dd>{result.requirementProfile.mustHave.join('；') || '未明确'}</dd><dt>偏好</dt><dd>{result.requirementProfile.preferences.join('；') || '未提出'}</dd><dt>明确排除</dt><dd>{result.requirementProfile.exclusions.join('；') || '未提出'}</dd></dl>
+        {result.requirementProfile ? <dl><dt>主要用途</dt><dd>{result.requirementProfile.purpose}</dd><dt>必须满足</dt><dd>{result.requirementProfile.mustHave.join('；') || '未明确'}</dd><dt>偏好</dt><dd>{result.requirementProfile.preferences.join('；') || '未提出'}</dd><dt>明确排除</dt><dd>{result.requirementProfile.exclusions.join('；') || '未提出'}</dd></dl> : <p>需求拆解尚未完成；保留原需求，不将未处理条件视为已核对。</p>}
       </section>
       <div className={styles.sectionHeading}>
         <div><h2>快速候选 · {result.quickCandidates.length}</h2><p>{result.coverageLabel}</p></div>

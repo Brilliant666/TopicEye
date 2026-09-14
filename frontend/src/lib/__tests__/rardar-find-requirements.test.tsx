@@ -22,6 +22,13 @@ function response(count: number): FindProjectResponse {
 }
 
 describe('Find requirement-first real component tree', () => {
+  it('keeps partial results readable before requirement decomposition completed', () => {
+    const data = response(0); data.requirementProfile = null; data.aiState = 'unavailable'; data.comparison = null;
+    const html = renderToStaticMarkup(<FindResults result={data} />);
+    expect(html).toContain('需求拆解尚未完成');
+    expect(html).toContain(data.requirement);
+    expect(html).toContain('owner/repo-0');
+  });
   it('discards malformed or expired saved results before rendering', () => {
     const expiresAt = Date.now() + 60000;
     expect(validSavedFindResults({ expiresAt, results: [response(1)] })).toBe(true);

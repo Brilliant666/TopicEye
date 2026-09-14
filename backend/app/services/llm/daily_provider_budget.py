@@ -304,7 +304,7 @@ async def managed_budget_execution(operation, daily, *, scene: str, wait_seconds
     """
     if daily is None:
         with combined_budget_execution(operation, daily):
-            yield
+            yield daily
         return
     ledger = daily[0]
     # Manual background operations cannot claim interactive priority by omitting
@@ -341,7 +341,7 @@ async def managed_budget_execution(operation, daily, *, scene: str, wait_seconds
         if state is not None:
             state.used_requests += 1
         try:
-            yield
+            yield daily
         except BaseException as exc:
             scope.__exit__(type(exc), exc, exc.__traceback__)
             raise

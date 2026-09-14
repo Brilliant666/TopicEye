@@ -31,6 +31,7 @@ from app.models.pick_mark import PickMark
 from app.models.product_feedback import IssueFeedback, ProductUpdate
 from app.models.prompt_registry import PromptRegistry
 from app.models.qimao import QimaoBook
+from app.models.rardar_find_run import RardarFindRun
 from app.models.read_record import ReadRecord
 from app.models.scheduled_job import JobExecutionLog, ScheduledJob
 from app.models.source import Source
@@ -44,6 +45,7 @@ from app.models.webhook_delivery_log import WebhookDeliveryLog
 from app.models.weread_stats_cache import WeReadStatsCache
 
 __all__ = [
+    "RardarFindRun",
     "Source",
     "SourceEvidenceProfile",
     "PublisherKind",

@@ -24,6 +24,7 @@ from sqlalchemy.schema import CreateSchema, DropSchema
 
 from app.models.rardar_find_run import RardarFindRun
 from app.models.user import User
+from app.schemas.rardar_find_runs import FindRun
 from app.schemas.rardar_product import FindProjectRequest, FindProjectResponse, QuickProjectCandidate
 from app.services.llm.find_operation import find_request_admission, find_request_event, reserve_find_request
 from app.services.rardar_find_runs import FindRunError, FindRunService
@@ -109,6 +110,36 @@ def service(sessions, runner):
         config=SimpleNamespace(RARDAR_FIND_RUN_REQUEST_LIMIT=8, RARDAR_DAILY_OPERATIONS_ENABLED=False),
         runner=runner,
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state,error", [("ready", None), ("unavailable", "rardar_llm_invalid_output")])
+async def test_saved_candidate_dates_survive_strict_response_readback(sessions, state, error):
+    response = result(state=state, error=error)
+    response.quickCandidates = [
+        QuickProjectCandidate(
+            githubRepositoryId=123,
+            repository="example/docs",
+            totalStars=20,
+            updatedAt=datetime(2026, 9, 14, tzinfo=UTC),
+            pushedAt=datetime(2026, 9, 13, tzinfo=UTC),
+            htmlUrl="https://github.com/example/docs",
+            preliminaryMatch="Documentation candidate",
+            dataState="github_live",
+        )
+    ]
+    runner = AsyncMock(return_value=response)
+    svc = service(sessions, runner)
+    created = await svc.create(1, request(), "date-readback-0001")
+    executed = await svc.execute(1, created["runId"])
+    fresh = service(sessions, runner)
+    saved = await fresh.get(1, created["runId"])
+    assert saved == executed
+    # PostgreSQL JSON dates are strings; the real FastAPI response contract must
+    # accept their JSON representation without weakening the product schema.
+    restored = FindRun.model_validate(saved)
+    assert restored.result.model_dump(mode="json") == response.model_dump(mode="json")
+    assert runner.await_count == 1
 
 
 async def paid_attempt(*, complete=True):

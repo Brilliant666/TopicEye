@@ -3,6 +3,8 @@
 import importlib.util
 import io
 import json
+import subprocess
+import sys
 import tarfile
 from pathlib import Path
 
@@ -52,9 +54,27 @@ def test_bad_archive_preserves_pointer(tmp_path, name):
     assert (target / "current.json").read_text() == pointer
 
 
-def test_remote_program_is_valid_and_has_no_main(tmp_path):
-    program = SCRIPT.read_text().rsplit('\nif __name__ == "__main__":', 1)[0]
-    compile(program + "\nexport_saved(Path(SOURCE), sys.stdout.buffer)\n", "remote", "exec")
+def test_remote_program_executes_export_to_binary_stdout(tmp_path):
+    source = tmp_path / "source"
+    (source / "trending-boards").mkdir(parents=True)
+    (source / "trending-boards/current.json").write_text('{"generationId":"saved"}')
+    (source / "trending-boards/material-work.json").write_text('{"pending":true}')
+    (source / "secret.json").write_text('{"password":"fixture"}')
+    program = SCRIPT.read_text(encoding="utf-8").rsplit('\nif __name__ == "__main__":', 1)[0]
+    # Match the real SSH stdin entry, replacing only its fixed source root with
+    # an isolated fixture. Do not mock subprocess: missing runtime imports must
+    # fail exactly as they do in the remote interpreter.
+    program += f"\nexport_saved(Path({str(source)!r}), sys.stdout.buffer)\n"
+    result = subprocess.run(
+        [sys.executable, "-I", "-"], input=program.encode(), capture_output=True, timeout=15, check=False
+    )
+    assert result.returncode == 0, result.stderr.decode()
+    archive = tmp_path / "remote.tar"
+    archive.write_bytes(result.stdout)
+    final = module.install_snapshot(archive, tmp_path / "dev")
+    assert json.loads((final / "trending-boards/current.json").read_text()) == {"generationId": "saved"}
+    assert not (final / "trending-boards/material-work.json").exists()
+    assert not (final / "secret.json").exists()
 
 
 def test_production_pointer_refused(tmp_path):

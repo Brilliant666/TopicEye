@@ -14,6 +14,7 @@ from pathlib import Path, PurePosixPath
 import shutil
 import stat
 import subprocess
+import sys  # noqa: F401 - used by the appended remote export entry point
 import tarfile
 import tempfile
 from datetime import datetime, timezone

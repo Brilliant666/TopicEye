@@ -68,11 +68,13 @@ for (const identity of ['admin']) {
       const result = fixture(count);
       const transport = await durableFixture(page, result);
       const errors: string[] = [];
+      await page.addInitScript(() => sessionStorage.setItem('rardar-find-last-result-v2', 'legacy-browser-only-record'));
       page.on('pageerror', (error) => errors.push(error.message));
       const response = await page.goto('/find');
       expect(response?.status()).toBe(200);
       await expect(page.locator('[data-rardar-shell]')).toHaveCount(1);
       await expect(page.getByLabel('你想完成什么？')).toBeVisible();
+      expect(await page.evaluate(() => sessionStorage.getItem('rardar-find-last-result-v2'))).toBe('legacy-browser-only-record');
       expect(transport.posts()).toBe(0);
       await page.getByLabel('你想完成什么？').fill(result.requirement);
       await page.getByLabel('公开 GitHub 仓库 URL （可选）').fill(result.repositoryUrl!);

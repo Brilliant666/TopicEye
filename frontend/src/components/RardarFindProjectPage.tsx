@@ -28,7 +28,6 @@ const examples = [
   '我想找一个可以获取抖音主页作品和下载视频的 Python 项目。',
   '我在做开发者热点雷达，需要 GitHub 趋势采集、证据保存和项目匹配能力。',
 ];
-const sessionKey = 'rardar-find-last-result-v2';
 const pendingPrefix = 'rardar-find-pending-v1-';
 
 type FindPageProps = {
@@ -80,7 +79,7 @@ function FindProjectSession({
     let active = true;
     setRun(null); setResult(null); setRecent([]); setPendingKey(null);
     setRequirement(examples[0]); setRepositoryUrl(initialRepositoryUrl);
-    try { sessionStorage.removeItem(sessionKey); } catch { /* Old browser-only results are not server history. */ }
+    // Legacy browser-only results are neither imported nor silently deleted.
     if (!userId || authLoading) return;
     let key: string | null = null;
     try { key = sessionStorage.getItem(`${pendingPrefix}${userId}`); } catch { /* optional temporary ID */ }

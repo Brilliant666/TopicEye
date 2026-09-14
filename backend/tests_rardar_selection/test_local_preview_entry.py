@@ -68,7 +68,9 @@ def test_preview_wiring_has_no_automatic_build_migration_or_scheduler() -> None:
 
 @pytest.mark.parametrize("unsafe_count", ["0", "1", "invalid"])
 def test_development_database_rejects_routes_and_unknown_result(tmp_path, unsafe_count):
-    result = run_ps(tmp_path, f"""
+    result = run_ps(
+        tmp_path,
+        f"""
 $PgData='owned-data'; $Psql='FakePsql'
 function Get-LoopbackListenerPid {{ return 10 }}
 function Get-CimInstance {{ return [pscustomobject]@{{ExecutablePath=(Join-Path $PgRoot 'bin\\postgres.exe');CommandLine='owned-data'}} }}
@@ -78,20 +80,27 @@ function FakePsql {{
     return 'rardar_development|rardar_development_app'
 }}
 Assert-PreviewDatabase ([pscustomobject]@{{postgresPort=55433;database='rardar_development';databaseUser='rardar_development_app'}})
-""")
+""",
+    )
     assert (result.returncode == 0) == (unsafe_count == "0"), result.stderr
 
 
 @pytest.mark.parametrize("command", ["refresh-news", "enhance-news", "rebuild-serving", "build-selection", "sync-data"])
 def test_retired_production_commands_fail_before_environment_access(tmp_path, command):
     source = ENTRY.read_text(encoding="utf-8")
-    prefix = source[:source.index("$RepoRoot =")]
+    prefix = source[: source.index("$RepoRoot =")]
     script = tmp_path / "entry.ps1"
     script.write_text(prefix, encoding="utf-8")
     pwsh = shutil.which("pwsh")
     if not pwsh:
         pytest.skip("PowerShell 7 unavailable")
-    result = subprocess.run([pwsh, "-NoProfile", "-File", str(script), "-Command", command], capture_output=True, text=True, encoding="utf-8", timeout=30)
+    result = subprocess.run(
+        [pwsh, "-NoProfile", "-File", str(script), "-Command", command],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
     assert result.returncode != 0
     assert "Local production execution has retired" in result.stderr
 

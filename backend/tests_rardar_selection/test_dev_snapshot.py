@@ -1,4 +1,5 @@
 """Saved public snapshot isolation tests: no SSH, DB or model execution."""
+
 import importlib.util
 import io
 import json
@@ -32,7 +33,10 @@ def test_public_export_and_install(tmp_path):
     assert json.loads((target / "current.json").read_text())["snapshot"] == final.name
 
 
-@pytest.mark.parametrize("name", ["../private.json", "trending-boards/../../secret.json", "budget/ledger.json", "project-insights/../../key.json"])
+@pytest.mark.parametrize(
+    "name",
+    ["../private.json", "trending-boards/../../secret.json", "budget/ledger.json", "project-insights/../../key.json"],
+)
 def test_bad_archive_preserves_pointer(tmp_path, name):
     target = tmp_path / "dev"
     target.mkdir()
@@ -50,7 +54,7 @@ def test_bad_archive_preserves_pointer(tmp_path, name):
 
 def test_remote_program_is_valid_and_has_no_main(tmp_path):
     program = SCRIPT.read_text().rsplit('\nif __name__ == "__main__":', 1)[0]
-    compile(program + '\nexport_saved(Path(SOURCE), sys.stdout.buffer)\n', "remote", "exec")
+    compile(program + "\nexport_saved(Path(SOURCE), sys.stdout.buffer)\n", "remote", "exec")
 
 
 def test_production_pointer_refused(tmp_path):
@@ -61,11 +65,18 @@ def test_production_pointer_refused(tmp_path):
 
 def test_digest_failure_preserves_previous(tmp_path):
     archive = tmp_path / "corrupt.tar"
-    manifest = {"schemaVersion": 1, "sourceRoot": module.SOURCE,
-        "sourceSite": "https://rardar.cosflow.icu", "exportedAt": "saved",
-        "files": {"trending-boards/current.json": {"sha256": "0" * 64, "bytes": 2, "sourceMtimeNs": 1}}}
+    manifest = {
+        "schemaVersion": 1,
+        "sourceRoot": module.SOURCE,
+        "sourceSite": "https://rardar.cosflow.icu",
+        "exportedAt": "saved",
+        "files": {"trending-boards/current.json": {"sha256": "0" * 64, "bytes": 2, "sourceMtimeNs": 1}},
+    }
     with tarfile.open(archive, "w") as output:
-        for name, raw in [("trending-boards/current.json", b"{}"), ("snapshot-manifest.json", json.dumps(manifest).encode())]:
+        for name, raw in [
+            ("trending-boards/current.json", b"{}"),
+            ("snapshot-manifest.json", json.dumps(manifest).encode()),
+        ]:
             info = tarfile.TarInfo(name)
             info.size = len(raw)
             output.addfile(info, io.BytesIO(raw))

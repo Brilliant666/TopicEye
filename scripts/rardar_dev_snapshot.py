@@ -179,9 +179,9 @@ def main() -> None:
         program = Path(__file__).read_text(encoding="utf-8").rsplit('\nif __name__ == "__main__":', 1)[0]
         program += '\nexport_saved(Path(SOURCE), sys.stdout.buffer)\n'
         with archive.open("wb") as output:
-            result = subprocess.run(["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
+            result = subprocess.run(["ssh", "-C", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes",
                 "-o", "ConnectTimeout=15", "rardar-prod", "sudo -n /usr/bin/python3 -I -"], input=program.encode(),
-                stdout=output, stderr=subprocess.PIPE, timeout=600, check=False)
+                stdout=output, stderr=subprocess.PIPE, timeout=1800, check=False)
         if result.returncode:
             raise RuntimeError("remote public snapshot failed; previous snapshot preserved")
         final = install_snapshot(archive, args.destination)

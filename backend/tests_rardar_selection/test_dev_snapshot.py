@@ -77,6 +77,33 @@ def test_remote_program_executes_export_to_binary_stdout(tmp_path):
     assert not (final / "secret.json").exists()
 
 
+def test_ssh_compression_and_bounded_timeout_preserve_previous_snapshot(tmp_path, monkeypatch):
+    target = tmp_path / "dev"
+    target.mkdir()
+    pointer = '{"schemaVersion":1,"snapshot":"previous","exportedAt":"yesterday"}'
+    (target / "current.json").write_text(pointer)
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--destination", str(target)])
+    calls = []
+
+    def timeout_transfer(command, **kwargs):
+        calls.append(command)
+        assert command[:2] == ["ssh", "-C"]
+        assert command[-2:] == ["rardar-prod", "sudo -n /usr/bin/python3 -I -"]
+        assert "StrictHostKeyChecking=yes" in command
+        assert "BatchMode=yes" in command
+        assert kwargs["timeout"] == 1800
+        assert kwargs["input"].endswith(b"export_saved(Path(SOURCE), sys.stdout.buffer)\n")
+        kwargs["stdout"].write(b"incomplete archive")
+        raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+
+    monkeypatch.setattr(module.subprocess, "run", timeout_transfer)
+    with pytest.raises(subprocess.TimeoutExpired):
+        module.main()
+    assert len(calls) == 1
+    assert (target / "current.json").read_text() == pointer
+    assert sorted(path.name for path in target.iterdir()) == ["current.json"]
+
+
 def test_production_pointer_refused(tmp_path):
     (tmp_path / "current.json").write_text('{"generationId":"production"}')
     with pytest.raises(ValueError, match="not a development"):

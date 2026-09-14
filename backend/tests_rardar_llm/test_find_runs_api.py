@@ -12,6 +12,31 @@ from app.api.v1 import auth, rardar as api
 from app.services.rardar_find_runs import FindRunError
 
 
+def _saved_candidate_result():
+    return {
+        "requirement": "需要一个自托管文档站",
+        "repositoryUrl": None,
+        "searchState": "github_live",
+        "coverageLabel": "Isolated regression fixture",
+        "sources": ["https://github.com/example/docs"],
+        "quickCandidates": [
+            {
+                "githubRepositoryId": 123,
+                "repository": "example/docs",
+                "totalStars": 20,
+                "updatedAt": "2026-09-14T00:00:00Z",
+                "pushedAt": "2026-09-13T00:00:00Z",
+                "htmlUrl": "https://github.com/example/docs",
+                "preliminaryMatch": "Documentation candidate",
+                "dataState": "github_live",
+            }
+        ],
+        "aiState": "unavailable",
+        "errorCode": "rardar_llm_invalid_output",
+        "promptVersion": "rardar-find-project-v5",
+    }
+
+
 def _run():
     return {
         "runId": "stable-id",
@@ -45,6 +70,55 @@ def setup(monkeypatch):
 
 def _headers():
     return {"Origin": api.settings.cors_origins[0], "Idempotency-Key": "test-same-key-0001"}
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("get", "/find-runs/stable-id"),
+        ("get", "/find-runs/by-key/test-same-key-0001"),
+        ("post", "/find-runs/stable-id/execute"),
+        ("post", "/find-projects"),
+    ],
+)
+def test_real_response_routes_restore_saved_json_dates(setup, method, path):
+    app, client, service = setup
+    app.dependency_overrides[api._find_user_id] = lambda: 1
+    saved = {**_run(), "status": "partial", "result": _saved_candidate_result()}
+    for name in ("get", "by_key", "execute"):
+        getattr(service, name).return_value = saved
+    response = getattr(client, method)(
+        f"/api/v1/rardar{path}",
+        headers=_headers(),
+        **({"json": _run()["request"]} if path == "/find-projects" else {}),
+    )
+    assert response.status_code == 200
+    body = response.json() if path == "/find-projects" else response.json()["result"]
+    assert body["quickCandidates"][0]["updatedAt"] == "2026-09-14T00:00:00Z"
+    assert body["errorCode"] == "rardar_llm_invalid_output"
+    if method == "get":
+        service.execute.assert_not_awaited()
+        service.create.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("updatedAt", "not-a-date"),
+        ("updatedAt", "2026-09-14T00:00:00"),
+        ("totalStars", "20"),
+        ("githubRepositoryId", "123"),
+    ],
+)
+def test_json_restore_keeps_strict_types_and_timezone(field, value):
+    from pydantic import ValidationError
+
+    from app.schemas.rardar_find_runs import restore_find_result
+
+    saved = _saved_candidate_result()
+    saved["quickCandidates"][0][field] = value
+    with pytest.raises(ValidationError):
+        restore_find_result(saved)
 
 
 @pytest.mark.parametrize(

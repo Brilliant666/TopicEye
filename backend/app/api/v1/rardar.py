@@ -18,7 +18,7 @@ from app.integrations.rardar.discover_serving_schemas import DiscoverApiResponse
 from app.integrations.rardar.selection_schemas import SelectionApiResponse, SelectionProjectDetail
 from app.integrations.rardar.serving_schemas import ServingProjectDetail, ServingTodaySnapshot
 from app.schemas.rardar_discover_operations import DiscoverOperationRequest, DiscoverPrepareRequest
-from app.schemas.rardar_find_runs import FindRun, FindRunList
+from app.schemas.rardar_find_runs import FindRun, FindRunList, restore_find_result
 from app.schemas.rardar_hotspot_news import HotspotNewsResponse
 from app.schemas.rardar_news_operations import NewsOperationRequest
 from app.schemas.rardar_product import (
@@ -659,7 +659,7 @@ async def find_project_candidates(
         response.headers["X-Find-Run-Id"] = run["runId"]
         if run["result"] is None:
             raise FindRunError("find_result_not_available")
-        return FindProjectResponse.model_validate(run["result"])
+        return restore_find_result(run["result"])
     except FindRunError as error:
         raise HTTPException(status_code=error.status_code, detail={"code": error.code}) from None
 

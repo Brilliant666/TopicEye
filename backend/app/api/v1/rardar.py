@@ -632,7 +632,7 @@ async def discover_project_insight(
 
 
 async def _find_user_id(request: Request) -> int:
-    # Close authentication's read transaction before a synchronous model wait.
+    # Finish authentication's short transaction before a synchronous model wait.
     if not is_rardar_product():
         raise HTTPException(status_code=404, detail="Not found")
     async with async_session() as db:
@@ -641,7 +641,10 @@ async def _find_user_id(request: Request) -> int:
         # is still required when it is present; Basic alone never authenticates.
         bearer = authorization if authorization.lower().startswith("bearer ") else None
         user = await get_current_user(request, authorization=bearer, db=db)
-        return user.id
+        user_id = user.id
+        # Keep the existing session sliding renewal/token last-used updates.
+        await db.commit()
+        return user_id
 
 
 @router.post("/find-projects", response_model=FindProjectResponse)

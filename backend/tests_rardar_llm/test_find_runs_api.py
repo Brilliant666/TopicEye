@@ -74,23 +74,26 @@ def test_anonymous_requests_never_reach_service(setup, method, path):
 
 def test_basic_edge_authorization_alone_is_not_application_identity(setup, monkeypatch):
     _app, client, service = setup
+    db = SimpleNamespace(commit=AsyncMock())
 
     @asynccontextmanager
     async def no_db():
-        yield object()
+        yield db
 
     monkeypatch.setattr(api, "async_session", no_db)
     response = client.get("/api/v1/rardar/find-runs", headers={"Authorization": "Basic c3ludGhldGljOnRlc3Q="})
     assert response.status_code == 401
+    db.commit.assert_not_awaited()
     service.recent.assert_not_awaited()
 
 
 def test_basic_header_with_valid_app_cookie_uses_app_identity(setup, monkeypatch):
     _app, client, service = setup
+    db = SimpleNamespace(commit=AsyncMock())
 
     @asynccontextmanager
     async def no_db():
-        yield object()
+        yield db
 
     token_lookup = AsyncMock(return_value=SimpleNamespace(id=21))
     monkeypatch.setattr(api, "async_session", no_db)
@@ -99,6 +102,7 @@ def test_basic_header_with_valid_app_cookie_uses_app_identity(setup, monkeypatch
     response = client.get("/api/v1/rardar/find-runs", headers={"Authorization": "Basic c3ludGhldGljOnRlc3Q="})
     assert response.status_code == 200
     assert token_lookup.await_args.args[1] == "synthetic-app-cookie"
+    db.commit.assert_awaited_once_with()
     service.recent.assert_awaited_once_with(21)
 
 

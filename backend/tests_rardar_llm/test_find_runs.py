@@ -1,4 +1,4 @@
-"""Private result persistence against an isolated disposable SQLite database.
+"""Private persistence in disposable SQLite or explicitly isolated development PG.
 
 No application startup, production PostgreSQL, source fetch or provider requests.
 """
@@ -6,17 +6,21 @@ No application startup, production PostgreSQL, source fetch or provider requests
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import insert, update
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.schema import CreateSchema, DropSchema
 
 from app.models.rardar_find_run import RardarFindRun
 from app.models.user import User
@@ -27,14 +31,43 @@ from app.services.rardar_find_runs import FindRunError, FindRunService
 
 @pytest_asyncio.fixture
 async def sessions(tmp_path):
-    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'private-find.db'}")
-    async with engine.begin() as conn:
-        await conn.run_sync(lambda sync: User.__table__.create(sync))
-        await conn.run_sync(lambda sync: RardarFindRun.__table__.create(sync))
-        await conn.execute(insert(User).values(id=1, email="one@example.invalid"))
-        await conn.execute(insert(User).values(id=2, email="two@example.invalid"))
-    yield async_sessionmaker(engine, expire_on_commit=False)
-    await engine.dispose()
+    configured = os.environ.get("RARDAR_FIND_TEST_POSTGRES")
+    schema = None
+    created = False
+    if configured:
+        url = make_url(configured)
+        if (
+            url.drivername != "postgresql+asyncpg"
+            or url.database != "rardar_development"
+            or url.username != "rardar_development_app"
+            or url.host not in {"127.0.0.1", "localhost"}
+            or url.port != 55433
+            or url.query
+        ):
+            pytest.fail("Find PG tests require the dedicated local rardar_development database")
+        schema = f"find_test_{uuid4().hex}"
+        engine = create_async_engine(url, connect_args={"server_settings": {"search_path": schema}})
+    else:
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'private-find.db'}")
+    try:
+        async with engine.begin() as conn:
+            if schema is not None:
+                await conn.execute(CreateSchema(schema))
+            await conn.run_sync(lambda sync: User.__table__.create(sync))
+            await conn.run_sync(lambda sync: RardarFindRun.__table__.create(sync))
+            await conn.execute(insert(User).values(id=1, email="one@example.invalid"))
+            await conn.execute(insert(User).values(id=2, email="two@example.invalid"))
+        created = True
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        try:
+            if schema is not None and created:
+                # This exact UUID schema was created by this fixture. Never
+                # truncate/drop public tables, other schemas or the database.
+                async with engine.begin() as conn:
+                    await conn.execute(DropSchema(schema, cascade=True))
+        finally:
+            await engine.dispose()
 
 
 def request(text="Find a self hosted document tool"):

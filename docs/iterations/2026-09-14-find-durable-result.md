@@ -13,6 +13,9 @@ No new queue, account system, Redis, scheduler or budget ledger is introduced.
 
 - Isolated disposable SQLite persistence/concurrency tests; mocked transport and
   API authentication tests, no real Provider or source calls.
+- The same service suite also passed 21 tests against the separate development
+  PostgreSQL role/database, using per-test UUID schemas (zero leftover schemas,
+  no truncation or changes to existing business tables).
 - Separate `rardar_development` PostgreSQL: pre-migration dump retained outside
   Git; additive upgrade → downgrade to `c003bd551911` → upgrade passed. The
   Windows Alembic config was read explicitly as UTF-8; no application code or

@@ -40,22 +40,16 @@ function Get-PreviewConfig {
     if (-not $config) {
         # Local-only defaults. Subsequent calls read this managed configuration.
         # No password/key is stored, and no data or budget is copied/initialized.
-        $original = Read-State
-        if (-not $original -or -not $original.database) {
-            $original = Read-PreviewJson (Join-Path $RuntimeRoot 'config.json')
-        }
-        if (-not $original -or -not $original.database) {
-            throw "Original Runtime database identity is missing; configure the managed preview config first."
-        }
+        $developmentData = Join-Path $env:LOCALAPPDATA 'TopicEye\rardar-development-data'
         $config = [pscustomobject]@{
             schemaVersion = 1; repository = $RepoRoot
             backendPort = if ($script:ManagedRuntimeMode) { 8102 } else { 54191 }
             frontendPort = if ($script:ManagedRuntimeMode) { 3000 } else { 54190 }
             postgresPort = $PgPort
-            dataDirectory = if ($script:ManagedRuntimeMode) { $MirrorRoot } else { (Join-Path $env:TEMP "rardar-refocus-preview-data") }
-            budgetIdentityDataDirectory = $MirrorRoot
-            database = $original.database
-            databaseUser = if ($original.databaseUser) { $original.databaseUser } else { "topiceye" }
+            dataDirectory = $developmentData
+            budgetIdentityDataDirectory = $developmentData
+            database = 'rardar_development'
+            databaseUser = 'rardar_development_app'
         }
         Write-PreviewJson $script:PreviewConfigPath $config
     }
@@ -78,10 +72,16 @@ function Get-PreviewConfig {
         throw "Preview port configuration does not match the original database."
     }
     foreach ($path in @($config.dataDirectory, $config.budgetIdentityDataDirectory)) { Assert-PreviewPath $path }
-    $usesOriginalData = [IO.Path]::GetFullPath($config.dataDirectory).TrimEnd('\') -ieq [IO.Path]::GetFullPath($MirrorRoot).TrimEnd('\')
-    if ($usesOriginalData -ne [bool]$script:ManagedRuntimeMode -or
-        [IO.Path]::GetFullPath($config.budgetIdentityDataDirectory).TrimEnd('\') -ine [IO.Path]::GetFullPath($MirrorRoot).TrimEnd('\')) {
-        throw "Preview data must be isolated and its budget identity must remain the original Runtime identity."
+    $productionData = [IO.Path]::GetFullPath($MirrorRoot).TrimEnd('\')
+    foreach ($path in @($config.dataDirectory, $config.budgetIdentityDataDirectory)) {
+        $resolved = [IO.Path]::GetFullPath($path).TrimEnd('\')
+        if ($resolved -ieq $productionData -or $resolved.StartsWith($productionData + '\', [StringComparison]::OrdinalIgnoreCase) -or
+            $productionData.StartsWith($resolved + '\', [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Local development must not use the previous production data or budget identity."
+        }
+    }
+    if ($config.database -cne 'rardar_development' -or $config.databaseUser -cne 'rardar_development_app') {
+        throw "Local startup requires the separate rardar_development database and rardar_development_app role; no automatic migration or credential copy is performed."
     }
     foreach ($value in @($config.database, $config.databaseUser)) {
         if ($value -notmatch '^[A-Za-z_][A-Za-z0-9_-]{0,62}$') { throw "Invalid local database identity." }
@@ -136,6 +136,12 @@ function Assert-PreviewDatabase([object]$Config) {
     $answer = & $Psql -w -h 127.0.0.1 -p $Config.postgresPort -U $Config.databaseUser -d $Config.database -At -c 'select current_database(), current_user' 2>$null
     if ($LASTEXITCODE -ne 0 -or $answer.Trim() -ne "$($Config.database)|$($Config.databaseUser)") {
         throw "Original PostgreSQL database/role is unavailable; no database changes were attempted."
+    }
+    # Read only a count, never credential values. Missing schema/permissions
+    # fail closed. Development may contain user fixtures but no live routes.
+    $unsafeRoutes = & $Psql -w -h 127.0.0.1 -p $Config.postgresPort -U $Config.databaseUser -d $Config.database -At -c "select count(*) from llm_models where enabled or nullif(api_key, '') is not null" 2>$null
+    if ($LASTEXITCODE -ne 0 -or "$unsafeRoutes".Trim() -ne '0') {
+        throw "Development database contains enabled model routes or credentials, or could not be checked; startup refused."
     }
 }
 
@@ -314,9 +320,9 @@ function Invoke-RardarPreview([string]$Action, [switch]$RuntimeMode) {
             APP_ENV = 'development'; RARDAR_PRODUCT_MODE = 'true'; RARDAR_DATA_MODE = 'real'; RARDAR_DEMO_DATA_ENABLED = 'false'
             RARDAR_LOCAL_SHADOW_REVIEW = 'false'
             RARDAR_INTELLIGENCE_DATA_DIR = $config.dataDirectory; RARDAR_BUDGET_IDENTITY_DATA_DIR = $config.budgetIdentityDataDirectory
-            RARDAR_DAILY_OPERATIONS_ENABLED = 'true'
+            RARDAR_DAILY_OPERATIONS_ENABLED = 'false'
             RARDAR_STARTUP_CATCHUP_ENABLED = 'false'
-            SCHEDULER_ENABLED = if ($RuntimeMode) { 'true' } else { 'false' }
+            SCHEDULER_ENABLED = 'false'
             AUTO_CREATE_TABLES_ON_STARTUP = 'false'; STARTUP_SEQUENCE_SYNC_ENABLED = 'false'; CACHE_WARMUP_ENABLED = 'false'
             DUCKDB_STARTUP_INIT_ENABLED = 'false'; STARTUP_SEED_ENABLED = 'false'; ADMIN_SEED_ENABLED = 'false'
             CORS_ORIGINS = "http://127.0.0.1:$($config.frontendPort)"; PYTHONPATH = $BackendRoot; PYTHONUTF8 = '1'; PYTHONIOENCODING = 'utf-8'
@@ -328,7 +334,7 @@ function Invoke-RardarPreview([string]$Action, [switch]$RuntimeMode) {
             postgresPort = $config.postgresPort; dataMirror = $config.dataDirectory
             frontendMode = 'production'; startedAt = (Get-Date).ToUniversalTime().ToString('o') }
         try {
-            $lifespan = if ($RuntimeMode) { 'on' } else { 'off' }
+            $lifespan = 'off'
             $backend = Start-AppProcess $Python @('-m', 'uvicorn', 'app.main:app', '--app-dir', "`"$BackendRoot`"", '--host', '127.0.0.1', '--port', "$($config.backendPort)", '--lifespan', $lifespan) $BackendRoot (Join-Path $script:PreviewRoot 'backend') $environment
             $state.backend = Get-PreviewProcessRecord $backend.Id $config.backendPort
             Write-PreviewJson $script:PreviewStatePath $state

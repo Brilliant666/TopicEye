@@ -28,7 +28,7 @@ def test_runtime_dispatch_does_not_enter_legacy_selection_startup() -> None:
 
 
 @pytest.mark.parametrize("wrong_field", [None, "data", "ports"])
-def test_runtime_config_uses_original_data_and_fixed_ports(tmp_path: Path, wrong_field: str | None) -> None:
+def test_runtime_config_requires_development_data_and_fixed_ports(tmp_path: Path, wrong_field: str | None) -> None:
     original = tmp_path / "original"
     alternate = tmp_path / "alternate"
     original.mkdir()
@@ -39,10 +39,10 @@ def test_runtime_config_uses_original_data_and_fixed_ports(tmp_path: Path, wrong
         "backendPort": 8102,
         "frontendPort": 3000,
         "postgresPort": 55433,
-        "dataDirectory": str(alternate if wrong_field == "data" else original),
-        "budgetIdentityDataDirectory": str(original),
-        "database": "original_db",
-        "databaseUser": "existing_user",
+        "dataDirectory": str(original if wrong_field == "data" else alternate),
+        "budgetIdentityDataDirectory": str(alternate),
+        "database": "rardar_development",
+        "databaseUser": "rardar_development_app",
     }
     if wrong_field == "ports":
         config["frontendPort"] = 54190
@@ -60,7 +60,7 @@ Get-PreviewConfig | ConvertTo-Json -Compress
         assert result.returncode != 0
     else:
         assert result.returncode == 0, result.stderr
-        assert json.loads(result.stdout)["dataDirectory"] == str(original)
+        assert json.loads(result.stdout)["dataDirectory"] == str(alternate)
 
 
 def test_formal_entry_rejects_development_repository_before_process_work(tmp_path: Path) -> None:
@@ -81,6 +81,8 @@ Invoke-RardarPreview preview-start -RuntimeMode
 def test_runtime_stop_preserves_identity_for_next_start(tmp_path: Path) -> None:
     original = tmp_path / "original"
     original.mkdir()
+    development = tmp_path / "development"
+    development.mkdir()
     runtime = tmp_path / "runtime"
     runtime.mkdir()
     config = {
@@ -89,10 +91,10 @@ def test_runtime_stop_preserves_identity_for_next_start(tmp_path: Path) -> None:
         "backendPort": 8102,
         "frontendPort": 3000,
         "postgresPort": 55433,
-        "dataDirectory": str(original),
-        "budgetIdentityDataDirectory": str(original),
-        "database": "original_db",
-        "databaseUser": "original_role",
+        "dataDirectory": str(development),
+        "budgetIdentityDataDirectory": str(development),
+        "database": "rardar_development",
+        "databaseUser": "rardar_development_app",
     }
     (runtime / "config.json").write_text(json.dumps(config), encoding="utf-8")
     state = {"repository": str(tmp_path), "backend": None, "frontend": None}
@@ -125,7 +127,7 @@ Invoke-RardarPreview preview-start -RuntimeMode
     assert not (runtime / "runtime.json").exists()
 
 
-def test_new_preview_discovers_original_database_after_runtime_stop(tmp_path: Path) -> None:
+def test_new_preview_does_not_inherit_production_database_after_stop(tmp_path: Path) -> None:
     original = tmp_path / "original"
     preview = tmp_path / "preview-data"
     runtime = tmp_path / "runtime"
@@ -135,12 +137,12 @@ def test_new_preview_discovers_original_database_after_runtime_stop(tmp_path: Pa
         json.dumps({"repository": "original-runtime", "database": "preserved_db", "databaseUser": "preserved_role"}),
         encoding="utf-8",
     )
-    # Default preview data is obtained from TEMP; no real managed assets touched.
-    (tmp_path / "rardar-refocus-preview-data").mkdir()
+    # Only a prepared independent development data directory is accepted.
+    (tmp_path / "TopicEye/rardar-development-data").mkdir(parents=True)
     result = run_ps(
         tmp_path,
         f"""
-$env:TEMP=$RepoRoot; $RuntimeRoot={literal(runtime)}; $MirrorRoot={literal(original)}; $PgPort=55433
+$env:TEMP=$RepoRoot; $env:LOCALAPPDATA=$RepoRoot; $RuntimeRoot={literal(runtime)}; $MirrorRoot={literal(original)}; $PgPort=55433
 $script:ManagedRuntimeMode=$false; $script:PreviewConfigPath=Join-Path $RepoRoot 'new-preview-config.json'
 function Read-State {{ return $null }}
 Get-PreviewConfig | ConvertTo-Json -Compress
@@ -148,12 +150,12 @@ Get-PreviewConfig | ConvertTo-Json -Compress
     )
     assert result.returncode == 0, result.stderr
     config = json.loads(result.stdout.strip())
-    assert config["database"] == "preserved_db"
-    assert config["databaseUser"] == "preserved_role"
-    assert config["budgetIdentityDataDirectory"] == str(original)
+    assert config["database"] == "rardar_development"
+    assert config["databaseUser"] == "rardar_development_app"
+    assert config["budgetIdentityDataDirectory"] != str(original)
 
 
-def test_formal_start_keeps_scheduler_and_original_budget_without_migrations(tmp_path: Path) -> None:
+def test_formal_start_disables_production_jobs_without_migrations(tmp_path: Path) -> None:
     result = run_ps(
         tmp_path,
         """
@@ -179,8 +181,8 @@ Invoke-RardarPreview preview-start -RuntimeMode
     assert "CAPTURED_WITHOUT_STARTING" in result.stderr
     captured = json.loads(result.stdout.strip())
     environment = captured["environment"]
-    assert environment["SCHEDULER_ENABLED"] == "true"
-    assert environment["RARDAR_DAILY_OPERATIONS_ENABLED"] == "true"
+    assert environment["SCHEDULER_ENABLED"] == "false"
+    assert environment["RARDAR_DAILY_OPERATIONS_ENABLED"] == "false"
     assert environment["RARDAR_STARTUP_CATCHUP_ENABLED"] == "false"
     assert environment["RARDAR_BUDGET_IDENTITY_DATA_DIR"] == "original-data"
     assert environment["RARDAR_INTELLIGENCE_DATA_DIR"] == "original-data"
@@ -188,7 +190,7 @@ Invoke-RardarPreview preview-start -RuntimeMode
     assert environment["STARTUP_SEQUENCE_SYNC_ENABLED"] == "false"
     assert environment["STARTUP_SEED_ENABLED"] == "false"
     assert environment["ADMIN_SEED_ENABLED"] == "false"
-    assert captured["arguments"][-2:] == ["--lifespan", "on"]
+    assert captured["arguments"][-2:] == ["--lifespan", "off"]
 
 
 @pytest.mark.parametrize("enabled", [False, True])

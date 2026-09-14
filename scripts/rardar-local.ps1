@@ -14,6 +14,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if ($Command -in @('refresh-news', 'enhance-news', 'rebuild-serving', 'build-selection', 'rebuild-selection', 'selection-rollback', 'sync-data')) {
+    throw "Local production execution has retired. Use saved development snapshots and isolated test doubles; production operations run only on the server."
+}
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $FrontendRoot = Join-Path $RepoRoot "frontend"
 $BackendRoot = Join-Path $RepoRoot "backend"

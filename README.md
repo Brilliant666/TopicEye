@@ -612,6 +612,42 @@ the backend suite against a throwaway `postgres:16-alpine` container on port
 [AGENTS.md](AGENTS.md); an unchanged full suite is not a default requirement
 for every task.
 
+## Rardar production and local development
+
+The server owns production schedules, saved results and the shared production
+budget. Local `scripts/rardar-local.ps1 start` / `restart` and `preview-start`
+are development-only: scheduler, daily operations and catch-up are disabled.
+They require a separately prepared `rardar_development` database owned by the
+non-production `rardar_development_app` role. Enabled model routes or stored
+model credentials cause startup to fail; local user/test fixtures are allowed.
+No production database, credentials, budget ledger or pending jobs are copied.
+Old local production refresh/enrichment/publish commands are retired. A server
+outage never activates a local production fallback.
+
+To obtain saved public data on demand (no source refresh/model generation):
+
+```powershell
+python scripts/rardar_dev_snapshot.py --destination "$env:LOCALAPPDATA\TopicEye\rardar-development-snapshots"
+```
+
+This uses the existing authorized `rardar-prod` SSH public-file-read entry and
+the fixed `/var/lib/rardar-product/intelligence` source. Set the managed local
+config's `dataDirectory` and `budgetIdentityDataDirectory` to the returned
+snapshot directory, or to a separate working copy of it, never to the previous
+production data root. The config path is printed by the managed status/build
+entry. `snapshot-manifest.json` records source site, export time and file
+digests; original data dates remain in the saved JSON. Snapshot-store
+`current.json` identifies the last successful download, not a production data
+pointer. A failed download preserves it. Developers may modify their copy;
+subsequent downloads create separate directories instead of overwriting edits.
+The local development database/schema must already be prepared separately;
+the launcher neither initializes it nor inherits the former production DB.
+
+Public snapshots omit secrets, accounts, sessions, private Find data, execution
+checkpoints and consumable budgets. They are not database backups. Do not commit
+snapshots to Git. Production releases update reviewed code/config/schema, not
+the server's current data or ledger from a local copy.
+
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, code style, and workflow. Feel free to open an issue with the `good first issue` label to find a starter task.

@@ -24,6 +24,7 @@ from app.integrations.rardar.trending_store import (
     read_json,
 )
 from app.services.llm.provider_budget import ProviderBudgetError, atomic, digest, file_lock, plain
+from app.services.rardar_github_client import github_material_client
 from app.services.rardar_material_diagnostics import material_failure_diagnostic
 
 
@@ -512,13 +513,7 @@ async def refresh_boards(target: Path | None = None) -> dict:
 
 
 async def refresh_metadata(target: Path, projects: list[dict] | None = None) -> dict:
-    async with httpx.AsyncClient(
-        base_url="https://api.github.com",
-        timeout=12,
-        follow_redirects=False,
-        trust_env=False,
-        headers={"User-Agent": "TopicEye-Rardar/2.0"},
-    ) as client:
+    async with github_material_client(settings.GITHUB_TOKEN) as client:
         return await trending_metadata.refresh(
             target, projects if projects is not None else today_candidates(target)["projects"], client
         )
@@ -1006,13 +1001,7 @@ async def historical_work(
     )
     completed = set()
     with work_slice(max_requests=MATERIAL_PROVIDER_SLICE_LIMIT, background=True) as work:
-        async with httpx.AsyncClient(
-            base_url="https://api.github.com",
-            timeout=12,
-            follow_redirects=False,
-            trust_env=False,
-            headers={"User-Agent": "TopicEye-Rardar/2.0"},
-        ) as client:
+        async with github_material_client(settings.GITHUB_TOKEN) as client:
             for project in pending:
                 if result["visited"] >= (1 if only_project_id else MATERIAL_PROJECT_SLICE_LIMIT):
                     break

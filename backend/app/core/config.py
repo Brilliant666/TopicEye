@@ -1,4 +1,4 @@
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings
 
 DEFAULT_LOCAL_SECRET_KEY = "topiceye-local-dev-secret-change-me"
@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     RARDAR_BOARD_COMPENSATION_DELAY_MINUTES: int = Field(default=120, ge=30, le=480)
     # A daily run advances several existing small slices, yielding between them.
     RARDAR_DAILY_MATERIAL_SLICES: int = Field(default=6, ge=1, le=12)
+    # Project-owned GitHub API credential; never the user's OAuth session.
+    # Empty preserves anonymous public-repository reads in local environments.
+    GITHUB_TOKEN: SecretStr = SecretStr("")
 
     # ── Database ──
     # 留空则启动时报错；本地开发请在 .env 中设置（参考 .env.example）。

@@ -96,7 +96,7 @@ async def test_real_track_finish_save_read_preserves_json_and_scopes(tracker_db)
 
 @pytest.mark.asyncio
 async def test_legacy_read_is_nonmutating(tracker_db):
-    values = ["普通文本😀", '{"status":"partial"}', '{"bad":', '{"x":"' + "中" * 1994]
+    values = ["普通文本😀", '{"status":"partial"}', '{"bad":', '{"x":"' + "中" * 1994, "[" * 2000]
     async with tracker_db() as db:
         for value in values:
             db.add(

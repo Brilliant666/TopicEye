@@ -99,7 +99,7 @@ def is_daily_summary(raw: str) -> bool:
     try:
         value = json.loads(raw)
         return isinstance(value, dict) and value.get("summarySchema") == SUMMARY_SCHEMA
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         return False
 
 
@@ -109,7 +109,7 @@ def describe_summary(raw: str | None) -> dict:
         return {"format": "empty", "complete": None, "truncationSuspected": False}
     try:
         value = json.loads(raw)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, RecursionError):
         looks_json = raw.lstrip().startswith(("{", "["))
         return {
             "format": "legacy_invalid_json" if looks_json else "legacy_text",

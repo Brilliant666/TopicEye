@@ -28,6 +28,19 @@ NON_RESUMABLE = {
     "calendar_day_changed",
 }
 
+_AUDIT_COUNTERS = {
+    "processed": "processed",
+    "refreshed": "refreshed",
+    "failedAttempts": "failed",
+    "providerRequests": "providerRequests",
+    "visited": "visited",
+}
+
+
+def _audit_counts(value: dict) -> dict:
+    # Missing metrics are unknown, not evidence of zero work.
+    return {label: value.get(key) for label, key in _AUDIT_COUNTERS.items()}
+
 
 async def material_budget_available() -> bool:
     """Qualification is read-only: do not initialize or reserve a Provider call."""
@@ -93,6 +106,7 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
             if len(rounds) > 2:
                 raise ValueError("daily_round_state_invalid")
             active = rounds[-1] if rounds and rounds[-1]["status"] == "running" else None
+            resumed_round = active is not None
             if trigger == "automatic":
                 if clock < datetime.fromisoformat(plan["mainAt"]):
                     return {"status": "skipped", "reason": "before_daily_window", "providerCalls": 0, "changed": False}
@@ -229,6 +243,8 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
 
             material_result = day.get("materials", {})
             run_requests = 0
+            audit_counts = dict.fromkeys(_AUDIT_COUNTERS, 0)
+            audit_slices = 0
             if trigger == "automatic" and material_work and current.get("generationId"):
                 # A single bounded run advances multiple existing slices. Never
                 # busy-loop a cooperative wait or reset a project's retry debit.
@@ -236,6 +252,11 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
                     if material_result and not _material_pending({"materials": material_result}):
                         break
                     material_result = await material_work()
+                    audit_slices += 1
+                    for label, key in _AUDIT_COUNTERS.items():
+                        value = material_result.get(key)
+                        previous = audit_counts[label]
+                        audit_counts[label] = previous + value if type(previous) is int and type(value) is int else None
                     run_requests += material_result.get("providerRequests", 0)
                     day["materials"] = material_result
                     totals = day.setdefault("materialTotals", {})
@@ -268,6 +289,38 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
                 "oldResultPreserved": bool((publication_failed or unfinished) and current.get("generationId")),
             }
             if trigger == "automatic":
+                result["auditRound"] = {
+                    "schemaVersion": 1,
+                    "roundKind": active["kind"],
+                    "resumedRound": resumed_round,
+                    "counterScope": "current_invocation",
+                    "date": day["date"],
+                    "targetSourceDate": period["sourceDate"],
+                    "generationId": current.get("generationId"),
+                    "sourceRequests": len(fetched),
+                    "requestedSources": fetched,
+                    "materials": {
+                        # This invocation only; not reconstructed from a later queue.
+                        "round": audit_counts,
+                        "slices": audit_slices,
+                        "sliceLimit": settings.RARDAR_DAILY_MATERIAL_SLICES,
+                        "cumulative": {
+                            key: value if audit_counts[key] is not None else None
+                            for key, value in _audit_counts(day.get("materialTotals", {})).items()
+                        },
+                        "snapshot": {
+                            key: material_result.get(key)
+                            for key in (
+                                "reused",
+                                "todayPending",
+                                "historicalPending",
+                                "remaining",
+                                "status",
+                                "waitReason",
+                            )
+                        },
+                    },
+                }
                 active.update(status="completed", completedAt=instant(now).isoformat())
                 atomic(day_path, day)
                 result["automaticRound"] = active["kind"]

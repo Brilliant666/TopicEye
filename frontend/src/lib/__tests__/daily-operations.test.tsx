@@ -1,11 +1,21 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import RardarDailyOperations, { DailyExecutionSummary, DailyRefreshSchedule } from '@/components/RardarDailyOperations';
+import RardarDailyOperations, { DailyAuditLog, DailyExecutionSummary, DailyRefreshSchedule } from '@/components/RardarDailyOperations';
 
 const state = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock('@/lib/api/_core', () => ({ request: state.request }));
 
 describe('Rardar daily admin controls', () => {
+  it('renders legacy invalid JSON without parsing, rewriting or claiming restoration', () => {
+    const raw = '{"status":"partial","broken":';
+    const html = renderToStaticMarkup(<DailyAuditLog log={{ id: 1, status: 'PARTIAL', started_at: '2026-09-15T01:00:00Z', result_summary: raw, summary_info: { format: 'legacy_invalid_json', complete: false, truncationSuspected: false } }} />);
+    expect(html).toContain('PARTIAL');
+    expect(html).toContain('不完整或损坏');
+    expect(html).not.toContain('疑似截断');
+    expect(html).toContain('不能恢复缺失统计');
+    expect(html).toContain('&quot;broken&quot;:');
+    expect(state.request).not.toHaveBeenCalled();
+  });
   it('separates current publication, failed attempt, work debt and shared usage', () => {
     const html = renderToStaticMarkup(<DailyExecutionSummary budget={{ day: '2026-09-10', configuredLimit: 100, attempted: 8, remaining: 92, interactiveReserve: 10, earlyBackgroundLimit: 20, stageBreakdown: { project_profile: 5, news_quickread: 3 }, dailyStatus: { status: 'partial', scheduling: { workSlices: 2, sliceRequestLimit: 6, waitReason: 'interactive_reserve' }, modules: { discover: { status: 'failed', checked: 48, processed: 6, currentPublishedCount: 4, newlyPublishedTotal: 0, currentGenerationId: 'healthy', attemptGenerationId: 'failed-attempt', currentPending: 5, historyPending: 37 } } } }} />);
     expect(html).toContain('当前展示版本：healthy');

@@ -10,10 +10,16 @@ from tests_rardar_llm.test_daily_refresh_policy import at, day_state, io, policy
 
 def slice_result(processed, failed, requests, reused, remaining):
     return {
-        "status": "partial", "waitReason": "next_scheduled_pass",
-        "processed": processed, "refreshed": 0, "failed": failed,
-        "providerRequests": requests, "visited": processed + failed,
-        "reused": reused, "todayPending": 2, "historicalPending": remaining - 2,
+        "status": "partial",
+        "waitReason": "next_scheduled_pass",
+        "processed": processed,
+        "refreshed": 0,
+        "failed": failed,
+        "providerRequests": requests,
+        "visited": processed + failed,
+        "reused": reused,
+        "todayPending": 2,
+        "historicalPending": remaining - 2,
         "remaining": remaining,
     }
 
@@ -22,17 +28,25 @@ def slice_result(processed, failed, requests, reused, remaining):
 async def test_round_delta_cumulative_and_last_scan_are_distinct(io, monkeypatch):  # noqa: F811
     target, fetch = io
     monkeypatch.setattr(refresh.settings, "RARDAR_DAILY_MATERIAL_SLICES", 2)
-    material = AsyncMock(side_effect=[
-        slice_result(2, 1, 3, 10, 15), slice_result(1, 2, 2, 12, 14),
-        slice_result(3, 0, 3, 14, 11), slice_result(2, 1, 2, 17, 9),
-    ])
+    material = AsyncMock(
+        side_effect=[
+            slice_result(2, 1, 3, 10, 15),
+            slice_result(1, 2, 2, 12, 14),
+            slice_result(3, 0, 3, 14, 11),
+            slice_result(2, 1, 2, 17, 9),
+        ]
+    )
     main = await refresh.run_refresh(target, now=at(), trigger="automatic", material_work=material)
     compensation = await refresh.run_refresh(target, now=at(11), trigger="automatic", material_work=material)
     first, second = main["auditRound"], compensation["auditRound"]
     assert first["roundKind"] == "main"
     assert second["roundKind"] == "compensation"
     assert first["materials"]["round"] == {
-        "processed": 3, "refreshed": 0, "failedAttempts": 3, "providerRequests": 5, "visited": 6,
+        "processed": 3,
+        "refreshed": 0,
+        "failedAttempts": 3,
+        "providerRequests": 5,
+        "visited": 6,
     }
     assert second["materials"]["round"]["processed"] == 5
     assert second["materials"]["round"]["failedAttempts"] == 1

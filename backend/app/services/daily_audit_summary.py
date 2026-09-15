@@ -10,7 +10,8 @@ MAX_SUMMARY_BYTES = 8192
 
 # Only operational scalars. No prompts, profiles, response bodies or arbitrary
 # exception messages are accepted, even if a caller adds them to its result.
-SCALARS = frozenset("""
+SCALARS = frozenset(
+    """
 status reason waitReason date roundKind automaticRound targetSourceDate sourceDate
 generationId publishedAt count changed sourceRequests providerCalls oldResultPreserved
 processed refreshed failed failedAttempts providerRequests visited reused remaining
@@ -21,11 +22,14 @@ slices sliceLimit
 counterScope resumedRound requestedSources
 limit policyVersion completedAt startedAt schemaVersion querySuccessCount queryFailureCount
 roundSlices configuredSliceLimit roundProviderRequests roundSourceRequests
-""".split())
-GROUPS = frozenset("""
+""".split()
+)
+GROUPS = frozenset(
+    """
 materials round cumulative snapshot sources history historyReview publication metadata
 targetPeriod counts totals lastSlice materialTotals sourceStates historyReference
-""".split())
+""".split()
+)
 
 
 def _project(value: object, omitted: list[int], *, depth: int = 0, text_limit: int = 160):
@@ -115,7 +119,9 @@ def describe_summary(raw: str | None) -> dict:
             "truncationSuspected": looks_json and len(raw) == 2000,
         }
     return {
-        "format": SUMMARY_SCHEMA if isinstance(value, dict) and value.get("summarySchema") == SUMMARY_SCHEMA else "legacy_json",
+        "format": SUMMARY_SCHEMA
+        if isinstance(value, dict) and value.get("summarySchema") == SUMMARY_SCHEMA
+        else "legacy_json",
         "complete": not (isinstance(value, dict) and bool(value.get("auditError"))),
         "truncationSuspected": False,
     }

@@ -29,8 +29,11 @@ NON_RESUMABLE = {
 }
 
 _AUDIT_COUNTERS = {
-    "processed": "processed", "refreshed": "refreshed", "failedAttempts": "failed",
-    "providerRequests": "providerRequests", "visited": "visited",
+    "processed": "processed",
+    "refreshed": "refreshed",
+    "failedAttempts": "failed",
+    "providerRequests": "providerRequests",
+    "visited": "visited",
 }
 
 
@@ -253,10 +256,7 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
                     for label, key in _AUDIT_COUNTERS.items():
                         value = material_result.get(key)
                         previous = audit_counts[label]
-                        audit_counts[label] = (
-                            previous + value
-                            if type(previous) is int and type(value) is int else None
-                        )
+                        audit_counts[label] = previous + value if type(previous) is int and type(value) is int else None
                     run_requests += material_result.get("providerRequests", 0)
                     day["materials"] = material_result
                     totals = day.setdefault("materialTotals", {})
@@ -311,7 +311,12 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
                         "snapshot": {
                             key: material_result.get(key)
                             for key in (
-                                "reused", "todayPending", "historicalPending", "remaining", "status", "waitReason"
+                                "reused",
+                                "todayPending",
+                                "historicalPending",
+                                "remaining",
+                                "status",
+                                "waitReason",
                             )
                         },
                     },

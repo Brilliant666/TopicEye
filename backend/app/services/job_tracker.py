@@ -454,12 +454,14 @@ def track_job(job_key: str, name: str = "", timeout: int = 300, description: str
                                 # Audit failure must not rerun or change the
                                 # completed business operation's status.
                                 logger.error("Daily audit serialization failed log_id=%s", log_id)
-                                result_summary = json.dumps({
-                                    "summarySchema": "rardar-daily-audit-v1",
-                                    "logId": log_id,
-                                    "auditError": "serialization_failed",
-                                    "businessStatus": status,
-                                })
+                                result_summary = json.dumps(
+                                    {
+                                        "summarySchema": "rardar-daily-audit-v1",
+                                        "logId": log_id,
+                                        "auditError": "serialization_failed",
+                                        "businessStatus": status,
+                                    }
+                                )
                         else:
                             result_summary = json.dumps(result, ensure_ascii=False)[:2000]
                     elif result is not None:

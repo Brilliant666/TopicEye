@@ -33,17 +33,34 @@ async def tracker_db(tmp_path, monkeypatch):
 
 def synthetic_result():
     return {
-        "status": "partial", "date": "2026-09-15",
-        "auditRound": {"schemaVersion": 1, "roundKind": "compensation", "counterScope": "current_invocation",
-                       "resumedRound": False, "materials": {"slices": 6, "sliceLimit": 6,
-            "round": {"processed": 15, "failedAttempts": 3, "providerRequests": 18},
-            "cumulative": {"processed": 23, "failedAttempts": 13, "providerRequests": 28},
-            "snapshot": {"reused": 96, "todayPending": 5, "historicalPending": 65,
-                         "waitReason": "next_scheduled_pass"},
-        }},
-        "modules": {"today": {"status": "unchanged", "generationId": "boards-synthetic",
-                              "projects": [{"profile": '中文😀"\\' * 1000}] * 100},
-                    "historical_review": {"status": "published", "date": "2026-09-15"}},
+        "status": "partial",
+        "date": "2026-09-15",
+        "auditRound": {
+            "schemaVersion": 1,
+            "roundKind": "compensation",
+            "counterScope": "current_invocation",
+            "resumedRound": False,
+            "materials": {
+                "slices": 6,
+                "sliceLimit": 6,
+                "round": {"processed": 15, "failedAttempts": 3, "providerRequests": 18},
+                "cumulative": {"processed": 23, "failedAttempts": 13, "providerRequests": 28},
+                "snapshot": {
+                    "reused": 96,
+                    "todayPending": 5,
+                    "historicalPending": 65,
+                    "waitReason": "next_scheduled_pass",
+                },
+            },
+        },
+        "modules": {
+            "today": {
+                "status": "unchanged",
+                "generationId": "boards-synthetic",
+                "projects": [{"profile": '中文😀"\\' * 1000}] * 100,
+            },
+            "historical_review": {"status": "published", "date": "2026-09-15"},
+        },
     }
 
 
@@ -79,11 +96,12 @@ async def test_real_track_finish_save_read_preserves_json_and_scopes(tracker_db)
 
 @pytest.mark.asyncio
 async def test_legacy_read_is_nonmutating(tracker_db):
-    values = ['普通文本😀', '{"status":"partial"}', '{"bad":', '{"x":"' + '中' * 1994]
+    values = ["普通文本😀", '{"status":"partial"}', '{"bad":', '{"x":"' + "中" * 1994]
     async with tracker_db() as db:
         for value in values:
-            db.add(JobExecutionLog(job_key="legacy", status="PARTIAL", started_at=datetime.now(UTC),
-                                   result_summary=value))
+            db.add(
+                JobExecutionLog(job_key="legacy", status="PARTIAL", started_at=datetime.now(UTC), result_summary=value)
+            )
         await db.commit()
     rows = await job_tracker.get_recent_logs("legacy")
     assert {r["result_summary"] for r in rows} == set(values)
@@ -93,13 +111,15 @@ async def test_legacy_read_is_nonmutating(tracker_db):
     assert await job_tracker.get_recent_logs("legacy") == rows
 
 
-@pytest.mark.parametrize("status,expected", [("completed", "SUCCESS"), ("partial", "PARTIAL"),
-                                             ("failed", "FAILED"), ("skipped", "SKIPPED")])
+@pytest.mark.parametrize(
+    "status,expected", [("completed", "SUCCESS"), ("partial", "PARTIAL"), ("failed", "FAILED"), ("skipped", "SKIPPED")]
+)
 @pytest.mark.asyncio
 async def test_status_mapping_unchanged(tracker_db, status, expected):
     @job_tracker.track_job("rardar_daily_operations")
     async def run():
         return {"status": status}
+
     await run()
     assert (await job_tracker.get_recent_logs())[0]["status"] == expected
 
@@ -107,13 +127,17 @@ async def test_status_mapping_unchanged(tracker_db, status, expected):
 @pytest.mark.asyncio
 async def test_audit_write_failure_releases_lease_no_retry(tracker_db, monkeypatch, caplog):
     calls = []
+
     async def fail(*args, **kwargs):
         raise RuntimeError("secret-must-not-be-logged")
+
     monkeypatch.setattr(job_tracker, "_finish_log", fail)
+
     @job_tracker.track_job("rardar_daily_operations")
     async def run():
         calls.append(1)
         return {"status": "partial"}
+
     with pytest.raises(RuntimeError):
         await run()
     assert calls == [1]
@@ -128,11 +152,14 @@ async def test_timeout_and_cancel_release(tracker_db):
     @job_tracker.track_job("rardar_daily_operations", timeout=0.001)
     async def run():
         await asyncio.sleep(1)
+
     await run()
     assert (await job_tracker.get_recent_logs())[0]["status"] == "TIMEOUT"
+
     @job_tracker.track_job("rardar_daily_operations")
     async def cancel():
         raise asyncio.CancelledError
+
     with pytest.raises(asyncio.CancelledError):
         await cancel()
     assert (await job_tracker.get_recent_logs())[0]["status"] == "INTERRUPTED"
@@ -170,9 +197,11 @@ async def test_new_summary_above_old_character_limit_survives_both_writers(track
         {key: "x" * 150 for key in ("source", "status", "errorCode", "generationId", "publishedAt", "sourceDate")}
         for _ in range(2)
     ]
+
     @job_tracker.track_job("rardar_daily_operations")
     async def run():
         return value
+
     await run()
     raw = (await job_tracker.get_recent_logs())[0]["result_summary"]
     assert len(raw) > 2000
@@ -183,14 +212,18 @@ async def test_new_summary_above_old_character_limit_survives_both_writers(track
 @pytest.mark.asyncio
 async def test_serialization_error_does_not_relabel_or_retry_business(tracker_db, monkeypatch, caplog):
     from app.services import daily_audit_summary
+
     def fail(*args, **kwargs):
         raise ValueError("private-text")
+
     monkeypatch.setattr(daily_audit_summary, "serialize_daily_summary", fail)
     calls = []
+
     @job_tracker.track_job("rardar_daily_operations")
     async def run():
         calls.append(1)
         return {"status": "partial"}
+
     await run()
     row = (await job_tracker.get_recent_logs())[0]
     assert calls == [1]

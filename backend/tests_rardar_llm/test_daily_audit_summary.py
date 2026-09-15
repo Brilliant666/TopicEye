@@ -34,7 +34,8 @@ async def tracker_db(tmp_path, monkeypatch):
 def synthetic_result():
     return {
         "status": "partial", "date": "2026-09-15",
-        "auditRound": {"schemaVersion": 1, "roundKind": "compensation", "materials": {
+        "auditRound": {"schemaVersion": 1, "roundKind": "compensation", "counterScope": "current_invocation",
+                       "resumedRound": False, "materials": {"slices": 6, "sliceLimit": 6,
             "round": {"processed": 15, "failedAttempts": 3, "providerRequests": 18},
             "cumulative": {"processed": 23, "failedAttempts": 13, "providerRequests": 28},
             "snapshot": {"reused": 96, "todayPending": 5, "historicalPending": 65,
@@ -65,6 +66,9 @@ async def test_real_track_finish_save_read_preserves_json_and_scopes(tracker_db)
     assert saved["auditRound"]["materials"]["round"]["processed"] == 15
     assert saved["auditRound"]["materials"]["cumulative"]["failedAttempts"] == 13
     assert saved["auditRound"]["materials"]["snapshot"]["historicalPending"] == 65
+    assert saved["auditRound"]["counterScope"] == "current_invocation"
+    assert saved["auditRound"]["resumedRound"] is False
+    assert saved["auditRound"]["materials"]["sliceLimit"] == 6
     assert saved["modules"]["historical_review"]["status"] == "published"
     assert "profile" not in row["result_summary"]
     assert len(row["result_summary"].encode()) <= MAX_SUMMARY_BYTES
@@ -157,3 +161,40 @@ def test_list_samples_keep_total_and_unknown_counters():
     empty = json.loads(serialize_daily_summary({"status": "completed"}))
     assert empty["auditRound"] is None
     assert empty["roundMetricsAvailable"] is False
+
+
+@pytest.mark.asyncio
+async def test_new_summary_above_old_character_limit_survives_both_writers(tracker_db):
+    value = synthetic_result()
+    value["modules"]["today"]["sources"] = [
+        {key: "x" * 150 for key in ("source", "status", "errorCode", "generationId", "publishedAt", "sourceDate")}
+        for _ in range(2)
+    ]
+    @job_tracker.track_job("rardar_daily_operations")
+    async def run():
+        return value
+    await run()
+    raw = (await job_tracker.get_recent_logs())[0]["result_summary"]
+    assert len(raw) > 2000
+    assert len(raw.encode()) <= MAX_SUMMARY_BYTES
+    assert json.loads(raw)["auditRound"]["materials"]["round"]["processed"] == 15
+
+
+@pytest.mark.asyncio
+async def test_serialization_error_does_not_relabel_or_retry_business(tracker_db, monkeypatch, caplog):
+    from app.services import daily_audit_summary
+    def fail(*args, **kwargs):
+        raise ValueError("private-text")
+    monkeypatch.setattr(daily_audit_summary, "serialize_daily_summary", fail)
+    calls = []
+    @job_tracker.track_job("rardar_daily_operations")
+    async def run():
+        calls.append(1)
+        return {"status": "partial"}
+    await run()
+    row = (await job_tracker.get_recent_logs())[0]
+    assert calls == [1]
+    assert row["status"] == "PARTIAL"
+    assert json.loads(row["result_summary"])["auditError"] == "serialization_failed"
+    assert row["summary_info"]["complete"] is False
+    assert "private-text" not in caplog.text

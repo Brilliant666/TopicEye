@@ -48,7 +48,15 @@ export function DailyRefreshSchedule({ policy }: { policy?: RefreshPolicy }) {
   </div>;
 }
 type Job = { job_key: string; enabled: boolean; last_status: string | null };
-type Log = { id: number; status: string; started_at: string; result_summary: string | null };
+type Log = { id: number; status: string; started_at: string; result_summary: string | null; summary_info?: { format: string; complete: boolean | null; truncationSuspected: boolean } };
+
+export function DailyAuditLog({ log }: { log: Log }) {
+  return <details><summary>{beijingTime(log.started_at)} · {log.status}</summary>
+    {log.summary_info?.format === 'legacy_invalid_json' && <p>旧格式摘要不完整或损坏{log.summary_info.truncationSuspected ? '（符合旧 2000 字符截断边界，疑似截断）' : ''}；原状态和原文保留，不能恢复缺失统计。</p>}
+    {log.summary_info?.format === 'legacy_text' && <p>旧格式文本摘要</p>}
+    <pre className="whitespace-pre-wrap break-all text-xs">{log.result_summary || '暂无结果；触发并不等于已发布'}</pre>
+  </details>;
+}
 
 export default function RardarDailyOperations() {
   const [budget, setBudget] = useState<DailyBudgetView | null>(null);
@@ -110,6 +118,6 @@ export default function RardarDailyOperations() {
     <p className="text-xs text-gray-500">同日自动任务、重试及手动操作共享额度；保存更高额度不会给当天运行重新充值。暂停阻止后续工作切片，正在执行的请求可以完成。</p>
     {notice && <p role="status" className="text-sm">{notice}</p>}
     {budget && <DailyExecutionSummary budget={budget} />}
-    <ul className="space-y-2 text-sm">{logs.map((log) => <li key={log.id}><details><summary>{beijingTime(log.started_at)} · {log.status}</summary><pre className="whitespace-pre-wrap break-all text-xs">{log.result_summary || '暂无结果；触发并不等于已发布'}</pre></details></li>)}</ul>
+    <ul className="space-y-2 text-sm">{logs.map((log) => <li key={log.id}><DailyAuditLog log={log} /></li>)}</ul>
   </Panel>;
 }

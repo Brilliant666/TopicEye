@@ -363,7 +363,14 @@ async def _finish_log(
         log.finished_at = datetime.now(UTC)
         log.duration_ms = duration_ms
         if result_summary:
-            log.result_summary = result_summary[:2000]
+            from app.services.daily_audit_summary import MAX_SUMMARY_BYTES, is_daily_summary
+
+            if is_daily_summary(result_summary):
+                if len(result_summary.encode("utf-8")) > MAX_SUMMARY_BYTES:
+                    raise ValueError("daily_audit_summary_too_large")
+                log.result_summary = result_summary
+            else:
+                log.result_summary = result_summary[:2000]
         if error_message:
             log.error_message = error_message[:4000]
         await db.commit()
@@ -435,16 +442,35 @@ def track_job(job_key: str, name: str = "", timeout: int = 300, description: str
                     elif isinstance(result, dict):
                         import json
 
-                        result_summary = json.dumps(result, ensure_ascii=False)[:2000]
                         if job_key == "rardar_daily_operations":
                             status = {"partial": "PARTIAL", "failed": "FAILED", "skipped": "SKIPPED"}.get(
                                 result.get("status"), "SUCCESS"
                             )
+                            from app.services.daily_audit_summary import serialize_daily_summary
+
+                            try:
+                                result_summary = serialize_daily_summary(result, log_id)
+                            except Exception:
+                                # Audit failure must not rerun or change the
+                                # completed business operation's status.
+                                logger.error("Daily audit serialization failed log_id=%s", log_id)
+                                result_summary = json.dumps({
+                                    "summarySchema": "rardar-daily-audit-v1",
+                                    "logId": log_id,
+                                    "auditError": "serialization_failed",
+                                    "businessStatus": status,
+                                })
+                        else:
+                            result_summary = json.dumps(result, ensure_ascii=False)[:2000]
                     elif result is not None:
                         result_summary = str(result)[:2000]
                 except asyncio.CancelledError:
-                    await _finish_log(log_id, "INTERRUPTED", error_message="执行器已停止，后续日程可续接")
-                    await _release_job_run(job_key, "INTERRUPTED")
+                    try:
+                        await _finish_log(log_id, "INTERRUPTED", error_message="执行器已停止，后续日程可续接")
+                    except Exception:
+                        logger.error("Job audit persistence failed job_key=%s log_id=%s", job_key, log_id)
+                    finally:
+                        await _release_job_run(job_key, "INTERRUPTED")
                     raise
                 except TimeoutError:
                     status = "TIMEOUT"
@@ -457,14 +483,19 @@ def track_job(job_key: str, name: str = "", timeout: int = 300, description: str
                 finally:
                     duration_ms = int((time.monotonic() - start) * 1000)
 
-                await _finish_log(
-                    log_id,
-                    status,
-                    result_summary=result_summary,
-                    error_message=error_message,
-                    duration_ms=duration_ms,
-                )
-                await _release_job_run(job_key, status)
+                try:
+                    await _finish_log(
+                        log_id,
+                        status,
+                        result_summary=result_summary,
+                        error_message=error_message,
+                        duration_ms=duration_ms,
+                    )
+                except Exception:
+                    logger.error("Job audit persistence failed job_key=%s log_id=%s", job_key, log_id)
+                    raise
+                finally:
+                    await _release_job_run(job_key, status)
 
                 logger.info(
                     "Job %s %s in %dms",
@@ -489,6 +520,8 @@ async def get_recent_logs(job_key: str = "", limit: int = 50) -> list[dict]:
     """Get recent execution logs, optionally filtered by job_key."""
     from sqlalchemy import desc, select
 
+    from app.services.daily_audit_summary import describe_summary
+
     async with async_session() as db:
         q = select(JobExecutionLog).order_by(desc(JobExecutionLog.started_at)).limit(limit)
         if job_key:
@@ -504,6 +537,7 @@ async def get_recent_logs(job_key: str = "", limit: int = 50) -> list[dict]:
                 "finished_at": log.finished_at.isoformat() if log.finished_at else None,
                 "duration_ms": log.duration_ms,
                 "result_summary": log.result_summary,
+                "summary_info": describe_summary(log.result_summary),
                 "error_message": log.error_message,
                 "trigger_type": log.trigger_type,
             }

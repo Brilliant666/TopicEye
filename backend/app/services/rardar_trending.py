@@ -24,6 +24,7 @@ from app.integrations.rardar.trending_store import (
     read_json,
 )
 from app.services.llm.provider_budget import ProviderBudgetError, atomic, digest, file_lock, plain
+from app.services.rardar_material_diagnostics import material_failure_diagnostic
 
 
 def project_material(profile, evidence, *, source_kind: str = "profile_cache", metadata=None) -> dict:
@@ -1098,6 +1099,9 @@ async def historical_work(
                         else "profile"
                     )
                     record["checkedAt"] = datetime.now(UTC).isoformat()
+                    record["diagnostic"] = material_failure_diagnostic(
+                        exc, project=project, stage=record["stage"], collected=collected
+                    )
                     result["failed"] += 1
                 finally:
                     used = work.used_requests - used_before
@@ -1107,6 +1111,7 @@ async def historical_work(
                         "status": record["status"],
                         "stage": record.get("stage"),
                         "errorCode": record.get("errorCode") if record["status"] == "failed" else None,
+                        "diagnostic": record.get("diagnostic") if record["status"] == "failed" else None,
                         "checkedAt": datetime.now(UTC).isoformat(),
                     }
                     atomic(rotation_path, rotation)
@@ -1145,6 +1150,7 @@ async def run_daily_refocus() -> dict:
         with file_lock(root / "writer.lock", blocking=False), _record_interruption(path):
             state = read_json(path) or {"date": day, "modules": {}, "progress": {}}
             state.update(status="running", startedAt=datetime.now(UTC).isoformat(), scope="refocus-v1")
+            state.pop("auditRound", None)
 
             def save():
                 atomic(path, state)
@@ -1184,11 +1190,13 @@ async def run_daily_refocus() -> dict:
                     material_work=material_work,
                     review_work=review_work,
                 )
+                if "auditRound" in result:
+                    state["auditRound"] = result["auditRound"]
                 if result["status"] == "skipped":
                     state.update(status="skipped", reason=result["reason"], completedAt=datetime.now(UTC).isoformat())
                     save()
                     return {k: v for k, v in state.items() if k != "progress"}
-                modules["today"] = {k: v for k, v in result.items() if k != "materials"}
+                modules["today"] = {k: v for k, v in result.items() if k not in {"materials", "auditRound"}}
                 if result.get("materials"):
                     modules["historical_hot"] = result["materials"]
                 if result.get("historyReview"):

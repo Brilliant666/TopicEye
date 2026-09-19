@@ -58,6 +58,103 @@ from app.services.rardar_llm_control import RardarLLMError
 FIXTURE = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_intelligence" / "revision-a"
 
 
+def test_custom_navigation_cannot_override_evidence_bound_positioning() -> None:
+    navigation = "打开在线检索页 · 下载 EPUB 电子书 · 目录 · 术语表 · 做平台要办哪些证（长文）"
+    assert not _official_positioning_is_high_signal(navigation, "zh")
+    assert _official_positioning_is_high_signal("这是一本通过标明证据与成本帮助读者选择生活建议的指南。", "zh")
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("一项将项目制作成可分享发布视频的技能，由 RenderKit 提供支持。", {"primary_outcome"}),
+        ("一份将原始记录转化为行动建议的清单。", {"primary_outcome"}),
+        ("一份生活指南和清单。", set()),
+        ("一项由社区和赞助商提供支持的技能。", set()),
+    ],
+)
+def test_positioning_roles_recognize_concrete_outcome_not_project_category(text, expected) -> None:
+    assert set(_positioning_roles(text)) - {"identity"} == expected
+
+
+def test_new_outcome_wording_still_rejects_unknown_evidence() -> None:
+    value = ProfileTranslation(
+        summary=EvidenceClaim(text="一项视频制作技能。", evidenceRefs=["description"]),
+        positioning=DerivedPositioning(
+            positioningZh="将已有项目制作成可分享的视频，以便向用户介绍项目。",
+            includedEvidenceRefs=["readme:missing"],
+            includedRoles=["primary_outcome"],
+        ),
+        capabilities=[],
+        productForms=[],
+        supportedEnvironments=[],
+        useCases=[],
+        deliveryForms=[],
+    )
+    with pytest.raises(ProfileTranslationError):
+        _validate_translation(value, {"description"})
+
+
+@pytest.mark.asyncio
+async def test_navigation_candidate_falls_back_to_validated_assessment_and_reuses_cache(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"description": "逐条标明成本和证据，并按收益排序的生活指南。"})
+    markdown = """# Evidence guide
+
+一份帮助读者权衡生活选择的指南。
+
+打开在线检索页 · 下载 EPUB 电子书 · 目录 · 术语表 · 做平台要办哪些证（长文）
+
+## 内容
+
+逐条标明行动成本、收益、证据等级和原始出处，并按性价比排序。
+"""
+
+    async def handler(request):
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=[{"path": "README.md", "type": "file"}])
+        return httpx.Response(200, json=_readme_payload(markdown))
+
+    calls = 0
+
+    async def structure(payload):
+        nonlocal calls
+        calls += 1
+        reference = next(key for key, value in payload["evidenceIndex"].items() if "证据等级" in value)
+        return ProfileTranslation(
+            summary=EvidenceClaim(text="一份帮助读者权衡生活选择的指南。", evidenceRefs=["description"]),
+            positioning=DerivedPositioning(
+                positioningZh="通过逐条标明行动成本、收益和证据等级并按性价比排序，帮助读者识别优先选择。",
+                includedEvidenceRefs=[reference],
+                includedRoles=["core_mechanism", "primary_outcome"],
+            ),
+            capabilities=[
+                ServingCapability(
+                    title="证据追踪",
+                    detail="逐条列出证据等级与原始出处，支持核对生活建议。",
+                    evidenceRefs=[reference],
+                    sourceMode="rardar_derived",
+                )
+            ],
+            productForms=[],
+            supportedEnvironments=[],
+            useCases=[],
+            deliveryForms=[],
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
+        first = await collect_official_project_profile(
+            project, "fixture-explosion-a", tmp_path, client=client, translate=True, translator=structure
+        )
+        second = await collect_official_project_profile(
+            project, "fixture-explosion-a", tmp_path, client=client, translate=True, translator=structure
+        )
+    assert calls == 1
+    assert first.profile.positioningSourceMode == "rardar_derived"
+    assert "目录" not in first.profile.positioningZh
+    assert second.profile.positioningZh == first.profile.positioningZh
+    assert second.translation_calls == 0
+
+
 def _project():
     return RardarIntelligenceAdapter.from_config(str(FIXTURE.resolve())).load_explosion_board().exactRanked[0]
 

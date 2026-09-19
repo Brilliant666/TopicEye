@@ -516,7 +516,7 @@ def _positioning_roles(value: str) -> list[Literal["identity", "core_mechanism",
     ):
         roles.append("core_mechanism")
     if re.search(
-        r"(?:用于|帮助|生成|转换|指导|减少|避免|交付|解决|使得|管理|组织|集中|收纳|整理)",
+        r"(?:用于|帮助|生成|转换|转化为|制作成|指导|减少|避免|交付|解决|使得|管理|组织|集中|收纳|整理)",
         value,
         re.IGNORECASE,
     ):
@@ -672,6 +672,18 @@ def _official_positioning_is_high_signal(value: str, source_language: str | None
 
     cleaned = _clean_inline(value, 2000)
     if len(cleaned) > 600 or _navigation_line(cleaned):
+        return False
+    # Custom README link bars need not contain standard navigation labels.
+    # Reject the candidate without changing the evidence extraction/cache identity.
+    fragments = [part.strip() for part in re.split(r"\s*[·|｜•]\s*", cleaned) if part.strip()]
+    if (
+        len(fragments) >= 3
+        and sum(
+            bool(re.match(r"(?:打开|下载|目录|术语表|核实记录|阅读|查看|download\b|read\b|docs\b)", part, re.I))
+            for part in fragments
+        )
+        >= 2
+    ):
         return False
     non_positioning = re.compile(
         r"(?:^(?:to\s+learn\s+more|learn\s+more|read\s+more|for\s+more|要进一步了解|更多(?:信息|项目)|其他项目)\b|"

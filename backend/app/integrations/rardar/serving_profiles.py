@@ -37,6 +37,7 @@ from app.integrations.rardar.profile_cache_v2 import (
     retryable_error,
     store_profile,
 )
+from app.integrations.rardar.profile_validation_rules import profile_validation_context
 from app.integrations.rardar.schemas import ExactExplosionProject
 from app.integrations.rardar.serving_schemas import (
     CapabilitySourceMode,
@@ -510,7 +511,10 @@ def _positioning_roles(value: str) -> list[Literal["identity", "core_mechanism",
     if re.search(
         r"(?:架构|驱动|机制|方法|流程|引擎|编译|渲染|校验|工作方式|"
         r"通过|采用|利用|基于|借助|依靠|支撑|映射|覆盖|挂载|连接|组合|调度|"
-        r"(?:皆|都是|本身也是).{0,8}插件|支持任意模型|模型切换|无锁定)",
+        r"(?:皆|都是|本身也是).{0,8}插件|支持任意模型|模型切换|无锁定|"
+        r"(?:存储|计算|读写|索引|查询).{0,12}(?:解耦|分离)|"
+        r"(?:节点|索引器|执行器|工作进程|服务).{0,24}(?:处理|执行|构建|维护)(?:查询|请求|任务|不可变的|索引)|"
+        r"(?:由|交给).{1,24}(?:承担|负责)[：:]?\s*(?:计算|存储|查询|索引))",
         value,
         re.IGNORECASE,
     ):
@@ -673,9 +677,26 @@ def _official_positioning_is_high_signal(value: str, source_language: str | None
     cleaned = _clean_inline(value, 2000)
     if len(cleaned) > 600 or _navigation_line(cleaned):
         return False
+    # A flattened Markdown table is still a table, not a positioning sentence.
+    # Keep its raw evidence available to the assessment, but never promote the
+    # table/header/development commands as the official primary narrative.
+    if re.search(r"\|\s*:?-{3,}:?\s*\|", cleaned):
+        return False
+    if (
+        source_language == "zh"
+        and _MARKDOWN_BLOCKQUOTE.match(cleaned)
+        and not {"core_mechanism", "primary_outcome"}.intersection(_positioning_roles(cleaned))
+    ):
+        return False
     # Custom README link bars need not contain standard navigation labels.
     # Reject the candidate without changing the evidence extraction/cache identity.
     fragments = [part.strip() for part in re.split(r"\s*[·|｜•]\s*", cleaned) if part.strip()]
+    if (
+        len(fragments) >= 6
+        and all(len(part) <= 24 and not re.search(r"[。！？；.!?;]", part) for part in fragments)
+        and any(part.casefold() in _NAVIGATION_TERMS for part in fragments)
+    ):
+        return False
     if (
         len(fragments) >= 3
         and sum(
@@ -2490,6 +2511,24 @@ def _valid_capabilities(
             issues.append("capability_placeholder")
             continue
         operation_noise = _CAPABILITY_OPERATION_NOISE.search(f"{capability.title} {capability.detail}")
+        # Component packaging is a product capability even when its delivery
+        # sentence mentions installation/deployment. This narrow exception does
+        # not admit installation titles, commands or unrelated operation prose.
+        detail_operations = list(_CAPABILITY_OPERATION_NOISE.finditer(capability.detail))
+        packaged_components = (
+            not _CAPABILITY_OPERATION_NOISE.search(capability.title)
+            and bool(detail_operations)
+            and all(
+                match.group(0).casefold() in {"安装", "部署", "install", "installation"} for match in detail_operations
+            )
+            and len(set(re.findall(r"智能体|插件|模板|技能|命令|连接器|模块", capability.detail))) >= 2
+            and bool(
+                re.search(
+                    r"(?:以.{1,100}(?:形式提供|交付)|按.{1,60}打包|打包.{1,60}(?:插件|模块|技能|连接器))",
+                    capability.detail,
+                )
+            )
+        )
         product_community = _PRODUCT_COMMUNITY_CAPABILITY.search(
             f"{capability.title} {capability.detail}"
         ) and not _COMMUNITY_NAVIGATION_NOISE.search(f"{capability.title} {capability.detail}")
@@ -2505,7 +2544,7 @@ def _valid_capabilities(
                 "navigation_noise",
                 "markdown_format_noise",
             }
-        ) or (operation_noise and not product_community):
+        ) or (operation_noise and not product_community and not packaged_components):
             issues.append("capability_invalid_content")
             continue
         if "long_english" in text_issues or not _CHINESE.search(capability.detail):
@@ -4283,63 +4322,64 @@ async def collect_official_project_profile(
     else:
         profile_state = "partial"
     start_here = _start_here(project, readme_path, sections, tree, path_refs)
-    profile = OfficialProjectProfile(
-        profileSchemaVersion=_PROFILE_SCHEMA,
-        promptVersion=_PROMPT_VERSION,
-        githubRepositoryId=project.githubRepositoryId,
-        repository=project.repository,
-        htmlUrl=project.htmlUrl,
-        generationId=generation_id,
-        profileState=profile_state,
-        officialSummaryZh=summary,
-        identitySummaryZh=summary,
-        coreValueZh=core_value,
-        coreValueEvidenceRefs=core_value_refs,
-        keyDifferentiators=key_differentiators,
-        qualityState=quality_state,
-        qualityIssues=quality_issues,
-        officialTaglineZh=official_tagline,
-        officialTaglineEvidenceRefs=official_tagline_refs,
-        officialPositioningZh=official_positioning,
-        officialPositioningEvidenceRefs=official_positioning_refs,
-        positioningZh=official_positioning,
-        positioningSourceMode=positioning_source_mode,
-        positioningEvidenceRefs=official_positioning_refs,
-        positioningIncludedRoles=positioning_included_roles,
-        positioningExcludedClauses=positioning_excluded_clauses,
-        officialHighlights=official_highlights,
-        officialNarrativeMode=narrative_mode,
-        officialNarrativeIssues=list(dict.fromkeys(narrative_issues)),
-        officialNarrativePromptVersion=_OFFICIAL_NARRATIVE_PROMPT_VERSION,
-        rardarAssessmentZh=core_value,
-        rardarAssessmentEvidenceRefs=core_value_refs,
-        rardarDifferentiators=key_differentiators,
-        rardarAssessmentPromptVersion=_RARDAR_ASSESSMENT_PROMPT_VERSION,
-        sourceLabel=source_label,
-        sourceLanguage=source_language,
-        capabilityBulletsZh=capability_details,
-        capabilities=capabilities,
-        productFormsZh=product_forms,
-        supportedEnvironmentsZh=supported_environments,
-        primaryUseCasesZh=use_cases,
-        deliveryFormsZh=delivery,
-        claimEvidenceRefs=claim_refs,
-        readmePath=readme_path,
-        readmeBlobSha=readme_sha,
-        selectedSections=sections,
-        originalExcerpts=excerpts,
-        startHere=start_here,
-        evidenceDigest=evidence.digest,
-        generatedAt=datetime.now(UTC),
-        translationState=translation_state,
-    )
-    from app.integrations.rardar.material_content_revision import derive as derive_reading
-
-    reading_fields = derive_reading(profile, evidence)
-    if reading_fields:
-        profile = OfficialProjectProfile.model_validate_json(
-            json.dumps({**profile.model_dump(mode="json"), **reading_fields}), strict=True
+    with profile_validation_context(evidence):
+        profile = OfficialProjectProfile(
+            profileSchemaVersion=_PROFILE_SCHEMA,
+            promptVersion=_PROMPT_VERSION,
+            githubRepositoryId=project.githubRepositoryId,
+            repository=project.repository,
+            htmlUrl=project.htmlUrl,
+            generationId=generation_id,
+            profileState=profile_state,
+            officialSummaryZh=summary,
+            identitySummaryZh=summary,
+            coreValueZh=core_value,
+            coreValueEvidenceRefs=core_value_refs,
+            keyDifferentiators=key_differentiators,
+            qualityState=quality_state,
+            qualityIssues=quality_issues,
+            officialTaglineZh=official_tagline,
+            officialTaglineEvidenceRefs=official_tagline_refs,
+            officialPositioningZh=official_positioning,
+            officialPositioningEvidenceRefs=official_positioning_refs,
+            positioningZh=official_positioning,
+            positioningSourceMode=positioning_source_mode,
+            positioningEvidenceRefs=official_positioning_refs,
+            positioningIncludedRoles=positioning_included_roles,
+            positioningExcludedClauses=positioning_excluded_clauses,
+            officialHighlights=official_highlights,
+            officialNarrativeMode=narrative_mode,
+            officialNarrativeIssues=list(dict.fromkeys(narrative_issues)),
+            officialNarrativePromptVersion=_OFFICIAL_NARRATIVE_PROMPT_VERSION,
+            rardarAssessmentZh=core_value,
+            rardarAssessmentEvidenceRefs=core_value_refs,
+            rardarDifferentiators=key_differentiators,
+            rardarAssessmentPromptVersion=_RARDAR_ASSESSMENT_PROMPT_VERSION,
+            sourceLabel=source_label,
+            sourceLanguage=source_language,
+            capabilityBulletsZh=capability_details,
+            capabilities=capabilities,
+            productFormsZh=product_forms,
+            supportedEnvironmentsZh=supported_environments,
+            primaryUseCasesZh=use_cases,
+            deliveryFormsZh=delivery,
+            claimEvidenceRefs=claim_refs,
+            readmePath=readme_path,
+            readmeBlobSha=readme_sha,
+            selectedSections=sections,
+            originalExcerpts=excerpts,
+            startHere=start_here,
+            evidenceDigest=evidence.digest,
+            generatedAt=datetime.now(UTC),
+            translationState=translation_state,
         )
+        from app.integrations.rardar.material_content_revision import derive as derive_reading
+
+        reading_fields = derive_reading(profile, evidence)
+        if reading_fields:
+            profile = OfficialProjectProfile.model_validate_json(
+                json.dumps({**profile.model_dump(mode="json"), **reading_fields}), strict=True
+            )
     # A profile assembled while a required source refresh failed is not a
     # healthy cache entry, even if fallback prose happens to satisfy the
     # presentation schema. An already proven V2 profile was returned before

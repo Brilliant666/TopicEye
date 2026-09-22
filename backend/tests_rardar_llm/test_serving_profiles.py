@@ -65,12 +65,41 @@ def test_custom_navigation_cannot_override_evidence_bound_positioning() -> None:
 
 
 @pytest.mark.parametrize(
+    "candidate",
+    [
+        "| 入口 | 用途 | 开发命令 | | --- | --- | --- | | Desktop | 桌面应用 | pnpm dev:desktop |",
+        "官网 · 项目仓库 · English · 快速开始 · 20 组真实案例 · 发布版本 · 容器镜像 · 文档",
+        "> 打破黑盒，将证据还给用户。",
+        "> 重新定义未来，这是一款优秀的平台。",
+    ],
+)
+def test_structural_non_positioning_candidates_are_not_promoted(candidate: str) -> None:
+    # Sanitized structural reproductions, not saved Provider responses.
+    assert not _official_positioning_is_high_signal(candidate, "zh")
+
+
+def test_prose_with_separators_or_quoted_mechanism_is_not_navigation() -> None:
+    assert _official_positioning_is_high_signal("通过索引原始证据实现查询 · 返回与原文绑定的引用。", "zh")
+    assert _official_positioning_is_high_signal("> 通过保存仓库证据并绑定引用帮助用户审阅项目。", "zh")
+    assert _official_positioning_is_high_signal(
+        "> A system that turns repository evidence into searchable project reports.", "en"
+    )
+
+
+@pytest.mark.parametrize(
     ("text", "expected"),
     [
         ("一项将项目制作成可分享发布视频的技能，由 RenderKit 提供支持。", {"primary_outcome"}),
         ("一份将原始记录转化为行动建议的清单。", {"primary_outcome"}),
         ("一份生活指南和清单。", set()),
         ("一项由社区和赞助商提供支持的技能。", set()),
+        ("存储与计算完全解耦，数据节点处理查询，索引器在后台构建不可变的遍历索引。", {"core_mechanism"}),
+        ("读写职责分离，执行器负责请求。", {"core_mechanism"}),
+        ("服务处理查询并维护索引。", {"core_mechanism"}),
+        ("一种存储、计算和查询工具。", set()),
+        ("一份关于节点和索引器的清单。", set()),
+        ("一款由社区负责：需求与路线图的工具。", set()),
+        ("计算交给独立工作进程负责：查询与索引。", {"core_mechanism"}),
     ],
 )
 def test_positioning_roles_recognize_concrete_outcome_not_project_category(text, expected) -> None:
@@ -95,14 +124,48 @@ def test_new_outcome_wording_still_rejects_unknown_evidence() -> None:
         _validate_translation(value, {"description"})
 
 
+@pytest.mark.parametrize(
+    ("title", "detail", "accepted"),
+    [
+        ("工作流智能体", "每个智能体以插件和托管模板的形式提供，后者可通过 API 部署。", True),
+        ("领域插件", "技能、命令和数据连接器按行业打包，可以单独安装这些插件。", True),
+        ("安装插件", "技能、命令和数据连接器按行业打包，可以单独安装这些插件。", False),
+        ("使用方式", "安装插件并部署模板。", False),
+        ("领域插件", "技能、命令和数据连接器按行业打包，运行 npm install 完成安装。", False),
+        ("领域插件", "技能、命令和数据连接器按行业打包，可以单独安装这些插件，查看许可证。", False),
+    ],
+)
+def test_packaged_product_components_are_not_installation_instructions(title, detail, accepted) -> None:
+    capability = ServingCapability(
+        title=title, detail=detail, evidenceRefs=["readme:1"], sourceMode="official_translated"
+    )
+    valid, issues = _valid_capabilities([capability], {"readme:1"})
+    assert bool(valid) is accepted
+    if accepted:
+        assert issues == []
+        invalid, invalid_issues = _valid_capabilities([capability], {"description"})
+        assert invalid == []
+        assert "capability_evidence_invalid" in invalid_issues
+
+
 @pytest.mark.asyncio
-async def test_navigation_candidate_falls_back_to_validated_assessment_and_reuses_cache(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "noise",
+    [
+        "打开在线检索页 · 下载 EPUB 电子书 · 目录 · 术语表 · 做平台要办哪些证（长文）",
+        "| 入口 | 用途 | 开发命令 |\n| --- | --- | --- |\n| Desktop | 桌面应用 | pnpm dev:desktop |",
+        "> 打破黑盒，将证据还给用户。",
+    ],
+)
+async def test_navigation_candidate_falls_back_to_validated_assessment_and_reuses_cache(
+    tmp_path: Path, noise: str
+) -> None:
     project = _project().model_copy(update={"description": "逐条标明成本和证据，并按收益排序的生活指南。"})
-    markdown = """# Evidence guide
+    markdown = f"""# Evidence guide
 
 一份帮助读者权衡生活选择的指南。
 
-打开在线检索页 · 下载 EPUB 电子书 · 目录 · 术语表 · 做平台要办哪些证（长文）
+{noise}
 
 ## 内容
 

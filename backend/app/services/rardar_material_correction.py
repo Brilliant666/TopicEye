@@ -125,6 +125,12 @@ async def preview(repository: str, *, mode: str = "generate") -> dict:
     if metadata is None or metadata["githubRepositoryId"] != fact.get("githubRepositoryId"):
         raise ValueError("material_recovery_metadata_mismatch")
     existing = saved_materials(target, repositories={name}).get(name)
+    positioning_ready = bool(
+        existing
+        and (existing.get("profile") or {}).get("positioning")
+        and (existing.get("displayProfile") or {}).get("positioningEvidenceRefs")
+        and existing.get("materialState") in {"partial", "complete"}
+    )
     old, _ = _receipt_paths(operation_root(), name)
     prior = _prior_receipt_digest(old)
     cache_root = target / "profile-cache"
@@ -141,7 +147,7 @@ async def preview(repository: str, *, mode: str = "generate") -> dict:
     stages = {key.split("/", 1)[0] for key in stage_hashes}
     missing = (
         []
-        if existing and existing.get("materialState") == "complete"
+        if positioning_ready
         else [
             label
             for label, needed in (
@@ -177,6 +183,7 @@ async def preview(repository: str, *, mode: str = "generate") -> dict:
                 "trending-metadata",
                 "profile-cache/source-and-stage-cache",
                 "profile-cache/profile-store/v2",
+                "profile-cache/introductions",
                 "daily-provider-budget/existing-identity",
                 "daily-operations/material-corrections-v2",
             ]
@@ -195,7 +202,7 @@ async def preview(repository: str, *, mode: str = "generate") -> dict:
         budget = {}
     return {
         **core,
-        "state": "reused" if existing and existing.get("materialState") == "complete" else "incomplete",
+        "state": "reused" if positioning_ready else "incomplete",
         "missingStages": missing,
         "proposedPositioning": cache_plan.get("positioning") if mode == "cache-only" else None,
         "proposedEvidenceRefs": cache_plan.get("positioningEvidenceRefs") if mode == "cache-only" else None,
@@ -337,6 +344,11 @@ async def apply_once(repository: str, *, mode: str, expected_plan_digest: str, o
         if budget is None or budget[0].snapshot()["remaining"] <= 0:
             return {"status": "pending", "repository": name, "reason": "daily_budget_unavailable"}
         route = await resolve_rardar_route_identity()
+        from app.services.rardar_material_failure_samples import operation_scope, preflight
+
+        # A paid recovery must establish durable candidate capture before its
+        # first source or Provider dispatch. A failed probe consumes no grant.
+        preflight(target / "profile-cache")
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
         receipt = {
             "schemaVersion": 2,
@@ -355,7 +367,10 @@ async def apply_once(repository: str, *, mode: str, expected_plan_digest: str, o
         atomic(receipt_path, receipt)
         source_requests = 0
         collected = None
-        with work_slice(max_requests=grant["maxProviderRequests"], background=True) as work:
+        with (
+            work_slice(max_requests=grant["maxProviderRequests"], background=True) as work,
+            operation_scope(grant["authorizationId"]),
+        ):
             try:
                 async with github_material_client(settings.GITHUB_TOKEN) as client:
 
@@ -374,8 +389,10 @@ async def apply_once(repository: str, *, mode: str, expected_plan_digest: str, o
                 )
                 if (
                     saved is None
-                    or saved.get("materialState") != "complete"
+                    or saved.get("materialState") not in {"complete", "partial"}
                     or not ((saved.get("profile") or {}).get("positioning"))
+                    or not ((saved.get("displayProfile") or {}).get("positioningEvidenceRefs"))
+                    or (saved.get("material") or {}).get("sourceRevision") != collected.evidence.digest
                 ):
                     raise ValueError("material_recovery_readback_incomplete")
                 receipt.update(

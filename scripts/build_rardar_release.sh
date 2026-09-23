@@ -52,7 +52,8 @@ from importlib.metadata import distributions, version, PackageNotFoundError
 from packaging.requirements import Requirement
 import fastapi, sqlalchemy, asyncpg, duckdb, pydantic
 for module in ('scripts.rebuild_rardar_serving', 'scripts.rebuild_rardar_discover_selection',
-               'scripts.reassemble_rardar_profile_cache', 'scripts.correct_rardar_material_once'):
+               'scripts.reassemble_rardar_profile_cache', 'scripts.correct_rardar_material_once',
+               'scripts.replay_rardar_material_failure'):
     assert importlib.util.find_spec(module), module
 ast.parse(Path('app/services/llm/provider_budget_handoff.py').read_text())
 issues = []
@@ -80,6 +81,8 @@ for dist in distributions():
 assert not issues, issues
 print('Runtime package dependency and script presence checks: PASS')
 PY
+docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
+  --entrypoint python "$BACKEND" -m scripts.replay_rardar_material_failure --self-test
 docker run --rm --network none --entrypoint node "$FRONTEND" -e \
   'const a=require("node:assert/strict"); const c=require("./.next/required-server-files.json").config; a.equal(c.env.NEXT_PUBLIC_RARDAR_PRODUCT_MODE,"true"); const r=require("./.next/routes-manifest.json").rewrites; a(r.beforeFiles.some(x=>x.source==="/"&&x.destination==="/rardar-foundation")); a(r.afterFiles.some(x=>x.source==="/api/:path*"&&x.destination==="http://backend:8000/api/:path*")); console.log("Compiled Rardar profile and rewrite: PASS")'
 docker run --rm --network none --entrypoint sh "$BACKEND" -c 'python --version; uname -m; cat /etc/os-release' > "$OUT/backend-platform.txt"

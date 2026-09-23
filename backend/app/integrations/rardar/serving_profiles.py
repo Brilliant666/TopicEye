@@ -20,7 +20,7 @@ from typing import Any, Generic, Literal, TypeVar, cast, get_args
 from urllib.parse import quote
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError
 from pydantic_core import ErrorType
 
 from app.integrations.rardar.profile_cache_v2 import (
@@ -198,6 +198,8 @@ class DerivedPositioning(_StrictTranslationModel):
 
 
 class ProfileTranslation(_StrictTranslationModel):
+    _isolated_issues: tuple[str, ...] = PrivateAttr(default=())
+
     summary: EvidenceClaim
     positioning: DerivedPositioning | None = None
     coreValue: EvidenceClaim | None = None
@@ -210,11 +212,11 @@ class ProfileTranslation(_StrictTranslationModel):
 
 
 class CoreProfileTranslation(_StrictTranslationModel):
-    """Bounded model boundary for primary fields and evidence-backed capabilities."""
+    """Strict top-level wire shape; claims are validated independently below."""
 
-    summary: EvidenceClaim
-    positioning: DerivedPositioning | None = None
-    capabilities: list[ServingCapability] = Field(default_factory=list, max_length=6)
+    summary: Any
+    positioning: Any = None
+    capabilities: Any = Field(default_factory=list)
 
 
 class TranslatedOfficialHighlight(_StrictTranslationModel):
@@ -406,7 +408,7 @@ _FIXED_TRANSLATION_RULES = frozenset(
 
 
 def _generation_failure_diagnostic(
-    error: Exception, *, model_class: str, prompt_version: str, input_digest: str
+    error: Exception, *, model_class: str, prompt_version: str, input_digest: str, sample_id: str | None = None
 ) -> dict[str, str | None]:
     """Retain fixed metadata at the first catch, never Provider text or exception bodies."""
     from app.services.rardar_llm_control import RardarLLMError
@@ -415,6 +417,7 @@ def _generation_failure_diagnostic(
         "modelClass": model_class,
         "promptVersion": prompt_version,
         "inputDigest": input_digest if re.fullmatch(r"[a-f0-9]{64}", input_digest) else None,
+        "sampleId": sample_id if isinstance(sample_id, str) and re.fullmatch(r"[a-f0-9]{32}", sample_id) else None,
         "errorCode": None,
         "classification": None,
         "validationStage": None,
@@ -2872,13 +2875,101 @@ def _validate_translation(value: ProfileTranslation, allowed_refs: set[str]) -> 
         raise ProfileTranslationError("rardar_profile_translation_evidence_mismatch")
 
 
+def validate_core_candidate(candidate: object, payload: dict[str, Any]) -> tuple[ProfileTranslation, tuple[str, ...]]:
+    """Validate one assessment candidate without letting optional fields erase a sound primary claim.
+
+    The top-level JSON shape is still strict. Every retained claim goes through
+    its original strict model and the existing evidence/content validator;
+    rejected fields remain available in the separate raw failure witness.
+    """
+    try:
+        wire = CoreProfileTranslation.model_validate(candidate, strict=True)
+    except ValidationError as exc:
+        raise ProfileTranslationError("rardar_profile_translation_invalid_structure") from exc
+    allowed_refs = set(payload["evidenceIndex"])
+    try:
+        summary_input = wire.summary
+        if isinstance(summary_input, dict) and isinstance(summary_input.get("evidenceRefs"), list):
+            summary_input = dict(summary_input)
+            refs = summary_input["evidenceRefs"]
+            if all(isinstance(ref, str) for ref in refs):
+                summary_input["evidenceRefs"] = list(dict.fromkeys(refs))
+        summary = EvidenceClaim.model_validate(summary_input, strict=True)
+    except ValidationError as exc:
+        raise ProfileTranslationError("rardar_profile_translation_invalid_summary_structure") from exc
+    source_mode: CapabilitySourceMode = (
+        "official_translated" if payload.get("sourceLanguage") == "en" else "rardar_derived"
+    )
+    value = ProfileTranslation(
+        summary=summary,
+        positioning=None,
+        coreValue=None,
+        keyDifferentiators=[],
+        capabilities=[],
+        productForms=[],
+        supportedEnvironments=[],
+        useCases=[],
+        deliveryForms=[],
+    )
+    # An invalid identity/reference makes every dependent field untrustworthy.
+    _validate_translation(value, allowed_refs)
+    isolated: list[str] = []
+
+    if wire.positioning is not None:
+        try:
+            positioning_input = wire.positioning
+            if isinstance(positioning_input, dict):
+                positioning_input = dict(positioning_input)
+                for name in ("includedEvidenceRefs", "includedRoles"):
+                    members = positioning_input.get(name)
+                    if isinstance(members, list) and all(isinstance(member, str) for member in members):
+                        positioning_input[name] = list(dict.fromkeys(members))
+            positioning = DerivedPositioning.model_validate(positioning_input, strict=True)
+            proposed = value.model_copy(update={"positioning": positioning})
+            _validate_translation(proposed, allowed_refs)
+            value = proposed
+        except ValidationError:
+            isolated.append("positioning:schema_invalid")
+        except ProfileTranslationError as exc:
+            isolated.append(f"positioning:{exc}")
+
+    if not isinstance(wire.capabilities, list):
+        isolated.append("capabilities:array_required")
+    else:
+        if len(wire.capabilities) > 6:
+            isolated.append("capabilities:over_limit")
+        seen: set[tuple[str, str, tuple[str, ...]]] = set()
+        for index, raw_capability in enumerate(wire.capabilities[:6]):
+            try:
+                capability_input = raw_capability
+                if isinstance(capability_input, dict) and isinstance(capability_input.get("evidenceRefs"), list):
+                    capability_input = dict(capability_input)
+                    refs = capability_input["evidenceRefs"]
+                    if all(isinstance(ref, str) for ref in refs):
+                        capability_input["evidenceRefs"] = list(dict.fromkeys(refs))
+                capability = ServingCapability.model_validate(capability_input, strict=True)
+                capability = _with_capability_source([capability], source_mode)[0]
+                proposed = value.model_copy(update={"capabilities": [*value.capabilities, capability]})
+                _validate_translation(proposed, allowed_refs)
+                key = (capability.title, capability.detail, tuple(capability.evidenceRefs))
+                if key not in seen:
+                    seen.add(key)
+                    value = proposed
+            except ValidationError:
+                isolated.append(f"capabilities[{index}]:schema_invalid")
+            except ProfileTranslationError as exc:
+                isolated.append(f"capabilities[{index}]:{exc}")
+
+    value._isolated_issues = tuple(isolated)
+    return value, value._isolated_issues
+
+
 async def _translate_with_control(payload: dict[str, Any]) -> ProfileTranslation:
     from app.services.rardar_llm_control import (
         RardarLLMScene,
         call_rardar_structured,
     )
 
-    allowed_refs = set(payload["evidenceIndex"])
     messages = [
         {
             "role": "system",
@@ -2928,21 +3019,8 @@ async def _translate_with_control(payload: dict[str, Any]) -> ProfileTranslation
         schema_version=_PROFILE_SCHEMA,
         reasoning_effort=None,
     )
-    source_mode: CapabilitySourceMode = (
-        "official_translated" if payload.get("sourceLanguage") == "en" else "rardar_derived"
-    )
-    value = ProfileTranslation(
-        summary=result.value.summary,
-        positioning=result.value.positioning,
-        coreValue=None,
-        keyDifferentiators=[],
-        capabilities=_with_capability_source(result.value.capabilities, source_mode),
-        productForms=[],
-        supportedEnvironments=[],
-        useCases=[],
-        deliveryForms=[],
-    )
-    _validate_translation(value, allowed_refs)
+    wire = result.value.model_dump(mode="python")
+    value, _ = validate_core_candidate({key: wire[key] for key in ("summary", "positioning", "capabilities")}, payload)
     return value
 
 
@@ -3078,6 +3156,14 @@ async def _official_translation(
     cache_evidence_identity: str | None = None,
     cache_only: bool = False,
 ) -> GenerationOutcome[OfficialNarrativeTranslation]:
+    from app.services.rardar_material_failure_samples import (
+        FailureSampleContext,
+        SampleStoreUnavailable,
+        current_operation_id,
+        failure_sample_scope,
+        finish_sample,
+    )
+
     revision = evidence.readmeBlobSha or cache_evidence_identity or evidence.digest
     identity = _model_route_cache_identity(
         {
@@ -3134,15 +3220,31 @@ async def _official_translation(
     calls = 0
     for attempt in range(1, 3):
         checkpoint = None
+        sample = FailureSampleContext(
+            cache_root=cache_root,
+            repository=project.repository,
+            repository_id=project.githubRepositoryId,
+            stage="translation",
+            attempt=attempt,
+            operation_id=current_operation_id(),
+            input_payload=payload | {"validationAttempt": attempt},
+            evidence=evidence.model_dump(mode="json"),
+            rule_version="official-translation-v1",
+        )
         try:
-            checkpoint = run_guard.before_attempt()
-            calls += 1
-            with budget_stage("profile_translation"):
-                value = await translator(payload | {"validationAttempt": attempt})
-            _validate_official_translation(value, narrative)
-            run_guard.succeeded()
+            with failure_sample_scope(sample):
+                checkpoint = run_guard.before_attempt()
+                calls += 1
+                with budget_stage("profile_translation"):
+                    value = await translator(payload | {"validationAttempt": attempt})
+                _validate_official_translation(value, narrative)
+                finish_sample(sample.sample_ref, error=None)
+                run_guard.succeeded()
             break
+        except SampleStoreUnavailable:
+            raise
         except Exception as exc:
+            finish_sample(sample.sample_ref, error=exc)
             error_code = _generation_error_code("translation", exc)
             if checkpoint is not None:
                 run_guard.failed(error_code, since=checkpoint)
@@ -3157,6 +3259,7 @@ async def _official_translation(
                         model_class="OfficialNarrativeTranslation",
                         prompt_version=_OFFICIAL_NARRATIVE_PROMPT_VERSION,
                         input_digest=identity,
+                        sample_id=sample.sample_ref.sample_id if sample.sample_ref else None,
                     ),
                 )
     _atomic_json(path, value.model_dump(mode="json"))
@@ -3174,6 +3277,14 @@ async def _official_positioning_translation(
     cache_evidence_identity: str | None = None,
     cache_only: bool = False,
 ) -> GenerationOutcome[OfficialPositioningTranslation]:
+    from app.services.rardar_material_failure_samples import (
+        FailureSampleContext,
+        SampleStoreUnavailable,
+        current_operation_id,
+        failure_sample_scope,
+        finish_sample,
+    )
+
     revision = evidence.readmeBlobSha or cache_evidence_identity or evidence.digest
     identity = _model_route_cache_identity(
         {
@@ -3214,21 +3325,36 @@ async def _official_positioning_translation(
     calls = 0
     for attempt in range(1, 3):
         checkpoint = None
+        request = {
+            "repository": project.repository,
+            "sourcePositioning": source_positioning,
+            "validationAttempt": attempt,
+        }
+        sample = FailureSampleContext(
+            cache_root=cache_root,
+            repository=project.repository,
+            repository_id=project.githubRepositoryId,
+            stage="positioning",
+            attempt=attempt,
+            operation_id=current_operation_id(),
+            input_payload=request,
+            evidence=evidence.model_dump(mode="json"),
+            rule_version="official-positioning-v1",
+        )
         try:
-            checkpoint = run_guard.before_attempt()
-            calls += 1
-            with budget_stage("profile_translation"):
-                value = await translator(
-                    {
-                        "repository": project.repository,
-                        "sourcePositioning": source_positioning,
-                        "validationAttempt": attempt,
-                    }
-                )
-            _validate_official_positioning_translation(value)
-            run_guard.succeeded()
+            with failure_sample_scope(sample):
+                checkpoint = run_guard.before_attempt()
+                calls += 1
+                with budget_stage("profile_translation"):
+                    value = await translator(request)
+                _validate_official_positioning_translation(value)
+                finish_sample(sample.sample_ref, error=None)
+                run_guard.succeeded()
             break
+        except SampleStoreUnavailable:
+            raise
         except Exception as exc:
+            finish_sample(sample.sample_ref, error=exc)
             error_code = _generation_error_code("translation", exc)
             if checkpoint is not None:
                 run_guard.failed(error_code, since=checkpoint)
@@ -3243,6 +3369,7 @@ async def _official_positioning_translation(
                         model_class="OfficialPositioningTranslation",
                         prompt_version=_OFFICIAL_POSITIONING_PROMPT_VERSION,
                         input_digest=identity,
+                        sample_id=sample.sample_ref.sample_id if sample.sample_ref else None,
                     ),
                 )
     _atomic_json(path, value.model_dump(mode="json"))
@@ -3308,6 +3435,14 @@ async def _translation(
     cache_evidence_identity: str | None = None,
     cache_only: bool = False,
 ) -> GenerationOutcome[ProfileTranslation]:
+    from app.services.rardar_material_failure_samples import (
+        FailureSampleContext,
+        SampleStoreUnavailable,
+        current_operation_id,
+        failure_sample_scope,
+        finish_sample,
+    )
+
     revision = evidence.readmeBlobSha or cache_evidence_identity or evidence.digest
     identity = _model_route_cache_identity(
         {
@@ -3364,15 +3499,36 @@ async def _translation(
     calls = 0
     for attempt in range(1, 3):
         checkpoint = None
+        sample = FailureSampleContext(
+            cache_root=cache_root,
+            repository=project.repository,
+            repository_id=project.githubRepositoryId,
+            stage=stage,
+            attempt=attempt,
+            operation_id=current_operation_id(),
+            input_payload=payload | {"validationAttempt": attempt},
+            evidence=evidence.model_dump(mode="json"),
+            rule_version="profile-translation-isolation-v1",
+        )
         try:
-            checkpoint = run_guard.before_attempt()
-            calls += 1
-            with budget_stage("profile_translation" if stage == "translation" else "project_profile"):
-                value = await translator(payload | {"validationAttempt": attempt})
-            _validate_translation(value, set(evidence.evidenceIndex))
-            run_guard.succeeded()
+            with failure_sample_scope(sample):
+                checkpoint = run_guard.before_attempt()
+                calls += 1
+                with budget_stage("profile_translation" if stage == "translation" else "project_profile"):
+                    value = await translator(payload | {"validationAttempt": attempt})
+                _validate_translation(value, set(evidence.evidenceIndex))
+                finish_sample(
+                    sample.sample_ref,
+                    error=None,
+                    normalized=value.model_dump(mode="json"),
+                    isolation_reasons=list(value._isolated_issues),
+                )
+                run_guard.succeeded()
             break
+        except SampleStoreUnavailable:
+            raise  # no second paid dispatch without durable replay evidence
         except Exception as exc:
+            finish_sample(sample.sample_ref, error=exc)
             error_code = _generation_error_code(stage, exc)
             if checkpoint is not None:
                 run_guard.failed(error_code, since=checkpoint)
@@ -3387,6 +3543,7 @@ async def _translation(
                         model_class="ProfileTranslation",
                         prompt_version=_RARDAR_ASSESSMENT_PROMPT_VERSION,
                         input_digest=identity,
+                        sample_id=sample.sample_ref.sample_id if sample.sample_ref else None,
                     ),
                 )
     if value.positioning is not None and value.capabilities:
@@ -4001,6 +4158,7 @@ async def collect_official_project_profile(
     official_positioning_translation: OfficialPositioningTranslation | None = None
     translation_calls = 0
     translation_cache_hit = False
+    positioning_generated_now = False
     generation_failures: list[ProfileGenerationFailure] = [
         ProfileGenerationFailure("source" if stage != "negative_cache" else "cache", code, False)
         for stage, code in source_failures
@@ -4044,6 +4202,7 @@ async def collect_official_project_profile(
             cache_only=cache_only,
         )
         official_translation = outcome.value
+        positioning_generated_now = official_translation is not None and outcome.calls > 0
         if official_translation is not None:
             retain_introduction(
                 official_translation.translatedPositioning,
@@ -4076,6 +4235,7 @@ async def collect_official_project_profile(
             cache_only=cache_only,
         )
         official_positioning_translation = outcome.value
+        positioning_generated_now = official_positioning_translation is not None and outcome.calls > 0
         if official_positioning_translation is not None:
             retain_introduction(
                 official_positioning_translation.translatedPositioning,
@@ -4186,6 +4346,9 @@ async def collect_official_project_profile(
                 cache_only=cache_only,
             )
             translated = outcome.value
+            positioning_generated_now = (
+                translated is not None and translated.positioning is not None and outcome.calls > 0
+            )
             translation_calls += outcome.calls
             translation_cache_hit = translation_cache_hit or outcome.cache_hit
             if outcome.error_code:
@@ -4518,6 +4681,38 @@ async def collect_official_project_profile(
     # network access, so this only guards incomplete misses. Existing
     # evidence-bound deterministic model fallbacks retain their prior contract.
     publishable = _profile_is_publishable(profile) and not source_failures
+    if (
+        save_partial_introduction
+        and not cache_only
+        and not publishable
+        and not source_failures
+        and profile.qualityState != "rejected"
+        and profile.positioningZh is not None
+        and profile.positioningEvidenceRefs
+        and profile.translationState in {"translated", "not_needed"}
+    ):
+        # The full Profile gate still requires independently valid capabilities.
+        # A validated positioning can nevertheless be kept with its exact
+        # evidence for read-only partial display, without changing retries.
+        from app.integrations.rardar.project_introductions import save as save_introduction
+
+        summary_refs = profile.claimEvidenceRefs.get(profile.identitySummaryZh or "", [])
+        if summary_refs:
+            with suppress(ValueError):
+                save_introduction(
+                    cache_root,
+                    evidence,
+                    profile.identitySummaryZh,
+                    summary_refs,
+                    source_mode=(
+                        "official_zh"
+                        if profile.sourceLanguage == "zh" and translated is None
+                        else "validated_translation"
+                    ),
+                    source_label=profile.sourceLabel,
+                    generated_at=profile.generatedAt.isoformat() if positioning_generated_now else None,
+                    partial_profile=profile,
+                )
     if not publishable and last_known_good is not None:
         resolved_failures = tuple(
             ProfileGenerationFailure(failure.stage, failure.code, True, failure.diagnostic)

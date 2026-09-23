@@ -88,18 +88,23 @@ def grant(correction, *, auth="niubigeo-fix-20260923", mode="generate", maximum=
 
 
 @pytest.mark.asyncio
-async def test_correction_is_one_use_and_preserves_daily_failure_record(correction, monkeypatch):
+@pytest.mark.parametrize("material_state", ["complete", "partial"])
+async def test_correction_is_one_use_and_preserves_daily_failure_record(correction, monkeypatch, material_state):
     async def collect(_target, project, _generation, client, _route):
         for hook in client.event_hooks["request"]:
             await hook(object())
         project.update(
-            materialState="complete",
-            displayProfile={"qualityState": "ready"},
+            materialState=material_state,
+            displayProfile={
+                "qualityState": "ready" if material_state == "complete" else "partial",
+                "positioningEvidenceRefs": ["description"],
+            },
+            material={"sourceRevision": "evidence-sha"},
             profile={"summary": "简介", "positioning": "有证据支持的核心定位"},
         )
         return SimpleNamespace(
             profile=SimpleNamespace(model_dump=lambda **_: {"repository": correction.name}, qualityState="ready"),
-            evidence=object(),
+            evidence=SimpleNamespace(digest="evidence-sha"),
         )
 
     monkeypatch.setattr(rardar_trending, "_collect_project_material", collect)

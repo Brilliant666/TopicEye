@@ -70,6 +70,7 @@ the failure is being reproduced, or the risk of the new operation requires it.
 ### Defect closure
 
 - At the start, name the user-visible outcome, existing data to recover, release path, cost/permission bounds and verification. A known missing capability is development work; only a real external boundary blocks its dependent step.
+- For material-generation fixes, verify durable failed-candidate capture and network-free cross-process replay before an authorized real recovery call; finish with production save and readback when in scope.
 - Keep one cause's fix, tests, packaging and authorized data recovery in one task when safe. Report code merged, production deployed, content saved/read back and visual acceptance separately; none implies the next.
 - Diagnostic and readback zero-call limits do not prohibit separately authorized generation. Never inherit a past task's temporary quota or approval. If a future natural run has not occurred, leave one read-only follow-up rather than manufacturing a run.
 

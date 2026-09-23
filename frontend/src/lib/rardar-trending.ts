@@ -38,9 +38,9 @@ export type TrendingProject = {
   materialState: 'complete' | 'partial' | 'unavailable';
   materialAttempt?: { status: string; stage?: 'source' | 'translation' | 'profile' | null; errorCode?: string | null; checkedAt?: string | null } | null;
   displayCard?: TrendingCardNarrative | null;
-  displayProfile?: ProjectDetail['profile'] | null;
+  displayProfile?: (Omit<ProjectDetail['profile'], 'generatedAt'> & { generatedAt: string | null }) | null;
   displayEvidence?: ProjectDetail['evidence'] | null;
-  material?: { schemaVersion: 2; sourceKind: 'profile_cache' | 'published_serving' | 'partial_introduction'; sourceGeneration: string; sourceRevision: string; generatedAt: string | null; savedAt?: string } | null;
+  material?: { schemaVersion: 2; sourceKind: 'profile_cache' | 'published_serving' | 'partial_introduction' | 'partial_profile'; sourceGeneration: string; sourceRevision: string; generatedAt: string | null; savedAt?: string } | null;
   language?: string | null; topics?: string[]; license?: string | null;
   metadataSource?: { fetchedAt: string; sourceUrl: string };
   productForms?: string[]; runtimeEnvironments?: string[]; artifactTypes?: string[];

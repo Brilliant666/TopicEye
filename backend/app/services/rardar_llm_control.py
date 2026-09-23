@@ -23,6 +23,11 @@ from app.services.llm._model_cache import _model_cache
 from app.services.llm.provider import LlmRouteNotConfiguredError, call_llm_with_metadata
 from app.services.llm.provider_budget import ProviderBudgetError
 from app.services.llm.strict_json import StrictJSONError, loads_strict_json
+from app.services.rardar_material_failure_samples import (
+    SampleStoreUnavailable,
+    capture_raw,
+    finish_sample,
+)
 
 RARDAR_ROUTING_GROUP = "rardar"
 _JSON_RESPONSE_FORMAT = {"type": "json_object"}
@@ -321,6 +326,7 @@ async def call_rardar_structured(
     schema_version = _version(schema_version)
     cache_identity = _schema_identity(response_model, prompt_version, schema_version)
     started = time.monotonic()
+    sample_ref = None
     try:
         raw, provider_metadata = await call_llm_with_metadata(
             messages,
@@ -334,9 +340,20 @@ async def call_rardar_structured(
             strict_routing_group=True,
         )
         run_guard.response_received(cache_hit=bool(provider_metadata.get("cache_hit", False)))
+        # Public-project material scopes persist the actual business output
+        # before strict JSON or model validation can discard it. Other scenes,
+        # including private Find requests, have no capture scope.
+        sample_ref = capture_raw(
+            raw,
+            provider_metadata,
+            model_name=response_model.__name__,
+            prompt_version=prompt_version,
+            schema_version=schema_version,
+        )
         parsed = loads_strict_json(raw)
         value = response_model.model_validate(parsed, strict=True)
     except StrictJSONError as exc:
+        finish_sample(sample_ref, error=exc)
         classification = "empty" if "empty" in str(exc).casefold() else "invalid_json"
         raise RardarLLMError(
             "rardar_llm_invalid_output",
@@ -346,8 +363,14 @@ async def call_rardar_structured(
             validation_type=classification,
         ) from None
     except ValidationError as exc:
+        finish_sample(sample_ref, error=exc)
         raise _schema_validation_error(exc, response_model) from None
+    except SampleStoreUnavailable:
+        # Fail closed: the caller must not retry a paid request while the
+        # durable evidence needed to explain it cannot be preserved.
+        raise
     except Exception as exc:
+        finish_sample(sample_ref, error=exc)
         raise _map_control_error(exc) from None
     return RardarStructuredResult(
         value=value,

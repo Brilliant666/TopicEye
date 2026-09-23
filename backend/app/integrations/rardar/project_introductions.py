@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from app.integrations.rardar.project_identity import canonical_repository
-from app.integrations.rardar.serving_schemas import ProjectEvidenceProjection
+from app.integrations.rardar.serving_schemas import OfficialProjectProfile, ProjectEvidenceProjection
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
 
 
@@ -73,12 +73,12 @@ def official_summary_replacement(
 
 
 def _validate(payload: dict) -> ProjectEvidenceProjection:
-    from app.integrations.rardar.serving_profiles import _digest
+    from app.integrations.rardar.serving_profiles import _digest, _primary_semantic_duplicate, _publishable_primary_text
 
     evidence = ProjectEvidenceProjection.model_validate_json(json.dumps(payload["evidence"]), strict=True)
     refs = payload["evidenceRefs"]
     if (
-        payload.get("schemaVersion") != 1
+        payload.get("schemaVersion") not in {1, 2}
         or payload["repository"] != canonical_repository(evidence.repository)
         or payload["githubRepositoryId"] != evidence.githubRepositoryId
         or _digest(evidence.model_dump(mode="json", exclude={"digest"})) != evidence.digest
@@ -94,6 +94,28 @@ def _validate(payload: dict) -> ProjectEvidenceProjection:
         payload["summary"] in evidence.evidenceIndex[ref] for ref in refs
     ):
         raise ValueError("project_introduction_original_mismatch")
+    if payload["schemaVersion"] == 2:
+        profile = OfficialProjectProfile.model_validate_json(json.dumps(payload.get("partialProfile")), strict=True)
+        position = profile.positioningZh
+        if (
+            profile.repository != evidence.repository
+            or profile.githubRepositoryId != evidence.githubRepositoryId
+            or profile.generationId != evidence.generationId
+            or profile.evidenceDigest != evidence.digest
+            or profile.identitySummaryZh != payload["summary"]
+            or profile.claimEvidenceRefs.get(payload["summary"]) != refs
+            or profile.sourceLabel != payload["sourceLabel"]
+            or profile.qualityState == "rejected"
+            or profile.translationState == "unavailable"
+            or profile.positioningSourceMode == "insufficient"
+            or not _publishable_primary_text(position)
+            or _primary_semantic_duplicate(payload["summary"], position)
+            or not profile.positioningEvidenceRefs
+            or not {"core_mechanism", "primary_outcome"}.intersection(profile.positioningIncludedRoles)
+            or any(ref not in evidence.evidenceIndex for ref in profile.positioningEvidenceRefs)
+            or (payload["generatedAt"] is not None and payload["generatedAt"] != profile.generatedAt.isoformat())
+        ):
+            raise ValueError("project_partial_positioning_invalid")
     return evidence
 
 
@@ -106,9 +128,10 @@ def save(
     source_mode: str,
     source_label: str,
     generated_at: str | None = None,
+    partial_profile: OfficialProjectProfile | None = None,
 ) -> dict:
     payload = {
-        "schemaVersion": 1,
+        "schemaVersion": 2 if partial_profile is not None else 1,
         "repository": canonical_repository(evidence.repository),
         "githubRepositoryId": evidence.githubRepositoryId,
         "summary": summary,
@@ -119,6 +142,8 @@ def save(
         "generatedAt": generated_at,
         "savedAt": datetime.now(UTC).isoformat(),
     }
+    if partial_profile is not None:
+        payload["partialProfile"] = partial_profile.model_dump(mode="json")
     _validate(payload)
     # No board date, rank, stars or binding generation in the content identity.
     identity = digest(
@@ -129,6 +154,7 @@ def save(
             "sourceMode": source_mode,
             "sources": {ref: evidence.evidenceIndex[ref] for ref in refs},
             "readmeBlobSha": evidence.readmeBlobSha,
+            **({"partialProfile": digest(payload["partialProfile"])} if partial_profile is not None else {}),
         }
     )
     path = cache_root / "introductions" / str(evidence.githubRepositoryId) / f"{identity}.json"
@@ -150,6 +176,8 @@ def read(path: Path) -> dict:
     if record.get("digest") != digest(payload):
         raise ValueError("project_introduction_digest_invalid")
     _validate(payload)
+    if payload["schemaVersion"] == 2:
+        material(payload)  # validate the exact partial projection before it can be selected
     if path.parent.name != str(payload["githubRepositoryId"]):
         raise ValueError("project_introduction_path_identity_invalid")
     return payload
@@ -173,6 +201,23 @@ def saved(cache_root: Path) -> dict:
 
 def material(value: dict) -> dict:
     evidence = _validate(value)
+    if value["schemaVersion"] == 2:
+        from app.services.rardar_trending import project_material
+
+        profile = OfficialProjectProfile.model_validate_json(json.dumps(value["partialProfile"]), strict=True)
+        projected = project_material(profile, evidence, source_kind="partial_profile")
+        if projected["materialState"] != "partial":
+            raise ValueError("project_partial_positioning_not_partial")
+        return {
+            **projected,
+            "displayProfile": {**projected["displayProfile"], "generatedAt": value["generatedAt"]},
+            "profile": {**projected["profile"], "generatedAt": value["generatedAt"], "savedAt": value["savedAt"]},
+            "material": {
+                **projected["material"],
+                "generatedAt": value["generatedAt"],
+                "savedAt": value["savedAt"],
+            },
+        }
     return {
         "repository": value["repository"],
         "githubRepositoryId": value["githubRepositoryId"],

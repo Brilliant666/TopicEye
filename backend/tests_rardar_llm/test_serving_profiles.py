@@ -51,11 +51,55 @@ from app.integrations.rardar.serving_profiles import (
     _validate_translation,
     build_official_profiles,
     collect_official_project_profile,
+    validate_core_candidate,
 )
 from app.integrations.rardar.serving_schemas import PositioningExcludedClause, ServingCapability
 from app.services.rardar_llm_control import RardarLLMError
 
 FIXTURE = Path(__file__).parents[1] / "tests" / "fixtures" / "rardar_intelligence" / "revision-a"
+
+
+def test_core_candidate_isolates_optional_capability_without_losing_positioning() -> None:
+    evidence = "通过网格索引筛选地理要素，并将查询结果导出为可复查的地图数据。"
+    payload = {"evidenceIndex": {"readme:section:1": evidence}, "sourceLanguage": "zh"}
+    candidate = {
+        "summary": {
+            "text": "这是一个查询地理要素并导出地图数据的工具。",
+            "evidenceRefs": ["readme:section:1"],
+        },
+        "positioning": {
+            "positioningZh": "通过网格索引筛选地理要素，并将查询结果导出为可复查的地图数据。",
+            "includedEvidenceRefs": ["readme:section:1", "readme:section:1"],
+            "includedRoles": ["identity", "core_mechanism", "primary_outcome", "primary_outcome"],
+            "excludedClauses": [],
+        },
+        "capabilities": [
+            {
+                "title": "数据导出",
+                "detail": "运行 npm install 后查看输出。",
+                "shortDetail": None,
+                "evidenceRefs": ["readme:section:1"],
+            }
+        ],
+    }
+    value, isolated = validate_core_candidate(candidate, payload)
+    assert value.positioning is not None
+    assert value.positioning.includedEvidenceRefs == ["readme:section:1"]
+    assert value.positioning.includedRoles == ["identity", "core_mechanism", "primary_outcome"]
+    assert value.capabilities == []
+    assert isolated == value._isolated_issues
+    assert isolated == ("capabilities[0]:rardar_profile_translation_invalid_capability",)
+
+    candidate["positioning"]["includedEvidenceRefs"] = ["other:repository"]
+    value, isolated = validate_core_candidate(candidate, payload)
+    assert value.positioning is None and value.summary.text
+    assert isolated == (
+        "positioning:rardar_profile_translation_evidence_mismatch",
+        "capabilities[0]:rardar_profile_translation_invalid_capability",
+    )
+    candidate["summary"]["evidenceRefs"] = ["other:repository"]
+    with pytest.raises(ProfileTranslationError, match="evidence_mismatch"):
+        validate_core_candidate(candidate, payload)
 
 
 def test_custom_navigation_cannot_override_evidence_bound_positioning() -> None:

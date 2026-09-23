@@ -398,7 +398,7 @@ function CapabilityEvidence({
   legacyProfile,
 }: {
   capability: ProjectCapability;
-  legacyProfile: Partial<ProjectDetail['profile']>;
+  legacyProfile: Partial<Omit<ProjectDetail['profile'], 'generatedAt'>>;
 }) {
   const labels = Array.from(new Set(capability.evidenceRefs.map(evidenceSourceLabel)));
   const sourceMode = capability.sourceMode || legacyCapabilitySourceMode(capability, legacyProfile);
@@ -411,7 +411,7 @@ function CapabilityEvidence({
 
 function legacyCapabilitySourceMode(
   capability: ProjectCapability,
-  profile: Partial<ProjectDetail['profile']>,
+  profile: Partial<Omit<ProjectDetail['profile'], 'generatedAt'>>,
 ): CapabilitySourceMode {
   const matchesOfficialHighlight = profile.officialHighlights?.some((highlight) => (
     highlight.titleZh === capability.title

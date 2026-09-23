@@ -25,25 +25,29 @@ def _network_forbidden():
     old_connect = socket.socket.connect
     old_connect_ex = socket.socket.connect_ex
     old_create = socket.create_connection
+    old_getaddrinfo = socket.getaddrinfo
     socket.socket.connect = deny
     socket.socket.connect_ex = deny
     socket.create_connection = deny
+    socket.getaddrinfo = deny
     try:
         yield
     finally:
         socket.socket.connect = old_connect
         socket.socket.connect_ex = old_connect_ex
         socket.create_connection = old_create
+        socket.getaddrinfo = old_getaddrinfo
 
 
 def replay(cache_root: Path, repository_id: int, sample_id: str) -> dict:
     """Use the same pure candidate validator as online generation."""
-    from pydantic import ValidationError
+    with _network_forbidden():
+        from pydantic import ValidationError
 
-    from app.services.llm.strict_json import StrictJSONError, loads_strict_json
-    from app.services.rardar_material_failure_samples import _safe_error, load_sample
+        from app.services.llm.strict_json import StrictJSONError, loads_strict_json
+        from app.services.rardar_material_failure_samples import _safe_error, load_sample
 
-    sample = load_sample(cache_root, repository_id, sample_id)
+        sample = load_sample(cache_root, repository_id, sample_id)
     if sample["modelClass"] not in {
         "CoreProfileTranslation",
         "OfficialNarrativeTranslation",
@@ -130,12 +134,13 @@ def replay(cache_root: Path, repository_id: int, sample_id: str) -> dict:
 
 def _self_test() -> dict:
     """Synthetic cross-process check for final Linux image, with no production mount."""
-    from app.services.rardar_material_failure_samples import (
-        FailureSampleContext,
-        capture_raw,
-        failure_sample_scope,
-        finish_sample,
-    )
+    with _network_forbidden():
+        from app.services.rardar_material_failure_samples import (
+            FailureSampleContext,
+            capture_raw,
+            failure_sample_scope,
+            finish_sample,
+        )
 
     with tempfile.TemporaryDirectory(prefix="rardar-failure-replay-") as temporary:
         data_root = Path(temporary)
@@ -214,7 +219,8 @@ def main() -> None:
     else:
         if args.repository_id is None or args.sample_id is None:
             parser.error("--repository-id and --sample-id are required")
-        from app.core.config import settings
+        with _network_forbidden():
+            from app.core.config import settings
 
         if not settings.RARDAR_INTELLIGENCE_DATA_DIR:
             parser.error("RARDAR_INTELLIGENCE_DATA_DIR is required")

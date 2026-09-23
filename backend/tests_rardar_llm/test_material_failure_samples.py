@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import json
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +26,7 @@ from app.services.rardar_material_failure_samples import (
     operation_scope,
     preflight,
 )
+from scripts.replay_rardar_material_failure import replay
 
 
 def _context(root: Path, attempt: int = 1) -> FailureSampleContext:
@@ -55,6 +58,35 @@ def _capture(root: Path, attempt: int, raw: str):
         )
         assert scoped.sample_ref == ref
         return ref
+
+
+def test_replay_blocks_dns_during_failure_store_import(tmp_path: Path, monkeypatch):
+    root = tmp_path / "profile-cache"
+    root.mkdir()
+    ref = _capture(root, 1, "not JSON")
+    assert ref is not None
+    finish_sample(ref, error=ValueError("schema_invalid"))
+    original_import = builtins.__import__
+    checked = []
+
+    def unlocked_dns(*_args, **_kwargs):
+        raise AssertionError("replay_import_network_unlocked")
+
+    def checked_import(name, *args, **kwargs):
+        if name == "app.services.rardar_material_failure_samples":
+            try:
+                socket.getaddrinfo("example.invalid", 443)
+            except RuntimeError as error:
+                assert str(error) == "material_replay_network_forbidden"
+                checked.append(name)
+        return original_import(name, *args, **kwargs)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(socket, "getaddrinfo", unlocked_dns)
+        scoped.setattr(builtins, "__import__", checked_import)
+        result = replay(root, 52, ref.sample_id)
+    assert checked
+    assert result["result"] == "failed"
 
 
 def test_capture_is_durable_bounded_and_separate_per_attempt(tmp_path: Path):

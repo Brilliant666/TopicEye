@@ -17,6 +17,11 @@ from app.integrations.rardar.profile_validation_rules import (
     annotate_profile_validation,
     profile_validation_context,
 )
+from app.integrations.rardar.serving_profiles import (
+    ProfileGenerationFailure,
+    ProfileTranslationError,
+    _generation_failure_diagnostic,
+)
 from app.services import rardar_trending as service
 from app.services.rardar_material_diagnostics import material_failure_diagnostic
 from tests_rardar_llm.test_material_work_allowance import work  # noqa: F401 -- shared isolated entry fixture
@@ -52,6 +57,100 @@ def test_unknown_host_is_not_logged():
     error = httpx.ConnectError("secret", request=request)
     value = material_failure_diagnostic(error, project={}, stage="source")
     assert value["host"] is None and value["endpointCategory"] is None
+
+
+def test_underlying_generation_reason_survives_outer_readback_error_and_json_roundtrip(tmp_path):
+    """A later projector ValueError must not erase the first, structured model failure."""
+    from app.services.rardar_llm_control import RardarLLMError
+
+    first = RardarLLMError(
+        "rardar_llm_invalid_output",
+        classification="schema_invalid",
+        validation_stage="structure",
+        field_path="$.positioning.positioningZh",
+        validation_type="string_type",
+    )
+    failure = ProfileGenerationFailure(
+        "positioning",
+        "positioning_schema_invalid",
+        False,
+        _generation_failure_diagnostic(
+            first,
+            model_class="ProfileTranslation",
+            prompt_version="rardar-assessment-zh-v12",
+            input_digest="a" * 64,
+        ),
+    )
+    collected = SimpleNamespace(generation_failures=(failure,), profile=None)
+    value = material_failure_diagnostic(
+        ValueError("private projector details"),
+        project={"projectId": "fixture-project"},
+        stage="profile",
+        collected=collected,
+    )
+    path = tmp_path / "correction-receipt.json"
+    service.atomic(path, {"diagnostic": value})
+    saved = service.read_json(path)["diagnostic"]
+    assert saved["errorClass"] == "ValueError"
+    assert saved["generationFailureCount"] == 1
+    underlying = saved["generationFailures"][0]
+    assert underlying["stage"] == "positioning" and underlying["code"] == "positioning_schema_invalid"
+    assert underlying["detail"]["fieldPath"] == "$.positioning.positioningZh"
+    assert underlying["detail"]["validationType"] == "string_type"
+    assert underlying["detail"]["inputDigest"] == "a" * 64
+    assert "private projector" not in json.dumps(saved)
+
+
+def test_fixed_translation_rule_and_dynamic_metadata_are_separated():
+    known = _generation_failure_diagnostic(
+        ProfileTranslationError("rardar_profile_translation_positioning_incomplete"),
+        model_class="ProfileTranslation",
+        prompt_version="rardar-assessment-zh-v12",
+        input_digest="b" * 64,
+    )
+    unknown = _generation_failure_diagnostic(
+        ProfileTranslationError("Authorization: private token"),
+        model_class="ProfileTranslation",
+        prompt_version="rardar-assessment-zh-v12",
+        input_digest="b" * 64,
+    )
+    collected = SimpleNamespace(
+        generation_failures=(
+            ProfileGenerationFailure("positioning", "positioning_schema_invalid", False, known),
+            ProfileGenerationFailure("positioning", "positioning_schema_invalid", False, unknown),
+        )
+    )
+    value = material_failure_diagnostic(ValueError("outer"), project={}, stage="profile", collected=collected)
+    assert value["generationFailures"][0]["detail"]["ruleCode"] == ("rardar_profile_translation_positioning_incomplete")
+    assert value["generationFailures"][1]["detail"]["ruleCode"] is None
+    assert "private token" not in json.dumps(value)
+
+
+@pytest.mark.parametrize(
+    "path", ["$.Authorization", "$.positioning.secret", "$.summary[0].token=hidden", "https://hidden"]
+)
+def test_untrusted_generation_field_path_is_not_persisted(path):
+    from app.services.rardar_llm_control import RardarLLMError
+
+    error = RardarLLMError(
+        "rardar_llm_invalid_output",
+        classification="schema_invalid",
+        validation_stage="structure",
+        field_path=path,
+        validation_type="string_type",
+    )
+    detail = _generation_failure_diagnostic(
+        error,
+        model_class="ProfileTranslation",
+        prompt_version="rardar-assessment-zh-v12",
+        input_digest="c" * 64,
+    )
+    collected = SimpleNamespace(
+        generation_failures=(ProfileGenerationFailure("positioning", "positioning_schema_invalid", False, detail),)
+    )
+    value = material_failure_diagnostic(ValueError("outer"), project={}, stage="profile", collected=collected)
+    assert value["generationFailures"][0]["detail"]["fieldPath"] is None
+    assert "hidden" not in json.dumps(value)
 
 
 class SyntheticProfile(BaseModel):

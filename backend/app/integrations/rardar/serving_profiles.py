@@ -16,11 +16,12 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, Generic, Literal, TypeVar, cast
+from typing import Any, Generic, Literal, TypeVar, cast, get_args
 from urllib.parse import quote
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic_core import ErrorType
 
 from app.integrations.rardar.profile_cache_v2 import (
     PROFILE_CACHE_IDENTITY_VERSION,
@@ -308,6 +309,7 @@ class GenerationOutcome(Generic[TGeneration]):
     calls: int
     cache_hit: bool
     error_code: str | None = None
+    failure_diagnostic: dict[str, str | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -315,6 +317,7 @@ class ProfileGenerationFailure:
     stage: Literal["source", "translation", "positioning", "fallback", "last_known_good", "cache"]
     code: str
     resolved: bool
+    diagnostic: dict[str, str | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -361,6 +364,67 @@ def _generation_error_code(stage: Literal["translation", "positioning"], error: 
     elif "json" in str(error).casefold():
         suffix = "invalid_json"
     return f"{stage}_{suffix}"
+
+
+_GENERATION_ERROR_CODES = frozenset(
+    {
+        "rardar_llm_invalid_output",
+        "rardar_llm_not_configured",
+        "rardar_llm_request_rejected",
+        "rardar_llm_unavailable",
+    }
+)
+_GENERATION_ERROR_CLASSES = frozenset(
+    {"budget", "empty", "invalid_json", "provider_error", "rate_limited", "schema_invalid", "timeout"}
+)
+_GENERATION_VALIDATION_STAGES = frozenset({"structure", "json_parse"})
+_GENERATION_VALIDATION_TYPES = frozenset(get_args(ErrorType)) | {"invalid_json", "empty"}
+_FIXED_TRANSLATION_RULES = frozenset(
+    {
+        "rardar_profile_translation_invalid",
+        "rardar_profile_translation_positioning_incomplete",
+        "rardar_profile_translation_evidence_mismatch",
+        "rardar_official_translation_structure_invalid",
+        "rardar_official_translation_content_invalid",
+        "rardar_official_positioning_translation_invalid",
+    }
+)
+
+
+def _generation_failure_diagnostic(
+    error: Exception, *, model_class: str, prompt_version: str, input_digest: str
+) -> dict[str, str | None]:
+    """Retain fixed metadata at the first catch, never Provider text or exception bodies."""
+    from app.services.rardar_llm_control import RardarLLMError
+
+    result: dict[str, str | None] = {
+        "modelClass": model_class,
+        "promptVersion": prompt_version,
+        "inputDigest": input_digest if re.fullmatch(r"[a-f0-9]{64}", input_digest) else None,
+        "errorCode": None,
+        "classification": None,
+        "validationStage": None,
+        "fieldPath": None,
+        "validationType": None,
+        "ruleCode": None,
+    }
+    if isinstance(error, RardarLLMError):
+        result["errorCode"] = error.code if error.code in _GENERATION_ERROR_CODES else "unknown"
+        result["classification"] = error.classification if error.classification in _GENERATION_ERROR_CLASSES else None
+        result["validationStage"] = (
+            error.validation_stage if error.validation_stage in _GENERATION_VALIDATION_STAGES else None
+        )
+        # The structured caller substitutes <extra-field> for untrusted keys.
+        # A second whitelist at persistence decides whether this path is safe.
+        if isinstance(error.field_path, str) and len(error.field_path) <= 160:
+            result["fieldPath"] = error.field_path
+        result["validationType"] = (
+            error.validation_type if error.validation_type in _GENERATION_VALIDATION_TYPES else None
+        )
+    elif isinstance(error, ProfileTranslationError):
+        fixed = str(error)
+        result["ruleCode"] = fixed if fixed in _FIXED_TRANSLATION_RULES else "unknown"
+    return result
 
 
 def _stable_profile_failure(
@@ -3073,6 +3137,12 @@ async def _official_translation(
                     calls=calls,
                     cache_hit=False,
                     error_code=error_code,
+                    failure_diagnostic=_generation_failure_diagnostic(
+                        exc,
+                        model_class="OfficialNarrativeTranslation",
+                        prompt_version=_OFFICIAL_NARRATIVE_PROMPT_VERSION,
+                        input_digest=identity,
+                    ),
                 )
     _atomic_json(path, value.model_dump(mode="json"))
     return GenerationOutcome(value=value, calls=calls, cache_hit=False)
@@ -3153,6 +3223,12 @@ async def _official_positioning_translation(
                     calls=calls,
                     cache_hit=False,
                     error_code=error_code,
+                    failure_diagnostic=_generation_failure_diagnostic(
+                        exc,
+                        model_class="OfficialPositioningTranslation",
+                        prompt_version=_OFFICIAL_POSITIONING_PROMPT_VERSION,
+                        input_digest=identity,
+                    ),
                 )
     _atomic_json(path, value.model_dump(mode="json"))
     return GenerationOutcome(value=value, calls=calls, cache_hit=False)
@@ -3291,6 +3367,12 @@ async def _translation(
                     calls=calls,
                     cache_hit=False,
                     error_code=error_code,
+                    failure_diagnostic=_generation_failure_diagnostic(
+                        exc,
+                        model_class="ProfileTranslation",
+                        prompt_version=_RARDAR_ASSESSMENT_PROMPT_VERSION,
+                        input_digest=identity,
+                    ),
                 )
     if value.positioning is not None and value.capabilities:
         _atomic_json(path, value.model_dump(mode="json"))
@@ -3958,7 +4040,9 @@ async def collect_official_project_profile(
         translation_calls += outcome.calls
         translation_cache_hit = outcome.cache_hit
         if outcome.error_code:
-            generation_failures.append(ProfileGenerationFailure("translation", outcome.error_code, False))
+            generation_failures.append(
+                ProfileGenerationFailure("translation", outcome.error_code, False, outcome.failure_diagnostic)
+            )
     elif (
         official_narrative.positioning
         and source_language == "en"
@@ -3988,7 +4072,9 @@ async def collect_official_project_profile(
         translation_calls += outcome.calls
         translation_cache_hit = outcome.cache_hit
         if outcome.error_code:
-            generation_failures.append(ProfileGenerationFailure("translation", outcome.error_code, False))
+            generation_failures.append(
+                ProfileGenerationFailure("translation", outcome.error_code, False, outcome.failure_diagnostic)
+            )
 
     official_highlights: list[OfficialHighlight] = []
     official_tagline: str | None = None
@@ -4091,7 +4177,9 @@ async def collect_official_project_profile(
                 failure_stage: Literal["translation", "positioning"] = (
                     "positioning" if outcome.error_code.startswith("positioning_") else stage
                 )
-                generation_failures.append(ProfileGenerationFailure(failure_stage, outcome.error_code, False))
+                generation_failures.append(
+                    ProfileGenerationFailure(failure_stage, outcome.error_code, False, outcome.failure_diagnostic)
+                )
         if translated:
             summary = translated.summary.text
             use_cases = [claim.text for claim in translated.useCases]
@@ -4417,7 +4505,8 @@ async def collect_official_project_profile(
     publishable = _profile_is_publishable(profile) and not source_failures
     if not publishable and last_known_good is not None:
         resolved_failures = tuple(
-            ProfileGenerationFailure(failure.stage, failure.code, True) for failure in generation_failures
+            ProfileGenerationFailure(failure.stage, failure.code, True, failure.diagnostic)
+            for failure in generation_failures
         )
         if not use_profile_cache_v2:
             return CollectedProjectProfile(
@@ -4472,7 +4561,8 @@ async def collect_official_project_profile(
         generation_failures.append(ProfileGenerationFailure("last_known_good", "last_known_good_unavailable", False))
     else:
         generation_failures = [
-            ProfileGenerationFailure(failure.stage, failure.code, True) for failure in generation_failures
+            ProfileGenerationFailure(failure.stage, failure.code, True, failure.diagnostic)
+            for failure in generation_failures
         ]
     if readme_path and publishable and not cache_only:
         _store_profile(

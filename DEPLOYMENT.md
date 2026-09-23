@@ -363,6 +363,11 @@ docker compose -f docker-compose.prod.yml exec backend alembic current
 
 ## 8. CI/CD
 
+### Focused production defect closure record
+
+For an affected saved material, keep one short record: visible defect and stable project ID; exact rule/stage and retained input evidence; code fix and regression; cache-only or authorized generated recovery plan with source/model limits; artifact SHA, capacity and rollback pair; actual production receipt, saved content version and API/HTML readback. Record merged, deployed, recovered and visual states independently. A private recovery grant is scoped to a project, plan digest, mode and maximum requests; an old receipt is never reset to obtain another work slice.
+
+
 `.github/workflows/ci.yml` 在 PR 上跑 7 个门禁 job：
 
 1. `frontend-types`：npx tsc --noEmit

@@ -2348,7 +2348,13 @@ Shell Kit comes with plugins, with more entries listed in the plugins directory.
         return httpx.Response(200, json=_readme_payload(markdown, sha="f" * 40))
 
     async def schema_invalid(_payload):
-        raise RardarLLMError("rardar_llm_invalid_output", classification="schema_invalid")
+        raise RardarLLMError(
+            "rardar_llm_invalid_output",
+            classification="schema_invalid",
+            validation_stage="structure",
+            field_path="$.positioning.positioningZh",
+            validation_type="string_type",
+        )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
         collected = await collect_official_project_profile(
@@ -2373,6 +2379,12 @@ Shell Kit comes with plugins, with more entries listed in the plugins directory.
     assert collected.deterministic_fallback_used is True
     assert collected.generation_failures
     assert all(failure.resolved for failure in collected.generation_failures)
+    assert any(
+        failure.diagnostic is not None
+        and failure.diagnostic["fieldPath"] == "$.positioning.positioningZh"
+        and failure.diagnostic["validationType"] == "string_type"
+        for failure in collected.generation_failures
+    )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="https://api.github.com") as client:
         cached = await collect_official_project_profile(

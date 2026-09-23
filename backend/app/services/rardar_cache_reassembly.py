@@ -1,4 +1,4 @@
-"""Explicit, cache-only correction of two evidence-bound Rardar Profiles.
+"""Explicit, cache-only correction of evidence-bound Rardar Profiles.
 
 Preview never writes. Apply holds the daily writer lock, repeats the preview,
 and persists through the existing V2 Profile store. No source or model client is
@@ -23,14 +23,13 @@ from app.integrations.rardar.profile_cache_v2 import (
     semantic_profile_revision,
     store_profile,
 )
-from app.integrations.rardar.project_identity import project_id_for_repository
+from app.integrations.rardar.project_identity import canonical_repository, project_id_for_repository
 from app.integrations.rardar.serving_schemas import ProjectEvidenceProjection
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
 from app.services.rardar_daily_operations import operation_root
 from app.services.rardar_llm_control import resolve_rardar_route_identity
 from app.services.rardar_trending import detail, project_material, saved_materials
 
-ALLOWED_REPOSITORIES = frozenset({"zai-org/zcode", "hydra-db/hydradb"})
 REASSEMBLY_VERSION = "cache-reassembly-v1"
 
 
@@ -89,8 +88,7 @@ def _stage_hashes(cache_root: Path, repository_id: int) -> dict[str, str]:
 
 
 async def preview(repository: str) -> tuple[dict, object, object, object]:
-    if repository not in ALLOWED_REPOSITORIES:
-        raise ValueError("cache_reassembly_repository_not_allowed")
+    repository = canonical_repository(repository)
     if not settings.RARDAR_INTELLIGENCE_DATA_DIR:
         raise ValueError("cache_reassembly_data_unconfigured")
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
@@ -185,61 +183,73 @@ async def apply(repository: str, expected_plan_digest: str) -> dict:
     root = operation_root()
     root.mkdir(parents=True, exist_ok=True)
     with file_lock(root / "writer.lock", blocking=False):
-        plan, project, collected, context = await preview(repository)
-        if plan.get("state") == "reused":
-            return plan
-        if plan["planDigest"] != expected_plan_digest:
-            raise ValueError("cache_reassembly_plan_stale")
-        target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
-        cache_root = target / "profile-cache"
-        identity = serving_profiles._profile_identity_for_result(
-            project,
-            collected.evidence,
-            collected.profile,
-            model_route_identity=plan["routeIdentity"],
-            model_derived_used=collected.translation_cache_hit,
-            deterministic_fallback_used=collected.deterministic_fallback_used,
-        )
-        envelope = store_profile(
-            cache_root,
-            identity,
-            collected.profile,
-            collected.evidence,
-            deterministic_fallback_used=collected.deterministic_fallback_used,
-        )
-        rebound, binding, _ = rebind_profile(
-            envelope,
-            identity,
-            context.evidence,
-            project,
-            context.evidence.generationId,
-            start_here=serving_profiles._start_here(
-                project, context.readme_path, context.sections, context.tree, context.path_refs
-            ),
-        )
-        project_material(rebound, context.evidence)
-        saved = saved_materials(target, repositories={repository}).get(repository)
-        if not saved or saved.get("materialState") != "complete" or not saved.get("displayProfile"):
-            raise ValueError("cache_reassembly_readback_failed")
-        receipt = {
-            "version": REASSEMBLY_VERSION,
-            "repository": repository,
-            "projectId": plan["projectId"],
-            "planDigest": expected_plan_digest,
-            "profileRevision": envelope.profileRevision,
-            "profileIdentity": identity.identityDigest,
-            "profileBindingDigest": binding.bindingDigest,
-            "sourceGeneration": context.evidence.generationId,
-            "sourceEvidenceDigest": context.evidence.digest,
-            "sourceGeneratedAt": plan["sourceGeneratedAt"],
-            "sourceSavedAt": plan["sourceSavedAt"],
-            "reassembledAt": datetime.now(UTC).isoformat(),
-            "stageGeneratedAt": None,
-            "materialState": saved["materialState"],
-            "externalRequests": 0,
-        }
-        path = root / "cache-reassembly" / f"{plan['projectId']}.json"
-        plain(path, missing=True)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        atomic(path, receipt)
-        return receipt
+        return await apply_locked(repository, expected_plan_digest)
+
+
+async def apply_locked(repository: str, expected_plan_digest: str) -> dict:
+    """Apply while the caller holds writer.lock; never call without that lock."""
+    if len(expected_plan_digest) != 64 or any(char not in "0123456789abcdef" for char in expected_plan_digest):
+        raise ValueError("cache_reassembly_plan_digest_invalid")
+    root = operation_root()
+    plan, project, collected, context = await preview(repository)
+    if plan.get("state") == "reused":
+        return plan
+    if plan["planDigest"] != expected_plan_digest:
+        raise ValueError("cache_reassembly_plan_stale")
+    return _persist_reassembly(repository, plan, project, collected, context, root, expected_plan_digest)
+
+
+def _persist_reassembly(repository, plan, project, collected, context, root, expected_plan_digest) -> dict:
+    target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
+    cache_root = target / "profile-cache"
+    identity = serving_profiles._profile_identity_for_result(
+        project,
+        collected.evidence,
+        collected.profile,
+        model_route_identity=plan["routeIdentity"],
+        model_derived_used=collected.translation_cache_hit,
+        deterministic_fallback_used=collected.deterministic_fallback_used,
+    )
+    envelope = store_profile(
+        cache_root,
+        identity,
+        collected.profile,
+        collected.evidence,
+        deterministic_fallback_used=collected.deterministic_fallback_used,
+    )
+    rebound, binding, _ = rebind_profile(
+        envelope,
+        identity,
+        context.evidence,
+        project,
+        context.evidence.generationId,
+        start_here=serving_profiles._start_here(
+            project, context.readme_path, context.sections, context.tree, context.path_refs
+        ),
+    )
+    project_material(rebound, context.evidence)
+    saved = saved_materials(target, repositories={repository}).get(repository)
+    if not saved or saved.get("materialState") != "complete" or not saved.get("displayProfile"):
+        raise ValueError("cache_reassembly_readback_failed")
+    receipt = {
+        "version": REASSEMBLY_VERSION,
+        "repository": repository,
+        "projectId": plan["projectId"],
+        "planDigest": expected_plan_digest,
+        "profileRevision": envelope.profileRevision,
+        "profileIdentity": identity.identityDigest,
+        "profileBindingDigest": binding.bindingDigest,
+        "sourceGeneration": context.evidence.generationId,
+        "sourceEvidenceDigest": context.evidence.digest,
+        "sourceGeneratedAt": plan["sourceGeneratedAt"],
+        "sourceSavedAt": plan["sourceSavedAt"],
+        "reassembledAt": datetime.now(UTC).isoformat(),
+        "stageGeneratedAt": None,
+        "materialState": saved["materialState"],
+        "externalRequests": 0,
+    }
+    path = root / "cache-reassembly" / f"{plan['projectId']}.json"
+    plain(path, missing=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic(path, receipt)
+    return receipt

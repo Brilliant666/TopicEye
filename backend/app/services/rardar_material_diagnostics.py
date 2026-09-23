@@ -14,6 +14,19 @@ from app.integrations.rardar.profile_validation_rules import (
     PROFILE_VALIDATION_RULES,
     profile_validation_attempt_evidence,
 )
+from app.integrations.rardar.serving_profiles import (
+    _FIXED_TRANSLATION_RULES,
+    _GENERATION_ERROR_CLASSES,
+    _GENERATION_ERROR_CODES,
+    _GENERATION_VALIDATION_STAGES,
+    _GENERATION_VALIDATION_TYPES,
+    _OFFICIAL_NARRATIVE_PROMPT_VERSION,
+    _OFFICIAL_POSITIONING_PROMPT_VERSION,
+    _RARDAR_ASSESSMENT_PROMPT_VERSION,
+    OfficialNarrativeTranslation,
+    OfficialPositioningTranslation,
+    ProfileTranslation,
+)
 
 _FIELDS = frozenset(
     field
@@ -29,6 +42,103 @@ _MODELS = frozenset(
 )
 _CUSTOM_RULES = {code: message for message, code in PROFILE_VALIDATION_RULES.items()}
 _SAMPLE_LIMIT = 4
+_GENERATION_MODELS = {
+    model.__name__: model
+    for model in (ProfileTranslation, OfficialNarrativeTranslation, OfficialPositioningTranslation)
+}
+_GENERATION_CODES = frozenset(
+    f"{stage}_{suffix}"
+    for stage in ("translation", "positioning")
+    for suffix in (
+        "budget",
+        "empty",
+        "evidence_mismatch",
+        "invalid_json",
+        "provider_error",
+        "rate_limited",
+        "schema_invalid",
+        "timeout",
+    )
+)
+_GENERATION_PROMPT_VERSIONS = frozenset(
+    {_RARDAR_ASSESSMENT_PROMPT_VERSION, _OFFICIAL_NARRATIVE_PROMPT_VERSION, _OFFICIAL_POSITIONING_PROMPT_VERSION}
+)
+
+
+def _generation_field_names() -> frozenset[str]:
+    names: set[str] = set()
+
+    def collect(node: object) -> None:
+        if isinstance(node, dict):
+            names.update(node.get("properties", {}))
+            for value in node.values():
+                collect(value)
+        elif isinstance(node, list):
+            for value in node:
+                collect(value)
+
+    for model in _GENERATION_MODELS.values():
+        collect(model.model_json_schema())
+    return frozenset(names)
+
+
+_GENERATION_FIELDS = _generation_field_names()
+
+
+def _safe_generation_field_path(value: object) -> str | None:
+    if not isinstance(value, str) or len(value) > 160 or not value.startswith("$"):
+        return None
+    position = 1
+    while position < len(value):
+        match = re.match(r"\.([A-Za-z][A-Za-z0-9_]*|<extra-field>)|\[(\d{1,5})\]", value[position:])
+        if match is None:
+            return None
+        field = match.group(1)
+        if field is not None and field != "<extra-field>" and field not in _GENERATION_FIELDS:
+            return None
+        position += match.end()
+    return value
+
+
+def _safe_generation_failure(failure: object) -> dict | None:
+    stage = getattr(failure, "stage", None)
+    code = getattr(failure, "code", None)
+    resolved = getattr(failure, "resolved", None)
+    if stage not in {"translation", "positioning"} or type(resolved) is not bool:
+        return None
+    result = {
+        "stage": stage,
+        "code": code if isinstance(code, str) and code in _GENERATION_CODES else "unknown",
+        "resolved": resolved,
+        "detail": None,
+    }
+    detail = getattr(failure, "diagnostic", None)
+    if not isinstance(detail, dict):
+        return result
+    model_class = detail.get("modelClass")
+    prompt_version = detail.get("promptVersion")
+    digest = detail.get("inputDigest")
+    if model_class not in _GENERATION_MODELS or prompt_version not in _GENERATION_PROMPT_VERSIONS:
+        return result
+    safe = {
+        "modelClass": model_class,
+        "promptVersion": prompt_version,
+        "inputDigest": digest if isinstance(digest, str) and re.fullmatch(r"[a-f0-9]{64}", digest) else None,
+        "errorCode": detail.get("errorCode") if detail.get("errorCode") in _GENERATION_ERROR_CODES else None,
+        "classification": (
+            detail.get("classification") if detail.get("classification") in _GENERATION_ERROR_CLASSES else None
+        ),
+        "validationStage": (
+            detail.get("validationStage") if detail.get("validationStage") in _GENERATION_VALIDATION_STAGES else None
+        ),
+        "fieldPath": _safe_generation_field_path(detail.get("fieldPath")),
+        "validationType": (
+            detail.get("validationType") if detail.get("validationType") in _GENERATION_VALIDATION_TYPES else None
+        ),
+        "ruleCode": detail.get("ruleCode") if detail.get("ruleCode") in _FIXED_TRANSLATION_RULES else None,
+    }
+    result["detail"] = safe
+    return result
 
 
 def material_failure_diagnostic(error: Exception, *, project: dict, stage: str, collected=None) -> dict:
@@ -56,6 +166,9 @@ def _material_failure_diagnostic(error: Exception, *, project: dict, stage: str,
         "validationErrorsOmitted": None,
         "modelClass": None,
         "attemptEvidence": None,
+        "generationFailures": [],
+        "generationFailureCount": None,
+        "generationFailuresOmitted": None,
     }
     if isinstance(error, httpx.HTTPError):
         if isinstance(error, httpx.HTTPStatusError):
@@ -81,6 +194,12 @@ def _material_failure_diagnostic(error: Exception, *, project: dict, stage: str,
         generated_at = getattr(profile, "generatedAt", None)
         if hasattr(generated_at, "isoformat"):
             result["profileGeneratedAt"] = generated_at.isoformat()
+    failures = getattr(collected, "generation_failures", None)
+    if isinstance(failures, tuple | list):
+        reviewed = [item for failure in failures if (item := _safe_generation_failure(failure)) is not None]
+        result["generationFailureCount"] = len(reviewed)
+        result["generationFailures"] = reviewed[:_SAMPLE_LIMIT]
+        result["generationFailuresOmitted"] = max(0, len(reviewed) - _SAMPLE_LIMIT)
     if isinstance(error, ValidationError):
         result["attemptEvidence"] = profile_validation_attempt_evidence(error) or None
         result["modelClass"] = error.title if error.title in _MODELS else "unknown"

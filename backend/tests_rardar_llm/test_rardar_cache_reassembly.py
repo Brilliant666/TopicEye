@@ -105,7 +105,6 @@ async def test_preview_apply_stale_and_idempotent_are_cache_only(
     async def route_identity():
         return ROUTE
 
-    monkeypatch.setattr(repair, "ALLOWED_REPOSITORIES", frozenset({project.repository}))
     monkeypatch.setattr(repair.settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(repair, "detail", lambda *_args, **_kwargs: fact)
     monkeypatch.setattr(repair.trending_metadata, "read", lambda *_args: metadata)
@@ -117,7 +116,7 @@ async def test_preview_apply_stale_and_idempotent_are_cache_only(
     assert plan["externalRequests"] == 0
     assert plan["materialState"] == "complete"
     assert before == {p.relative_to(tmp_path).as_posix(): p.read_bytes() for p in tmp_path.rglob("*.json")}
-    with pytest.raises(ValueError, match="cache_reassembly_repository_not_allowed"):
+    with pytest.raises(ValueError, match="cache_reassembly_fact_identity_mismatch"):
         await repair.preview("unknown/other")
 
     readme = cache_root / "readmes" / str(project.githubRepositoryId) / ("a" * 40 + ".json")

@@ -166,7 +166,21 @@ async def preview(repository: str, *, mode: str = "generate") -> dict:
         "routeIdentity": route,
         "existingMaterialDigest": digest(existing),
         "priorReceiptSha256": prior,
-        "writeScope": ["profile-cache/profile-store/v2", "daily-operations/material-corrections-v2"],
+        "writeScope": (
+            [
+                "profile-cache/profile-store/v2",
+                "daily-operations/cache-reassembly",
+                "daily-operations/material-corrections-v2",
+            ]
+            if mode == "cache-only"
+            else [
+                "trending-metadata",
+                "profile-cache/source-and-stage-cache",
+                "profile-cache/profile-store/v2",
+                "daily-provider-budget/existing-identity",
+                "daily-operations/material-corrections-v2",
+            ]
+        ),
     }
     if mode == "cache-only":
         from app.services.rardar_cache_reassembly import preview as cache_preview

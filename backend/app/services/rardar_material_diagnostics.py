@@ -124,6 +124,11 @@ def _safe_generation_failure(failure: object) -> dict | None:
         "modelClass": model_class,
         "promptVersion": prompt_version,
         "inputDigest": digest if isinstance(digest, str) and re.fullmatch(r"[a-f0-9]{64}", digest) else None,
+        "sampleId": (
+            detail.get("sampleId")
+            if isinstance(detail.get("sampleId"), str) and re.fullmatch(r"[a-f0-9]{32}", detail["sampleId"])
+            else None
+        ),
         "errorCode": detail.get("errorCode") if detail.get("errorCode") in _GENERATION_ERROR_CODES else None,
         "classification": (
             detail.get("classification") if detail.get("classification") in _GENERATION_ERROR_CLASSES else None

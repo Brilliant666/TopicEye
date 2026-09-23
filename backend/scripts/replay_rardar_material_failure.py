@@ -45,7 +45,9 @@ def replay(cache_root: Path, repository_id: int, sample_id: str) -> dict:
 
     sample = load_sample(cache_root, repository_id, sample_id)
     if sample["modelClass"] not in {
-        "CoreProfileTranslation", "OfficialNarrativeTranslation", "OfficialPositioningTranslation"
+        "CoreProfileTranslation",
+        "OfficialNarrativeTranslation",
+        "OfficialPositioningTranslation",
     }:
         raise ValueError("material_replay_model_unsupported")
     if sample["state"] not in {"pending", "failed", "isolated"}:
@@ -68,7 +70,9 @@ def replay(cache_root: Path, repository_id: int, sample_id: str) -> dict:
             model_class = sample["modelClass"]
             if model_class == "CoreProfileTranslation":
                 wire = profiles.CoreProfileTranslation.model_validate(parsed, strict=True)
-                value, isolated = profiles.validate_core_candidate(wire.model_dump(mode="python"), sample["inputPayload"])
+                value, isolated = profiles.validate_core_candidate(
+                    wire.model_dump(mode="python"), sample["inputPayload"]
+                )
                 positioning_present = value.positioning is not None
                 references = list(value.positioning.includedEvidenceRefs) if value.positioning else []
             elif model_class == "OfficialNarrativeTranslation":
@@ -177,7 +181,15 @@ def _self_test() -> dict:
             "--sample-id",
             ref.sample_id,
         ]
-        completed = subprocess.run(command, cwd=Path(__file__).resolve().parents[1], env=env, capture_output=True, text=True, timeout=30, check=False)
+        completed = subprocess.run(
+            command,
+            cwd=Path(__file__).resolve().parents[1],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
         if completed.returncode != 0:
             raise RuntimeError("material_replay_self_test_child_failed")
         try:

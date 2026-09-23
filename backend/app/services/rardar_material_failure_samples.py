@@ -39,11 +39,30 @@ _SAFE_TAG = re.compile(r"[A-Za-z0-9_.:-]{1,160}\Z")
 _SAFE_MODEL = re.compile(r"[A-Za-z0-9_./-]{1,160}\Z")
 _SAFE_REASON = re.compile(r"[A-Za-z0-9_.:\[\]-]{1,160}\Z")
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
-_KNOWN_FIELDS = frozenset({
-    "summary", "positioning", "positioningZh", "includedEvidenceRefs", "includedRoles", "excludedClauses",
-    "capabilities", "keyDifferentiators", "coreValue", "productForms", "supportedEnvironments",
-    "useCases", "deliveryForms", "title", "detail", "shortDetail", "sourceMode", "text", "evidenceRefs", "role",
-})
+_KNOWN_FIELDS = frozenset(
+    {
+        "summary",
+        "positioning",
+        "positioningZh",
+        "includedEvidenceRefs",
+        "includedRoles",
+        "excludedClauses",
+        "capabilities",
+        "keyDifferentiators",
+        "coreValue",
+        "productForms",
+        "supportedEnvironments",
+        "useCases",
+        "deliveryForms",
+        "title",
+        "detail",
+        "shortDetail",
+        "sourceMode",
+        "text",
+        "evidenceRefs",
+        "role",
+    }
+)
 _SENSITIVE = re.compile(
     r"(?:-----BEGIN (?:OPENSSH|RSA|EC|PRIVATE) KEY-----|"
     r"\b(?:authorization|cookie|set-cookie)\s*[:=]\s*\S+|"
@@ -89,9 +108,9 @@ class SampleRef:
 
 
 def _canonical(value: object) -> bytes:
-    return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode(
-        "utf-8"
-    )
+    return (
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
+    ).encode("utf-8")
 
 
 def _digest(raw: bytes) -> str:
@@ -162,7 +181,11 @@ def preflight(cache_root: Path) -> Path:
 
 @contextmanager
 def failure_sample_scope(context: FailureSampleContext) -> Iterator[FailureSampleContext]:
-    if not _REPOSITORY.fullmatch(context.repository) or type(context.repository_id) is not int or context.repository_id < 1:
+    if (
+        not _REPOSITORY.fullmatch(context.repository)
+        or type(context.repository_id) is not int
+        or context.repository_id < 1
+    ):
         raise SampleStoreUnavailable("failure_sample_identity_invalid")
     if context.stage not in {"translation", "positioning"} or type(context.attempt) is not int or context.attempt < 1:
         raise SampleStoreUnavailable("failure_sample_stage_invalid")
@@ -184,9 +207,7 @@ def failure_sample_scope(context: FailureSampleContext) -> Iterator[FailureSampl
         not isinstance(selected, dict)
         or not isinstance(complete, dict)
         or any(
-            not isinstance(value, str)
-            or not isinstance(complete.get(key), str)
-            or not complete[key].startswith(value)
+            not isinstance(value, str) or not isinstance(complete.get(key), str) or not complete[key].startswith(value)
             for key, value in selected.items()
         )
     ):
@@ -254,7 +275,12 @@ def _atomic(path: Path, raw: bytes) -> None:
 def _read(ref: SampleRef) -> dict[str, Any]:
     plain(ref.path)
     info = ref.path.lstat()
-    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or (os.name != "nt" and info.st_mode & 0o077) or info.st_size > MAX_RECORD_BYTES:
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or info.st_nlink != 1
+        or (os.name != "nt" and info.st_mode & 0o077)
+        or info.st_size > MAX_RECORD_BYTES
+    ):
         raise SampleStoreUnavailable("failure_sample_file_unsafe")
     raw = ref.path.read_bytes()
     if len(raw) != info.st_size:
@@ -371,15 +397,28 @@ def _safe_error(error: Exception) -> dict[str, Any]:
         return {
             "errorClass": "RardarLLMError",
             "code": error.code if _SAFE_TAG.fullmatch(error.code) else "unknown",
-            "classification": error.classification if isinstance(error.classification, str) and _SAFE_TAG.fullmatch(error.classification) else None,
-            "validationStage": error.validation_stage if isinstance(error.validation_stage, str) and _SAFE_TAG.fullmatch(error.validation_stage) else None,
-            "fieldPath": error.field_path if isinstance(error.field_path, str) and re.fullmatch(r"\$[A-Za-z0-9_.\[\]<>-]{0,150}", error.field_path) else None,
-            "validationType": error.validation_type if isinstance(error.validation_type, str) and _SAFE_TAG.fullmatch(error.validation_type) else None,
+            "classification": error.classification
+            if isinstance(error.classification, str) and _SAFE_TAG.fullmatch(error.classification)
+            else None,
+            "validationStage": error.validation_stage
+            if isinstance(error.validation_stage, str) and _SAFE_TAG.fullmatch(error.validation_stage)
+            else None,
+            "fieldPath": error.field_path
+            if isinstance(error.field_path, str) and re.fullmatch(r"\$[A-Za-z0-9_.\[\]<>-]{0,150}", error.field_path)
+            else None,
+            "validationType": error.validation_type
+            if isinstance(error.validation_type, str) and _SAFE_TAG.fullmatch(error.validation_type)
+            else None,
         }
     if isinstance(error, ValidationError):
         first = error.errors(include_input=False, include_context=False, include_url=False)[0]
         path = [x if type(x) is int else x if x in _KNOWN_FIELDS else "<extra-field>" for x in first["loc"][:12]]
-        return {"errorClass": "ValidationError", "code": "schema_invalid", "validationType": first["type"], "fieldPath": path}
+        return {
+            "errorClass": "ValidationError",
+            "code": "schema_invalid",
+            "validationType": first["type"],
+            "fieldPath": path,
+        }
     name = type(error).__name__
     message = str(error)
     return {

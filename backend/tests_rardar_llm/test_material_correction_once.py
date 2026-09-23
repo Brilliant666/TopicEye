@@ -95,7 +95,10 @@ async def test_correction_is_one_use_and_preserves_daily_failure_record(correcti
             await hook(object())
         project.update(
             materialState=material_state,
-            displayProfile={"qualityState": "ready" if material_state == "complete" else "partial", "positioningEvidenceRefs": ["description"]},
+            displayProfile={
+                "qualityState": "ready" if material_state == "complete" else "partial",
+                "positioningEvidenceRefs": ["description"],
+            },
             material={"sourceRevision": "evidence-sha"},
             profile={"summary": "简介", "positioning": "有证据支持的核心定位"},
         )

@@ -35,7 +35,11 @@ def _context(root: Path, attempt: int = 1) -> FailureSampleContext:
         attempt=attempt,
         operation_id=current_operation_id(),
         input_payload={"repository": "example/material-fixture", "evidenceIndex": {"description": "公开项目资料。"}},
-        evidence={"repository": "example/material-fixture", "githubRepositoryId": 52, "evidenceIndex": {"description": "公开项目资料。"}},
+        evidence={
+            "repository": "example/material-fixture",
+            "githubRepositoryId": 52,
+            "evidenceIndex": {"description": "公开项目资料。"},
+        },
         rule_version="rardar-assessment-v1",
     )
 
@@ -120,7 +124,10 @@ def test_mismatched_input_evidence_rejected_before_dispatch(tmp_path: Path):
     root.mkdir()
     context = _context(root)
     context.input_payload["evidenceIndex"]["description"] = "另一个来源的事实。"
-    with pytest.raises(SampleStoreUnavailable, match="failure_sample_source_evidence_mismatch"), failure_sample_scope(context):
+    with (
+        pytest.raises(SampleStoreUnavailable, match="failure_sample_source_evidence_mismatch"),
+        failure_sample_scope(context),
+    ):
         pytest.fail("untrusted input must not enter the dispatch scope")
 
 
@@ -159,7 +166,12 @@ def test_cross_process_replay_cli_self_test():
                         "excludedClauses": [],
                     },
                     "capabilities": [
-                        {"title": "错误能力", "detail": "不受证据支持的能力。", "shortDetail": None, "evidenceRefs": ["unknown"]}
+                        {
+                            "title": "错误能力",
+                            "detail": "不受证据支持的能力。",
+                            "shortDetail": None,
+                            "evidenceRefs": ["unknown"],
+                        }
                     ],
                 },
                 ensure_ascii=False,
@@ -180,7 +192,15 @@ def test_replay_three_failure_layers_and_optional_isolation_in_new_process(tmp_p
     env["RARDAR_INTELLIGENCE_DATA_DIR"] = str(data)
     env.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@127.0.0.1/test")
     child = subprocess.run(
-        [sys.executable, "-m", "scripts.replay_rardar_material_failure", "--repository-id", "52", "--sample-id", ref.sample_id],
+        [
+            sys.executable,
+            "-m",
+            "scripts.replay_rardar_material_failure",
+            "--repository-id",
+            "52",
+            "--sample-id",
+            ref.sample_id,
+        ],
         cwd=backend,
         env=env,
         capture_output=True,
@@ -208,7 +228,12 @@ def test_replay_three_failure_layers_and_optional_isolation_in_new_process(tmp_p
         ),
         (
             "OfficialNarrativeTranslation",
-            {"repository": "example/material-fixture", "sourceTagline": "Public tool", "sourcePositioning": "Public positioning", "sourceHighlights": []},
+            {
+                "repository": "example/material-fixture",
+                "sourceTagline": "Public tool",
+                "sourcePositioning": "Public positioning",
+                "sourceHighlights": [],
+            },
             '{"translatedTagline":42,"translatedPositioning":"定位","translatedHighlights":[]}',
         ),
     ],
@@ -235,7 +260,15 @@ def test_official_translation_models_are_replayable_in_new_process(
     env["RARDAR_INTELLIGENCE_DATA_DIR"] = str(data)
     env.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@127.0.0.1/test")
     child = subprocess.run(
-        [sys.executable, "-m", "scripts.replay_rardar_material_failure", "--repository-id", "52", "--sample-id", ref.sample_id],
+        [
+            sys.executable,
+            "-m",
+            "scripts.replay_rardar_material_failure",
+            "--repository-id",
+            "52",
+            "--sample-id",
+            ref.sample_id,
+        ],
         cwd=Path(__file__).resolve().parents[1],
         env=env,
         capture_output=True,
@@ -288,7 +321,15 @@ def test_actual_structured_call_persists_parse_failure_then_replays_in_new_proce
     env["RARDAR_INTELLIGENCE_DATA_DIR"] = str(data)
     env.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@127.0.0.1/test")
     child = subprocess.run(
-        [sys.executable, "-m", "scripts.replay_rardar_material_failure", "--repository-id", "52", "--sample-id", ref.sample_id],
+        [
+            sys.executable,
+            "-m",
+            "scripts.replay_rardar_material_failure",
+            "--repository-id",
+            "52",
+            "--sample-id",
+            ref.sample_id,
+        ],
         cwd=Path(__file__).resolve().parents[1],
         env=env,
         capture_output=True,
@@ -335,7 +376,15 @@ def test_actual_translation_business_failure_replays_same_rule_in_new_process(tm
     env["RARDAR_INTELLIGENCE_DATA_DIR"] = str(data)
     env.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@127.0.0.1/test")
     child = subprocess.run(
-        [sys.executable, "-m", "scripts.replay_rardar_material_failure", "--repository-id", "52", "--sample-id", context.sample_ref.sample_id],
+        [
+            sys.executable,
+            "-m",
+            "scripts.replay_rardar_material_failure",
+            "--repository-id",
+            "52",
+            "--sample-id",
+            context.sample_ref.sample_id,
+        ],
         cwd=Path(__file__).resolve().parents[1],
         env=env,
         capture_output=True,
@@ -357,7 +406,11 @@ def test_full_translation_retry_retains_each_actual_candidate(tmp_path: Path, mo
     cache_root = tmp_path / "data" / "profile-cache"
     cache_root.mkdir(parents=True)
     response = json.dumps(
-        {"summary": {"text": "一个用于整理公开仓库资料的工具。", "evidenceRefs": ["unknown"]}, "positioning": None, "capabilities": []},
+        {
+            "summary": {"text": "一个用于整理公开仓库资料的工具。", "evidenceRefs": ["unknown"]},
+            "positioning": None,
+            "capabilities": [],
+        },
         ensure_ascii=False,
     )
     calls = 0

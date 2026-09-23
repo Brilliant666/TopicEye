@@ -367,8 +367,9 @@ async def apply_once(repository: str, *, mode: str, expected_plan_digest: str, o
         atomic(receipt_path, receipt)
         source_requests = 0
         collected = None
-        with work_slice(max_requests=grant["maxProviderRequests"], background=True) as work, operation_scope(
-            grant["authorizationId"]
+        with (
+            work_slice(max_requests=grant["maxProviderRequests"], background=True) as work,
+            operation_scope(grant["authorizationId"]),
         ):
             try:
                 async with github_material_client(settings.GITHUB_TOKEN) as client:

@@ -105,9 +105,17 @@ async def test_profile_retry_latches_and_next_project_does_not_dispatch(tmp_path
 
     with module.run_failure_guard() as guard:
         for identifier in (1, 2, 3):
+            repository = f"example/project-{identifier}"
             await _official_positioning_translation(
-                project=SimpleNamespace(githubRepositoryId=identifier, repository=f"example/project-{identifier}"),
-                evidence=SimpleNamespace(readmeBlobSha="a" * 40, digest="b" * 64),
+                project=SimpleNamespace(githubRepositoryId=identifier, repository=repository),
+                evidence=SimpleNamespace(
+                    readmeBlobSha="a" * 40,
+                    digest="b" * 64,
+                    model_dump=lambda repository=repository, identifier=identifier, **_: {
+                        "repository": repository,
+                        "githubRepositoryId": identifier,
+                    },
+                ),
                 source_positioning="A documented development tool",
                 cache_root=tmp_path,
                 translator=translator,

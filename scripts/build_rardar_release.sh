@@ -82,6 +82,7 @@ assert not issues, issues
 print('Runtime package dependency and script presence checks: PASS')
 PY
 docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
+  -e DATABASE_URL=postgresql+asyncpg://test:test@127.0.0.1/test \
   --entrypoint python "$BACKEND" -m scripts.replay_rardar_material_failure --self-test
 docker run --rm --network none --entrypoint node "$FRONTEND" -e \
   'const a=require("node:assert/strict"); const c=require("./.next/required-server-files.json").config; a.equal(c.env.NEXT_PUBLIC_RARDAR_PRODUCT_MODE,"true"); const r=require("./.next/routes-manifest.json").rewrites; a(r.beforeFiles.some(x=>x.source==="/"&&x.destination==="/rardar-foundation")); a(r.afterFiles.some(x=>x.source==="/api/:path*"&&x.destination==="http://backend:8000/api/:path*")); console.log("Compiled Rardar profile and rewrite: PASS")'

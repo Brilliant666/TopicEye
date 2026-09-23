@@ -96,7 +96,9 @@ _INSTALL_COMMAND = re.compile(
 )
 _INSTALL_INSTRUCTION = re.compile(
     r"(?:\b(?:run|execute|use)\s+(?:the\s+)?following\b.{0,80}\binstall\b|"
-    r"\binstall(?:ing)?\b.{0,60}\b(?:cli|package|plugin|extension)\b|"
+    r"(?:^|[.!?]\s+)(?:(?:first|next|then|please|you\s+can)\s+)?(?:to\s+)?"
+    r"install(?:ing)?\s+(?:it\s+as\s+)?(?:(?:the|a|an|this|our)\s+)?"
+    r"(?:cli|package|plugin|extension)\b|"
     r"(?:\b(?:npm|pnpm|yarn|bun|pipx?|uv|cargo|go|brew|apt)\s+(?:install|add|run|exec)\b.*){2,}|"
     r"\b(?:irm|iwr|invoke-restmethod|invoke-webrequest)\b.{0,160}\|\s*(?:iex|invoke-expression)\b)",
     re.IGNORECASE,

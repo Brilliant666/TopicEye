@@ -30,6 +30,7 @@ scripts/*
 !scripts/rebuild_rardar_serving.py
 !scripts/rebuild_rardar_discover_selection.py
 !scripts/reassemble_rardar_profile_cache.py
+!scripts/correct_rardar_material_once.py
 docs/
 Dockerfile
 .dockerignore

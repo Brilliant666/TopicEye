@@ -1005,6 +1005,40 @@ def test_summary_sanitizer_rejects_install_instructions(value: str) -> None:
     assert issues == ["identity_source_rejected"]
 
 
+def test_official_narrative_keeps_delivery_mode_description_before_disclaimer() -> None:
+    markdown = """# Financial agent components
+
+**Agents and skills for financial research workflows.**
+
+The agents and skills are available two ways: install them as a desktop plugin, or deploy them through a managed agents API. They support research and document analysis with connectors to existing data.
+
+This material is not investment, legal, or tax advice. Consult a professional before making decisions.
+
+## Installation
+"""
+
+    narrative = _extract_official_narrative(markdown, "README.md", None)
+
+    assert narrative.positioning is not None
+    assert narrative.positioning.startswith("The agents and skills are available two ways")
+    assert "not investment" not in narrative.positioning
+    assert "install_instruction" not in _text_issue_codes(narrative.positioning)
+
+
+@pytest.mark.parametrize(
+    "instruction",
+    [
+        "Install the plugin with the package manager before continuing.",
+        "To install the CLI, follow the setup guide and run the command below.",
+        "First install the extension, then restart the application.",
+        "You can install the plugin by following the setup guide.",
+        "Install it as a plugin before starting the application.",
+    ],
+)
+def test_actual_install_prose_stays_excluded_from_official_narrative(instruction: str) -> None:
+    assert "install_instruction" in _text_issue_codes(instruction)
+
+
 def test_translation_evidence_is_bounded_without_inventing_or_renaming_refs() -> None:
     evidence = {
         "repository": "官方 GitHub 仓库身份",

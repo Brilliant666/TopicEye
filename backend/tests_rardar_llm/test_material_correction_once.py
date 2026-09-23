@@ -11,6 +11,8 @@ from app.core.config import settings
 from app.services import rardar_daily_operations, rardar_llm_control, rardar_material_correction, rardar_trending
 from app.services.llm import daily_provider_budget
 
+REAL_PREVIEW = rardar_material_correction.preview
+
 
 @pytest.fixture
 def correction(tmp_path, monkeypatch):
@@ -243,3 +245,57 @@ async def test_new_grant_is_bound_to_immutable_old_receipt(correction, monkeypat
         )
     assert old.read_bytes() == b'{"status":"failed","providerRequests":2}'
     assert not (correction.runtime / "material-corrections-v2").exists()
+
+
+@pytest.mark.asyncio
+async def test_read_only_preview_binds_identity_cache_receipt_and_budget(correction, monkeypatch):
+    from app.core import database
+    from app.integrations.rardar import trending_metadata
+    from app.integrations.rardar.project_identity import project_id_for_repository
+    from app.services import rardar_cache_reassembly
+
+    project_id = project_id_for_repository(correction.name)
+    fact = {"repository": correction.name, "projectId": project_id, "githubRepositoryId": 1241960226}
+    monkeypatch.setattr(rardar_trending, "detail", lambda *_a, **_k: fact)
+    monkeypatch.setattr(trending_metadata, "read", lambda *_a: {"githubRepositoryId": 1241960226})
+    monkeypatch.setattr(
+        rardar_cache_reassembly, "_stage_hashes", lambda *_a: {"official-translations/a.json": "a" * 64}
+    )
+    monkeypatch.setattr(
+        rardar_cache_reassembly,
+        "_source_witness",
+        lambda *_a: ({"evidence": {"digest": "b" * 64}}, {"markdown": "saved evidence"}),
+    )
+
+    class ReadSession:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *_):
+            return None
+
+    monkeypatch.setattr(database, "async_session", ReadSession)
+    monkeypatch.setattr(
+        daily_provider_budget,
+        "daily_budget_status",
+        AsyncMock(
+            return_value={
+                "day": "2026-09-23",
+                "configured": True,
+                "remaining": 70,
+                "backgroundRemaining": 60,
+                "interactiveReserve": 10,
+            }
+        ),
+    )
+    before = sorted(str(path) for path in correction.target.rglob("*") if path.is_file())
+    result = await REAL_PREVIEW(correction.name)
+    after = sorted(str(path) for path in correction.target.rglob("*") if path.is_file())
+    assert result["repository"] == correction.name
+    assert result["projectId"] == project_id
+    assert result["sourceEvidenceDigest"] == "b" * 64
+    assert result["missingStages"] == ["assessment"]
+    assert result["currentlyAvailableProviderRequests"] == 6
+    assert result["priorReceiptSha256"] is None
+    assert result["admission"] == "ready"
+    assert before == after

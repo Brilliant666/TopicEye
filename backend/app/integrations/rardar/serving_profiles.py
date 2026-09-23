@@ -2995,6 +2995,7 @@ async def _official_translation(
     translator: OfficialNarrativeTranslator,
     model_route_identity: str | None = None,
     cache_evidence_identity: str | None = None,
+    cache_only: bool = False,
 ) -> GenerationOutcome[OfficialNarrativeTranslation]:
     revision = evidence.readmeBlobSha or cache_evidence_identity or evidence.digest
     identity = _model_route_cache_identity(
@@ -3029,11 +3030,13 @@ async def _official_translation(
         try:
             value = OfficialNarrativeTranslation.model_validate(cached, strict=True)
             _validate_official_translation(value, narrative)
-            if legacy_hit:
+            if legacy_hit and not cache_only:
                 _atomic_json(path, cached)
             return GenerationOutcome(value=value, calls=0, cache_hit=True)
         except (ValueError, ProfileTranslationError):
             pass
+    if cache_only:
+        raise ValueError("cache_reassembly_official_translation_missing")
     payload = {
         "repository": project.repository,
         "sourceTagline": narrative.tagline,
@@ -3082,6 +3085,7 @@ async def _official_positioning_translation(
     translator: OfficialPositioningTranslator,
     model_route_identity: str | None = None,
     cache_evidence_identity: str | None = None,
+    cache_only: bool = False,
 ) -> GenerationOutcome[OfficialPositioningTranslation]:
     revision = evidence.readmeBlobSha or cache_evidence_identity or evidence.digest
     identity = _model_route_cache_identity(
@@ -3113,11 +3117,13 @@ async def _official_positioning_translation(
         try:
             value = OfficialPositioningTranslation.model_validate(cached, strict=True)
             _validate_official_positioning_translation(value)
-            if legacy_hit:
+            if legacy_hit and not cache_only:
                 _atomic_json(path, cached)
             return GenerationOutcome(value=value, calls=0, cache_hit=True)
         except (ValueError, ProfileTranslationError):
             pass
+    if cache_only:
+        raise ValueError("cache_reassembly_official_positioning_missing")
     calls = 0
     for attempt in range(1, 3):
         checkpoint = None
@@ -3207,6 +3213,7 @@ async def _translation(
     stage: Literal["translation", "positioning"],
     model_route_identity: str | None = None,
     cache_evidence_identity: str | None = None,
+    cache_only: bool = False,
 ) -> GenerationOutcome[ProfileTranslation]:
     revision = evidence.readmeBlobSha or cache_evidence_identity or evidence.digest
     identity = _model_route_cache_identity(
@@ -3245,11 +3252,13 @@ async def _translation(
             value = ProfileTranslation.model_validate(cached, strict=True)
             _validate_translation(value, set(evidence.evidenceIndex))
             if value.positioning is not None and value.capabilities:
-                if legacy_hit:
+                if legacy_hit and not cache_only:
                     _atomic_json(path, cached)
                 return GenerationOutcome(value=value, calls=0, cache_hit=True)
         except (ValueError, ProfileTranslationError):
             pass
+    if cache_only:
+        raise ValueError("cache_reassembly_assessment_missing")
     structured_forms = _structured_traits(evidence.evidenceIndex)[0]
     payload = {
         "repository": project.repository,
@@ -3691,14 +3700,26 @@ async def collect_official_project_profile(
     model_route_identity: str | None = None,
     force_retryable: bool = False,
     save_partial_introduction: bool = False,
+    cache_only: bool = False,
+    cached_source: tuple[list[dict[str, str]], dict[str, Any]] | None = None,
 ) -> CollectedProjectProfile:
+    if cache_only and (model_route_identity is None or cached_source is None):
+        raise ValueError("cache_only_source_and_route_required")
+    if cache_only:
+        allow_model_generation = False
     use_profile_cache_v2 = model_route_identity is not None
-    tree, readme, github_requests, readme_cache_hit, source_failures = await _collect_github_source(
-        project,
-        cache_root,
-        client,
-        refresh=not use_profile_cache_v2,
-    )
+    if cache_only:
+        tree, readme = cached_source
+        if not tree or not readme:
+            raise ValueError("cache_only_source_incomplete")
+        github_requests, readme_cache_hit, source_failures = 0, True, []
+    else:
+        tree, readme, github_requests, readme_cache_hit, source_failures = await _collect_github_source(
+            project,
+            cache_root,
+            client,
+            refresh=not use_profile_cache_v2,
+        )
     context = _build_evidence_context(project, generation_id, tree, readme)
     narrative_mode_hint = (
         "official_zh"
@@ -3715,7 +3736,7 @@ async def collect_official_project_profile(
         narrative_mode_hint,
         model_route_identity,
     )
-    if use_profile_cache_v2:
+    if use_profile_cache_v2 and not cache_only:
         cached_v2 = _rebind_cached_profile(
             cache_root,
             project,
@@ -3727,9 +3748,12 @@ async def collect_official_project_profile(
         if cached_v2 is not None:
             return cached_v2
     failure_identity = identities[0]
+    # A cache-only correction reads already generated stages and never creates
+    # an attempt. Its explicit operator gate is separate from normal 2/2
+    # generation admission; normal callers retain the existing retry ledger.
     previous_attempt = (
         latest_attempt(cache_root, project.githubRepositoryId, failure_identity.identityDigest)
-        if use_profile_cache_v2
+        if use_profile_cache_v2 and not cache_only
         else None
     )
     retry_due = (
@@ -3739,12 +3763,12 @@ async def collect_official_project_profile(
             failure_identity.identityDigest,
             force_retryable=force_retryable,
         )
-        if use_profile_cache_v2
+        if use_profile_cache_v2 and not cache_only
         else True
     )
-    retry_suppressed = use_profile_cache_v2 and previous_attempt is not None and not retry_due
+    retry_suppressed = use_profile_cache_v2 and not cache_only and previous_attempt is not None and not retry_due
     source_cache_complete = bool(tree) and readme is not None
-    if use_profile_cache_v2 and not retry_suppressed and not source_cache_complete:
+    if use_profile_cache_v2 and not cache_only and not retry_suppressed and not source_cache_complete:
         tree, readme, github_requests, readme_cache_hit, source_failures = await _collect_github_source(
             project,
             cache_root,
@@ -3884,7 +3908,7 @@ async def collect_official_project_profile(
     ]
 
     def retain_introduction(text, refs, mode, label, *, newly_generated=False):
-        if not save_partial_introduction:
+        if not save_partial_introduction or cache_only:
             return
         from app.integrations.rardar.project_introductions import save as save_introduction
 
@@ -3906,10 +3930,10 @@ async def collect_official_project_profile(
     # in this separate fingerprint. Legacy callers retain their cache keys.
     cache_evidence_identity = (
         _digest(evidence.model_dump(mode="json", exclude={"generationId", "digest"}))
-        if save_partial_introduction
+        if save_partial_introduction or cache_only
         else None
     )
-    if official_narrative.mature and source_language == "en" and translate and allow_model_generation:
+    if official_narrative.mature and source_language == "en" and translate and (allow_model_generation or cache_only):
         outcome = await _official_translation(
             project=project,
             evidence=evidence,
@@ -3918,6 +3942,7 @@ async def collect_official_project_profile(
             translator=narrative_translator,
             model_route_identity=model_route_identity,
             cache_evidence_identity=cache_evidence_identity,
+            cache_only=cache_only,
         )
         official_translation = outcome.value
         if official_translation is not None:
@@ -3936,7 +3961,7 @@ async def collect_official_project_profile(
         official_narrative.positioning
         and source_language == "en"
         and translate
-        and allow_model_generation
+        and (allow_model_generation or cache_only)
         and _official_english_positioning_is_high_signal(official_narrative.positioning)
     ):
         outcome = await _official_positioning_translation(
@@ -3947,6 +3972,7 @@ async def collect_official_project_profile(
             translator=positioning_translator,
             model_route_identity=model_route_identity,
             cache_evidence_identity=cache_evidence_identity,
+            cache_only=cache_only,
         )
         official_positioning_translation = outcome.value
         if official_positioning_translation is not None:
@@ -4044,7 +4070,7 @@ async def collect_official_project_profile(
                 or not direct_capabilities
             )
         )
-        if structured_generation_required and allow_model_generation:
+        if structured_generation_required and (allow_model_generation or cache_only):
             stage: Literal["translation", "positioning"] = "translation" if translation_required else "positioning"
             outcome = await _translation(
                 project=project,
@@ -4054,6 +4080,7 @@ async def collect_official_project_profile(
                 stage=stage,
                 model_route_identity=model_route_identity,
                 cache_evidence_identity=cache_evidence_identity,
+                cache_only=cache_only,
             )
             translated = outcome.value
             translation_calls += outcome.calls
@@ -4445,7 +4472,7 @@ async def collect_official_project_profile(
         generation_failures = [
             ProfileGenerationFailure(failure.stage, failure.code, True) for failure in generation_failures
         ]
-    if readme_path and publishable:
+    if readme_path and publishable and not cache_only:
         _store_profile(
             profile_cache,
             profile,
@@ -4466,6 +4493,17 @@ async def collect_official_project_profile(
             last_known_good_available=True,
             last_known_good_reused=False,
             last_known_good_fingerprint=evidence_fingerprint,
+            current_evidence_fingerprint=evidence_fingerprint,
+        )
+    if publishable and cache_only:
+        return CollectedProjectProfile(
+            profile=profile,
+            evidence=evidence,
+            github_requests=0,
+            readme_cache_hit=True,
+            translation_calls=0,
+            translation_cache_hit=translation_cache_hit,
+            deterministic_fallback_used=deterministic_fallback_used,
             current_evidence_fingerprint=evidence_fingerprint,
         )
     if publishable:
@@ -4526,6 +4564,8 @@ async def collect_official_project_profile(
             last_known_good_fingerprint=evidence_fingerprint if last_known_good_available else None,
             current_evidence_fingerprint=evidence_fingerprint,
         )
+    if cache_only:
+        raise ValueError("cache_only_profile_not_publishable")
     failure_code, failure_stage = _stable_profile_failure(generation_failures)
     if retry_suppressed and previous_attempt is not None:
         attempt = previous_attempt

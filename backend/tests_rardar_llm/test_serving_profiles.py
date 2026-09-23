@@ -218,6 +218,121 @@ async def test_navigation_candidate_falls_back_to_validated_assessment_and_reuse
     assert second.translation_calls == 0
 
 
+@pytest.mark.asyncio
+async def test_cache_only_reassembly_reads_valid_stage_without_http_model_or_writes(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"description": "逐条标明成本和证据，并按收益排序的生活指南。"})
+    markdown = """# Evidence guide
+
+一份帮助读者权衡生活选择的指南。
+
+打开在线检索页 · 下载 EPUB 电子书 · 目录 · 术语表 · 做平台要办哪些证（长文）
+
+## 内容
+
+逐条标明行动成本、收益、证据等级和原始出处，并按性价比排序。
+"""
+    tree = [{"path": "README.md", "type": "file"}]
+
+    async def source(request):
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=tree)
+        return httpx.Response(200, json=_readme_payload(markdown))
+
+    async def structure(payload):
+        reference = next(key for key, value in payload["evidenceIndex"].items() if "证据等级" in value)
+        return ProfileTranslation(
+            summary=EvidenceClaim(text="一份帮助读者权衡生活选择的指南。", evidenceRefs=["description"]),
+            positioning=DerivedPositioning(
+                positioningZh="通过逐条标明行动成本、收益和证据等级并按性价比排序，帮助读者识别优先选择。",
+                includedEvidenceRefs=[reference],
+                includedRoles=["core_mechanism", "primary_outcome"],
+            ),
+            capabilities=[
+                ServingCapability(
+                    title="证据追踪",
+                    detail="逐条列出证据等级与原始出处，支持核对生活建议。",
+                    evidenceRefs=[reference],
+                    sourceMode="rardar_derived",
+                )
+            ],
+            productForms=[],
+            supportedEnvironments=[],
+            useCases=[],
+            deliveryForms=[],
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(source), base_url="https://api.github.com") as client:
+        initial = await collect_official_project_profile(
+            project,
+            "fixture-generation",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=structure,
+            model_route_identity="a" * 64,
+            save_partial_introduction=True,
+        )
+    assert initial.translation_calls == 1
+    readme = serving_profiles_module._cached_readme(tmp_path, project)
+    assert readme is not None
+    before = {p.relative_to(tmp_path).as_posix(): p.read_bytes() for p in tmp_path.rglob("*.json")}
+
+    async def forbidden_model(_payload):
+        raise AssertionError("cache-only attempted model generation")
+
+    async def forbidden_source(_request):
+        raise AssertionError("cache-only attempted HTTP")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(forbidden_source), base_url="https://api.github.com"
+    ) as client:
+        recovered = await collect_official_project_profile(
+            project,
+            "fixture-generation",
+            tmp_path,
+            client=client,
+            translate=True,
+            translator=forbidden_model,
+            narrative_translator=forbidden_model,
+            positioning_translator=forbidden_model,
+            allow_model_generation=False,
+            model_route_identity="a" * 64,
+            cache_only=True,
+            cached_source=(tree, readme),
+        )
+    assert recovered.translation_calls == recovered.github_requests == 0
+    assert recovered.translation_cache_hit
+    assert recovered.profile.positioningZh == initial.profile.positioningZh
+    assert before == {p.relative_to(tmp_path).as_posix(): p.read_bytes() for p in tmp_path.rglob("*.json")}
+
+
+@pytest.mark.asyncio
+async def test_cache_only_stage_miss_fails_without_model_or_http(tmp_path: Path) -> None:
+    project = _project().model_copy(update={"description": "An evidence map for choosing developer tools."})
+    readme = {
+        "repository": project.repository,
+        "path": "README.md",
+        "sha": "a" * 40,
+        "markdown": "# Evidence Map\n\nAn evidence map for choosing developer tools.\n\n## Features\n\nCompare sources and cost.",
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda request: pytest.fail(str(request))), base_url="https://api.github.com"
+    ) as client:
+        with pytest.raises(ValueError, match="cache_reassembly_assessment_missing"):
+            await collect_official_project_profile(
+                project,
+                "fixture-generation",
+                tmp_path,
+                client=client,
+                translate=True,
+                allow_model_generation=False,
+                model_route_identity="a" * 64,
+                cache_only=True,
+                cached_source=([{"path": "README.md", "type": "file"}], readme),
+            )
+    assert not list(tmp_path.rglob("*"))
+
+
 def _project():
     return RardarIntelligenceAdapter.from_config(str(FIXTURE.resolve())).load_explosion_board().exactRanked[0]
 

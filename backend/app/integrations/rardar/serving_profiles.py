@@ -3705,6 +3705,8 @@ async def collect_official_project_profile(
 ) -> CollectedProjectProfile:
     if cache_only and (model_route_identity is None or cached_source is None):
         raise ValueError("cache_only_source_and_route_required")
+    if cache_only:
+        allow_model_generation = False
     use_profile_cache_v2 = model_route_identity is not None
     if cache_only:
         tree, readme = cached_source

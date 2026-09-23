@@ -382,6 +382,20 @@ _GENERATION_VALIDATION_TYPES = frozenset(get_args(ErrorType)) | {"invalid_json",
 _FIXED_TRANSLATION_RULES = frozenset(
     {
         "rardar_profile_translation_invalid",
+        "rardar_profile_translation_invalid_summary",
+        "rardar_profile_translation_invalid_positioning_text",
+        "rardar_profile_translation_invalid_positioning_roles",
+        "rardar_profile_translation_invalid_positioning_refs",
+        "rardar_profile_translation_invalid_positioning_exclusion",
+        "rardar_profile_translation_invalid_core_value_language",
+        "rardar_profile_translation_invalid_core_value_summary_duplicate",
+        "rardar_profile_translation_invalid_core_value_capability_duplicate",
+        "rardar_profile_translation_invalid_claim_forbidden",
+        "rardar_profile_translation_invalid_capability_forbidden",
+        "rardar_profile_translation_invalid_positioning_forbidden",
+        "rardar_profile_translation_invalid_summary_text_issue",
+        "rardar_profile_translation_invalid_core_value_text_issue",
+        "rardar_profile_translation_invalid_capability",
         "rardar_profile_translation_positioning_incomplete",
         "rardar_profile_translation_evidence_mismatch",
         "rardar_official_translation_structure_invalid",
@@ -2787,29 +2801,29 @@ def _validate_translation(value: ProfileTranslation, allowed_refs: set[str]) -> 
         *value.deliveryForms,
     ]
     if not _publishable_primary_text(value.summary.text):
-        raise ProfileTranslationError("rardar_profile_translation_invalid")
+        raise ProfileTranslationError("rardar_profile_translation_invalid_summary")
     if value.positioning is not None:
         positioning = value.positioning
         if not _publishable_primary_text(positioning.positioningZh):
-            raise ProfileTranslationError("rardar_profile_translation_invalid")
+            raise ProfileTranslationError("rardar_profile_translation_invalid_positioning_text")
         if _primary_semantic_duplicate(value.summary.text, positioning.positioningZh) or not {
             "core_mechanism",
             "primary_outcome",
         }.intersection(positioning.includedRoles):
             raise ProfileTranslationError("rardar_profile_translation_positioning_incomplete")
         if len(set(positioning.includedRoles)) != len(positioning.includedRoles):
-            raise ProfileTranslationError("rardar_profile_translation_invalid")
+            raise ProfileTranslationError("rardar_profile_translation_invalid_positioning_roles")
         if len(set(positioning.includedEvidenceRefs)) != len(positioning.includedEvidenceRefs):
-            raise ProfileTranslationError("rardar_profile_translation_invalid")
+            raise ProfileTranslationError("rardar_profile_translation_invalid_positioning_refs")
         if any(_semantic_duplicate(positioning.positioningZh, clause.text) for clause in positioning.excludedClauses):
-            raise ProfileTranslationError("rardar_profile_translation_invalid")
+            raise ProfileTranslationError("rardar_profile_translation_invalid_positioning_exclusion")
     if value.coreValue is not None:
         if not _CHINESE.search(value.coreValue.text):
-            raise ProfileTranslationError("rardar_profile_translation_invalid")
+            raise ProfileTranslationError("rardar_profile_translation_invalid_core_value_language")
         if _semantic_duplicate(value.coreValue.text, value.summary.text):
-            raise ProfileTranslationError("rardar_profile_translation_invalid")
+            raise ProfileTranslationError("rardar_profile_translation_invalid_core_value_summary_duplicate")
         if any(_semantic_duplicate(value.coreValue.text, capability.detail) for capability in value.capabilities):
-            raise ProfileTranslationError("rardar_profile_translation_invalid")
+            raise ProfileTranslationError("rardar_profile_translation_invalid_core_value_capability_duplicate")
     capability_text = [
         text
         for capability in [*value.capabilities, *value.keyDifferentiators]
@@ -2823,23 +2837,24 @@ def _validate_translation(value: ProfileTranslation, allowed_refs: set[str]) -> 
             *(clause.text for clause in value.positioning.excludedClauses),
         ]
     )
-    if (
-        any(_FORBIDDEN_PROFILE_TEXT.search(claim.text) for claim in claims)
-        or any(_FORBIDDEN_PROFILE_TEXT.search(text) for text in capability_text)
-        or any(_FORBIDDEN_PROFILE_TEXT.search(text) for text in positioning_texts)
+    if any(_FORBIDDEN_PROFILE_TEXT.search(claim.text) for claim in claims):
+        raise ProfileTranslationError("rardar_profile_translation_invalid_claim_forbidden")
+    if any(_FORBIDDEN_PROFILE_TEXT.search(text) for text in capability_text):
+        raise ProfileTranslationError("rardar_profile_translation_invalid_capability_forbidden")
+    if any(_FORBIDDEN_PROFILE_TEXT.search(text) for text in positioning_texts):
+        raise ProfileTranslationError("rardar_profile_translation_invalid_positioning_forbidden")
+    if _text_issue_codes(value.summary.text):
+        raise ProfileTranslationError("rardar_profile_translation_invalid_summary_text_issue")
+    if value.coreValue is not None and (
+        _FORBIDDEN_PROFILE_TEXT.search(value.coreValue.text) or _text_issue_codes(value.coreValue.text)
     ):
-        raise ProfileTranslationError("rardar_profile_translation_invalid")
-    if _text_issue_codes(value.summary.text) or (
-        value.coreValue is not None
-        and (_FORBIDDEN_PROFILE_TEXT.search(value.coreValue.text) or _text_issue_codes(value.coreValue.text))
-    ):
-        raise ProfileTranslationError("rardar_profile_translation_invalid")
+        raise ProfileTranslationError("rardar_profile_translation_invalid_core_value_text_issue")
     valid_capabilities, capability_issues = _valid_capabilities(
         [*value.capabilities, *value.keyDifferentiators],
         allowed_refs,
     )
     if capability_issues or len(valid_capabilities) != len(value.capabilities) + len(value.keyDifferentiators):
-        raise ProfileTranslationError("rardar_profile_translation_invalid")
+        raise ProfileTranslationError("rardar_profile_translation_invalid_capability")
     references = [reference for claim in claims for reference in claim.evidenceRefs]
     if value.positioning is not None:
         references.extend(value.positioning.includedEvidenceRefs)

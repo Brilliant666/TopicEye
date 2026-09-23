@@ -18,10 +18,15 @@ from app.integrations.rardar.profile_validation_rules import (
     profile_validation_context,
 )
 from app.integrations.rardar.serving_profiles import (
+    DerivedPositioning,
+    EvidenceClaim,
     ProfileGenerationFailure,
+    ProfileTranslation,
     ProfileTranslationError,
     _generation_failure_diagnostic,
+    _validate_translation,
 )
+from app.integrations.rardar.serving_schemas import ServingCapability
 from app.services import rardar_trending as service
 from app.services.rardar_material_diagnostics import material_failure_diagnostic
 from tests_rardar_llm.test_material_work_allowance import work  # noqa: F401 -- shared isolated entry fixture
@@ -124,6 +129,90 @@ def test_fixed_translation_rule_and_dynamic_metadata_are_separated():
     assert value["generationFailures"][0]["detail"]["ruleCode"] == ("rardar_profile_translation_positioning_incomplete")
     assert value["generationFailures"][1]["detail"]["ruleCode"] is None
     assert "private token" not in json.dumps(value)
+
+
+@pytest.mark.parametrize(
+    ("change", "rule"),
+    [
+        ("summary", "rardar_profile_translation_invalid_summary"),
+        ("duplicate_roles", "rardar_profile_translation_invalid_positioning_roles"),
+        ("duplicate_refs", "rardar_profile_translation_invalid_positioning_refs"),
+        ("core_value_language", "rardar_profile_translation_invalid_core_value_language"),
+        ("forbidden_capability", "rardar_profile_translation_invalid_capability_forbidden"),
+    ],
+)
+def test_translation_rejection_preserves_distinct_fixed_rule_after_outer_failure(tmp_path, change, rule):
+    """Synthetic same-shape output, not a replay of NiubiGEO's lost response."""
+    source_ref = "readme:section:1"
+    summary = EvidenceClaim(text="一个根据域名比较模型描述的工具。", evidenceRefs=[source_ref])
+    positioning = DerivedPositioning(
+        positioningZh="通过输入域名对比不同模型的产品描述和引用来源。",
+        includedEvidenceRefs=[source_ref],
+        includedRoles=["identity", "core_mechanism"],
+    )
+    value = ProfileTranslation(
+        summary=summary,
+        positioning=positioning,
+        capabilities=[],
+        productForms=[],
+        supportedEnvironments=[],
+        useCases=[],
+        deliveryForms=[],
+    )
+    _validate_translation(value, {source_ref})
+    if change == "summary":
+        value = value.model_copy(update={"summary": summary.model_copy(update={"text": "English only"})})
+    elif change == "duplicate_roles":
+        value = value.model_copy(
+            update={
+                "positioning": positioning.model_copy(
+                    update={"includedRoles": ["identity", "core_mechanism", "core_mechanism"]}
+                )
+            }
+        )
+    elif change == "duplicate_refs":
+        value = value.model_copy(
+            update={"positioning": positioning.model_copy(update={"includedEvidenceRefs": [source_ref, source_ref]})}
+        )
+    elif change == "core_value_language":
+        value = value.model_copy(update={"coreValue": EvidenceClaim(text="English only", evidenceRefs=[source_ref])})
+    else:
+        value = value.model_copy(
+            update={
+                "capabilities": [
+                    ServingCapability(
+                        title="排名第1名的能力",
+                        detail="提供可核验的项目资料。",
+                        evidenceRefs=[source_ref],
+                    )
+                ]
+            }
+        )
+    with pytest.raises(ProfileTranslationError) as rejected:
+        _validate_translation(value, {source_ref})
+    assert str(rejected.value) == rule
+    failure = ProfileGenerationFailure(
+        "positioning",
+        "positioning_schema_invalid",
+        False,
+        _generation_failure_diagnostic(
+            rejected.value,
+            model_class="ProfileTranslation",
+            prompt_version="rardar-assessment-zh-v12",
+            input_digest="d" * 64,
+        ),
+    )
+    diagnostic = material_failure_diagnostic(
+        ValueError("private outer error"),
+        project={"projectId": "fixture-project"},
+        stage="profile",
+        collected=SimpleNamespace(generation_failures=(failure,), profile=None),
+    )
+    path = tmp_path / f"{change}.json"
+    service.atomic(path, {"diagnostic": diagnostic})
+    stored = service.read_json(path)["diagnostic"]
+    assert stored["generationFailures"][0]["detail"]["ruleCode"] == rule
+    assert "private outer error" not in json.dumps(stored)
 
 
 @pytest.mark.parametrize(

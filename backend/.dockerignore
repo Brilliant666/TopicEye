@@ -25,11 +25,11 @@ logs/
 
 # Build & test artifacts not needed at runtime
 tests/
-# These two modules are imported by the daily/Today/Discover runtime.
-# Keep other operator and maintenance scripts out of the image.
+# Keep only the runtime and explicitly approved private operator entry points.
 scripts/*
 !scripts/rebuild_rardar_serving.py
 !scripts/rebuild_rardar_discover_selection.py
+!scripts/reassemble_rardar_profile_cache.py
 docs/
 Dockerfile
 .dockerignore

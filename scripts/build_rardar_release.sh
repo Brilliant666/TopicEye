@@ -51,7 +51,8 @@ from pathlib import Path
 from importlib.metadata import distributions, version, PackageNotFoundError
 from packaging.requirements import Requirement
 import fastapi, sqlalchemy, asyncpg, duckdb, pydantic
-for module in ('scripts.rebuild_rardar_serving', 'scripts.rebuild_rardar_discover_selection'):
+for module in ('scripts.rebuild_rardar_serving', 'scripts.rebuild_rardar_discover_selection',
+               'scripts.reassemble_rardar_profile_cache'):
     assert importlib.util.find_spec(module), module
 ast.parse(Path('app/services/llm/provider_budget_handoff.py').read_text())
 issues = []

@@ -16,6 +16,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
+from types import SimpleNamespace
 from typing import Any, Generic, Literal, TypeVar, cast, get_args
 from urllib.parse import quote
 
@@ -38,7 +39,7 @@ from app.integrations.rardar.profile_cache_v2 import (
     retryable_error,
     store_profile,
 )
-from app.integrations.rardar.profile_validation_rules import profile_validation_context
+from app.integrations.rardar.profile_validation_rules import PROFILE_VALIDATION_RULES, profile_validation_context
 from app.integrations.rardar.schemas import ExactExplosionProject
 from app.integrations.rardar.serving_schemas import (
     CapabilitySourceMode,
@@ -49,6 +50,7 @@ from app.integrations.rardar.serving_schemas import (
     ReadmeSection,
     ServingCapability,
     StartHereLink,
+    _validate_v6_positioning,
 )
 from app.services.llm import run_failure_guard as run_guard
 from app.services.llm.provider_budget import budget_stage
@@ -609,6 +611,67 @@ def _positioning_roles(value: str) -> list[Literal["identity", "core_mechanism",
     ):
         roles.append("primary_outcome")
     return roles or ["identity"]
+
+
+@dataclass(frozen=True)
+class _PositioningCandidate:
+    text: str
+    evidence_refs: tuple[str, ...]
+    source_mode: Literal["official_zh", "official_translated", "rardar_derived"]
+    included_roles: tuple[Literal["identity", "core_mechanism", "primary_outcome"], ...]
+    excluded_clauses: tuple[PositioningExcludedClause, ...] = ()
+
+
+def _positioning_candidate_issue(
+    candidate: _PositioningCandidate, *, identity: str, allowed_refs: set[str]
+) -> str | None:
+    """Use the final v6 contract before preference ordering can discard alternatives."""
+
+    if not _publishable_primary_text(candidate.text):
+        return "text_invalid"
+    if candidate.source_mode != "rardar_derived" and not _official_positioning_is_high_signal(candidate.text, "zh"):
+        return "official_prose_not_positioning"
+    if (
+        not candidate.evidence_refs
+        or len(set(candidate.evidence_refs)) != len(candidate.evidence_refs)
+        or not set(candidate.evidence_refs).issubset(allowed_refs)
+        or any(not set(clause.evidenceRefs).issubset(allowed_refs) for clause in candidate.excluded_clauses)
+    ):
+        return "evidence_invalid"
+    if _primary_semantic_duplicate(identity, candidate.text):
+        return "identity_duplicate"
+    try:
+        _validate_v6_positioning(
+            SimpleNamespace(
+                identitySummaryZh=identity,
+                positioningZh=candidate.text,
+                positioningSourceMode=candidate.source_mode,
+                positioningEvidenceRefs=list(candidate.evidence_refs),
+                positioningIncludedRoles=list(candidate.included_roles),
+                positioningExcludedClauses=list(candidate.excluded_clauses),
+                officialPositioningZh=candidate.text,
+                officialPositioningEvidenceRefs=list(candidate.evidence_refs),
+            )
+        )
+    except ValueError as exc:
+        return PROFILE_VALIDATION_RULES.get(str(exc), "serving_contract_invalid")
+    return None
+
+
+def _select_positioning_candidate(
+    candidates: list[_PositioningCandidate], *, identity: str, allowed_refs: set[str]
+) -> tuple[_PositioningCandidate | None, list[str]]:
+    """Keep each candidate's prose, refs, roles and source attribution together."""
+
+    accepted: list[_PositioningCandidate] = []
+    rejected: list[str] = []
+    for candidate in candidates:
+        issue = _positioning_candidate_issue(candidate, identity=identity, allowed_refs=allowed_refs)
+        if issue is None:
+            accepted.append(candidate)
+        else:
+            rejected.append(f"positioning_candidate_{candidate.source_mode}_{issue}")
+    return (accepted[0] if accepted else None), rejected
 
 
 def _dedupe_context_subject(value: str) -> str:
@@ -4452,6 +4515,113 @@ async def collect_official_project_profile(
             and not issue.startswith("identity_")
         ]
 
+    # A sound official sentence is preferred, but its mere presence does not
+    # suppress an already saved assessment. Probe that stage without creating
+    # another Provider request, even when the official narrative is mature.
+    if translated is None and model_route_identity is not None and source_summary:
+        try:
+            cached_assessment = await _translation(
+                project=project,
+                evidence=evidence,
+                cache_root=cache_root,
+                translator=translator,
+                stage="translation" if _translation_required(source_language, translate) else "positioning",
+                model_route_identity=model_route_identity,
+                cache_evidence_identity=cache_evidence_identity,
+                cache_only=True,
+            )
+        except ValueError as exc:
+            if str(exc) != "cache_reassembly_assessment_missing":
+                raise
+        else:
+            if cached_assessment.value is not None:
+                translated = cached_assessment.value
+                translation_cache_hit = translation_cache_hit or cached_assessment.cache_hit
+
+    candidates: list[_PositioningCandidate] = []
+    if (
+        compatible_primary is not None
+        and compatible_primary.positioningZh
+        and compatible_primary.positioningSourceMode in {"official_zh", "official_translated", "rardar_derived"}
+    ):
+        candidates.append(
+            _PositioningCandidate(
+                compatible_primary.positioningZh,
+                tuple(compatible_primary.positioningEvidenceRefs),
+                compatible_primary.positioningSourceMode,
+                tuple(compatible_primary.positioningIncludedRoles),
+                tuple(compatible_primary.positioningExcludedClauses),
+            )
+        )
+    if official_narrative.positioning and source_language == "zh" and official_narrative.positioning_ref:
+        text_zh = _official_chinese_positioning(official_narrative.positioning)
+        candidates.append(
+            _PositioningCandidate(
+                text_zh, (official_narrative.positioning_ref,), "official_zh", tuple(_positioning_roles(text_zh))
+            )
+        )
+    if official_translation is not None and official_narrative.positioning_ref:
+        text_zh = official_translation.translatedPositioning
+        candidates.append(
+            _PositioningCandidate(
+                text_zh,
+                (official_narrative.positioning_ref,),
+                "official_translated",
+                tuple(_positioning_roles(text_zh)),
+            )
+        )
+    if official_positioning_translation is not None and official_narrative.positioning_ref:
+        text_zh = official_positioning_translation.translatedPositioning
+        candidates.append(
+            _PositioningCandidate(
+                text_zh,
+                (official_narrative.positioning_ref,),
+                "official_translated",
+                tuple(_positioning_roles(text_zh)),
+            )
+        )
+    if translated is not None and translated.positioning is not None:
+        positioning = translated.positioning
+        candidates.append(
+            _PositioningCandidate(
+                _dedupe_context_subject(positioning.positioningZh),
+                tuple(positioning.includedEvidenceRefs),
+                "rardar_derived",
+                tuple(positioning.includedRoles),
+                tuple(positioning.excludedClauses),
+            )
+        )
+    if deterministic_fallback_used and official_positioning is not None and positioning_source_mode == "rardar_derived":
+        candidates.append(
+            _PositioningCandidate(
+                official_positioning,
+                tuple(official_positioning_refs),
+                "rardar_derived",
+                tuple(positioning_included_roles),
+                tuple(positioning_excluded_clauses),
+            )
+        )
+    selected_positioning, rejected_candidates = _select_positioning_candidate(
+        candidates, identity=summary, allowed_refs=set(evidence.evidenceIndex)
+    )
+    generation_failures.extend(
+        ProfileGenerationFailure("positioning", code, selected_positioning is not None) for code in rejected_candidates
+    )
+    if selected_positioning is None:
+        official_positioning = None
+        official_positioning_refs = []
+        positioning_source_mode = "insufficient"
+        positioning_included_roles = []
+        positioning_excluded_clauses = []
+        if "positioning_missing" not in narrative_issues:
+            narrative_issues.append("positioning_missing")
+    else:
+        official_positioning = selected_positioning.text
+        official_positioning_refs = list(selected_positioning.evidence_refs)
+        positioning_source_mode = selected_positioning.source_mode
+        positioning_included_roles = list(selected_positioning.included_roles)
+        positioning_excluded_clauses = list(selected_positioning.excluded_clauses)
+
     if official_highlights:
         highlight_source_mode: CapabilitySourceMode = {
             "official_zh": "official_zh",
@@ -4805,6 +4975,7 @@ async def collect_official_project_profile(
             readme_cache_hit=True,
             translation_calls=0,
             translation_cache_hit=translation_cache_hit,
+            generation_failures=tuple(generation_failures),
             deterministic_fallback_used=deterministic_fallback_used,
             current_evidence_fingerprint=evidence_fingerprint,
         )

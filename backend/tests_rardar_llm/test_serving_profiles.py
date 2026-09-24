@@ -150,6 +150,53 @@ def test_positioning_roles_recognize_concrete_outcome_not_project_category(text,
     assert set(_positioning_roles(text)) - {"identity"} == expected
 
 
+def test_positioning_candidates_validate_before_source_preference() -> None:
+    candidate = serving_profiles_module._PositioningCandidate
+    derived = candidate(
+        "通过索引原始证据并生成核查报告，帮助读者判断设备风险。",
+        ("readme:section:1",),
+        "rardar_derived",
+        ("core_mechanism", "primary_outcome"),
+    )
+    official_bad = candidate(
+        "这是一个工具。搜索想做的事情，查看价格，然后调用它。",
+        ("readme:section:1",),
+        "official_translated",
+        ("identity",),
+    )
+    official_good = candidate(
+        "通过索引原始证据生成核查报告，帮助读者判断设备风险。",
+        ("readme:section:1",),
+        "official_translated",
+        tuple(_positioning_roles("通过索引原始证据生成核查报告，帮助读者判断设备风险。")),
+    )
+    kwargs = {"identity": "一套帮助读者分析设备风险的工具。", "allowed_refs": {"readme:section:1"}}
+    assert serving_profiles_module._select_positioning_candidate([derived], **kwargs) == (derived, [])
+    chosen, reasons = serving_profiles_module._select_positioning_candidate([official_bad, derived], **kwargs)
+    assert chosen == derived and reasons == [
+        "positioning_candidate_official_translated_profile_serving_v6_positioning_requires_a_mechanism_or_primary_outcome"
+    ]
+    chosen, reasons = serving_profiles_module._select_positioning_candidate([official_good, derived], **kwargs)
+    assert chosen == official_good and reasons == []
+    chosen, reasons = serving_profiles_module._select_positioning_candidate([official_good, official_bad], **kwargs)
+    assert chosen == official_good and reasons == [
+        "positioning_candidate_official_translated_profile_serving_v6_positioning_requires_a_mechanism_or_primary_outcome"
+    ]
+    chosen, reasons = serving_profiles_module._select_positioning_candidate([official_bad], **kwargs)
+    assert chosen is None and reasons == [
+        "positioning_candidate_official_translated_profile_serving_v6_positioning_requires_a_mechanism_or_primary_outcome"
+    ]
+
+    wrong_ref = candidate(derived.text, ("other:repository",), derived.source_mode, derived.included_roles)
+    chosen, reasons = serving_profiles_module._select_positioning_candidate([wrong_ref], **kwargs)
+    assert chosen is None and reasons == ["positioning_candidate_rardar_derived_evidence_invalid"]
+    duplicate = candidate(
+        "一套帮助读者分析设备风险的工具。", derived.evidence_refs, derived.source_mode, derived.included_roles
+    )
+    chosen, reasons = serving_profiles_module._select_positioning_candidate([duplicate], **kwargs)
+    assert chosen is None and reasons == ["positioning_candidate_rardar_derived_identity_duplicate"]
+
+
 def test_new_outcome_wording_still_rejects_unknown_evidence() -> None:
     value = ProfileTranslation(
         summary=EvidenceClaim(text="一项视频制作技能。", evidenceRefs=["description"]),

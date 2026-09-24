@@ -13,6 +13,7 @@ from app.integrations.rardar.project_identity import project_id_for_repository
 from app.integrations.rardar.serving_profiles import (
     DerivedPositioning,
     EvidenceClaim,
+    OfficialPositioningTranslation,
     ProfileTranslation,
     collect_official_project_profile,
 )
@@ -158,3 +159,118 @@ async def test_preview_apply_stale_and_idempotent_are_cache_only(
         ]
         == initial.evidence.digest
     )
+
+
+@pytest.mark.asyncio
+async def test_invalid_official_candidate_does_not_hide_cached_assessment_during_save_and_readback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = RardarIntelligenceAdapter.from_config(str(FIXTURE.resolve())).load_explosion_board().exactRanked[0]
+    project = project.model_copy(update={"description": "A toolkit for collecting forensic traces from devices."})
+    markdown = """# Evidence Toolkit
+
+Evidence Toolkit is a tool that simplifies collecting forensic traces from devices.
+
+The tool provides a report of possible device compromise for investigators.
+
+## Overview
+
+It gathers device traces and produces a report of possible compromise for investigators.
+"""
+    tree = [{"path": "README.md", "type": "file"}]
+
+    def source(request):
+        if request.url.path.endswith("/contents"):
+            return httpx.Response(200, json=tree)
+        return httpx.Response(
+            200,
+            json={
+                "path": "README.md",
+                "sha": "b" * 40,
+                "encoding": "base64",
+                "content": base64.b64encode(markdown.encode()).decode(),
+            },
+        )
+
+    async def assessment(payload):
+        ref = next(key for key, text in payload["evidenceIndex"].items() if "forensic traces" in text)
+        return ProfileTranslation(
+            summary=EvidenceClaim(text="一套帮助调查者分析设备取证痕迹的工具。", evidenceRefs=["description"]),
+            positioning=DerivedPositioning(
+                positioningZh="通过收集设备取证痕迹并生成潜在入侵报告，帮助调查者核查设备风险。",
+                includedEvidenceRefs=[ref],
+                includedRoles=["core_mechanism", "primary_outcome"],
+            ),
+            capabilities=[
+                ServingCapability(
+                    title="痕迹收集",
+                    detail="收集设备取证痕迹供调查者复核。",
+                    evidenceRefs=[ref],
+                    sourceMode="rardar_derived",
+                )
+            ],
+            productForms=[],
+            supportedEnvironments=[],
+            useCases=[],
+            deliveryForms=[],
+        )
+
+    async def official(_payload):
+        return OfficialPositioningTranslation(
+            translatedPositioning="这是一个工具。搜索你想做的事情，查看价格，然后调用它。"
+        )
+
+    cache_root = tmp_path / "profile-cache"
+    async with httpx.AsyncClient(transport=httpx.MockTransport(source), base_url="https://api.github.com") as client:
+        initial = await collect_official_project_profile(
+            project,
+            "fixture-generation",
+            cache_root,
+            client=client,
+            translate=True,
+            translator=assessment,
+            positioning_translator=official,
+            model_route_identity=ROUTE,
+            save_partial_introduction=True,
+        )
+    assert initial.profile.positioningSourceMode == "rardar_derived"
+    assert initial.profile.positioningEvidenceRefs
+    assert any(
+        f.code.endswith("positioning_requires_a_mechanism_or_primary_outcome") and f.resolved
+        for f in initial.generation_failures
+    ), initial.generation_failures
+    shutil.rmtree(cache_root / "profile-store")
+
+    fact = {
+        "repository": project.repository,
+        "projectId": project_id_for_repository(project.repository),
+        "githubRepositoryId": project.githubRepositoryId,
+    }
+    metadata = {
+        "githubRepositoryId": project.githubRepositoryId,
+        "language": project.primaryLanguage,
+        "topics": project.topics,
+        "license": project.licenseSpdxId,
+    }
+
+    async def route_identity():
+        return ROUTE
+
+    monkeypatch.setattr(repair.settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(repair, "detail", lambda *_args, **_kwargs: fact)
+    monkeypatch.setattr(repair.trending_metadata, "read", lambda *_args: metadata)
+    monkeypatch.setattr(repair, "resolve_rardar_route_identity", route_identity)
+    monkeypatch.setattr(repair, "operation_root", lambda: tmp_path / "operations")
+    before = {p.relative_to(tmp_path).as_posix(): p.read_bytes() for p in tmp_path.rglob("*.json")}
+    plan, _, reconstructed, _ = await repair.preview(project.repository)
+    assert plan["positioning"] == initial.profile.positioningZh
+    assert plan["candidateRejections"] == [
+        "positioning_candidate_official_translated_profile_serving_v6_positioning_requires_a_mechanism_or_primary_outcome"
+    ], reconstructed.generation_failures
+    assert before == {p.relative_to(tmp_path).as_posix(): p.read_bytes() for p in tmp_path.rglob("*.json")}
+    applied = await repair.apply(project.repository, plan["planDigest"])
+    assert applied["materialState"] == "complete"
+    saved = repair.saved_materials(tmp_path, repositories={project.repository})[project.repository]
+    assert saved["displayProfile"]["positioningZh"] == plan["positioning"]
+    assert saved["displayProfile"]["positioningEvidenceRefs"] == plan["positioningEvidenceRefs"]
+    assert (await repair.apply(project.repository, plan["planDigest"]))["state"] == "reused"

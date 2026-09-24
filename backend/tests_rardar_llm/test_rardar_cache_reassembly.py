@@ -184,8 +184,12 @@ It gathers device traces and produces a report of possible compromise for invest
             return httpx.Response(200, json=tree)
         return httpx.Response(
             200,
-            json={"path": "README.md", "sha": "b" * 40, "encoding": "base64",
-                  "content": base64.b64encode(markdown.encode()).decode()},
+            json={
+                "path": "README.md",
+                "sha": "b" * 40,
+                "encoding": "base64",
+                "content": base64.b64encode(markdown.encode()).decode(),
+            },
         )
 
     async def assessment(payload):
@@ -197,11 +201,18 @@ It gathers device traces and produces a report of possible compromise for invest
                 includedEvidenceRefs=[ref],
                 includedRoles=["core_mechanism", "primary_outcome"],
             ),
-            capabilities=[ServingCapability(
-                title="痕迹收集", detail="收集设备取证痕迹供调查者复核。",
-                evidenceRefs=[ref], sourceMode="rardar_derived",
-            )],
-            productForms=[], supportedEnvironments=[], useCases=[], deliveryForms=[],
+            capabilities=[
+                ServingCapability(
+                    title="痕迹收集",
+                    detail="收集设备取证痕迹供调查者复核。",
+                    evidenceRefs=[ref],
+                    sourceMode="rardar_derived",
+                )
+            ],
+            productForms=[],
+            supportedEnvironments=[],
+            useCases=[],
+            deliveryForms=[],
         )
 
     async def official(_payload):
@@ -212,19 +223,35 @@ It gathers device traces and produces a report of possible compromise for invest
     cache_root = tmp_path / "profile-cache"
     async with httpx.AsyncClient(transport=httpx.MockTransport(source), base_url="https://api.github.com") as client:
         initial = await collect_official_project_profile(
-            project, "fixture-generation", cache_root, client=client, translate=True,
-            translator=assessment, positioning_translator=official,
-            model_route_identity=ROUTE, save_partial_introduction=True,
+            project,
+            "fixture-generation",
+            cache_root,
+            client=client,
+            translate=True,
+            translator=assessment,
+            positioning_translator=official,
+            model_route_identity=ROUTE,
+            save_partial_introduction=True,
         )
     assert initial.profile.positioningSourceMode == "rardar_derived"
     assert initial.profile.positioningEvidenceRefs
-    assert any(f.code.endswith("positioning_requires_a_mechanism_or_primary_outcome") and f.resolved for f in initial.generation_failures), initial.generation_failures
+    assert any(
+        f.code.endswith("positioning_requires_a_mechanism_or_primary_outcome") and f.resolved
+        for f in initial.generation_failures
+    ), initial.generation_failures
     shutil.rmtree(cache_root / "profile-store")
 
-    fact = {"repository": project.repository, "projectId": project_id_for_repository(project.repository),
-            "githubRepositoryId": project.githubRepositoryId}
-    metadata = {"githubRepositoryId": project.githubRepositoryId, "language": project.primaryLanguage,
-                "topics": project.topics, "license": project.licenseSpdxId}
+    fact = {
+        "repository": project.repository,
+        "projectId": project_id_for_repository(project.repository),
+        "githubRepositoryId": project.githubRepositoryId,
+    }
+    metadata = {
+        "githubRepositoryId": project.githubRepositoryId,
+        "language": project.primaryLanguage,
+        "topics": project.topics,
+        "license": project.licenseSpdxId,
+    }
 
     async def route_identity():
         return ROUTE
@@ -237,7 +264,9 @@ It gathers device traces and produces a report of possible compromise for invest
     before = {p.relative_to(tmp_path).as_posix(): p.read_bytes() for p in tmp_path.rglob("*.json")}
     plan, _, reconstructed, _ = await repair.preview(project.repository)
     assert plan["positioning"] == initial.profile.positioningZh
-    assert plan["candidateRejections"] == ["positioning_candidate_official_translated_profile_serving_v6_positioning_requires_a_mechanism_or_primary_outcome"], reconstructed.generation_failures
+    assert plan["candidateRejections"] == [
+        "positioning_candidate_official_translated_profile_serving_v6_positioning_requires_a_mechanism_or_primary_outcome"
+    ], reconstructed.generation_failures
     assert before == {p.relative_to(tmp_path).as_posix(): p.read_bytes() for p in tmp_path.rglob("*.json")}
     applied = await repair.apply(project.repository, plan["planDigest"])
     assert applied["materialState"] == "complete"

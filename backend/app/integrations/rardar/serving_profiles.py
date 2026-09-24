@@ -4556,17 +4556,29 @@ async def collect_official_project_profile(
     if official_narrative.positioning and source_language == "zh" and official_narrative.positioning_ref:
         text_zh = _official_chinese_positioning(official_narrative.positioning)
         candidates.append(
-            _PositioningCandidate(text_zh, (official_narrative.positioning_ref,), "official_zh", tuple(_positioning_roles(text_zh)))
+            _PositioningCandidate(
+                text_zh, (official_narrative.positioning_ref,), "official_zh", tuple(_positioning_roles(text_zh))
+            )
         )
     if official_translation is not None and official_narrative.positioning_ref:
         text_zh = official_translation.translatedPositioning
         candidates.append(
-            _PositioningCandidate(text_zh, (official_narrative.positioning_ref,), "official_translated", tuple(_positioning_roles(text_zh)))
+            _PositioningCandidate(
+                text_zh,
+                (official_narrative.positioning_ref,),
+                "official_translated",
+                tuple(_positioning_roles(text_zh)),
+            )
         )
     if official_positioning_translation is not None and official_narrative.positioning_ref:
         text_zh = official_positioning_translation.translatedPositioning
         candidates.append(
-            _PositioningCandidate(text_zh, (official_narrative.positioning_ref,), "official_translated", tuple(_positioning_roles(text_zh)))
+            _PositioningCandidate(
+                text_zh,
+                (official_narrative.positioning_ref,),
+                "official_translated",
+                tuple(_positioning_roles(text_zh)),
+            )
         )
     if translated is not None and translated.positioning is not None:
         positioning = translated.positioning
@@ -4582,16 +4594,18 @@ async def collect_official_project_profile(
     if deterministic_fallback_used and official_positioning is not None and positioning_source_mode == "rardar_derived":
         candidates.append(
             _PositioningCandidate(
-                official_positioning, tuple(official_positioning_refs), "rardar_derived",
-                tuple(positioning_included_roles), tuple(positioning_excluded_clauses),
+                official_positioning,
+                tuple(official_positioning_refs),
+                "rardar_derived",
+                tuple(positioning_included_roles),
+                tuple(positioning_excluded_clauses),
             )
         )
     selected_positioning, rejected_candidates = _select_positioning_candidate(
         candidates, identity=summary, allowed_refs=set(evidence.evidenceIndex)
     )
     generation_failures.extend(
-        ProfileGenerationFailure("positioning", code, selected_positioning is not None)
-        for code in rejected_candidates
+        ProfileGenerationFailure("positioning", code, selected_positioning is not None) for code in rejected_candidates
     )
     if selected_positioning is None:
         official_positioning = None

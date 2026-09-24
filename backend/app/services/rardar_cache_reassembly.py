@@ -167,6 +167,10 @@ async def preview(repository: str) -> tuple[dict, object, object, object]:
         "profileRevision": semantic_profile_revision(collected.profile),
         "positioning": collected.profile.positioningZh,
         "positioningEvidenceRefs": collected.profile.positioningEvidenceRefs,
+        "candidateRejections": [
+            failure.code for failure in collected.generation_failures
+            if failure.code.startswith("positioning_candidate_")
+        ],
         "qualityState": collected.profile.qualityState,
         "profileState": collected.profile.profileState,
         "materialState": projected["materialState"],

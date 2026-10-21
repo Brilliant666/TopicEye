@@ -299,10 +299,20 @@ def _date_action_assets(html: str) -> list[str]:
         raise BoardParseError("trendshift_date_component_invalid") from None
     if not isinstance(assets, list):
         raise BoardParseError("trendshift_date_component_invalid")
+    resolved_assets = []
+    for asset in assets:
+        if isinstance(asset, str) and re.fullmatch(r"\$[a-f0-9]+", asset):
+            try:
+                asset = json.loads(records[asset[1:]])
+            except (KeyError, ValueError, TypeError):
+                raise BoardParseError("trendshift_date_asset_reference_invalid") from None
+            if not isinstance(asset, str) or not asset.startswith("/_next/static/chunks/"):
+                raise BoardParseError("trendshift_date_asset_reference_invalid")
+        resolved_assets.append(asset)
     paths = list(
         dict.fromkeys(
             path
-            for path in assets
+            for path in resolved_assets
             if isinstance(path, str)
             and re.fullmatch(r"/_next/static/chunks/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.js", path)
             and not any(part in {".", ".."} for part in path.split("/"))
@@ -310,7 +320,9 @@ def _date_action_assets(html: str) -> list[str]:
     )
     if not paths:
         raise BoardParseError("trendshift_date_assets_missing")
-    if len(paths) > 16:
+    # The observed current calendar declares 24 chunks; keep a bounded margin
+    # without truncating its dependencies. Per-asset and total time limits stay.
+    if len(paths) > 32:
         raise BoardParseError("trendshift_date_assets_limit")
     return ["https://trendshift.io" + path for path in paths]
 

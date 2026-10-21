@@ -26,6 +26,7 @@ _DATE_FAILURE_CODES = {
     "trendshift_date_component_ambiguous",
     "trendshift_date_component_invalid",
     "trendshift_date_assets_missing",
+    "trendshift_date_asset_reference_invalid",
     "trendshift_date_assets_limit",
     "trendshift_date_action_missing",
     "trendshift_date_action_ambiguous",

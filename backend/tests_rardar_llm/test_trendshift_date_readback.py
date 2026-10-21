@@ -33,16 +33,17 @@ def test_legacy_mismatched_snapshot_remains_readable_without_false_dual_badge(tm
     assert path.read_bytes() == original
 
 
-def test_date_failure_reason_survives_storage_and_old_capture_is_preserved(tmp_path):
+@pytest.mark.parametrize("error", ["trendshift_date_action_missing", "trendshift_date_asset_reference_invalid"])
+def test_date_failure_reason_survives_storage_and_old_capture_is_preserved(tmp_path, error):
     source = board("trendshift", ["org/retained"])
     installed = store.publish_sources(tmp_path, [source])
-    failed = {"source": "trendshift", "status": "failed", "errorCode": "trendshift_date_action_missing"}
+    failed = {"source": "trendshift", "status": "failed", "errorCode": error}
     checked = store.publish_sources(tmp_path, [failed])
     assert checked["generationId"] == installed["generationId"]
     loaded = store.load_snapshot(tmp_path)
     assert [p["repository"] for p in loaded["projects"]] == ["org/retained"]
     status = next(s for s in loaded["sources"] if s["source"] == "trendshift")
-    assert status["errorCode"] == "trendshift_date_action_missing"
+    assert status["errorCode"] == error
     assert status["status"] == "stale"
 
 

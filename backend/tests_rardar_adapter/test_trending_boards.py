@@ -195,13 +195,29 @@ def test_component_property_order_nested_chunk_names_and_fragmented_flight():
     assert boards._date_action_id(_action_script(direct=True)) == "a" * 40
 
 
+def test_calendar_assets_resolve_observed_flight_string_references():
+    # Public page captured 2026-10-21: the calendar declares 24 "$hex"
+    # references to string records, rather than literal paths in its import.
+    paths = [f"/_next/static/chunks/public-{i}.js" for i in range(24)]
+    refs = [format(i + 100, "x") for i in range(len(paths))]
+    declarations = "".join(f"\n{key}:" + json.dumps(path) for key, path in zip(refs, paths, strict=True))
+    html = _calendar_html(["$" + key for key in refs], extra=declarations)
+    assert boards._date_action_assets(html) == ["https://trendshift.io" + path for path in paths]
+
+
+@pytest.mark.parametrize("declaration", ["", '\n64:"$65"', "\n64:{}"])
+def test_calendar_asset_reference_must_resolve_to_a_path_string(declaration):
+    with pytest.raises(boards.BoardParseError, match="trendshift_date_asset_reference_invalid"):
+        boards._date_action_assets(_calendar_html(["$64"], extra=declaration))
+
+
 @pytest.mark.parametrize(
     "html,error",
     [
         ("", "component_missing"),
         (_calendar_html([], extra='\n38:["$","$L39",null,{"initialData":[]}]'), "component_ambiguous"),
         (_calendar_html(["https://evil.test/a.js"]), "assets_missing"),
-        (_calendar_html([f"/_next/static/chunks/{i}.js" for i in range(17)]), "assets_limit"),
+        (_calendar_html([f"/_next/static/chunks/{i}.js" for i in range(33)]), "assets_limit"),
     ],
 )
 def test_calendar_discovery_does_not_guess_or_truncate(html, error):

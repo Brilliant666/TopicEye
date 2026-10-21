@@ -1021,10 +1021,13 @@ async def historical_work(
             rotation.get(p["repository"], ""),
         )
     )
-    # Reading gaps are ordered by the actual published scope. The existing
-    # slice, interactive reservation and retry debit remain authoritative.
+    # A confirmed cooldown yields to actionable work across scopes; otherwise
+    # keep Today first. Slice, admission and retry debit remain authoritative.
     pending.sort(
-        key=lambda p: (0 if p["repository"] in today_repositories else 1 if p["projectId"] in review_ids else 2)
+        key=lambda p: (
+            records.get(p["repository"], {}).get("status") == "deferred",
+            0 if p["repository"] in today_repositories else 1 if p["projectId"] in review_ids else 2,
+        )
     )
     completed = set()
     deferred = set()

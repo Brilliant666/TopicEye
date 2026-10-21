@@ -11,8 +11,15 @@ from tests_rardar_llm.test_material_work_allowance import work  # noqa: F401
 
 
 @pytest.mark.asyncio
-async def test_three_deferred_today_projects_do_not_hide_fourth_healthy_project(work, io, monkeypatch):  # noqa: F811
-    work.projects[:] = work.projects[:4]
+@pytest.mark.parametrize("healthy_scope", ["today", "historical"])
+async def test_three_deferred_today_projects_do_not_hide_fourth_healthy_project(
+    work,  # noqa: F811
+    io,  # noqa: F811
+    monkeypatch,
+    healthy_scope,
+):
+    healthy = work.projects[3 if healthy_scope == "today" else 4]
+    work.projects[:] = [*work.projects[:3], healthy]
     original = service._collect_project_material
     cooled = set(work.today[:3])
     retry_at = datetime.now(UTC) + timedelta(hours=6)
@@ -36,10 +43,12 @@ async def test_three_deferred_today_projects_do_not_hide_fourth_healthy_project(
     assert result["materials"]["waitReason"] == "material_content_retry_deferred"
     assert result["materials"]["todayPending"] == 3
     assert result["providerCalls"] == result["materials"]["failed"] == 0
-    assert work.calls.count(work.today[3]) == 1
-    assert set(work.calls) == set(work.today)
+    assert work.calls.count(healthy["repository"]) == 1
+    assert set(work.calls) == cooled | {healthy["repository"]}
     assert 1 < result["auditRound"]["materials"]["slices"] <= 3
     records = service.read_json(saved)["materialWork"]["projects"]
     assert all(record["failures"] == 0 for record in records.values())
-    assert records[work.today[3]]["status"] == "completed"
+    assert records[healthy["repository"]]["status"] == "completed"
+    assert result["materials"]["historicalDailyNewProjectLimit"] == 3
+    assert result["materials"]["historicalAdmitted"] == int(healthy_scope == "historical")
     assert len(records) == 4  # same records, no reset or replacement

@@ -213,6 +213,33 @@ def test_create_commits_identity_without_execute(setup):
     service.execute.assert_not_awaited()
 
 
+def test_create_forwards_optional_lower_request_ceiling(setup):
+    app, client, service = setup
+    app.dependency_overrides[api._find_user_id] = lambda: 12
+    response = client.post(
+        "/api/v1/rardar/find-runs",
+        headers={**_headers(), "X-Find-Request-Limit": "3"},
+        json=_run()["request"],
+    )
+    assert response.status_code == 200
+    assert service.create.await_args.kwargs["request_limit"] == 3
+    service.execute.assert_not_awaited()
+
+
+@pytest.mark.parametrize("value", ["-1", "1.5", "invalid"])
+def test_invalid_request_ceiling_does_not_create_or_execute(setup, value):
+    app, client, service = setup
+    app.dependency_overrides[api._find_user_id] = lambda: 12
+    response = client.post(
+        "/api/v1/rardar/find-runs",
+        headers={**_headers(), "X-Find-Request-Limit": value},
+        json=_run()["request"],
+    )
+    assert response.status_code == 422
+    service.create.assert_not_awaited()
+    service.execute.assert_not_awaited()
+
+
 def test_gets_forward_only_trusted_identity_and_never_execute(setup):
     app, client, service = setup
     app.dependency_overrides[api._find_user_id] = lambda: 13

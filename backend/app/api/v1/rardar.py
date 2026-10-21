@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.auth import get_current_admin_user, get_current_user
@@ -690,10 +690,16 @@ async def _find_result(operation):
 
 @router.post("/find-runs", response_model=FindRun)
 async def create_find_run(
-    payload: FindProjectRequest, request: Request, response: Response, user_id=Depends(_find_user_id)
+    payload: FindProjectRequest,
+    request: Request,
+    response: Response,
+    user_id=Depends(_find_user_id),
+    request_limit: int | None = Header(default=None, alias="X-Find-Request-Limit", ge=0),
 ):
     _find_access(request, response, write=True)
-    return await _find_result(find_runs.create(user_id, payload, request.headers.get("idempotency-key", "")))
+    return await _find_result(
+        find_runs.create(user_id, payload, request.headers.get("idempotency-key", ""), request_limit=request_limit)
+    )
 
 
 @router.get("/find-runs", response_model=FindRunList)

@@ -40,3 +40,10 @@ tests_rardar_selection/test_profile_cache_v2.py
 本地最终相关回归：188 passed、1 skipped（既有可选验证），Ruff 与分层检查通过。必要 CI 绑定提交执行，结果以 PR 检查记录为准。
 
 开发阶段真实模型、资料源、榜单抓取、Find、人工日程和生产操作均 0。当前真实 Trendshift 网页和新自然周期未验证；不把离线通过报告为生产恢复。沿用 `rardar-release-artifact.yml` 的 exact-SHA Linux 构建及 manifest，不新增发布系统。Runtime 必须继续核对真实 squash SHA/同 tree、镜像来源与生产容量门禁；本分支不操作服务器。
+
+## 续接收尾
+
+- 已合入当前 main（`ea38207`），保留 PR #75 的 Find 请求上限/依赖安全修正和 PR #77 的手机端最近结果布局；这些文件相对 main 无差异。
+- 补齐冷却轮换的跨域回归：三个 Today 项处于内容冷却时，后续健康 Today 或历史项仍能推进；历史准入数与原每日限制不变。
+- 独立只读审查未发现阻断；53 项针对日期读取、恢复、回读与冷却的模拟测试通过。完整相关测试、Ruff 和分层检查另行核对；最终 CI 以本次提交为准。
+- 本轮授权由 Runtime 协同增量发布；开发验证零 Provider 调用。保留生产现有 Find 后端与手机布局，实际来源恢复及自然日程结果仍需分别记录，不以模拟结果代替。

@@ -8,7 +8,7 @@ import pytest
 from app.core.config import settings
 from app.integrations.rardar import trending_boards, trending_store as store
 from app.services import rardar_daily_refresh as refresh
-from tests_rardar_llm.test_rardar_trending_store import board
+from tests_rardar_llm.test_rardar_trending_store import dated_board
 
 
 @pytest.mark.asyncio
@@ -29,9 +29,7 @@ async def test_failed_local_review_gets_compensation_without_source_refetch(tmp_
     from app.services import rardar_trending as service
 
     async def fetch(source, **kwargs):
-        value = board(source, ["o/r"])
-        value["targetPeriodDate"] = kwargs["target_date"]
-        return value
+        return dated_board(source, ["o/r"], kwargs["target_date"])
 
     fetch_mock = AsyncMock(side_effect=fetch)
     monkeypatch.setattr(trending_boards, "fetch_board", fetch_mock)

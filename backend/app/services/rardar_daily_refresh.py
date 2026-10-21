@@ -67,31 +67,54 @@ def _validate_receipts(cycle: dict) -> None:
                 raise ValueError("daily_source_period_mismatch")
 
 
+def _receipt_healthy(receipt: dict) -> bool:
+    if receipt.get("status") != "healthy":
+        return False
+    value = receipt.get("result", {})
+    # Validate old receipts normally, but do not reuse their former homepage
+    # fallback as proof that a requested ended day has been acquired.
+    return value.get("source") != "trendshift" or (
+        value.get("acquisitionMode") == "ended_utc_day" and value.get("sourceDate") == value.get("targetPeriodDate")
+    )
+
+
 def _needs_sources(cycle: dict) -> bool:
     return any(
-        cycle["sources"].get(key, {}).get("status") != "healthy"
-        and cycle["sources"].get(key, {}).get("retryable", True)
+        not _receipt_healthy(cycle["sources"].get(key, {})) and cycle["sources"].get(key, {}).get("retryable", True)
         for key in SOURCES
     )
 
 
 def _needs_publication(cycle: dict) -> bool:
-    healthy = {key: r["digest"] for key, r in cycle["sources"].items() if r.get("status") == "healthy"}
+    healthy = {key: r["digest"] for key, r in cycle["sources"].items() if _receipt_healthy(r)}
     return bool(healthy) and cycle.get("publishedReceipts") != healthy
 
 
-def _material_pending(day: dict) -> bool:
+def _material_pending(day: dict, qualification: dict | None = None) -> bool:
     result = day.get("materials", {})
-    return (
-        result.get("status") in {None, "pending", "partial", "interrupted"}
-        and result.get("waitReason") not in NON_RESUMABLE
-    )
+    if result.get("status") not in {None, "pending", "partial", "interrupted"}:
+        return False
+    if result.get("waitReason") in {"historical_daily_limit_reached", "material_retry_limit_reached"}:
+        scopes = (qualification or result).get("qualification")
+        if isinstance(scopes, dict):
+            return any(scopes.get(scope, {}).get("admissionEligible", 0) > 0 for scope in ("today", "historical"))
+    return result.get("waitReason") not in NON_RESUMABLE
 
 
-async def run_refresh(target: Path, *, now=None, trigger: str = "manual", material_work=None, review_work=None) -> dict:
+async def run_refresh(
+    target: Path,
+    *,
+    now=None,
+    trigger: str = "manual",
+    material_work=None,
+    review_work=None,
+    material_qualification=None,
+) -> dict:
     if trigger not in {"manual", "automatic"}:
         raise ValueError("daily_trigger_invalid")
-    if trigger == "manual" and (material_work is not None or review_work is not None):
+    if trigger == "manual" and (
+        material_work is not None or review_work is not None or material_qualification is not None
+    ):
         raise ValueError("manual_sync_cannot_generate_materials")
     clock = instant(now)
     plan = day_plan(clock)
@@ -128,21 +151,42 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
             if cycle["period"]["sourceDate"] != period["sourceDate"]:
                 raise ValueError("daily_source_period_mismatch")
             _validate_receipts(cycle)
+            qualification = None
+            if (
+                trigger == "automatic"
+                and material_work
+                and material_qualification
+                and day.get("materials", {}).get("waitReason")
+                in {"historical_daily_limit_reached", "material_retry_limit_reached"}
+            ):
+                # Read current saved materials and original per-project daily
+                # debits, not yesterday's/earlier slice's aggregate stop reason.
+                qualification = await material_qualification()
+                day["materialQualification"] = {
+                    "checkedAt": clock.isoformat(),
+                    "scopes": qualification.get("qualification"),
+                }
+                atomic(day_path, day)
             if trigger == "automatic" and rounds and not active:
+                material_budget_wait = False
                 pending = (
                     _needs_sources(cycle)
                     or _needs_publication(cycle)
                     or (bool(cycle.get("publishedReceipts")) and not cycle.get("metadataComplete", False))
                     or (review_work is not None and day.get("historyReview", {}).get("status") != "published")
                 )
-                if not pending and material_work and _material_pending(day):
+                if not pending and material_work and _material_pending(day, qualification):
                     pending = await material_budget_available()
+                    material_budget_wait = not pending
                 if not pending:
                     return {
                         "status": "skipped",
-                        "reason": "nothing_to_compensate",
+                        "reason": "material_budget_unavailable_or_interactive_reserved"
+                        if material_budget_wait
+                        else "nothing_to_compensate",
                         "providerCalls": 0,
                         "changed": False,
+                        "materialQualification": qualification.get("qualification") if qualification else None,
                     }
             if trigger == "automatic" and active is None:
                 active = {
@@ -172,7 +216,7 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
 
             for key in SOURCES:
                 prior = cycle["sources"].get(key, {})
-                if prior.get("status") == "healthy" or not prior.get("retryable", True):
+                if _receipt_healthy(prior) or not prior.get("retryable", True):
                     continue
                 try:
                     result = await fetch_board(key, target_date=period["sourceDate"])
@@ -180,6 +224,8 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
                         raise ValueError("daily_source_receipt_identity")
                     if result.get("status") == "healthy":
                         validate_source(result)
+                        if not _receipt_healthy({"status": "healthy", "result": result}):
+                            result = {**result, "status": "failed", "errorCode": "trendshift_target_day_unverified"}
                         if result.get("targetPeriodDate") != period["sourceDate"]:
                             raise ValueError("daily_source_period_mismatch")
                         if (
@@ -220,7 +266,7 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
                             day.pop("materials", None)
                             atomic(day_path, day)
                     cycle["publishedReceipts"] = {
-                        key: r["digest"] for key, r in cycle["sources"].items() if r["status"] == "healthy"
+                        key: r["digest"] for key, r in cycle["sources"].items() if _receipt_healthy(r)
                     }
                     save_cycle()
                 except Exception:
@@ -241,6 +287,16 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
                     cycle["metadataError"] = "metadata_refresh_failed"
                     save_cycle()
 
+            if changed and trigger == "automatic" and material_work and material_qualification:
+                # A recovered source may add Today projects after the initial
+                # eligibility check. Re-read the installed scope, never reuse
+                # the old board's empty admission set to suppress those gaps.
+                qualification = await material_qualification()
+                day["materialQualification"] = {
+                    "checkedAt": instant(now).isoformat(),
+                    "scopes": qualification.get("qualification"),
+                }
+                atomic(day_path, day)
             material_result = day.get("materials", {})
             run_requests = 0
             audit_counts = dict.fromkeys(_AUDIT_COUNTERS, 0)
@@ -249,8 +305,9 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
                 # A single bounded run advances multiple existing slices. Never
                 # busy-loop a cooperative wait or reset a project's retry debit.
                 for _ in range(settings.RARDAR_DAILY_MATERIAL_SLICES):
-                    if material_result and not _material_pending({"materials": material_result}):
+                    if material_result and not _material_pending({"materials": material_result}, qualification):
                         break
+                    qualification = None
                     material_result = await material_work()
                     audit_slices += 1
                     for label, key in _AUDIT_COUNTERS.items():
@@ -317,6 +374,8 @@ async def run_refresh(target: Path, *, now=None, trigger: str = "manual", materi
                                 "remaining",
                                 "status",
                                 "waitReason",
+                                "qualification",
+                                "contentRetryDeferred",
                             )
                         },
                     },

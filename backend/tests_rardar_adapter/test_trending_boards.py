@@ -1,5 +1,6 @@
 """Pure public board contracts: no database or Provider calls."""
 
+import asyncio
 import json
 from datetime import UTC, datetime
 
@@ -144,7 +145,7 @@ def test_public_date_action_discovery_is_named_bounded_and_same_origin():
     chunks = [f"/_next/static/chunks/chunk{i}.js" for i in range(7)]
     wire = "36:I" + json.dumps([77910, chunks, "default"]) + '\n37:["$","$L36",null,{"initialData":[]}]'
     html = "<script>self.__next_f.push(" + json.dumps([1, wire]) + ")</script>"
-    assert boards._date_action_assets(html) == ["https://trendshift.io" + path for path in reversed(chunks[-4:])]
+    assert boards._date_action_assets(html) == ["https://trendshift.io" + path for path in chunks]
     action = "a" * 40
     script = f'(0,m.createServerReference)("{action}",m.callServer,void 0,m.findSourceMapURL,"getRepositoryRecommendationsByDate")'
     assert boards._date_action_id(script) == action
@@ -152,12 +153,156 @@ def test_public_date_action_discovery_is_named_bounded_and_same_origin():
         boards._date_action_id(script.replace("getRepositoryRecommendationsByDate", "setRepositoryMarkAction")) is None
     )
     assert boards._date_action_assets(html.replace("/_next/static/chunks/chunk6.js", "https://evil.test/data.js")) == [
-        "https://trendshift.io" + path for path in reversed(chunks[3:6])
+        "https://trendshift.io" + path for path in chunks[:6]
     ]
 
 
 def _dated_wire(rows):
     return '0:{"a":"$@1"}\n1:' + json.dumps(rows)
+
+
+def _calendar_html(chunks, *, props=None, component="36", extra=""):
+    """Synthetic Flight fixture, not a saved production webpage."""
+    wire = (
+        f"{component}:I"
+        + json.dumps([77910, chunks, "default"])
+        + "\n37:"
+        + json.dumps(["$", "$L" + component, "calendar", props or {"initialData": []}])
+        + extra
+    )
+    return "<script>self.__next_f.push(" + json.dumps([1, wire]) + ")</script>"
+
+
+def _action_script(identity="a", *, direct=False):
+    prefix = "m.createServerReference" if direct else "(0,m.createServerReference)"
+    return f"{prefix}('{identity * 40}',m.callServer,void 0,m.findSourceMapURL,'getRepositoryRecommendationsByDate')"
+
+
+def test_component_property_order_nested_chunk_names_and_fragmented_flight():
+    html = _calendar_html(
+        ["123", "/_next/static/chunks/app/page.12-a.js", "/_next/static/chunks/../unsafe.js"],
+        props={"children": [], "language": "all", "initialData": []},
+    )
+    assert boards._date_action_assets(html) == ["https://trendshift.io/_next/static/chunks/app/page.12-a.js"]
+    # Transport fragments can split a single JSON record, without changing it.
+    payload = json.loads(html.removeprefix("<script>self.__next_f.push(").removesuffix(")</script>"))[1]
+    split = len(payload) // 2
+    fragments = "".join(
+        "<script>self.__next_f.push(" + json.dumps([1, part]) + ")</script>"
+        for part in (payload[:split], payload[split:])
+    )
+    assert boards._date_action_assets(fragments) == boards._date_action_assets(html)
+    assert boards._date_action_id(_action_script(direct=True)) == "a" * 40
+
+
+@pytest.mark.parametrize(
+    "html,error",
+    [
+        ("", "component_missing"),
+        (_calendar_html([], extra='\n38:["$","$L39",null,{"initialData":[]}]'), "component_ambiguous"),
+        (_calendar_html(["https://evil.test/a.js"]), "assets_missing"),
+        (_calendar_html([f"/_next/static/chunks/{i}.js" for i in range(17)]), "assets_limit"),
+    ],
+)
+def test_calendar_discovery_does_not_guess_or_truncate(html, error):
+    with pytest.raises(boards.BoardParseError, match="trendshift_date_" + error):
+        boards._date_action_assets(html)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "actions,expected", [(["a", None, None, None, None], None), ([None, None], "missing"), (["a", "b"], "ambiguous")]
+)
+async def test_all_declared_chunks_considered_before_unique_action_post(monkeypatch, actions, expected):
+    chunks = [f"/_next/static/chunks/{i}.js" for i in range(len(actions))]
+    calls = []
+
+    def transport(request):
+        calls.append(request)
+        if request.method == "POST":
+            assert expected is None
+            return httpx.Response(
+                200, text=_dated_wire([_source_row(0, "2026-09-11")]), headers={"content-type": "text/x-component"}
+            )
+        if request.url.path.endswith(".js"):
+            action = actions[int(request.url.path.rsplit("/", 1)[1][:-3])]
+            return httpx.Response(
+                200,
+                text=_action_script(action) if action else "const noDateAction=1;",
+                headers={"content-type": "application/javascript"},
+            )
+        return httpx.Response(200, text=_calendar_html(chunks), headers={"content-type": "text/html"})
+
+    monkeypatch.setattr(
+        boards,
+        "build_scraper_client_kwargs",
+        lambda *a, **k: {"transport": httpx.MockTransport(transport), "headers": {}},
+    )
+    result = await boards.fetch_board("trendshift", target_date="2026-09-11")
+    assert result["status"] == ("failed" if expected else "healthy")
+    assert result["errorCode"] == ("trendshift_date_action_" + expected if expected else None)
+    assert sum(call.method == "POST" for call in calls) == (0 if expected else 1)
+    assert len(calls) == len(actions) + 1 + (0 if expected else 1)
+    assert all(call.url.host == "trendshift.io" for call in calls)
+
+
+def test_ambiguous_actions_in_one_chunk_are_not_arbitrarily_selected():
+    with pytest.raises(boards.BoardParseError, match="trendshift_date_action_ambiguous"):
+        boards._date_action_id(_action_script("a") + ";" + _action_script("b"))
+
+
+def test_named_action_match_cannot_cross_another_call_without_semicolon():
+    unrelated = _action_script("a").replace("getRepositoryRecommendationsByDate", "setRepositoryMarkAction")
+    assert boards._date_action_id(unrelated + "," + _action_script("b")) == "b" * 40
+
+
+@pytest.mark.asyncio
+async def test_unended_target_fails_before_any_request(monkeypatch):
+    def forbidden(*args, **kwargs):
+        pytest.fail("An unended period must not issue a source request")
+
+    monkeypatch.setattr(boards, "build_scraper_client_kwargs", forbidden)
+    result = await boards.fetch_board("trendshift", target_date="2099-01-01")
+    assert result["status"] == "failed"
+    assert result["errorCode"] == "target_period_not_ended"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("blocked_stage", ["chunk", "post"])
+async def test_date_deadline_cancels_discovery_or_post_without_retry(monkeypatch, blocked_stage):
+    calls = []
+    cancelled = asyncio.Event()
+
+    async def transport(request):
+        calls.append((request.method, request.url.path))
+        block = (blocked_stage == "chunk" and request.url.path.endswith(".js")) or request.method == "POST"
+        if block:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+        if request.url.path.endswith(".js"):
+            return httpx.Response(200, text=_action_script(), headers={"content-type": "application/javascript"})
+        return httpx.Response(
+            200,
+            text=_calendar_html(["/_next/static/chunks/date.js"]),
+            headers={"content-type": "text/html"},
+        )
+
+    monkeypatch.setattr(boards, "_DATE_REQUEST_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(
+        boards,
+        "build_scraper_client_kwargs",
+        lambda *a, **k: {"transport": httpx.MockTransport(transport), "headers": {}},
+    )
+    result = await boards.fetch_board("trendshift", target_date="2026-09-11")
+    assert result["status"] == "failed"
+    assert result["errorCode"] == "trendshift_date_timeout"
+    assert result["entries"] == []
+    assert cancelled.is_set()
+    assert len(calls) == (2 if blocked_stage == "chunk" else 3)
+    assert sum(method == "POST" for method, _ in calls) == (0 if blocked_stage == "chunk" else 1)
 
 
 def test_date_response_binds_all_rows_and_metrics_to_ended_period():
@@ -233,7 +378,7 @@ async def test_fetch_exact_date_uses_observed_named_action_and_no_alternative_en
 
 
 @pytest.mark.asyncio
-async def test_unsupported_calendar_is_honest_snapshot_not_infinite_retry(monkeypatch):
+async def test_unsupported_calendar_fails_target_without_silent_snapshot_or_retry(monkeypatch):
     calls = []
 
     def transport(request):
@@ -246,11 +391,13 @@ async def test_unsupported_calendar_is_honest_snapshot_not_infinite_retry(monkey
         lambda *a, **k: {"transport": httpx.MockTransport(transport), "headers": {}},
     )
     result = await boards.fetch_board("trendshift", target_date="2026-09-11")
-    assert result["status"] == "healthy"
-    assert result["sourceDate"] == "2026-09-12"
+    assert result["status"] == "failed"
+    assert result["sourceDate"] is None
     assert result["targetPeriodDate"] == "2026-09-11"
-    assert result["acquisitionMode"] == "daily_snapshot"
+    assert result["acquisitionMode"] == "ended_utc_day"
     assert result["historicalDateFetchSupported"] is False
+    assert result["errorCode"] == "trendshift_date_component_missing"
+    assert result["entries"] == []
     assert len(calls) == 1
 
 

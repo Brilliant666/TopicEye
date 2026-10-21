@@ -21,6 +21,23 @@ from app.integrations.rardar.trending_periods import due_period, policy_status
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
 
 SOURCES = {"github": "GitHub Trending", "trendshift": "Trendshift Trending"}
+_DATE_FAILURE_CODES = {
+    "trendshift_date_component_missing",
+    "trendshift_date_component_ambiguous",
+    "trendshift_date_component_invalid",
+    "trendshift_date_assets_missing",
+    "trendshift_date_assets_limit",
+    "trendshift_date_action_missing",
+    "trendshift_date_action_ambiguous",
+    "trendshift_date_timeout",
+    "trendshift_target_day_unverified",
+    "source_date_mismatch",
+    "invalid_date_response",
+    "empty_date_response",
+    "target_period_not_ended",
+    "unexpected_content_type",
+    "source_response_too_large",
+}
 MATERIAL_FIELDS = (
     "githubRepositoryId",
     "materialState",
@@ -200,6 +217,16 @@ def load_snapshot(target: Path, generation: str | None = None) -> dict:
     for source in result["sources"]:
         if is_current:
             source["status"] = _source_status(source, source["status"])
+        # Old v1 snapshots still pass their original hash/projection validation.
+        # Their intended target day is not evidence that the homepage supplied it.
+        if (
+            source["source"] == "trendshift"
+            and source.get("targetPeriodDate")
+            and source.get("acquisitionMode") != "ended_utc_day"
+            and source.get("sourceDate") != source["targetPeriodDate"]
+        ):
+            source["status"] = "stale" if source["count"] else "failed"
+            source["errorCode"] = source.get("errorCode") or "trendshift_target_day_unverified"
     healthy = {s["source"] for s in result["sources"] if s["status"] == "healthy"}
     for project in result["projects"]:
         project["dualListed"] = project["dualListed"] and len(healthy) == 2
@@ -388,7 +415,10 @@ def publish_sources(target: Path, results: list[dict], *, materials: dict | None
                 statuses[key] = "healthy"
             except (ValueError, KeyError, TypeError):
                 statuses[key] = "stale" if key in retained else "failed"
-                errors[key] = "source_unavailable_or_invalid"
+                code = source.get("errorCode")
+                errors[key] = (
+                    code if isinstance(code, str) and code in _DATE_FAILURE_CODES else "source_unavailable_or_invalid"
+                )
         atomic(
             root / "last-check.json",
             {

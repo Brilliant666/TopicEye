@@ -26,7 +26,7 @@ from app.services import (
 )
 from app.services.llm import daily_provider_budget
 from app.services.llm.provider_budget import ProviderBudgetError
-from tests_rardar_llm.test_rardar_trending_store import board
+from tests_rardar_llm.test_rardar_trending_store import board, dated_board
 
 
 @pytest.fixture
@@ -197,11 +197,7 @@ async def test_wait_release_preserves_previous_paid_attempt_then_resumes_cache(i
 @pytest.mark.asyncio
 async def test_scheduler_fetches_both_boards_despite_exhausted_models(isolated, monkeypatch):
     async def source(key, *, target_date):
-        return {
-            **board(key, ["org/a" if key == "github" else "org/b"]),
-            "targetPeriodDate": target_date,
-            "acquisitionMode": "daily_snapshot",
-        }
+        return dated_board(key, ["org/a" if key == "github" else "org/b"], target_date)
 
     fetch = AsyncMock(side_effect=source)
     monkeypatch.setattr(trending_boards, "fetch_board", fetch)
@@ -228,7 +224,7 @@ async def test_scheduler_fetches_both_boards_despite_exhausted_models(isolated, 
 @pytest.mark.asyncio
 async def test_unconfigured_budget_is_pending_not_material_failure(isolated, monkeypatch):
     async def source(key, *, target_date):
-        return {**board(key, ["org/a"]), "targetPeriodDate": target_date, "acquisitionMode": "daily_snapshot"}
+        return dated_board(key, ["org/a"], target_date)
 
     monkeypatch.setattr(trending_boards, "fetch_board", AsyncMock(side_effect=source))
     monkeypatch.setattr(

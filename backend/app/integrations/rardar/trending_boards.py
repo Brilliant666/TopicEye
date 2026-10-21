@@ -27,6 +27,7 @@ SOURCES = {
 }
 _REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+")
 _MAX_BYTES = 4_000_000
+_DATE_REQUEST_TIMEOUT_SECONDS = 120
 
 
 class BoardParseError(ValueError):
@@ -236,7 +237,13 @@ def _target_date(value: str) -> date:
 
 
 def _date_action_assets(html: str) -> list[str]:
-    """Resolve only assets declared for the public date-picker component."""
+    """Resolve bounded same-origin assets declared by the data component.
+
+    Flight properties/chunk ordering are not an API contract. Decode its JSON
+    rather than requiring initialData to be the first property, and never
+    discard earlier chunks merely because the component has many dependencies.
+    This reads data only; it does not evaluate JavaScript or follow imports.
+    """
     soup = BeautifulSoup(html, "html.parser")
     wires = []
     for script in soup.find_all("script"):
@@ -248,34 +255,76 @@ def _date_action_assets(html: str) -> list[str]:
                     wires.append(payload[1])
             except (ValueError, TypeError, IndexError):
                 continue
-    wire = "\n".join(wires)
-    refs = set(re.findall(r'\["\$","\$L([a-f0-9]+)",null,\{"initialData":', wire))
-    if len(refs) != 1:
-        return []
-    match = re.search(r"(?:^|\n)" + re.escape(refs.pop()) + r":I([^\n]+)", wire)
-    if not match:
-        return []
+    wire = "".join(wires)
+    records = {}
+    for line in wire.splitlines():
+        key, separator, value = line.partition(":")
+        if separator and re.fullmatch(r"[a-f0-9]+", key):
+            if key in records:
+                raise BoardParseError("trendshift_date_component_invalid")
+            records[key] = value
+    refs = set()
+    pending = []
+    for value in records.values():
+        if value.startswith(("[", "{")):
+            try:
+                pending.append(json.loads(value))
+            except ValueError:
+                continue
+    while pending:
+        value = pending.pop()
+        if isinstance(value, list):
+            if (
+                len(value) >= 4
+                and value[0] == "$"
+                and isinstance(value[1], str)
+                and re.fullmatch(r"\$L[a-f0-9]+", value[1])
+                and isinstance(value[3], dict)
+                and isinstance(value[3].get("initialData"), list)
+            ):
+                refs.add(value[1][2:])
+            pending.extend(value)
+        elif isinstance(value, dict):
+            pending.extend(value.values())
+    if not refs:
+        raise BoardParseError("trendshift_date_component_missing")
+    if len(refs) > 1:
+        raise BoardParseError("trendshift_date_component_ambiguous")
+    reference = records.get(refs.pop(), "")
     try:
-        assets = json.loads(match[1])[1]
-    except (ValueError, TypeError, IndexError):
-        return []
+        if not reference.startswith("I"):
+            raise ValueError("missing import")
+        assets = json.loads(reference[1:])[1]
+    except (ValueError, TypeError, IndexError, KeyError):
+        raise BoardParseError("trendshift_date_component_invalid") from None
     if not isinstance(assets, list):
-        return []
-    return [
-        "https://trendshift.io" + path
-        for path in reversed(assets[-4:])
-        if isinstance(path, str) and re.fullmatch(r"/_next/static/chunks/[A-Za-z0-9_-]+\.js", path)
-    ]
+        raise BoardParseError("trendshift_date_component_invalid")
+    paths = list(
+        dict.fromkeys(
+            path
+            for path in assets
+            if isinstance(path, str)
+            and re.fullmatch(r"/_next/static/chunks/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_.-]+\.js", path)
+            and not any(part in {".", ".."} for part in path.split("/"))
+        )
+    )
+    if not paths:
+        raise BoardParseError("trendshift_date_assets_missing")
+    if len(paths) > 16:
+        raise BoardParseError("trendshift_date_assets_limit")
+    return ["https://trendshift.io" + path for path in paths]
 
 
 def _date_action_id(javascript: str) -> str | None:
     matches = set(
         re.findall(
-            r'createServerReference\)\("([a-f0-9]{40,64})",[^;]{0,180}?"getRepositoryRecommendationsByDate"\)',
+            r"""createServerReference\)?\s*\(\s*["']([a-f0-9]{40,64})["']\s*,[^;()]{0,512}?["']getRepositoryRecommendationsByDate["']\s*\)""",
             javascript,
         )
     )
-    return matches.pop() if len(matches) == 1 else None
+    if len(matches) > 1:
+        raise BoardParseError("trendshift_date_action_ambiguous")
+    return matches.pop() if matches else None
 
 
 def parse_trendshift_date_response(wire: str, *, target_date: str, fetched_at: datetime) -> dict[str, Any]:
@@ -364,22 +413,30 @@ async def _read_response(response: httpx.Response, types: tuple[str, ...], *, li
     return b"".join(chunks).decode("utf-8", errors="strict")
 
 
-async def _fetch_ended_trendshift(client: httpx.AsyncClient, html: str, target_date: str) -> dict[str, Any] | None:
+async def _fetch_ended_trendshift(client: httpx.AsyncClient, html: str, target_date: str) -> dict[str, Any]:
+    actions = set()
     for asset in _date_action_assets(html):
         async with client.stream("GET", asset) as response:
             javascript = await _read_response(response, ("javascript",), limit=1_000_000)
         action = _date_action_id(javascript)
-        if not action:
-            continue
-        async with client.stream(
-            "POST",
-            SOURCES["trendshift"][1],
-            headers={"Accept": "text/x-component", "Content-Type": "text/plain;charset=UTF-8", "Next-Action": action},
-            content=json.dumps([target_date, "all"], separators=(",", ":")),
-        ) as response:
-            wire = await _read_response(response, ("text/x-component",))
-        return parse_trendshift_date_response(wire, target_date=target_date, fetched_at=datetime.now(UTC))
-    return None
+        if action:
+            actions.add(action)
+        if len(actions) > 1:
+            raise BoardParseError("trendshift_date_action_ambiguous")
+    if not actions:
+        raise BoardParseError("trendshift_date_action_missing")
+    async with client.stream(
+        "POST",
+        SOURCES["trendshift"][1],
+        headers={
+            "Accept": "text/x-component",
+            "Content-Type": "text/plain;charset=UTF-8",
+            "Next-Action": actions.pop(),
+        },
+        content=json.dumps([target_date, "all"], separators=(",", ":")),
+    ) as response:
+        wire = await _read_response(response, ("text/x-component",))
+    return parse_trendshift_date_response(wire, target_date=target_date, fetched_at=datetime.now(UTC))
 
 
 async def fetch_board(source: str, *, target_date: str | None = None) -> dict[str, Any]:
@@ -387,22 +444,32 @@ async def fetch_board(source: str, *, target_date: str | None = None) -> dict[st
 
     Trendshift's observed public date action is discovered from its current
     component assets, not a hard-coded deployment hash or invented API. A
-    changed component can fall back to an explicitly labelled daily snapshot.
+    changed component fails this target-day attempt; the store retains prior
+    healthy content. The homepage is never substituted for a requested day.
     """
     if target_date is not None:
         _target_date(target_date)
     label, url = SOURCES[source]
     now = datetime.now(UTC)
     try:
+        if source == "trendshift" and target_date:
+            end = datetime.combine(_target_date(target_date) + timedelta(days=1), datetime.min.time(), tzinfo=UTC)
+            if end > now:
+                raise BoardParseError("target_period_not_ended")
         kwargs = build_scraper_client_kwargs(url, timeout=30, follow_redirects=False)
         kwargs["headers"]["Accept"] = "text/html"
         async with httpx.AsyncClient(**kwargs) as client:
             async with client.stream("GET", url) as response:
                 html = await _read_response(response, ("text/html",), limit=_MAX_BYTES)
             if source == "trendshift" and target_date:
-                historical = await _fetch_ended_trendshift(client, html, target_date)
-                if historical is not None:
-                    return historical
+                # The expanded declared-chunk search must not multiply the
+                # former four-chunk wait budget. One deadline spans discovery
+                # and the date POST; timeout cancels the active request.
+                try:
+                    async with asyncio.timeout(_DATE_REQUEST_TIMEOUT_SECONDS):
+                        return await _fetch_ended_trendshift(client, html, target_date)
+                except TimeoutError:
+                    raise BoardParseError("trendshift_date_timeout") from None
         return parse_board(source, html, fetched_at=datetime.now(UTC), target_date=target_date)
     except Exception as exc:
         # Never persist transport exception text, proxy URLs or credentials.
@@ -414,7 +481,7 @@ async def fetch_board(source: str, *, target_date: str | None = None) -> dict[st
             "status": "failed",
             "sourceDate": None,
             "targetPeriodDate": target_date,
-            "acquisitionMode": "daily_snapshot",
+            "acquisitionMode": "ended_utc_day" if source == "trendshift" and target_date else "daily_snapshot",
             "historicalDateFetchSupported": False,
             "period": "daily",
             "captureDate": now.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat(),

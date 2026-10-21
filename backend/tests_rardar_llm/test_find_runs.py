@@ -151,6 +151,41 @@ async def paid_attempt(*, complete=True):
 
 
 @pytest.mark.asyncio
+async def test_three_request_ceiling_survives_retry_and_stops_cross_stage_work(sessions):
+    dispatched = []
+
+    async def runner(payload, *, config, operation_id, progress):
+        await progress("comparison", result(state="unavailable", error="pending"))
+        for stage in ("plan", "compare", "format_retry", "forbidden_retry"):
+            await paid_attempt()
+            dispatched.append(stage)
+        return result()
+
+    svc = service(sessions, runner)
+    created = await svc.create(1, request(), "three-request-limit-01", request_limit=3)
+    assert created["requestLimit"] == 3
+    same = await svc.create(1, request(), "three-request-limit-01", request_limit=999)
+    assert same == created
+    stopped = await svc.execute(1, created["runId"])
+    assert stopped["requestsUsed"] == 3
+    assert stopped["status"] == "budget_stopped"
+    assert stopped["errorCode"] == "find_run_request_limit"
+    assert stopped["result"] is not None
+    assert dispatched == ["plan", "compare", "format_retry"]
+    assert await svc.execute(1, created["runId"]) == stopped
+    assert len(dispatched) == 3
+
+
+@pytest.mark.asyncio
+async def test_existing_larger_ceiling_cannot_masquerade_as_requested_lower_limit(sessions):
+    svc = service(sessions, AsyncMock(return_value=result()))
+    created = await svc.create(1, request(), "immutable-limit-key-01", request_limit=5)
+    with pytest.raises(FindRunError, match="find_run_limit_conflict"):
+        await svc.create(1, request(), "immutable-limit-key-01", request_limit=3)
+    assert (await svc.get(1, created["runId"]))["requestLimit"] == 5
+
+
+@pytest.mark.asyncio
 async def test_durable_result_new_service_readback_and_summary_privacy(sessions):
     calls = []
 

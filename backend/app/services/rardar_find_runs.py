@@ -67,7 +67,7 @@ class FindRunService:
         self.runner = runner
 
     async def create(self, user_id: int, payload: FindProjectRequest, key: str, request_limit=None):
-        # The optional lower limit is a trusted operator/test input, never an API field.
+        # A caller may request a lower ceiling; configured and daily limits still win.
         if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", key):
             raise FindRunError("find_idempotency_key_invalid", 422)
         body = payload.model_dump(mode="json")
@@ -78,6 +78,8 @@ class FindRunService:
             if existing:
                 if existing.request_fingerprint != fingerprint:
                     raise FindRunError("find_idempotency_conflict")
+                if request_limit is not None and existing.request_limit > request_limit:
+                    raise FindRunError("find_run_limit_conflict")
                 return _view(existing)
             cap = self.config.RARDAR_FIND_RUN_REQUEST_LIMIT
             if request_limit is not None:
@@ -113,6 +115,8 @@ class FindRunService:
                     raise FindRunError("find_run_save_failed", 503) from None
                 if existing.request_fingerprint != fingerprint:
                     raise FindRunError("find_idempotency_conflict") from None
+                if request_limit is not None and existing.request_limit > request_limit:
+                    raise FindRunError("find_run_limit_conflict") from None
                 return _view(existing)
             except SQLAlchemyError:
                 with suppress(SQLAlchemyError):

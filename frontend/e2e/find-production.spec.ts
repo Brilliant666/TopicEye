@@ -144,6 +144,36 @@ test('anonymous Find requires app login and cannot submit', async ({ page }) => 
   expect(posts).toBe(0);
 });
 
+test('saved recent results wrap without overlapping explanation or adjacent records', async ({ page, context }) => {
+  await context.addCookies([{ name: 'topiceye_auth', value: 'synthetic-admin', url: 'http://127.0.0.1:3410', httpOnly: true }]);
+  const result = fixture(1);
+  const requirement = '合成长文本：需要可自托管的技术文档与全文搜索，不依赖第三方服务。'.repeat(5) + 'long-unbroken-name'.repeat(8);
+  const saved: FindRun = { runId: 'synthetic-saved', status: 'completed', stage: 'finished', request: { requirement, repositoryUrl: null }, result, errorCode: null, createdAt: '2026-09-14T00:00:00Z', updatedAt: '2026-09-14T00:00:00Z', finishedAt: '2026-09-14T00:00:01Z', requestLimit: 3, requestsUsed: 2, schemaVersion: 'rardar-find-run-v1' };
+  let posts = 0;
+  await context.route('**/api/v1/rardar/find-runs**', async (route) => {
+    if (route.request().method() !== 'GET') posts += 1;
+    await route.fulfill({ json: new URL(route.request().url()).pathname.endsWith('/find-runs')
+      ? { runs: [0, 1].map((index) => ({ ...saved, runId: `synthetic-${index}`, request: undefined, result: undefined, requirementSummary: requirement })) }
+      : saved });
+  });
+  await page.goto('/find?runId=synthetic-saved');
+  const recent = page.getByRole('region', { name: '最近需求结果' });
+  await expect(recent.getByRole('button')).toHaveCount(2);
+  const boxes = await recent.evaluate((element) => {
+    const rect = (node: Element) => { const r = node.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; };
+    return { panel: rect(element), description: rect(element.querySelector('p')!), buttons: [...element.querySelectorAll('button')].map(rect) };
+  });
+  expect(boxes.buttons[0].top).toBeGreaterThanOrEqual(boxes.description.bottom + 8);
+  expect(boxes.buttons[1].top).toBeGreaterThanOrEqual(boxes.buttons[0].bottom + 8);
+  for (const box of boxes.buttons) {
+    expect(box.left).toBeGreaterThanOrEqual(boxes.panel.left);
+    expect(box.right).toBeLessThanOrEqual(boxes.panel.right);
+  }
+  await recent.getByRole('button').first().click();
+  await expect(page.getByRole('region', { name: '保存与运行状态' })).toContainText('完整结果已保存');
+  expect(posts).toBe(0);
+});
+
 for (const [status, label] of [['budget_stopped', '达到请求上限'], ['interrupted', '执行已中断'], ['uncertain', '请求结果尚未确认']] as const) {
   test(`saved ${status} remains readable without resubmission`, async ({ page, context }) => {
     await context.addCookies([{ name: 'topiceye_auth', value: 'synthetic-admin', url: 'http://127.0.0.1:3410', httpOnly: true }]);

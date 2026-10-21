@@ -205,7 +205,7 @@ def test_calendar_assets_resolve_observed_flight_string_references():
     assert boards._date_action_assets(html) == ["https://trendshift.io" + path for path in paths]
 
 
-@pytest.mark.parametrize("declaration", ["", '\n64:"$65"', '\n64:{}'])
+@pytest.mark.parametrize("declaration", ["", '\n64:"$65"', "\n64:{}"])
 def test_calendar_asset_reference_must_resolve_to_a_path_string(declaration):
     with pytest.raises(boards.BoardParseError, match="trendshift_date_asset_reference_invalid"):
         boards._date_action_assets(_calendar_html(["$64"], extra=declaration))

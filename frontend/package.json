@@ -22,7 +22,13 @@
     "react-dom": "19.2.4",
     "zustand": "^5.0.14"
   },
+  "overrides": {
+    "@next/eslint-plugin-next": {
+      "fast-glob": "$fast-glob"
+    }
+  },
   "devDependencies": {
+    "fast-glob": "file:tools/next-directory-glob",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",

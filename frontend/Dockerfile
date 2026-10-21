@@ -3,6 +3,7 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+COPY tools/next-directory-glob ./tools/next-directory-glob
 RUN npm ci
 
 COPY . .

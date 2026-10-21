@@ -309,3 +309,35 @@ async def test_one_pass_shares_six_request_slice_and_next_pass_keeps_daily_consu
     assert second["processed"] == 1
     assert second["providerRequests"] == 3
     assert ledger.requests == 9  # new pass, same daily consumption
+
+
+@pytest.mark.asyncio
+async def test_existing_content_cooldown_is_not_a_new_failure_or_paid_retry(work, monkeypatch):
+    from datetime import timedelta
+
+    work.projects[:] = work.projects[:1]
+    retry_at = datetime.now(UTC) + timedelta(hours=6)
+    collector = AsyncMock(
+        return_value=SimpleNamespace(
+            profile_retry_suppressed=True,
+            profile_next_retry_at=retry_at,
+            profile_failure_code="profile_generation_failed",
+        )
+    )
+    monkeypatch.setattr(service, "_collect_project_material", collector)
+    project_material = AsyncMock(side_effect=AssertionError("cooldown is not a readable result"))
+    monkeypatch.setattr(service, "project_material", project_material)
+    progress = {"attempts": {"current/one": 1}}
+    for _ in range(2):
+        result = await service.historical_work(work.target, progress, lambda: None)
+        assert result["waitReason"] == "material_content_retry_deferred"
+        assert result["contentRetryDeferred"] == 1
+        assert result["providerRequests"] == result["failed"] == result["processed"] == 0
+        assert result["failedAttempts"] == 0
+        assert result["unclassifiedAttempts"] == 1
+        assert result["qualification"]["today"]["admissionEligible"] == 1
+    record = progress["materialWork"]["projects"]["current/one"]
+    assert record["status"] == "deferred"
+    assert record["nextRetryAt"] == retry_at.isoformat()
+    assert record["failures"] == 0
+    project_material.assert_not_called()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -888,7 +889,13 @@ def _material_work_records(progress: dict, today_repositories: set[str]) -> dict
 
 
 async def historical_work(
-    target: Path, progress: dict, save, *, only_project_id: str | None = None, budget_context=None
+    target: Path,
+    progress: dict,
+    save,
+    *,
+    only_project_id: str | None = None,
+    budget_context=None,
+    qualification_only: bool = False,
 ) -> dict:
     """Use the existing Profile collector and daily request lock, never Selection.
 
@@ -943,7 +950,7 @@ async def historical_work(
         return datetime.now(UTC) - checked > timedelta(days=30)
 
     pending = [p for p in projects if due(p) and (only_project_id is None or p["projectId"] == only_project_id)]
-    records = _material_work_records(progress, today_repositories)
+    records = _material_work_records(deepcopy(progress) if qualification_only else progress, today_repositories)
     historical_before = sum(r["scope"] == "historical" for r in records.values())
 
     def retry_debit(repository):
@@ -959,6 +966,18 @@ async def historical_work(
 
     def metrics(completed=()):
         outstanding = [p for p in pending if p["repository"] not in completed]
+        qualification = {}
+        for scope, current in (("today", True), ("historical", False)):
+            items = [p for p in outstanding if (p["repository"] in today_repositories) == current]
+            retryable = [p for p in items if retry_debit(p["repository"]) < MATERIAL_FAILURE_LIMIT]
+            qualification[scope] = {
+                "pending": len(items),
+                # Admission is not proof that the content-bound collector's
+                # cooldown or the live shared Provider budget permits a call.
+                "admissionEligible": sum(admitted(p["repository"]) for p in retryable),
+                "dailyRetryBlocked": len(items) - len(retryable),
+                "admissionBlocked": sum(not admitted(p["repository"]) for p in retryable),
+            }
         result.update(
             remaining=len(outstanding),
             todayPending=sum(p["repository"] in today_repositories for p in outstanding),
@@ -967,6 +986,7 @@ async def historical_work(
             historicalNewAdmitted=sum(r["scope"] == "historical" for r in records.values()) - historical_before,
             failedAttempts=sum(r.get("failures", 0) for r in records.values()),
             unclassifiedAttempts=sum(r.get("legacyAttempts", 0) + r.get("interruptions", 0) for r in records.values()),
+            qualification=qualification,
         )
         return outstanding
 
@@ -974,6 +994,8 @@ async def historical_work(
     result["remaining"] = len(pending)
     if not pending:
         return result
+    if qualification_only:
+        return {**result, "status": "pending", "waitReason": "qualification_only"}
     try:
         budget = budget_context or await daily_execution_budget("rardar_project_profile")
     except ProviderBudgetError as exc:
@@ -992,7 +1014,12 @@ async def historical_work(
     # One candidate appears once even if it belongs to both pages. Continue
     # admitted partial stages before fresh work within each rotating scope.
     pending.sort(
-        key=lambda p: (p.get("profile") is not None, p["repository"] not in records, rotation.get(p["repository"], ""))
+        key=lambda p: (
+            records.get(p["repository"], {}).get("status") == "deferred",
+            p.get("profile") is not None,
+            p["repository"] not in records,
+            rotation.get(p["repository"], ""),
+        )
     )
     # Reading gaps are ordered by the actual published scope. The existing
     # slice, interactive reservation and retry debit remain authoritative.
@@ -1000,6 +1027,7 @@ async def historical_work(
         key=lambda p: (0 if p["repository"] in today_repositories else 1 if p["projectId"] in review_ids else 2)
     )
     completed = set()
+    deferred = set()
     with work_slice(max_requests=MATERIAL_PROVIDER_SLICE_LIMIT, background=True) as work:
         async with github_material_client(settings.GITHUB_TOKEN) as client:
             for project in pending:
@@ -1032,6 +1060,16 @@ async def historical_work(
                     collected = await _collect_project_material(
                         target, project, snapshot["generationId"], client, route
                     )
+                    if getattr(collected, "profile_retry_suppressed", False):
+                        # This is an existing content-bound cooldown, not a new
+                        # failed generation. Preserve all prior daily debits.
+                        record["status"] = "deferred"
+                        record["errorCode"] = "material_content_retry_deferred"
+                        retry_at = getattr(collected, "profile_next_retry_at", None)
+                        record["nextRetryAt"] = retry_at.isoformat() if retry_at else None
+                        result["contentRetryDeferred"] = result.get("contentRetryDeferred", 0) + 1
+                        deferred.add(repository)
+                        continue
                     material = project_material(collected.profile, collected.evidence)
                     from app.integrations.rardar.project_introductions import readable_chinese_introduction
 
@@ -1099,7 +1137,8 @@ async def historical_work(
                     rotation.setdefault("_attempts", {})[repository] = {
                         "status": record["status"],
                         "stage": record.get("stage"),
-                        "errorCode": record.get("errorCode") if record["status"] == "failed" else None,
+                        "errorCode": record.get("errorCode") if record["status"] in {"failed", "deferred"} else None,
+                        "nextRetryAt": record.get("nextRetryAt") if record["status"] == "deferred" else None,
                         "diagnostic": record.get("diagnostic") if record["status"] == "failed" else None,
                         "checkedAt": datetime.now(UTC).isoformat(),
                     }
@@ -1119,6 +1158,8 @@ async def historical_work(
             reason = "material_retry_limit_reached"
         elif not any(admitted(p["repository"]) for p in retryable):
             reason = "historical_daily_limit_reached"
+        elif deferred and all(p["repository"] in deferred for p in retryable if admitted(p["repository"])):
+            reason = "material_content_retry_deferred"
         result.update(status="partial", waitReason=reason)
     return result
 
@@ -1172,17 +1213,28 @@ async def run_daily_refocus() -> dict:
                 save()
                 return result
 
+            async def material_qualification():
+                return await historical_work(
+                    Path(settings.RARDAR_INTELLIGENCE_DATA_DIR),
+                    state["progress"].get("historical", {}),
+                    lambda: None,
+                    qualification_only=True,
+                )
+
             try:
                 result = await run_refresh(
                     Path(settings.RARDAR_INTELLIGENCE_DATA_DIR),
                     trigger="automatic",
                     material_work=material_work,
+                    material_qualification=material_qualification,
                     review_work=review_work,
                 )
                 if "auditRound" in result:
                     state["auditRound"] = result["auditRound"]
                 if result["status"] == "skipped":
                     state.update(status="skipped", reason=result["reason"], completedAt=datetime.now(UTC).isoformat())
+                    if result.get("materialQualification") is not None:
+                        state["materialQualification"] = result["materialQualification"]
                     save()
                     return {k: v for k, v in state.items() if k != "progress"}
                 modules["today"] = {k: v for k, v in result.items() if k not in {"materials", "auditRound"}}

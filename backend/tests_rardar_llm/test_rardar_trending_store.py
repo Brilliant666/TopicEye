@@ -27,6 +27,24 @@ def board(source, repositories, *, when=None, day=None):
     }
 
 
+def dated_board(source, repositories, target_date):
+    """Synthetic source reply matching the ended-day acquisition contract."""
+    from app.integrations.rardar.trending_periods import source_period
+
+    value = board(source, repositories)
+    value.update(targetPeriodDate=target_date, acquisitionMode="daily_snapshot")
+    if source == "trendshift":
+        period = source_period(target_date)
+        value.update(
+            sourceDate=target_date,
+            acquisitionMode="ended_utc_day",
+            periodStartAt=period["startAt"],
+            periodEndAt=period["endAt"],
+            fetchedAt=period["endAt"],
+        )
+    return value
+
+
 def test_union_preserves_complete_boards_without_profiles_or_observation(tmp_path):
     github = [f"org/repo-{index}" for index in range(31)]
     trendshift = ["org/repo-0", "outside/new-project"]

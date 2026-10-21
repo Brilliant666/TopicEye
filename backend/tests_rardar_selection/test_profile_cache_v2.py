@@ -679,6 +679,7 @@ async def test_transient_source_failure_is_bounded_and_force_retry_recovers(tmp_
     assert failed.profile_failure_code == "profile_source_http_5xx"
     assert failed.profile_failure_retryable is True
     assert failed.profile_next_retry_at is not None
+    assert failed.profile_retry_suppressed is False  # a new failure retains its retry debit
     assert failed_calls
 
     def unexpected(_request: httpx.Request) -> httpx.Response:
@@ -699,6 +700,7 @@ async def test_transient_source_failure_is_bounded_and_force_retry_recovers(tmp_
         )
     assert suppressed.profile_failure_code == failed.profile_failure_code
     assert suppressed.profile_next_retry_at == failed.profile_next_retry_at
+    assert suppressed.profile_retry_suppressed is True
 
     recovery_calls: list[str] = []
     async with httpx.AsyncClient(
@@ -717,6 +719,7 @@ async def test_transient_source_failure_is_bounded_and_force_retry_recovers(tmp_
         )
     assert recovered.profile_failure_code is None
     assert recovered.profile_cache_state == "rebuilt"
+    assert recovered.profile_retry_suppressed is False
     assert recovery_calls
     assert latest_attempt(tmp_path, project.githubRepositoryId, failed.profile_cache_identity).errorCode == (
         "profile_source_http_5xx"

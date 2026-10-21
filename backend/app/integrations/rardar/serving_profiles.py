@@ -281,6 +281,7 @@ class CollectedProjectProfile:
     profile_failure_code: ProfileFailureCode | None = None
     profile_failure_retryable: bool = False
     profile_next_retry_at: datetime | None = None
+    profile_retry_suppressed: bool = False
     evidence_refs_examined: int = 0
     evidence_refs_remapped: int = 0
     migrated_from_v1: bool = False
@@ -5071,6 +5072,7 @@ async def collect_official_project_profile(
         profile_failure_code=failure_code,
         profile_failure_retryable=attempt.retryable,
         profile_next_retry_at=attempt.nextRetryAt,
+        profile_retry_suppressed=retry_suppressed,
         evidence_refs_examined=len(evidence.evidenceIndex),
     )
 

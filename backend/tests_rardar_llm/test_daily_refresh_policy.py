@@ -65,7 +65,17 @@ def at(hour=9, *, day=12):
 def io(tmp_path, monkeypatch):
     async def fetch(source, *, target_date):
         value = board(source, [f"{source}/project"], when=at().isoformat(), day=None)
-        return {**value, "targetPeriodDate": target_date, "acquisitionMode": "daily_snapshot"}
+        value.update(targetPeriodDate=target_date, acquisitionMode="daily_snapshot")
+        if source == "trendshift":
+            period = periods.source_period(target_date)
+            value.update(
+                sourceDate=target_date,
+                acquisitionMode="ended_utc_day",
+                periodStartAt=period["startAt"],
+                periodEndAt=period["endAt"],
+            )
+            value["fetchedAt"] = period["endAt"]
+        return value
 
     fetcher = AsyncMock(side_effect=fetch)
     monkeypatch.setattr(trending_boards, "fetch_board", fetcher)
@@ -257,7 +267,7 @@ async def test_compensation_checks_budget_before_resuming_materials(io, monkeypa
     budget = AsyncMock(return_value=False)
     monkeypatch.setattr(refresh, "material_budget_available", budget)
     result = await refresh.run_refresh(target, now=at(11), trigger="automatic", material_work=material)
-    assert result["reason"] == "nothing_to_compensate"
+    assert result["reason"] == "material_budget_unavailable_or_interactive_reserved"
     budget.assert_awaited_once()
     material.assert_awaited_once()
     assert fetch.await_count == 2
@@ -501,3 +511,80 @@ async def test_manual_source_recovery_invalidates_completed_materials_durably(io
     assert resumed["automaticRound"] == "compensation"
     assert resumed["sourceRequests"] == 0
     assert material.await_count == 2 and fetch.await_count == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("today_failures", "budget_available"), [(0, True), (2, True), (0, False)])
+async def test_compensation_rechecks_today_scope_after_historical_admission_stop(
+    io, monkeypatch, today_failures, budget_available
+):
+    """Synthetic saved progress, actual qualification/work/publication entry; no external IO."""
+    from types import SimpleNamespace
+
+    from app.services import rardar_llm_control
+    from app.services.llm import daily_provider_budget
+
+    target, fetch = io
+    projects = [
+        {"repository": "github/project", "projectId": "today", "profile": None, "totalStars": 10},
+        {"repository": "history/unadmitted", "projectId": "history", "profile": None, "totalStars": 20},
+    ]
+    monkeypatch.setattr(
+        service, "_history_with_materials", lambda *_: {"projects": projects, "generationId": "fixture"}
+    )
+    monkeypatch.setattr(service, "today_candidates", lambda *_: {"projects": projects[:1]})
+    progress_path = target / "progress.json"
+    store.atomic(
+        progress_path, {"attempts": {"history/a": 2, "history/b": 2, "history/c": 2, "github/project": today_failures}}
+    )
+    monkeypatch.setattr(settings, "RARDAR_HISTORICAL_DAILY_LIMIT", 3)
+    budget = AsyncMock(return_value=(SimpleNamespace(snapshot=lambda: {"remaining": 50}), {}))
+    route = AsyncMock(return_value="fixture-route")
+    monkeypatch.setattr(daily_provider_budget, "daily_execution_budget", budget)
+    monkeypatch.setattr(rardar_llm_control, "resolve_rardar_route_identity", route)
+    collector = AsyncMock(return_value=SimpleNamespace(profile=object(), evidence=object(), profile_cache_state="hit"))
+    monkeypatch.setattr(service, "_collect_project_material", collector)
+    monkeypatch.setattr(
+        service, "project_material", lambda *_: {"profile": {"summary": "用于管理任务并查看日志的工具。"}}
+    )
+    old = AsyncMock(
+        return_value={"status": "partial", "waitReason": "historical_daily_limit_reached", "todayPending": 1}
+    )
+    await refresh.run_refresh(target, now=at(), trigger="automatic", material_work=old)
+    before = progress_path.read_bytes()
+    monkeypatch.setattr(refresh, "material_budget_available", AsyncMock(return_value=budget_available))
+
+    async def qualify():
+        result = await service.historical_work(
+            target, store.read_json(progress_path), lambda: pytest.fail("qualification writes"), qualification_only=True
+        )
+        assert progress_path.read_bytes() == before
+        budget.assert_not_awaited()
+        route.assert_not_awaited()
+        collector.assert_not_awaited()
+        return result
+
+    async def work():
+        progress = store.read_json(progress_path)
+        return await service.historical_work(target, progress, lambda: store.atomic(progress_path, progress))
+
+    result = await refresh.run_refresh(
+        target, now=at(11), trigger="automatic", material_work=work, material_qualification=qualify
+    )
+    assert fetch.await_count == 2  # persisted source receipts, no repeated collection
+    if today_failures == 2 or not budget_available:
+        assert result["reason"] == (
+            "nothing_to_compensate" if today_failures == 2 else "material_budget_unavailable_or_interactive_reserved"
+        )
+        collector.assert_not_awaited()
+        assert result["materialQualification"]["today"]["dailyRetryBlocked"] == int(today_failures == 2)
+        assert result["materialQualification"]["historical"]["admissionBlocked"] == 1
+    else:
+        assert result["automaticRound"] == "compensation"
+        assert collector.await_count == 1
+        assert result["materials"]["refreshed"] == 1
+        assert result["providerCalls"] == 0
+        assert (await refresh.run_refresh(target, now=at(12), trigger="automatic", material_work=work))[
+            "reason"
+        ] == "daily_round_limit"
+    assert store.read_json(progress_path)["attempts"]["history/a"] == 2

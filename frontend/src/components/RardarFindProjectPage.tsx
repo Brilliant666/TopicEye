@@ -192,7 +192,18 @@ function FindProjectSession({
 
       {currentUser && viewOwner === userId && run && <section className={styles.aiPanel} aria-label="保存与运行状态"><h2>{findRunLabel(run.status)}</h2><p>模型请求 {run.requestsUsed} / {run.requestLimit} · {run.stage}</p><Link href={`/find?runId=${encodeURIComponent(run.runId)}`} prefetch={false}>此结果的固定地址</Link>{run.errorCode && <p>停止原因：{run.errorCode}</p>}{run.status === 'created' && <button disabled={loading} type="button" onClick={() => void continueCreated(run.runId)}>继续执行此已创建运行</button>}</section>}
       {(run || pendingKey) && <button type="button" className={styles.sourceLine} onClick={() => void recover()}>回查同一次运行（不重新执行）</button>}
-      {currentUser && recentOwner === userId && recent.length > 0 && <section className={styles.aiPanel} aria-label="最近需求结果"><h2>最近需求结果</h2><p>保存在服务器，仅当前授权账号可读。查看不会重新检索或调用模型。旧标签页中的结果不会自动导入。</p>{recent.map((item) => <button type="button" className={styles.sourceLine} key={item.runId} onClick={() => void openSaved(item.runId)}>{item.requirementSummary} · {findRunLabel(item.status)}</button>)}</section>}
+      {currentUser && recentOwner === userId && recent.length > 0 && <section className={styles.aiPanel} aria-label="最近需求结果">
+        <h2>最近需求结果</h2>
+        <p>保存在服务器，仅当前授权账号可读。查看不会重新检索或调用模型。旧标签页中的结果不会自动导入。</p>
+        <ul className={styles.findRecentList}>
+          {recent.map((item) => <li key={item.runId}>
+            <button type="button" className={styles.findRecentItem} onClick={() => void openSaved(item.runId)}>
+              <span>{item.requirementSummary}</span>
+              <span className={styles.findRecentStatus}>{findRunLabel(item.status)}</span>
+            </button>
+          </li>)}
+        </ul>
+      </section>}
       {currentUser && viewOwner === userId && result && <FindResults result={result} />}
       {(run || pendingKey) && <button type="button" className={styles.sourceLine} disabled={loading || run?.status === 'running'} onClick={() => { if (!window.confirm('开始新的查找可能产生新的模型请求。仅清理本页状态，不删除服务器记录；未确认的原运行仍可从最近记录回查。')) return; setRun(null); setResult(null); setPendingKey(null); setError(null); window.history.replaceState(null, '', '/find'); try { sessionStorage.removeItem(`${pendingPrefix}${userId}`); } catch { /* optional storage */ } }}>清理本页并开始新的查找（保留服务器记录）</button>}
     </div>

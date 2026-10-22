@@ -4780,6 +4780,21 @@ async def collect_official_project_profile(
     ]
     claim_refs = {claim: claim_refs[claim] for claim in dict.fromkeys(visible_claims) if claim in claim_refs}
 
+    # Extraction can initially recognize a mature official narrative, while
+    # the final evidence/semantic selector rejects every positioning candidate.
+    # Keep the valid author claims, but do not describe that partial assembly
+    # as a complete official narrative. Its missing positioning still fails
+    # _profile_is_publishable; all other structural/evidence checks stay strict.
+    if (
+        narrative_mode in {"official_zh", "official_translated"}
+        and selected_positioning is None
+        and official_positioning is None
+        and not official_positioning_refs
+    ):
+        narrative_mode = "rardar_derived"
+        source_label = "Rardar 整理"
+        quality_state = "partial"
+
     profile_state: Literal["complete", "partial", "source_unavailable"]
     if narrative_mode == "insufficient":
         profile_state = "source_unavailable"

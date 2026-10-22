@@ -27,6 +27,7 @@ from app.integrations.rardar.trending_store import (
 from app.services.llm.provider_budget import ProviderBudgetError, atomic, digest, file_lock, plain
 from app.services.rardar_github_client import github_material_client
 from app.services.rardar_material_diagnostics import material_failure_diagnostic
+from app.services.rardar_material_failure_samples import SampleStoreUnavailable
 
 
 def project_material(profile, evidence, *, source_kind: str = "profile_cache", metadata=None) -> dict:
@@ -1078,19 +1079,8 @@ async def historical_work(
 
                     if not readable_chinese_introduction(material.get("profile", {}).get("summary")):
                         raise ValueError("historical_intro_not_readable")
-                    if collected.profile_cache_state in {"hit", "rebound", "migrated"}:
-                        result["refreshed"] += 1
-                        if project["profile"] is None:
-                            result["reused"] += 1
-                    elif collected.profile_cache_state == "rebuilt":
-                        result["processed"] += 1
-                    else:
+                    if collected.profile_cache_state not in {"hit", "rebound", "migrated", "rebuilt"}:
                         raise ValueError("historical_profile_not_readable")
-                    record["status"] = "completed"
-                    completed.add(repository)
-                    if only_project_id:
-                        result["profileCacheState"] = collected.profile_cache_state
-                        result["materialState"] = material.get("materialState")
                     checks[repository] = {
                         "checkedAt": datetime.now(UTC).isoformat(),
                         # A compatible rebound is not persisted over its immutable
@@ -1100,7 +1090,20 @@ async def historical_work(
                             | ({_digest(project["profile"])} if project["profile"] is not None else set())
                         ),
                     }
-                    atomic(rotation_path, rotation)
+                    # All validation/serialization precedes success accounting.
+                    # Persist outside the item catch (finally), so failed writes
+                    # cannot be disguised as a recoverable content failure.
+                    if collected.profile_cache_state in {"hit", "rebound", "migrated"}:
+                        result["refreshed"] += 1
+                        if project["profile"] is None:
+                            result["reused"] += 1
+                    else:
+                        result["processed"] += 1
+                    record["status"] = "completed"
+                    completed.add(repository)
+                    if only_project_id:
+                        result["profileCacheState"] = collected.profile_cache_state
+                        result["materialState"] = material.get("materialState")
                 except ProviderWorkYield as exc:
                     record["status"] = "yielded"
                     if work.used_requests == used_before and new_admission:
@@ -1114,13 +1117,25 @@ async def historical_work(
                         atomic(rotation_path, rotation)
                     result.update(status="pending", waitReason=exc.code)
                     break
-                except (ValueError, OSError, httpx.HTTPError, ProviderBudgetError) as exc:
+                except Exception as exc:
+                    if isinstance(exc, MemoryError | SampleStoreUnavailable) or (
+                        isinstance(exc, OSError) and not isinstance(exc, TimeoutError)
+                    ):
+                        # Storage/resource failures cannot safely fund another item.
+                        # TimeoutError also inherits OSError, but is an item failure.
+                        record["status"] = "interrupted"
+                        record["interruptions"] = record.get("interruptions", 0) + 1
+                        raise  # finally retains all consumption; no refund/retry.
+                    # The collector also raises RuntimeError subclasses and
+                    # malformed-item TypeError/KeyError. Fail this project, not
+                    # the remaining slice. Cancellation remains BaseException;
+                    # durable-state writes below still fail the whole operation.
                     record["status"] = "failed"
                     record["failures"] += 1
                     # A safe classification, not the possibly sensitive exception.
                     record["errorCode"] = (
                         getattr(collected, "profile_failure_code", None)
-                        or getattr(exc, "code", None)
+                        or (exc.code if isinstance(exc, ProviderBudgetError) else None)
                         or type(exc).__name__
                     )
                     record["stage"] = (
@@ -1203,8 +1218,12 @@ async def run_daily_refocus() -> dict:
                         state["progress"].setdefault("historical", {}),
                         save,
                     )
-                except Exception:
-                    modules["historical_hot"] = {"status": "failed", "errorCode": "historical_material_failed"}
+                except Exception as exc:
+                    modules["historical_hot"] = {
+                        "status": "failed",
+                        "errorCode": "historical_material_failed",
+                        "diagnostic": material_failure_diagnostic(exc, project={}, stage="orchestration"),
+                    }
                 save()
                 return modules["historical_hot"]
 

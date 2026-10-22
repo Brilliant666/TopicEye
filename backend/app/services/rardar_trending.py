@@ -27,6 +27,7 @@ from app.integrations.rardar.trending_store import (
 from app.services.llm.provider_budget import ProviderBudgetError, atomic, digest, file_lock, plain
 from app.services.rardar_github_client import github_material_client
 from app.services.rardar_material_diagnostics import material_failure_diagnostic
+from app.services.rardar_material_failure_samples import SampleStoreUnavailable
 
 
 def project_material(profile, evidence, *, source_kind: str = "profile_cache", metadata=None) -> dict:
@@ -1116,9 +1117,15 @@ async def historical_work(
                         atomic(rotation_path, rotation)
                     result.update(status="pending", waitReason=exc.code)
                     break
-                except MemoryError:
-                    raise  # Resource exhaustion is not a retryable item failure.
                 except Exception as exc:
+                    if isinstance(exc, MemoryError | SampleStoreUnavailable) or (
+                        isinstance(exc, OSError) and not isinstance(exc, TimeoutError)
+                    ):
+                        # Storage/resource failures cannot safely fund another item.
+                        # TimeoutError also inherits OSError, but is an item failure.
+                        record["status"] = "interrupted"
+                        record["interruptions"] = record.get("interruptions", 0) + 1
+                        raise  # finally retains all consumption; no refund/retry.
                     # The collector also raises RuntimeError subclasses and
                     # malformed-item TypeError/KeyError. Fail this project, not
                     # the remaining slice. Cancellation remains BaseException;

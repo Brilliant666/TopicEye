@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import get_args
 
 import httpx
@@ -42,6 +43,26 @@ _MODELS = frozenset(
 )
 _CUSTOM_RULES = {code: message for message, code in PROFILE_VALIDATION_RULES.items()}
 _SAMPLE_LIMIT = 4
+
+
+def _application_frames(error: Exception) -> list[dict]:
+    """Code locations only: no absolute paths, source text, locals or messages."""
+    root = Path(__file__).resolve().parents[1]
+    frames = []
+    trace = error.__traceback__
+    while trace is not None:
+        code = trace.tb_frame.f_code
+        try:
+            relative = Path(code.co_filename).resolve().relative_to(root)
+        except (ValueError, OSError):
+            pass
+        else:
+            if relative.suffix == ".py":
+                frames.append({"file": relative.as_posix(), "function": code.co_name, "line": trace.tb_lineno})
+        trace = trace.tb_next
+    return frames[-8:]
+
+
 _GENERATION_MODELS = {
     model.__name__: model
     for model in (ProfileTranslation, OfficialNarrativeTranslation, OfficialPositioningTranslation)
@@ -158,8 +179,9 @@ def _material_failure_diagnostic(error: Exception, *, project: dict, stage: str,
     """Describe only facts available at this catch, not a reconstructed upstream response."""
     result = {
         "schemaVersion": 2,
-        "stage": stage if stage in {"source", "profile"} else "unknown",
+        "stage": stage if stage in {"source", "profile", "orchestration"} else "unknown",
         "errorClass": type(error).__name__[:64],
+        "applicationFrames": _application_frames(error),
         "projectId": project.get("projectId"),
         "httpStatus": None,
         "host": None,

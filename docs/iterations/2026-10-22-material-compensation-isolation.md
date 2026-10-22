@@ -22,3 +22,5 @@
 代码与缓存离线回放、CI、正式部署及下一自然补偿分别报告。部署不等于已补齐缺失资料；不为验收触发新模型或人工日更。
 
 限定缓存离线回放核对 14 文件 SHA，仅使用临时副本并禁止 socket/HTTP/translator 出站：`dsh-context` 重现原完整性规则，证据摘要 `9bfa97490e6c5c27f55a1aae12bad173381579a5dcdf49476525a68bcb73ddee` 与 11 点诊断一致。该项继续拒绝，不填造资料。`ever-gauzy` 新 README 与两份现存树的纯解析均通过，但缓存专用采集在 assessment 缺失处停止，旧 assessment 不能与新 README 强绑。原 defaultBranch/pushedAt 和树日期关联未完整保留，因此不能宣称已精确重放其历史异常。新增网络和模型请求均为 0，原缓存未修改。
+
+进一步回放定位到 `dsh-context` 的确定性构造问题：初始官方叙事成熟，最终定位被语义筛选清空后，叙事仍标为完整 `official_zh`。修正仅在官方模式、未选中定位、定位及引用均空且质量为 partial 时，采用现有 `rardar_derived/partial` 表达裁剪后的整理资料。原定位不恢复、不填造；官方能力来源与原文保留。严格 Schema 未改，`_profile_is_publishable` 仍拒绝缺定位画像；正常入口返回 unavailable，继续保存真实简介但不记为完整画像完成。collector 新回归先复现旧完整性错误，修正后验证部分状态、零模型、简介保存及无健康 Profile 写入。

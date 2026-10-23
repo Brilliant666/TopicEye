@@ -2150,7 +2150,7 @@ _USE_CASE_RULES: tuple[tuple[str, str], ...] = (
 )
 
 
-def _structured_traits(
+def _legacy_structured_traits(
     evidence_index: dict[str, str],
 ) -> tuple[
     list[EvidenceClaim],
@@ -2162,6 +2162,125 @@ def _structured_traits(
         _evidence_labels(evidence_index, _PRODUCT_FORM_RULES, maximum=6, trait_kind="form"),
         _evidence_labels(evidence_index, _ENVIRONMENT_RULES, maximum=12, trait_kind="environment"),
         _evidence_labels(evidence_index, _DELIVERY_FORM_RULES, maximum=8, trait_kind="delivery"),
+        _evidence_labels(evidence_index, _USE_CASE_RULES, maximum=4),
+    )
+
+
+def _owned_trait_evidence(evidence_index: dict[str, str], *, kind: str) -> dict[str, str]:
+    """Keep product statements, not incidental dependency/setup/training mentions.
+
+    Sections are split before attribution: a build instruction must not donate
+    its SDK/host OS to the application described in the preceding sentence.
+    Unknown attribution stays unknown rather than guessing from keyword presence.
+    """
+    result: dict[str, str] = {}
+    for ref, text in evidence_index.items():
+        if ref == "repository" or ref.startswith("documented-path:"):
+            continue
+        if ref.startswith("path:"):
+            if kind == "form":
+                result[ref] = text
+            continue
+        identity = ref in {"description", "readme:section:1", "readme:narrative:positioning"}
+        body = re.sub(r"^[^\n]{0,180}\.md(?:#[^:]+)?:\s*", "", text, flags=re.IGNORECASE)
+        clauses = re.split(r"\n|(?<=[.!?。；;])\s+|[。；]", body)
+        accepted = []
+        for clause in clauses:
+            if kind == "environment" and re.search(
+                r"\b(?:built\s+(?:with|on)|depends?\s+on|requires?)\b|"
+                r"\bfor\s+(?:building|developing|creating)\b|"
+                r"(?:\bandroid(?:\s+tv)?\b|\bios\b|电视|安卓).{0,24}(?:\bsdk\b|开发工具)|"
+                r"\b(?:windows|linux|macos)\b.{0,40}\b(?:install|adb|sideload|build|compile)\b|"
+                r"(?:依赖|构建工具|安装电脑)",
+                clause,
+                re.I,
+            ):
+                continue
+            # A tool for building SDKs/apps is the tool, not its target SDK or OS.
+            if kind in {"form", "delivery"}:
+                clause = re.split(
+                    r"\bfor\s+(?:building|developing|creating)\b|用于(?:构建|开发|创建)", clause, maxsplit=1, flags=re.I
+                )[0]
+            if re.search(
+                r"\b(?:build(?:ing)?|compil(?:e|ing|ation)|development)\b.{0,60}"
+                r"\b(?:sdk|windows|linux|macos|node|python|browser)\b|"
+                r"\b(?:android|platform|build)[ -]+sdk\b|"
+                r"\b(?:windows|linux|macos)\b.{0,40}\b(?:adb|sideload|build|compile)\b|"
+                r"\b(?:download|open|visit)\b.{0,50}\bbrowser\b|"
+                r"(?:编译|构建|开发环境|安装电脑).{0,50}(?:SDK|Windows|Linux|浏览器)|"
+                r"(?:安装|下载).{0,30}(?:开发\s*)?SDK|"
+                r"\b(?:trained|training|fine[- ]?tun(?:e|ed|ing))\b.{0,100}\bdatasets?\b|"
+                r"(?:训练|微调).{0,60}数据集",
+                clause,
+                re.IGNORECASE,
+            ):
+                # Retain an independent product-model statement in training prose.
+                if kind == "form" and re.search(
+                    r"\b(?:fine[- ]?tuned|language|classification|decision|embedding)\s+models?\b|微调模型|语言模型",
+                    clause,
+                    re.I,
+                ):
+                    clause = re.sub(r"\b(?:on|using|with)\b.*\bdatasets?\b.*", "", clause, flags=re.I)
+                else:
+                    continue
+            own_statement = re.search(
+                r"\b(?:this\s+(?:project|repository|tool|app|application)|we|our\s+(?:tool|project))\s+"
+                r"(?:also\s+)?(?:is|provides?|ships?|includes?|offers?|supports?|runs?)\b|"
+                r"\b(?:runs?\s+(?:on|in)|available\s+(?:on|for)|supports?|compatible\s+with|"
+                r"designed\s+for|launcher\s+for|app\s+for|application\s+for|"
+                r"exports?|outputs?|delivers?|run(?:ning)?\s+the\s+CLI)\b|"
+                r"(?:本项目|本仓库|本工具|应用)(?:是|提供|运行于|支持)|适用于|运行环境|支持平台|"
+                r"(?:导出|输出|生成|支持|交付).{0,60}(?:HTML|PNG|SVG|WebM)|"
+                r"(?:使用|运行|调用|询问).{0,20}(?:CLI|命令行)",
+                clause,
+                re.I,
+            )
+            if identity or own_statement:
+                accepted.append(clause)
+        if accepted:
+            result[ref] = ". ".join(accepted)
+    return result
+
+
+def _structured_traits(evidence_index: dict[str, str]):
+    forms = (
+        *_PRODUCT_FORM_RULES,
+        (
+            "模型",
+            r"\b(?:fine[- ]?tuned|language|classification|decision|embedding)\s+models?\b|微调模型|语言模型|分类模型",
+        ),
+    )
+    forms = tuple(
+        (
+            label,
+            pattern
+            if label != "完整应用"
+            else pattern
+            + r"|\b(?:android(?:\s+tv)?|ios)\s+(?:app|application|launcher)\b|\blauncher\s+for\s+android(?:\s+tv)?\b|安卓应用"
+            + r"|(?:\bandroid(?:\s+tv)?\b|\bios\b|安卓)\s*(?:桌面|启动器|应用)",
+        )
+        for label, pattern in forms
+    )
+    environments = (
+        ("Android TV", r"\bandroid\s+tv\b"),
+        ("Android", r"\bandroid\b(?!\s+tv)|安卓"),
+        ("iOS", r"\bios\b"),
+        *_ENVIRONMENT_RULES,
+    )
+    return (
+        _evidence_labels(_owned_trait_evidence(evidence_index, kind="form"), forms, maximum=6, trait_kind="form"),
+        _evidence_labels(
+            _owned_trait_evidence(evidence_index, kind="environment"),
+            environments,
+            maximum=12,
+            trait_kind="environment",
+        ),
+        _evidence_labels(
+            _owned_trait_evidence(evidence_index, kind="delivery"),
+            _DELIVERY_FORM_RULES,
+            maximum=8,
+            trait_kind="delivery",
+        ),
         _evidence_labels(evidence_index, _USE_CASE_RULES, maximum=4),
     )
 
@@ -2203,8 +2322,8 @@ def _start_here(
 ) -> list[StartHereLink]:
     links: list[StartHereLink] = []
     section_priority = {
-        "overview": 0,
-        "quick_start": 1,
+        "overview": 1,
+        "quick_start": 0,
         "capabilities": 2,
         "architecture": 3,
         "examples": 4,
@@ -2280,7 +2399,31 @@ def _start_here(
     deduplicated: dict[str, StartHereLink] = {}
     for link in links:
         deduplicated.setdefault(link.path, link)
-    return list(deduplicated.values())[:12]
+    return _prioritize_start_here(list(deduplicated.values()), sections)[:12]
+
+
+def _prioritize_start_here(links: list[StartHereLink], sections: list[ReadmeSection]) -> list[StartHereLink]:
+    purposes = {section.path: section.purpose for section in sections}
+
+    def priority(link: StartHereLink) -> int:
+        purpose = purposes.get(link.path)
+        if purpose == "quick_start":
+            return 0
+        if re.search(
+            r"(?:^|[/#_-])(?:getting[-_ ]?started|quick[-_ ]?start|install(?:ation)?|usage|guide)(?:$|[./#_-])",
+            link.path,
+            re.I,
+        ):
+            return 1
+        if link.path.lower() in {"docs", "examples", "example"} or PurePosixPath(link.path).name.lower() == "skill.md":
+            return 2
+        if purpose == "overview":
+            return 3
+        if purpose in {"examples", "use_cases", "capabilities", "architecture"}:
+            return 4
+        return 8  # Keep implementation/resources available, without calling them first steps.
+
+    return sorted(links, key=priority)
 
 
 _CAPABILITY_SEPARATOR = re.compile(r"(?:\s*(?:——|—|–|：|:)\s*|\s+-\s+)")
@@ -2704,26 +2847,66 @@ def _valid_capabilities(
     return valid[:6], list(dict.fromkeys(issues))
 
 
-_DIFFERENTIATOR_PRIORITY: tuple[tuple[str, int], ...] = (
-    (r"before|delta|after|架构变化|差异|对比", 100),
-    (r"standalone|独立\s*html|\bpng\b|\bsvg\b|\bwebm\b|独立交付", 95),
-    (r"typed\s+json|确定性|schema|校验", 90),
-    (r"追溯|trace|证据|路径", 85),
-    (r"本地|local|隐私|离线", 75),
-)
-
-
 def _key_differentiators(capabilities: list[ServingCapability]) -> list[ServingCapability]:
-    def score(pair: tuple[int, ServingCapability]) -> tuple[int, int]:
-        index, capability = pair
-        text = f"{capability.title} {capability.detail}"
-        priority = max(
-            (value for pattern, value in _DIFFERENTIATOR_PRIORITY if re.search(pattern, text, re.IGNORECASE)),
-            default=40,
-        )
-        return (-priority, index)
+    # Capabilities establish what exists, not how it differs from alternatives.
+    return []
 
-    return [capability for _, capability in sorted(enumerate(capabilities), key=score)[:2]]
+
+def _nonduplicate_differentiators(
+    differentiators: list[ServingCapability],
+    capabilities: list[ServingCapability],
+) -> list[ServingCapability]:
+    result = []
+    for item in differentiators:
+        detail = re.sub(r"^与常见替代方案比较时，Rardar 会重点核验这项工程能力：", "", item.detail)
+        if any(_semantic_key(detail) == _semantic_key(capability.detail) for capability in capabilities):
+            continue
+        result.append(item)
+    return result[:2]
+
+
+def project_reading_semantics(
+    profile: OfficialProjectProfile,
+    evidence: ProjectEvidenceProjection,
+) -> dict[str, Any]:
+    """Read-only semantic projection of already validated immutable material.
+
+    The caller must perform full artifact/reference validation first. This
+    function neither loads evidence nor mutates any source object or timestamp.
+    """
+    if (
+        profile.githubRepositoryId != evidence.githubRepositoryId
+        or profile.repository != evidence.repository
+        or profile.generationId != evidence.generationId
+        or profile.evidenceDigest != evidence.digest
+    ):
+        raise ValueError("reading_semantics_evidence_binding_invalid")
+    forms, environments, delivery, _ = _structured_traits(evidence.evidenceIndex)
+    refs = dict(profile.claimEvidenceRefs)
+    for group in (forms, environments, delivery):
+        for claim in group:
+            # Equivalent evidence sets do not need a presentation-only reorder.
+            # Changed support still replaces the old references in full.
+            if set(refs.get(claim.text, [])) != set(claim.evidenceRefs):
+                refs[claim.text] = claim.evidenceRefs
+    return {
+        "productFormsZh": [item.text for item in forms],
+        "supportedEnvironmentsZh": [item.text for item in environments],
+        "deliveryFormsZh": [item.text for item in delivery],
+        "keyDifferentiators": [
+            item.model_dump(mode="json")
+            for item in _nonduplicate_differentiators(profile.keyDifferentiators, profile.capabilities)
+        ],
+        "rardarDifferentiators": [
+            item.model_dump(mode="json")
+            for item in _nonduplicate_differentiators(profile.rardarDifferentiators, profile.capabilities)
+        ],
+        "startHere": [
+            item.model_dump(mode="json")
+            for item in _prioritize_start_here(profile.startHere, evidence.selectedSections)
+        ],
+        "claimEvidenceRefs": refs,
+    }
 
 
 def _separate_official_assessment_differentiators(
@@ -2735,23 +2918,11 @@ def _separate_official_assessment_differentiators(
     official_claims = {
         (_semantic_key(highlight.titleZh), _semantic_key(highlight.detailZh)) for highlight in official_highlights
     }
-    result: list[ServingCapability] = []
-    for differentiator in differentiators:
-        if (_semantic_key(differentiator.title), _semantic_key(differentiator.detail)) not in official_claims:
-            result.append(differentiator)
-            continue
-        title = f"Rardar 关注 · {differentiator.title}"[:32].rstrip(" ·")
-        detail = "与常见替代方案比较时，Rardar 会重点核验这项工程能力：" f"{differentiator.detail}"
-        result.append(
-            ServingCapability(
-                title=title,
-                detail=detail,
-                shortDetail=None,
-                evidenceRefs=differentiator.evidenceRefs,
-                sourceMode="rardar_derived",
-            )
-        )
-    return result
+    return [
+        item
+        for item in differentiators
+        if (_semantic_key(item.title), _semantic_key(item.detail)) not in official_claims
+    ]
 
 
 def _specific_core_value(evidence_index: dict[str, str]) -> tuple[str, list[str]] | None:
@@ -2814,8 +2985,6 @@ def _profile_quality(
             issues.append("core_value_duplicates_capability")
     if not capabilities:
         issues.append("capabilities_missing")
-    if not differentiators:
-        issues.append("key_differentiators_missing")
     for capability in [*capabilities, *differentiators]:
         if not set(capability.evidenceRefs).issubset(allowed_refs):
             issues.append("capability_evidence_invalid")
@@ -4699,7 +4868,7 @@ async def collect_official_project_profile(
             set(evidence.evidenceIndex),
         )
         base_quality_issues.extend(differentiator_issues)
-        key_differentiators = key_differentiators[:2]
+        key_differentiators = _nonduplicate_differentiators(key_differentiators, capabilities)
     else:
         key_differentiators = _key_differentiators(capabilities)
     if narrative_mode in {"official_zh", "official_translated"}:

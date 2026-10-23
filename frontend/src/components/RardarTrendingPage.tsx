@@ -28,7 +28,7 @@ export function TrendingCard({ project, generationId, historical = false, index 
       <div className={styles.tags}>
         {project.language && <span>{project.language}</span>}{project.topics?.slice(0, 4).map(topic => <span key={topic}>{topic}</span>)}{project.license && <span>{project.license}</span>}
         {sourceLabel && <span>{sourceLabel}</span>}
-        <span>{project.materialState === 'complete' ? '档案可用' : project.materialState === 'partial' ? '资料部分可用' : '资料暂未补齐'}</span>
+        <span>{project.materialState === 'complete' ? '简介、定位与能力已保存' : project.materialState === 'partial' ? '资料部分可用' : '资料暂未补齐'}</span>
         {project.dualListed && !historical && <span className={styles.dualBoardBadge}>双榜上榜</span>}
       </div>
       {historical ? <HistoricalContext project={project} /> : <div className={styles.boardAppearanceList}>{project.appearances.map(appearance => <span key={appearance.source}>{boardSourceName[appearance.source]} #{appearance.rank}</span>)}</div>}
@@ -62,7 +62,7 @@ export default function RardarTrendingPage({ board, historical = false }: { boar
     <section className={`${styles.hero} ${styles.todayHero}`} data-testid="today-hero"><div className={styles.heroContent}>
       <p className={styles.eyebrow}>{historical ? 'History · Project Review' : 'Today · Trending Repositories'}</p>
       <h1 className={`${styles.heroTitle} ${styles.trendingHeroTitle}`}><span className={styles.trendingSectionName}>{historical ? '历史回顾' : '今日热榜'}</span><span className={styles.heroTitleAccent}>{historical ? '认识曾经错过的好项目' : <><span className={styles.heroPhrase}>看见热门项目，</span><span className={styles.heroPhrase}>读懂它的价值</span></>}</span></h1>
-      <p className={styles.heroDescription}>{historical ? '每天轮换一组已有可读介绍的历史项目，复用同一份项目档案与完整解读。历史关注与当前维护状态分别核对。' : 'GitHub Trending 与 Trendshift 自有日榜合并去重，按来源报告的 Star 增长降序排列，保留两榜原始名次；项目解读不参与排序。'}</p>
+      <p className={styles.heroDescription}>{historical ? '每天轮换一组已有可读介绍的历史项目，复用已保存的项目资料。历史关注与当前维护状态分别核对。' : 'GitHub Trending 与 Trendshift 自有日榜合并去重，按来源报告的 Star 增长降序排列，保留两榜原始名次；项目解读不参与排序。'}</p>
       <div className={styles.foundationNotice}><span className={styles.noticePill}><ShieldCheck size={15} /> 真实来源 · 原始名次</span><span className={styles.noticePill}><Sparkles size={15} /> 共享项目档案 · 按需深度解读</span></div>
     </div></section>
     <div className={styles.sectionHeading}><div><h2>{historical ? `本期回顾 · ${board?.projects.length ?? 0} 项` : '双榜项目清单'}</h2><p>{historical ? '每日稳定轮换，当天内容不重抽；展示序号不是热度排名。' : `展示来源报告日增长≥${minimumGrowth}的项目，双榜项目优先采用GitHub Trending。`}</p></div>{publishedAt && <span className={styles.timestamp}>{historical ? `回顾日期 ${board?.dailyReview?.date} · 发布` : '清单发布'} {boardTime(publishedAt)}</span>}</div>

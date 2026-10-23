@@ -20,11 +20,15 @@ from tests_rardar_selection.test_profile_cache_v2 import _project
 
 
 @pytest.mark.asyncio
-async def test_shared_display_preserves_every_original_profile_and_evidence_field(tmp_path):
+async def test_shared_display_preserves_original_material_with_explicit_reading_projection(tmp_path):
     path = await seed(tmp_path)
     record = ProfileStoreEnvelopeV2.model_validate_json(path.read_bytes(), strict=True)
     material = service.saved_materials(tmp_path)[_project().repository.lower()]
-    assert material["displayProfile"] == record.profile.model_dump(mode="json")
+    original = record.profile.model_dump(mode="json")
+    expected = {**original, **service.project_reading_semantics(record.profile, record.evidence)}
+    assert material["displayProfile"] == expected
+    assert material["material"]["readingSemanticsVersion"] == "v1"
+    assert ProfileStoreEnvelopeV2.model_validate_json(path.read_bytes(), strict=True) == record
     assert material["displayEvidence"] == record.evidence.model_dump(mode="json")
     assert material["displayProfile"]["capabilities"][0]["title"]
     assert material["displayProfile"]["capabilities"][0]["evidenceRefs"]
@@ -32,7 +36,43 @@ async def test_shared_display_preserves_every_original_profile_and_evidence_fiel
     assert material["profile"]["limitations"] is None  # no fabricated empty analysis
     assert not {"rank", "totalStars", "observedStarDelta", "windowEndedAt"} & material.keys()
     loaded = service.load_saved_project_profile(tmp_path, _project().repository)
-    assert loaded == (record.profile, record.evidence)
+    assert loaded[0].model_dump(mode="json") == expected
+    assert loaded[1] == record.evidence
+    # Exact-original lookup for cached analyses remains immutable and unprojected.
+    exact = service.load_saved_project_profile(
+        tmp_path, _project().repository, original_profile_digest=service.digest(original)
+    )
+    assert exact == (record.profile, record.evidence)
+
+
+@pytest.mark.asyncio
+async def test_saved_legacy_duplicate_difference_is_removed_without_regeneration(tmp_path, monkeypatch):
+    path = await seed(tmp_path)
+    before = path.read_bytes()
+    record = ProfileStoreEnvelopeV2.model_validate_json(before, strict=True)
+    legacy = record.profile.model_copy(
+        update={
+            "keyDifferentiators": record.profile.capabilities[:2],
+            "rardarDifferentiators": record.profile.capabilities[:2],
+        }
+    )
+    monkeypatch.setattr(
+        service,
+        "_retained_serving_details",
+        lambda *_a, **_k: [SimpleNamespace(profile=legacy, evidence=record.evidence, project=None)],
+    )
+    collect = AsyncMock(side_effect=AssertionError("read must not generate material"))
+    monkeypatch.setattr(service, "collect_official_project_profile", collect)
+    first = service.saved_materials(tmp_path)[legacy.repository.lower()]
+    second = service.saved_materials(tmp_path)[legacy.repository.lower()]
+    assert first == second
+    assert first["displayProfile"]["keyDifferentiators"] == []
+    assert first["displayProfile"]["rardarDifferentiators"] == []
+    assert first["displayProfile"]["capabilities"] == legacy.model_dump(mode="json")["capabilities"]
+    assert first["displayProfile"]["generatedAt"] == legacy.model_dump(mode="json")["generatedAt"]
+    assert first["displayEvidence"] == record.evidence.model_dump(mode="json")
+    assert path.read_bytes() == before
+    collect.assert_not_called()
 
 
 @pytest.mark.asyncio

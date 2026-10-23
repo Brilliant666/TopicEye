@@ -174,6 +174,7 @@ async def run_refresh(
                     or _needs_publication(cycle)
                     or (bool(cycle.get("publishedReceipts")) and not cycle.get("metadataComplete", False))
                     or (review_work is not None and day.get("historyReview", {}).get("status") != "published")
+                    or day.get("historyMetadata", {}).get("status") in {"partial", "failed"}
                 )
                 if not pending and material_work and _material_pending(day, qualification):
                     pending = await material_budget_available()
@@ -206,6 +207,15 @@ async def run_refresh(
                     day["historyReview"] = {"status": "published", **review}
                 except Exception:
                     day["historyReview"] = {"status": "failed", "errorCode": "history_review_publication_failed"}
+                atomic(day_path, day)
+
+            from app.services import rardar_trending as service
+
+            if trigger == "automatic" and day.get("historyMetadata", {}).get("status") != "completed":
+                try:
+                    day["historyMetadata"] = await service.refresh_history_metadata(target, clock)
+                except Exception as exc:
+                    day["historyMetadata"] = {"status": "failed", "errorType": type(exc).__name__, "providerCalls": 0}
                 atomic(day_path, day)
 
             def save_cycle():
@@ -343,6 +353,7 @@ async def run_refresh(
                 "trigger": trigger,
                 "providerCalls": run_requests,
                 "metadata": cycle.get("metadata", {}),
+                "historyMetadata": day.get("historyMetadata", {}),
                 "oldResultPreserved": bool((publication_failed or unfinished) and current.get("generationId")),
             }
             if trigger == "automatic":

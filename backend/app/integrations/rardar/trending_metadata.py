@@ -161,7 +161,9 @@ def apply(snapshot: dict, target: Path) -> dict:
     return snapshot
 
 
-async def refresh(target: Path, projects: list[dict], client, *, limit: int = 40) -> dict:
+async def refresh(
+    target: Path, projects: list[dict], client, *, limit: int = 40, fresh_since: datetime | None = None
+) -> dict:
     result = {"updated": 0, "reused": 0, "failed": [], "pending": 0, "providerCalls": 0}
     attempted = 0
     started = monotonic()
@@ -171,7 +173,14 @@ async def refresh(target: Path, projects: list[dict], client, *, limit: int = 40
                 saved = read(target, project)
             except (ValueError, OSError):
                 saved = None  # Repair optional corrupt caches through verified metadata, not AI.
-            if saved and datetime.now(UTC) - datetime.fromisoformat(saved["fetchedAt"]) < timedelta(days=1):
+            fresh = False
+            if saved:
+                if fresh_since is not None:
+                    measured = saved.get("totalStarsFetchedAt")
+                    fresh = measured is not None and datetime.fromisoformat(measured) >= fresh_since
+                else:
+                    fresh = datetime.now(UTC) - datetime.fromisoformat(saved["fetchedAt"]) < timedelta(days=1)
+            if fresh:
                 result["reused"] += 1
                 continue
             if attempted >= limit or monotonic() - started >= 45:
@@ -181,7 +190,14 @@ async def refresh(target: Path, projects: list[dict], client, *, limit: int = 40
             repository = canonical_repository(project["repository"])
             response = await client.get(f"/repos/{repository}")
             response.raise_for_status()
-            save(target, project, response.json())
+            payload = response.json()
+            if fresh_since is not None and (
+                not isinstance(payload, dict)
+                or type(payload.get("stargazers_count")) is not int
+                or payload["stargazers_count"] < 0
+            ):
+                raise ValueError("repository_star_count_missing")
+            save(target, project, payload)
             result["updated"] += 1
         except Exception as exc:
             # Only a safe class name; no response bodies or credentials.

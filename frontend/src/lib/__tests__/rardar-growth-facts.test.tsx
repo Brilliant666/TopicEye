@@ -45,6 +45,24 @@ describe('single selected growth presentation', () => {
     expect(latestBoardAppearances([old, trendshift, github])).toEqual([github, trendshift]);
     expect(latestBoardAppearances([github, trendshift, old])).toEqual([github, trendshift]);
   });
+  it('shows the saved Star observation on historical cards and details, not publication time', () => {
+    const item = { ...project, totalStarsSource: { source: 'github_metadata' as const, sourceDate: null, fetchedAt: '2026-10-23T01:00:00Z', observedAt: '2026-10-22T01:00:00Z', status: 'stale' as const } };
+    for (const element of [<TrendingCard key="card" historical project={item} generationId="history" />, <RardarProjectDetailPage key="detail" historical detail={{ ...item, publishedAt: '2026-10-23T01:00:00Z' }} />]) {
+      const html = renderToStaticMarkup(element);
+      expect(html).toContain('<strong>40,109</strong>');
+      expect(html).toContain('数据读取 2026/10/22 09:00:00 北京时间');
+      expect(html).not.toContain('数据读取 2026/10/23');
+    }
+  });
+  it('does not substitute source capture time for an unknown Star observation', () => {
+    const dated = renderToStaticMarkup(<RardarGrowthFacts historical project={project} />);
+    expect(dated).toContain('来源数据日期 2026-09-10');
+    const captured = renderToStaticMarkup(<RardarGrowthFacts historical project={{ ...project, totalStarsSource: { source: 'rardar_history', sourceDate: null, fetchedAt: github.fetchedAt, status: 'saved' } }} />);
+    expect(captured).toContain('采集时间 2026/9/11 09:00:00 北京时间 · 数据时间未知');
+    const unknown = renderToStaticMarkup(<RardarGrowthFacts historical project={{ ...project, totalStarsSource: null }} />);
+    expect(unknown).toContain('数据时间未知');
+    expect(unknown).not.toContain('数据读取');
+  });
   it('keeps historical context concise when counts are omitted', () => {
     const html = renderToStaticMarkup(<HistoricalContext project={{ ...project, historicalContext: { kind: 'reported_count', source: 'github' } }} />);
     expect(html).toContain('曾上 GitHub 日榜 · 具体日期未知');

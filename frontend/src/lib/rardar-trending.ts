@@ -89,6 +89,14 @@ export function totalStarsProvenance(source: TrendingProject['totalStarsSource']
   return `${label} · ${source.historicalSaved ? '历史保存值 · ' : ''}${time} · 本地采集 ${beijingTime(source.fetchedAt)}`;
 }
 
+/** The saved Star observation is independent of the day's review publication. */
+export function totalStarsDataTime(source: TrendingProject['totalStarsSource']) {
+  if (source?.observedAt) return `数据读取 ${beijingTime(source.observedAt)}`;
+  if (source?.sourceDate) return `来源数据日期 ${boardTime(source.sourceDate)}`;
+  if (source?.fetchedAt) return `采集时间 ${beijingTime(source.fetchedAt)} · 数据时间未知`;
+  return '数据时间未知';
+}
+
 export function introductionUnavailableText(project: TrendingProject) {
   return project.materialAttempt?.status === 'failed' && project.materialAttempt.stage === 'source'
     ? '资料读取失败，暂时保留上榜信息。'

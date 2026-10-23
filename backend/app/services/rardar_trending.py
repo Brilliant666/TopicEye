@@ -553,6 +553,32 @@ async def refresh_metadata(target: Path, projects: list[dict] | None = None) -> 
         )
 
 
+async def refresh_history_metadata(target: Path, now: datetime) -> dict:
+    """Refresh only the immutable current review's identities, without reading AI materials."""
+    from app.integrations.rardar import historical_daily
+    from app.integrations.rardar.trending_periods import ZONE
+
+    local = now.astimezone(ZONE)
+    batch = historical_daily.read_for_date(target, local.date().isoformat())
+    if batch is None:
+        return {"status": "no_current_review", "providerCalls": 0}
+    async with github_material_client(settings.GITHUB_TOKEN) as client:
+        result = await trending_metadata.refresh(
+            target,
+            batch["identities"],
+            client,
+            limit=len(batch["identities"]),
+            fresh_since=local.replace(hour=0, minute=0, second=0, microsecond=0),
+        )
+    return {
+        **result,
+        "status": "partial" if result["failed"] or result["pending"] else "completed",
+        "date": batch["date"],
+        "projectIds": batch["projectIds"],
+        "checkedAt": now.isoformat(),
+    }
+
+
 def today_candidates(target: Path) -> dict:
     from app.integrations.rardar.trending_metrics import qualifying_today
 

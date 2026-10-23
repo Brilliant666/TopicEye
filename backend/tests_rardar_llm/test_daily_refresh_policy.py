@@ -90,6 +90,64 @@ def day_state(target):
 
 
 @pytest.mark.asyncio
+async def test_history_metadata_refresh_is_independent_and_compensates_only_failed_items(io, monkeypatch):
+    import httpx
+
+    from app.integrations.rardar import historical_daily, trending_metadata
+    from app.integrations.rardar.project_identity import project_id_for_repository
+
+    target, fetch = io
+    projects = [
+        {"repository": repo, "projectId": project_id_for_repository(repo), "githubRepositoryId": number}
+        for number, repo in enumerate(("history/one", "history/two"), start=1)
+    ]
+    # Old valid values remain readable even if the new request fails.
+    for project in projects:
+        payload = trending_metadata.save(target, project, {
+            "id": project["githubRepositoryId"], "full_name": project["repository"], "stargazers_count": 10,
+        })
+        payload.update(fetchedAt="2026-09-11T01:00:00+00:00", totalStarsFetchedAt="2026-09-11T01:00:00+00:00")
+        trending_metadata.atomic(trending_metadata._path(target, project["repository"]), {
+            "schemaVersion": 2, "payload": payload, "digest": trending_metadata.digest(payload),
+        })
+    calls = []
+    failing = True
+
+    def handle(request):
+        repo = request.url.path.removeprefix("/repos/")
+        calls.append(repo)
+        if failing and repo == "history/one":
+            return httpx.Response(503)
+        item = next(p for p in projects if p["repository"] == repo)
+        return httpx.Response(200, json={
+            "id": item["githubRepositoryId"], "full_name": repo, "stargazers_count": 20,
+        })
+
+    monkeypatch.setattr(service, "github_material_client", lambda _: httpx.AsyncClient(
+        base_url="https://api.github.com", transport=httpx.MockTransport(handle),
+    ))
+    review = AsyncMock(side_effect=lambda now, kind: historical_daily.publish(target, projects, now=now, trigger=kind))
+    first = await refresh.run_refresh(target, now=at(), trigger="automatic", review_work=review)
+    assert first["historyMetadata"]["status"] == "partial"
+    assert first["historyMetadata"]["updated"] == 1
+    failed = trending_metadata.apply({"kind": "historical", "projects": [dict(projects[0])]}, target)["projects"][0]
+    assert failed["totalStars"] == 10
+    assert failed["totalStarsSource"]["observedAt"] == "2026-09-11T01:00:00+00:00"
+    members = historical_daily.read_latest(target)
+    failing = False
+    second = await refresh.run_refresh(target, now=at(11), trigger="automatic", review_work=review)
+    assert second["historyMetadata"]["status"] == "completed"
+    assert second["historyMetadata"]["reused"] == 1
+    assert calls.count("history/one") == 2 and calls.count("history/two") == 1
+    assert first["providerCalls"] == second["providerCalls"] == 0
+    assert historical_daily.read_latest(target) == members
+    assert fetch.await_count == 2
+    assert not (target / "profile-cache" / "profiles").exists()
+    again = await refresh.run_refresh(target, now=at(12), trigger="automatic", review_work=review)
+    assert again["status"] == "skipped" and len(calls) == 3
+
+
+@pytest.mark.asyncio
 async def test_main_then_completed_compensation_is_zero_io(io):
     target, fetch = io
     material = AsyncMock(return_value={"status": "completed", "remaining": 0})
@@ -104,6 +162,18 @@ async def test_main_then_completed_compensation_is_zero_io(io):
     assert fetch.await_count == 2
     material.assert_awaited_once()
     assert len(day_state(target)["rounds"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_history_metadata_runs_with_both_board_sources_down_and_no_model_budget(io, monkeypatch):
+    target, fetch = io
+    fetch.side_effect = lambda source, **_: {"source": source, "status": "failed", "errorCode": "network"}
+    monkeypatch.setattr(refresh, "material_budget_available", AsyncMock(return_value=False))
+    metadata_work = AsyncMock(return_value={"status": "completed", "updated": 8, "providerCalls": 0})
+    monkeypatch.setattr(service, "refresh_history_metadata", metadata_work)
+    result = await refresh.run_refresh(target, now=at(), trigger="automatic")
+    metadata_work.assert_awaited_once_with(target, at())
+    assert result["historyMetadata"]["updated"] == 8 and result["providerCalls"] == 0
 
 
 @pytest.mark.asyncio

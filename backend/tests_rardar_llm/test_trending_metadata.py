@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
@@ -18,6 +19,43 @@ def response():
         "topics": ["tools"],
         "license": {"spdx_id": "MIT"},
     }
+
+
+@pytest.mark.asyncio
+async def test_history_freshness_uses_star_observation_day_not_metadata_ttl(tmp_path):
+    from zoneinfo import ZoneInfo
+
+    midnight = datetime.now(ZoneInfo("Asia/Shanghai")).replace(hour=0, minute=0, second=0, microsecond=0)
+    old = metadata.save(tmp_path, project(), {**response(), "stargazers_count": 100})
+    # Other metadata is fresh, but this Star count belongs to yesterday.
+    old["totalStarsFetchedAt"] = (midnight - timedelta(seconds=1)).astimezone(UTC).isoformat()
+    metadata.atomic(metadata._path(tmp_path, "owner/repo"), {
+        "schemaVersion": 2, "payload": old, "digest": metadata.digest(old),
+    })
+    calls = []
+
+    def handle(request):
+        calls.append(request.url)
+        return httpx.Response(200, json={**response(), "stargazers_count": 200})
+
+    async with httpx.AsyncClient(base_url="https://api.github.com", transport=httpx.MockTransport(handle)) as client:
+        first = await metadata.refresh(tmp_path, [project()], client, fresh_since=midnight)
+        second = await metadata.refresh(tmp_path, [project()], client, fresh_since=midnight)
+    assert first["updated"] == second["reused"] == len(calls) == 1
+    assert metadata.read(tmp_path, project())["totalStars"] == 200
+
+
+@pytest.mark.asyncio
+async def test_missing_star_response_retains_prior_value_and_observation(tmp_path):
+    old = metadata.save(tmp_path, project(), {**response(), "stargazers_count": 100})
+    before = metadata._path(tmp_path, "owner/repo").read_bytes()
+    async with httpx.AsyncClient(
+        base_url="https://api.github.com", transport=httpx.MockTransport(lambda _: httpx.Response(200, json=response())),
+    ) as client:
+        result = await metadata.refresh(tmp_path, [project()], client, fresh_since=datetime.now(UTC))
+    assert len(result["failed"]) == 1 and result["updated"] == 0
+    assert metadata._path(tmp_path, "owner/repo").read_bytes() == before
+    assert metadata.read(tmp_path, project())["totalStarsFetchedAt"] == old["totalStarsFetchedAt"]
 
 
 def test_optional_unsafe_metadata_path_does_not_break_board(tmp_path, monkeypatch):

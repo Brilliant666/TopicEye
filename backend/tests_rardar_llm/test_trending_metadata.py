@@ -29,9 +29,14 @@ async def test_history_freshness_uses_star_observation_day_not_metadata_ttl(tmp_
     old = metadata.save(tmp_path, project(), {**response(), "stargazers_count": 100})
     # Other metadata is fresh, but this Star count belongs to yesterday.
     old["totalStarsFetchedAt"] = (midnight - timedelta(seconds=1)).astimezone(UTC).isoformat()
-    metadata.atomic(metadata._path(tmp_path, "owner/repo"), {
-        "schemaVersion": 2, "payload": old, "digest": metadata.digest(old),
-    })
+    metadata.atomic(
+        metadata._path(tmp_path, "owner/repo"),
+        {
+            "schemaVersion": 2,
+            "payload": old,
+            "digest": metadata.digest(old),
+        },
+    )
     calls = []
 
     def handle(request):
@@ -50,7 +55,8 @@ async def test_missing_star_response_retains_prior_value_and_observation(tmp_pat
     old = metadata.save(tmp_path, project(), {**response(), "stargazers_count": 100})
     before = metadata._path(tmp_path, "owner/repo").read_bytes()
     async with httpx.AsyncClient(
-        base_url="https://api.github.com", transport=httpx.MockTransport(lambda _: httpx.Response(200, json=response())),
+        base_url="https://api.github.com",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=response())),
     ) as client:
         result = await metadata.refresh(tmp_path, [project()], client, fresh_since=datetime.now(UTC))
     assert len(result["failed"]) == 1 and result["updated"] == 0

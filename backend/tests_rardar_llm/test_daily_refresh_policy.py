@@ -103,13 +103,24 @@ async def test_history_metadata_refresh_is_independent_and_compensates_only_fail
     ]
     # Old valid values remain readable even if the new request fails.
     for project in projects:
-        payload = trending_metadata.save(target, project, {
-            "id": project["githubRepositoryId"], "full_name": project["repository"], "stargazers_count": 10,
-        })
+        payload = trending_metadata.save(
+            target,
+            project,
+            {
+                "id": project["githubRepositoryId"],
+                "full_name": project["repository"],
+                "stargazers_count": 10,
+            },
+        )
         payload.update(fetchedAt="2026-09-11T01:00:00+00:00", totalStarsFetchedAt="2026-09-11T01:00:00+00:00")
-        trending_metadata.atomic(trending_metadata._path(target, project["repository"]), {
-            "schemaVersion": 2, "payload": payload, "digest": trending_metadata.digest(payload),
-        })
+        trending_metadata.atomic(
+            trending_metadata._path(target, project["repository"]),
+            {
+                "schemaVersion": 2,
+                "payload": payload,
+                "digest": trending_metadata.digest(payload),
+            },
+        )
     calls = []
     failing = True
 
@@ -119,13 +130,23 @@ async def test_history_metadata_refresh_is_independent_and_compensates_only_fail
         if failing and repo == "history/one":
             return httpx.Response(503)
         item = next(p for p in projects if p["repository"] == repo)
-        return httpx.Response(200, json={
-            "id": item["githubRepositoryId"], "full_name": repo, "stargazers_count": 20,
-        })
+        return httpx.Response(
+            200,
+            json={
+                "id": item["githubRepositoryId"],
+                "full_name": repo,
+                "stargazers_count": 20,
+            },
+        )
 
-    monkeypatch.setattr(service, "github_material_client", lambda _: httpx.AsyncClient(
-        base_url="https://api.github.com", transport=httpx.MockTransport(handle),
-    ))
+    monkeypatch.setattr(
+        service,
+        "github_material_client",
+        lambda _: httpx.AsyncClient(
+            base_url="https://api.github.com",
+            transport=httpx.MockTransport(handle),
+        ),
+    )
     review = AsyncMock(side_effect=lambda now, kind: historical_daily.publish(target, projects, now=now, trigger=kind))
     first = await refresh.run_refresh(target, now=at(), trigger="automatic", review_work=review)
     assert first["historyMetadata"]["status"] == "partial"

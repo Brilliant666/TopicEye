@@ -86,6 +86,11 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
   const primaryLinks = profile.startHere.slice(0, 4);
   const moreLinks = profile.startHere.slice(4);
   const presentedCapabilities = profile.capabilities;
+  // Older saved profiles may contain capability copies in both difference fields.
+  // Presence of those fields is not evidence of a comparative assessment.
+  const presentedDifferentiators = profile.rardarDifferentiators.filter(item =>
+    !presentedCapabilities.some(capability => sameCapabilityText(item, capability))
+  );
 
   return (
     <div className={`${styles.page} ${styles.detailPage}`} data-rardar-route="/project">
@@ -158,7 +163,7 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
           <DetailSection
             icon={Boxes}
             title="它能做什么"
-            subtitle="能力来自同一份已验证项目档案；来源类型与仓库证据逐项标明。"
+            subtitle="能力说明来自已保存的项目资料，附来源与证据；不代表已经运行验证。"
           >
             <ol className={styles.capabilityNarrative} data-testid="project-capability-section">
               {presentedCapabilities.map((capability, index) => (
@@ -187,9 +192,9 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
                 <EvidenceBadges values={profile.rardarAssessmentEvidenceRefs} />
               </div>
             )}
-            {(profile.rardarDifferentiators.length > 0 || profile.keyDifferentiators.length > 0) && (
+            {presentedDifferentiators.length > 0 && (
               <div className={styles.rardarDifferentiatorGrid} aria-label="Rardar 关键差异">
-                {(profile.rardarDifferentiators.length ? profile.rardarDifferentiators : profile.keyDifferentiators).map((item) => (
+                {presentedDifferentiators.map((item) => (
                   <Differentiator key={`${item.title}-${item.detail}`} item={item} />
                 ))}
               </div>
@@ -214,7 +219,7 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
         </section>
 
         {primaryLinks.length > 0 && (
-          <DetailSection icon={FileSearch} title="如何开始" subtitle="先看最有助于理解和采用的四个入口，其余资料按需展开。">
+          <DetailSection icon={FileSearch} title="如何开始" subtitle="从项目介绍、安装与使用文档开始，其余资料按需展开。">
             <div className={styles.startHerePrimary}>
               {primaryLinks.map((item, index) => (
                 <a key={item.path} href={item.htmlUrl} target="_blank" rel="noreferrer">
@@ -272,7 +277,7 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
               <div><dt>Rardar 判断来源</dt><dd>{profile.rardarAssessmentZh ? '独立分析层' : '未生成'}</dd></div>
               <div><dt>来源</dt><dd>{profile.sourceLabel || '尚无有效项目档案'}</dd></div>
               <div><dt>README</dt><dd>{profile.readmePath || '未取得'}</dd></div>
-              <div><dt>Revision</dt><dd><code>{profile.readmeBlobSha || 'GitHub Description'}</code></dd></div>
+              <div><dt>README blob SHA</dt><dd><code>{profile.readmeBlobSha || '未取得'}</code></dd></div>
               <div><dt>翻译状态</dt><dd>{translationLabel(profile.translationState)}</dd></div>
               <div><dt>Profile 质量</dt><dd>{qualityLabel(profile.qualityState)}</dd></div>
               {profile.generatedAt && (
@@ -283,6 +288,7 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
               {trendingDetail?.material?.sourceGeneration && <div><dt>资料来源版本</dt><dd><code>{trendingDetail.material.sourceGeneration}</code></dd></div>}
               <div><dt>Evidence</dt><dd><code>{profile.evidenceDigest || '尚无项目档案证据'}</code></dd></div>
             </dl>
+            {profile.readmeBlobSha && <p>此标识对应生成资料时的 README 内容，不是仓库提交版本；原仓库链接可能展示更新后的内容。</p>}
             {profile.selectedSections.length > 0 && <p className={styles.sourceSections}>来源章节：{profile.selectedSections.map((section) => section.heading).join(' · ')}</p>}
             {profile.originalExcerpts.length > 0 && (
               <div className={styles.officialExcerpts}>
@@ -424,7 +430,14 @@ function legacyCapabilitySourceMode(
 }
 
 function materialLabel(state: string | undefined) {
-  return state === 'complete' ? '资料完整' : state === 'partial' ? '资料部分可用' : '资料暂未补齐';
+  return state === 'complete' ? '简介、定位与能力已保存' : state === 'partial' ? '资料部分可用' : '资料暂未补齐';
+}
+
+function sameCapabilityText(left: ProjectCapability, right: ProjectCapability) {
+  const normalized = (text: string) => text.normalize('NFKC').replace(/\s+/gu, '').trim();
+  const leftTexts = [left.detail, left.shortDetail].filter((text): text is string => Boolean(text)).map(normalized);
+  const rightTexts = [right.detail, right.shortDetail].filter((text): text is string => Boolean(text)).map(normalized);
+  return leftTexts.some(text => rightTexts.includes(text));
 }
 
 function capabilitySourceLabel(mode: CapabilitySourceMode | null | undefined) {
@@ -464,7 +477,7 @@ function startHereReason(label: string) {
   if (label.includes('定位') || label.includes('介绍')) return '先建立项目边界与用途认知';
   if (label.includes('能力') || label.includes('特性')) return '核对核心能力是否覆盖你的任务';
   if (label.includes('实现') || label.includes('架构')) return '理解关键机制与工程边界';
-  return '查看与采用判断最相关的官方资料';
+  return '查看仓库中的原始资料';
 }
 
 function qualityLabel(value: ProjectDetail['profile']['qualityState'] | undefined) {

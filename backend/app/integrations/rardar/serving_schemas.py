@@ -316,10 +316,7 @@ class ServingTodaySnapshot(StrictServingModel):
                 if project.coreValueZh is not None and not project.coreValueEvidenceRefs:
                     raise ValueError("Serving v4 core value requires evidence")
                 if project.qualityState == "ready" and (
-                    project.coreValueZh is None
-                    or not project.keyDifferentiators
-                    or not project.capabilities
-                    or project.qualityIssues
+                    project.coreValueZh is None or not project.capabilities or project.qualityIssues
                 ):
                     raise ValueError("Serving v4 ready project is incomplete")
                 if project.qualityState == "rejected" and (
@@ -514,7 +511,6 @@ class OfficialProjectProfile(StrictServingModel):
                     (self.coreValueZh and self.coreValueEvidenceRefs)
                     or (self.positioningZh and self.positioningEvidenceRefs)
                 )
-                or not self.keyDifferentiators
                 or not self.capabilities
                 or self.qualityIssues
             ):

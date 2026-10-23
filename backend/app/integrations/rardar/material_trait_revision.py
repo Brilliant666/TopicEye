@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from app.integrations.rardar.serving_profiles import _structured_traits
+from app.integrations.rardar.serving_profiles import _legacy_structured_traits as _structured_traits
 from app.integrations.rardar.serving_schemas import OfficialProjectProfile
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
 

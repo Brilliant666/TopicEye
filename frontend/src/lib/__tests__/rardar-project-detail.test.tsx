@@ -233,6 +233,41 @@ describe('Rardar project detail', () => {
     generationId: 'boards-shared', historyAppearances: 1,
   };
 
+  it.each([false, true])('describes saved sections without claiming factual or adoption verification, history=%s', (historical) => {
+    const html = renderToStaticMarkup(<RardarProjectDetailPage detail={sharedDetail} historical={historical} />);
+    const card = renderToStaticMarkup(<TrendingCard project={sharedDetail} historical={historical} generationId="boards-shared" />);
+    for (const output of [html, card]) {
+      expect(output).toContain('简介、定位与能力已保存');
+      expect(output).not.toContain('资料完整');
+      expect(output).not.toContain('已验证项目档案');
+    }
+    expect(html).toContain('README blob SHA');
+    expect(html).toContain('不是仓库提交版本');
+    expect(html).not.toContain('<dt>Revision</dt>');
+    expect(html).not.toContain('查看与采用判断最相关的官方资料');
+  });
+
+  it('does not present legacy capability copies or key-only fallbacks as differences', () => {
+    const repeated = { ...canonicalCapabilities[0], title: '重新命名的差异', detail: ` ${canonicalCapabilities[0].detail} ` };
+    const html = renderToStaticMarkup(<RardarProjectDetailPage detail={{ ...sharedDetail, displayProfile: {
+      ...detail.profile, rardarAssessmentZh: null, rardarDifferentiators: [repeated], keyDifferentiators: rardarDifferentiators,
+    } }} />);
+    expect(html).toContain(canonicalCapabilities[0].detail);
+    expect(html).not.toContain('重新命名的差异');
+    expect(html).not.toContain('aria-label="Rardar 关键差异"');
+    const fallback = renderToStaticMarkup(<RardarProjectDetailPage detail={{ ...sharedDetail, displayProfile: {
+      ...detail.profile, rardarDifferentiators: [], keyDifferentiators: rardarDifferentiators,
+    } }} />);
+    expect(fallback).not.toContain('aria-label="Rardar 关键差异"');
+  });
+
+  it('keeps a separately saved nonduplicate assessment visible', () => {
+    const html = renderToStaticMarkup(<RardarProjectDetailPage detail={sharedDetail} />);
+    expect(html).toContain('aria-label="Rardar 关键差异"');
+    expect(html).toContain(rardarDifferentiators[0].title);
+    expect(html).toContain(rardarDifferentiators[0].shortDetail);
+  });
+
   it.each([false, true])('retains the original full Profile and layout on shared board detail, history=%s', (historical) => {
     const original = renderToStaticMarkup(<RardarProjectDetailPage detail={detail} />);
     const html = renderToStaticMarkup(<RardarProjectDetailPage detail={sharedDetail} historical={historical} />);

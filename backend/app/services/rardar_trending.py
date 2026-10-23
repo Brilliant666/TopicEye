@@ -16,7 +16,11 @@ from app.integrations.rardar import trending_metadata
 from app.integrations.rardar.profile_cache_v2 import ProfileStoreEnvelopeV2, _read_plain
 from app.integrations.rardar.project_identity import canonical_repository, project_id_for_repository
 from app.integrations.rardar.read_cache import cached, signature
-from app.integrations.rardar.serving_profiles import _digest, collect_official_project_profile
+from app.integrations.rardar.serving_profiles import (
+    _digest,
+    collect_official_project_profile,
+    project_reading_semantics,
+)
 from app.integrations.rardar.serving_schemas import OfficialProjectProfile, ProjectEvidenceProjection
 from app.integrations.rardar.trending_store import (
     apply_materials,
@@ -330,6 +334,31 @@ def saved_materials(
     )
 
 
+def apply_reading_semantics(profile, evidence, material):
+    """Derive a validated view while retaining the exact immutable input identity."""
+    displayed = OfficialProjectProfile.model_validate_json(json.dumps(material["displayProfile"]), strict=True)
+    revised = OfficialProjectProfile.model_validate_json(
+        json.dumps({**material["displayProfile"], **project_reading_semantics(displayed, evidence)}), strict=True
+    )
+    projected = project_material(revised, evidence)
+    return {
+        **material,
+        **{
+            k: projected[k]
+            for k in ("displayProfile", "profile", "productForms", "runtimeEnvironments", "artifactTypes")
+        },
+        "material": {
+            **material["material"],
+            "readingSemanticsVersion": "v1",
+            "readingRevision": {
+                "version": "v1",
+                "sourceProfileDigest": digest(profile.model_dump(mode="json")),
+                "sourceEvidenceDigest": evidence.digest,
+            },
+        },
+    }
+
+
 def _read_saved_materials(target, *, original_profile_digest=None, repositories=None, selected_ids=None):
     found, times = {}, {}
 
@@ -349,6 +378,9 @@ def _read_saved_materials(target, *, original_profile_digest=None, repositories=
             from app.integrations.rardar.material_content_revision import apply_saved as apply_content
 
             material = apply_content(target, profile, evidence, material)
+            # Validate immutable saved artifacts before deriving the reading view.
+            # Presentation corrections neither regenerate nor rewrite the cache.
+            material = apply_reading_semantics(profile, evidence, material)
         key = canonical_repository(profile.repository)
         # storedAt can change during cache migration, so it must not make an
         # older interpretation replace a newer one. Do not rewrite either date.

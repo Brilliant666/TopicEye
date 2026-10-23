@@ -87,14 +87,19 @@ def _material_evidence(project: dict, *, read_only: bool = False) -> ProjectEvid
         projection = ProjectEvidenceProjection.model_validate_json(json.dumps(project["displayEvidence"]), strict=True)
         revision = project.get("material", {}).get("traitRevision")
         content_revision = project.get("material", {}).get("contentRevision")
-        revision = revision or content_revision
+        reading_revision = project.get("material", {}).get("readingRevision")
+        revision = revision or content_revision or reading_revision
         if revision is not None:
             # Taxonomy is a read-time display correction, not a replacement of
             # the original Profile used by a saved model interpretation. Keep
             # both GET and explicit POST on that exact immutable input. Never
             # search for an arbitrary old insight or rewrite its provenance.
             from app.integrations.rardar.material_trait_revision import apply_saved
-            from app.services.rardar_trending import load_saved_project_profile, project_material
+            from app.services.rardar_trending import (
+                apply_reading_semantics,
+                load_saved_project_profile,
+                project_material,
+            )
 
             original_digest = revision.get("sourceProfileDigest") if isinstance(revision, dict) else None
             if not isinstance(original_digest, str) or len(original_digest) != 64:
@@ -112,6 +117,11 @@ def _material_evidence(project: dict, *, read_only: bool = False) -> ProjectEvid
             from app.integrations.rardar.material_content_revision import apply_saved as apply_content
 
             current_display = apply_content(target, original_profile, original_evidence, current_display)
+            content_profile = OfficialProjectProfile.model_validate_json(
+                json.dumps(current_display["displayProfile"]), strict=True
+            )
+            if reading_revision is not None:
+                current_display = apply_reading_semantics(original_profile, original_evidence, current_display)
             if (
                 digest(original_profile.model_dump(mode="json")) != original_digest
                 or original_evidence.digest != revision.get("sourceEvidenceDigest")
@@ -120,15 +130,19 @@ def _material_evidence(project: dict, *, read_only: bool = False) -> ProjectEvid
                 or (
                     current_display["material"].get("traitRevision")
                     or current_display["material"].get("contentRevision")
+                    or current_display["material"].get("readingRevision")
                 )
                 != revision
                 or current_display["material"].get("contentRevision") != content_revision
+                or current_display["material"].get("readingRevision") != reading_revision
             ):
                 raise ValueError("project_insight_original_material_mismatch")
             # Content repairs genuinely change interpretation input; unlike a
             # taxonomy-only revision they must not impersonate an old result.
             if content_revision is None:
                 profile, projection = original_profile, original_evidence
+            else:
+                profile = content_profile
         # detail() only exports profiles after source/identity/ref validation.
         evidence = _static_project_evidence(SimpleNamespace(profile=profile, evidence=projection))
     else:

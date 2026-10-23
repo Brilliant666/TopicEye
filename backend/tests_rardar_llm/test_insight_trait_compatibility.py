@@ -172,3 +172,16 @@ async def test_revision_cannot_substitute_a_different_original_profile(saved, mo
     assert result.state == "unavailable" and result.errorCode == "project_insight_material_invalid"
     saved.model.assert_not_awaited()
     saved.collect.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_reading_projection_cannot_forge_original_or_display(saved, monkeypatch):
+    displayed = saved.project()
+    assert displayed["material"]["readingRevision"]["version"] == "v1"
+    displayed["displayProfile"]["productFormsZh"] = ["伪造类型"]
+    monkeypatch.setattr(insight, "_project", lambda *_: displayed)
+    result = await insight.read_project_insight("fixture-id", request())
+    assert result.state == "unavailable"
+    assert result.errorCode == "project_insight_material_invalid"
+    saved.model.assert_not_awaited()
+    saved.collect.assert_not_awaited()

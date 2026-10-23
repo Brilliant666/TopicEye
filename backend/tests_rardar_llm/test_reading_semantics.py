@@ -143,6 +143,10 @@ async def test_read_projection_preserves_original_material_and_checks_binding(tm
     before = record.model_dump(mode="json")
     projection = project_reading_semantics(record.profile, record.evidence)
     assert "generatedAt" not in projection and "evidenceDigest" not in projection
+    for claim, original_refs in record.profile.claimEvidenceRefs.items():
+        projected_refs = projection["claimEvidenceRefs"].get(claim, [])
+        if set(original_refs) == set(projected_refs):
+            assert projected_refs == original_refs
     assert record.model_dump(mode="json") == before
     with pytest.raises(ValueError, match="binding_invalid"):
         project_reading_semantics(record.profile, record.evidence.model_copy(update={"repository": "other/project"}))

@@ -2885,7 +2885,10 @@ def project_reading_semantics(
     refs = dict(profile.claimEvidenceRefs)
     for group in (forms, environments, delivery):
         for claim in group:
-            refs[claim.text] = claim.evidenceRefs
+            # Equivalent evidence sets do not need a presentation-only reorder.
+            # Changed support still replaces the old references in full.
+            if set(refs.get(claim.text, [])) != set(claim.evidenceRefs):
+                refs[claim.text] = claim.evidenceRefs
     return {
         "productFormsZh": [item.text for item in forms],
         "supportedEnvironmentsZh": [item.text for item in environments],

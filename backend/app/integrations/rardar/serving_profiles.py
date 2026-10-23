@@ -2216,7 +2216,9 @@ def _owned_trait_evidence(evidence_index: dict[str, str], *, kind: str) -> dict[
             ):
                 # Retain an independent product-model statement in training prose.
                 if kind == "form" and re.search(
-                    r"\b(?:fine[- ]?tuned|language|classification)\s+model\b|微调模型|语言模型", clause, re.I
+                    r"\b(?:fine[- ]?tuned|language|classification|decision|embedding)\s+models?\b|微调模型|语言模型",
+                    clause,
+                    re.I,
                 ):
                     clause = re.sub(r"\b(?:on|using|with)\b.*\bdatasets?\b.*", "", clause, flags=re.I)
                 else:
@@ -2243,7 +2245,10 @@ def _owned_trait_evidence(evidence_index: dict[str, str], *, kind: str) -> dict[
 def _structured_traits(evidence_index: dict[str, str]):
     forms = (
         *_PRODUCT_FORM_RULES,
-        ("模型", r"\b(?:fine[- ]?tuned|language|classification|embedding)\s+model\b|微调模型|语言模型|分类模型"),
+        (
+            "模型",
+            r"\b(?:fine[- ]?tuned|language|classification|decision|embedding)\s+models?\b|微调模型|语言模型|分类模型",
+        ),
     )
     forms = tuple(
         (

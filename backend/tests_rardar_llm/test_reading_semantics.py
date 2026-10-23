@@ -56,6 +56,18 @@ def test_model_training_material_does_not_change_its_product_identity():
     assert "数据集" in labels({"description": "A dataset of annotated acoustic recordings."})[0]
 
 
+@pytest.mark.parametrize("identity", ["decision models", "classification models", "language models", "embedding model"])
+def test_model_family_plural_identity_does_not_become_training_dataset(identity):
+    forms, _, _, _ = labels(
+        {
+            "readme:narrative:positioning": f"Fine-tunes for zero-shot classification: small, fast {identity} you slot into your code.",
+            "readme:section:4": "These models were trained on multiple datasets.",
+        }
+    )
+    assert "模型" in forms
+    assert "数据集" not in forms
+
+
 def test_real_sdk_and_explicit_runtime_support_remain_available():
     forms, environments, delivery, _ = labels(
         {

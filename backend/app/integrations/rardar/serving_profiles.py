@@ -2189,6 +2189,7 @@ def _owned_trait_evidence(evidence_index: dict[str, str], *, kind: str) -> dict[
             if kind == "environment" and re.search(
                 r"\b(?:built\s+(?:with|on)|depends?\s+on|requires?)\b|"
                 r"\bfor\s+(?:building|developing|creating)\b|"
+                r"(?:\bandroid(?:\s+tv)?\b|\bios\b|电视|安卓).{0,24}(?:\bsdk\b|开发工具)|"
                 r"\b(?:windows|linux|macos)\b.{0,40}\b(?:install|adb|sideload|build|compile)\b|"
                 r"(?:依赖|构建工具|安装电脑)",
                 clause,
@@ -2207,6 +2208,7 @@ def _owned_trait_evidence(evidence_index: dict[str, str], *, kind: str) -> dict[
                 r"\b(?:windows|linux|macos)\b.{0,40}\b(?:adb|sideload|build|compile)\b|"
                 r"\b(?:download|open|visit)\b.{0,50}\bbrowser\b|"
                 r"(?:编译|构建|开发环境|安装电脑).{0,50}(?:SDK|Windows|Linux|浏览器)|"
+                r"(?:安装|下载).{0,30}(?:开发\s*)?SDK|"
                 r"\b(?:trained|training|fine[- ]?tun(?:e|ed|ing))\b.{0,100}\bdatasets?\b|"
                 r"(?:训练|微调).{0,60}数据集",
                 clause,
@@ -2249,7 +2251,8 @@ def _structured_traits(evidence_index: dict[str, str]):
             pattern
             if label != "完整应用"
             else pattern
-            + r"|\b(?:android(?:\s+tv)?|ios)\s+(?:app|application|launcher)\b|\blauncher\s+for\s+android(?:\s+tv)?\b|安卓应用",
+            + r"|\b(?:android(?:\s+tv)?|ios)\s+(?:app|application|launcher)\b|\blauncher\s+for\s+android(?:\s+tv)?\b|安卓应用"
+            + r"|(?:\bandroid(?:\s+tv)?\b|\bios\b|安卓)\s*(?:桌面|启动器|应用)",
         )
         for label, pattern in forms
     )

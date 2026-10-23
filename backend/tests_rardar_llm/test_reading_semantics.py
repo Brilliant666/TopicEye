@@ -31,6 +31,19 @@ def test_android_application_is_not_its_build_sdk_or_installation_host():
     assert "SDK" in legacy[0]
 
 
+@pytest.mark.parametrize("product", ["桌面", "启动器", "应用"])
+def test_mixed_language_platform_identity_is_preserved_without_build_host_claims(product):
+    evidence = {
+        "readme:narrative:positioning": f"参照电视界面设计的 Android TV {product}：没有广告，只有你的应用和壁纸。",
+        "readme:section:3": "安装 Android TV 开发 SDK，在 Windows 上编译。",
+    }
+    forms, environments, delivery, _ = labels(evidence)
+    assert "完整应用" in forms
+    assert environments == ["Android TV"]
+    assert "SDK" not in forms + delivery
+    assert labels({"description": "安装 Android TV 开发 SDK，在 Windows 上编译。"})[1] == []
+
+
 def test_model_training_material_does_not_change_its_product_identity():
     forms, _, _, _ = labels(
         {

@@ -177,7 +177,7 @@ async def test_revision_cannot_substitute_a_different_original_profile(saved, mo
 @pytest.mark.asyncio
 async def test_reading_projection_cannot_forge_original_or_display(saved, monkeypatch):
     displayed = saved.project()
-    assert displayed["material"]["readingRevision"]["version"] == "v1"
+    assert displayed["material"]["readingRevision"]["version"] == "v2"
     displayed["displayProfile"]["productFormsZh"] = ["伪造类型"]
     monkeypatch.setattr(insight, "_project", lambda *_: displayed)
     result = await insight.read_project_insight("fixture-id", request())

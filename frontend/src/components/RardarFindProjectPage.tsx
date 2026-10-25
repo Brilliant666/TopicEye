@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuthContext } from '@/providers/AppProvider';
+import { parseUTC } from '@/lib/datetime';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -200,11 +201,12 @@ function FindProjectSession({
             <button type="button" className={styles.findRecentItem} onClick={() => void openSaved(item.runId)}>
               <span>{item.requirementSummary}</span>
               <span className={styles.findRecentStatus}>{findRunLabel(item.status)}</span>
+              <span className={styles.findRecentStatus}>运行创建：{formatRunTime(item.createdAt)}</span>
             </button>
           </li>)}
         </ul>
       </section>}
-      {currentUser && viewOwner === userId && result && <FindResults result={result} />}
+      {currentUser && viewOwner === userId && result && <FindResults result={result} run={run} />}
       {(run || pendingKey) && <button type="button" className={styles.sourceLine} disabled={loading || run?.status === 'running'} onClick={() => { if (!window.confirm('开始新的查找可能产生新的模型请求。仅清理本页状态，不删除服务器记录；未确认的原运行仍可从最近记录回查。')) return; setRun(null); setResult(null); setPendingKey(null); setError(null); window.history.replaceState(null, '', '/find'); try { sessionStorage.removeItem(`${pendingPrefix}${userId}`); } catch { /* optional storage */ } }}>清理本页并开始新的查找（保留服务器记录）</button>}
     </div>
   );
@@ -214,9 +216,14 @@ export function findRunLabel(status: FindRun['status']) {
   return { created: '运行已保存，尚未执行', running: '正在处理，可稍后回查', completed: '完整结果已保存', no_candidates: '本次未找到候选，结果已保存', partial: '部分结果已保存，比较未完整完成', failed: '处理失败，运行记录已保存', budget_stopped: '达到请求上限，已停止新增调用', interrupted: '执行已中断，不会自动付费重跑', uncertain: '请求结果尚未确认，不会自动重发' }[status];
 }
 
-export function FindResults({ result }: { result: FindProjectResponse }) {
+export function FindResults({ result, run }: { result: FindProjectResponse; run?: Pick<FindRun, 'createdAt' | 'finishedAt'> | null }) {
   return (
     <div className={styles.findResults}>
+      {run && <section className={styles.aiPanel} aria-label="原运行时间">
+        <p>运行创建：{formatRunTime(run.createdAt)}</p>
+        {run.finishedAt && <p>运行结束：{formatRunTime(run.finishedAt)}</p>}
+        <p>以下为该运行已保存的检索与比较结果，查看不会重新检索或调用模型。仓库资料保留当时状态，不代表当前最新情况。</p>
+      </section>}
       <section className={styles.aiPanel} aria-label="本次需求">
         <h2>本次需求</h2><p>{result.requirement}</p>
         {result.requirementProfile ? <dl><dt>主要用途</dt><dd>{result.requirementProfile.purpose}</dd><dt>必须满足</dt><dd>{result.requirementProfile.mustHave.join('；') || '未明确'}</dd><dt>偏好</dt><dd>{result.requirementProfile.preferences.join('；') || '未提出'}</dd><dt>明确排除</dt><dd>{result.requirementProfile.exclusions.join('；') || '未提出'}</dd></dl> : <p>需求拆解尚未完成；保留原需求，不将未处理条件视为已核对。</p>}
@@ -224,13 +231,13 @@ export function FindResults({ result }: { result: FindProjectResponse }) {
       <div className={styles.sectionHeading}>
         <div><h2>快速候选 · {result.quickCandidates.length}</h2><p>{result.coverageLabel}</p></div>
         <span className={`${styles.dataState} ${result.searchState === 'github_live' ? styles.dataLive : ''}`}>
-          {result.searchState === 'github_live' ? 'GitHub 实时召回' : result.searchState === 'demo' ? '本地演示候选' : 'Limited Mode'}
+          {result.searchState === 'github_live' ? run ? '已保存的 GitHub 检索结果' : 'GitHub 公开检索' : result.searchState === 'demo' ? '本地演示候选' : 'Limited Mode'}
         </span>
       </div>
       <p className={styles.sourceLine}>来源：{result.sources.join(' · ') || '无可用来源'}。结果不代表扫描了全部 GitHub。</p>
       <details className={styles.sourceLine}><summary>本次公开检索范围</summary><ul>{result.queriedQueries.map((query) => <li key={query}>{query}</li>)}</ul></details>
       <div className={styles.sectionHeading}><div><h2>需求与证据对照 · {result.comparison?.candidates.length || 0} 个重点方案</h2><p>README / 官方静态资料中的声明，不代表功能已实际运行验证。最多三个，不凑数量。</p></div></div>
-      <AIComparison result={result} />
+      <AIComparison result={result} savedRun={!!run} />
       <h2>全部真实召回候选</h2>
       <p className={styles.sourceLine}>未深入分析的候选不是已验证不合适；Star 仅作背景信息。</p>
       <section className={styles.quickGrid} aria-label="找项目快速候选">
@@ -248,7 +255,7 @@ function QuickCandidateCard({ candidate, evidenceSources }: { candidate: QuickPr
       <div className={styles.quickCardTop}>
         <a href={candidate.htmlUrl} target="_blank" rel="noreferrer">{candidate.repository}<ArrowUpRight size={14} /></a>
         <span className={candidate.dataState === 'github_live' ? styles.liveBadge : styles.demoBadge}>
-          {candidate.dataState === 'github_live' ? 'GitHub live' : '本地演示'}
+          {candidate.dataState === 'github_live' ? 'GitHub 公开仓库' : '本地演示'}
         </span>
       </div>
       <p>{candidate.description || 'GitHub 暂未提供简介。'}</p>
@@ -265,7 +272,7 @@ function QuickCandidateCard({ candidate, evidenceSources }: { candidate: QuickPr
   );
 }
 
-function AIComparison({ result }: { result: FindProjectResponse }) {
+function AIComparison({ result, savedRun }: { result: FindProjectResponse; savedRun: boolean }) {
   if (result.aiState === 'unavailable' || result.aiState === 'insufficient_candidates' || result.aiState === 'plain') {
     return (
       <section className={`${styles.aiPanel} ${styles.aiUnavailable}`}>
@@ -298,7 +305,7 @@ function AIComparison({ result }: { result: FindProjectResponse }) {
         </article>
       ))}
       <div className={styles.overallConclusion}><Sparkles size={17} /><p><strong>整体结论</strong><br />{result.comparison.overallConclusion}</p></div>
-      <small className={styles.aiProvenance}>{result.model || '已配置的 rardar 模型'} · {result.cacheHit ? '缓存命中' : '本次生成'} · AI 不拥有 GitHub 事实</small>
+      <small className={styles.aiProvenance}>{result.model || '已配置的 rardar 模型'} · {result.cacheHit ? savedRun ? '原运行复用缓存' : '缓存命中' : savedRun ? '原运行生成' : '本次生成'} · AI 不拥有 GitHub 事实</small>
     </section>
   );
 }
@@ -309,6 +316,16 @@ function formatNumber(value: number) {
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit' }).format(new Date(value));
+}
+
+function formatRunTime(value: string | null | undefined) {
+  if (!value) return '时间未知';
+  const date = parseUTC(value);
+  if (!Number.isFinite(date.getTime())) return '时间未知';
+  return `${new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).format(date)} 北京时间`;
 }
 
 function EvidenceLinks({ refs, repository, result }: { refs: string[]; repository: string; result: FindProjectResponse }) {

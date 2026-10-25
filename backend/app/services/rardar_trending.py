@@ -345,13 +345,20 @@ def apply_reading_semantics(profile, evidence, material):
         **material,
         **{
             k: projected[k]
-            for k in ("displayProfile", "profile", "productForms", "runtimeEnvironments", "artifactTypes")
+            for k in (
+                "materialState",
+                "displayProfile",
+                "profile",
+                "productForms",
+                "runtimeEnvironments",
+                "artifactTypes",
+            )
         },
         "material": {
             **material["material"],
-            "readingSemanticsVersion": "v1",
+            "readingSemanticsVersion": "v2",
             "readingRevision": {
-                "version": "v1",
+                "version": "v2",
                 "sourceProfileDigest": digest(profile.model_dump(mode="json")),
                 "sourceEvidenceDigest": evidence.digest,
             },
@@ -448,7 +455,12 @@ def _read_saved_materials(target, *, original_profile_digest=None, repositories=
                             continue
             for repository, introduction in introductions.items():
                 if repository not in found and (repositories is None or repository in repositories):
-                    found[repository] = project_introductions.material(introduction)
+                    try:
+                        found[repository] = project_introductions.material(introduction)
+                    except ValueError:
+                        # An unusable optional introduction cannot replace facts
+                        # or take down otherwise healthy project materials.
+                        continue
     return found
 
 

@@ -15,6 +15,51 @@ from app.integrations.rardar.serving_schemas import OfficialProjectProfile, Proj
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
 
 
+def non_project_prose(value: str | None) -> bool:
+    """Administrative notices and acquisition ads are not a project's identity.
+
+    Keep the source as evidence; only exclude it from primary reading fields.
+    A real project description may still contain limitations or a free offering.
+    """
+    text = re.sub(r"<[^>]+>", " ", value or "")
+    text = re.sub(r"[>*_#`]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return bool(
+        re.search(
+            r"^(?:免责声明|法律声明|使用声明|disclaimer\b|legal\s+notice\b|"
+            r"广告\s*[:：]|赞助\s*[:：]|推广\s*[:：]|sponsored\b|advertisement\b)"
+            r"|^(?:本|该)(?:仓库|项目|代码)(?:的所有内容)?.{0,16}(?:仅供学习|仅供研究|禁止用于)"
+            r"|(?:立即(?:免费)?(?:试用|注册)|start\s+(?:your\s+)?free\s+trial|sign\s+up\s+now)",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def alternate_edition_boundary(value: str) -> bool:
+    """An explicit other-edition boundary remains meaningful even when short."""
+    text = re.sub(r"<[^>]+>", " ", value)
+    text = re.sub(r"\s+", " ", text).strip()
+    return bool(
+        re.search(
+            r"开源版不够用|相较于开源版本|(?:付费|商业|企业|专业)版.{0,16}(?:优势|升级|独有)"
+            r"|(?:pro|premium|enterprise)\s*(?:版本|版|edition).{0,24}(?:独有|专属|only|upgrade)"
+            r"|(?:paid|commercial)\s+edition\s+(?:only|features)",
+            text,
+            re.IGNORECASE,
+        )
+    )
+
+
+def alternate_edition_section(section) -> bool:
+    """Do not attribute an explicitly promoted alternative edition to this one.
+
+    New parsing separates these boundaries before the prose-length filter.
+    Legacy mixed sections lack that ordering, so omission remains conservative.
+    """
+    return alternate_edition_boundary(" ".join([section.heading, *section.excerpts]))
+
+
 def introduction_boilerplate(value: str | None) -> bool:
     """Exclude acknowledgements/navigation and empty slogans, not project claims.
 
@@ -202,10 +247,11 @@ def saved(cache_root: Path) -> dict:
 def material(value: dict) -> dict:
     evidence = _validate(value)
     if value["schemaVersion"] == 2:
-        from app.services.rardar_trending import project_material
+        from app.services.rardar_trending import apply_reading_semantics, project_material
 
         profile = OfficialProjectProfile.model_validate_json(json.dumps(value["partialProfile"]), strict=True)
         projected = project_material(profile, evidence, source_kind="partial_profile")
+        projected = apply_reading_semantics(profile, evidence, projected)
         if projected["materialState"] != "partial":
             raise ValueError("project_partial_positioning_not_partial")
         return {
@@ -218,6 +264,14 @@ def material(value: dict) -> dict:
                 "savedAt": value["savedAt"],
             },
         }
+    summary, refs = value["summary"], value["evidenceRefs"]
+    if non_project_prose(summary):
+        from app.integrations.rardar.serving_profiles import _source_claims
+
+        summary, ref, *_ = _source_claims(evidence.selectedSections, evidence.evidenceIndex.get("description"))
+        if not readable_chinese_introduction(summary) or summary not in evidence.evidenceIndex.get(ref, ""):
+            raise ValueError("reading_primary_source_unavailable")
+        refs = [ref]
     return {
         "repository": value["repository"],
         "githubRepositoryId": value["githubRepositoryId"],
@@ -225,7 +279,7 @@ def material(value: dict) -> dict:
         "displayProfile": None,
         "displayEvidence": None,
         "profile": {
-            "summary": value["summary"],
+            "summary": summary,
             "positioning": None,
             "capabilities": [],
             "useCases": [],
@@ -237,7 +291,7 @@ def material(value: dict) -> dict:
             "savedAt": value["savedAt"],
             "sourceRevision": evidence.digest,
             "sourceGeneration": evidence.generationId,
-            "evidenceRefs": value["evidenceRefs"],
+            "evidenceRefs": refs,
             "summaryEvidence": [
                 {
                     "ref": ref,
@@ -249,7 +303,7 @@ def material(value: dict) -> dict:
                         else ""
                     ),
                 }
-                for ref in value["evidenceRefs"]
+                for ref in refs
             ],
         },
         "material": {

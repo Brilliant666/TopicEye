@@ -409,6 +409,52 @@ _FIXED_TRANSLATION_RULES = frozenset(
     }
 )
 
+# Candidate selection is local semantic validation, not a Provider request.
+# Only this finite registry may cross the persistence boundary; never accept
+# an arbitrary suffix merely because it starts with ``positioning_candidate``.
+_POSITIONING_CANDIDATE_REASONS = frozenset(
+    {
+        "text_invalid",
+        "official_prose_not_positioning",
+        "evidence_invalid",
+        "identity_duplicate",
+        "serving_contract_invalid",
+    }
+    | {code for code in PROFILE_VALIDATION_RULES.values() if code.startswith("profile_serving_v6_")}
+)
+_POSITIONING_CANDIDATE_REJECTIONS = {
+    f"positioning_candidate_{mode}_{reason}": (mode, reason)
+    for mode in ("official_zh", "official_translated", "rardar_derived")
+    for reason in _POSITIONING_CANDIDATE_REASONS
+}
+
+
+def _positioning_failure_diagnostic(code: str, *, evidence_digest: object) -> dict[str, str | None] | None:
+    """Describe a fixed local rejection without claiming an unseen model response."""
+    known = _POSITIONING_CANDIDATE_REJECTIONS.get(code)
+    if known is None:
+        return None
+    mode, reason = known
+    field = "positioningZh"
+    if "evidence" in reason:
+        field = "positioningEvidenceRefs"
+    elif "roles" in reason or "mechanism_or_primary_outcome" in reason:
+        field = "positioningIncludedRoles"
+    elif "source_mode" in reason:
+        field = "positioningSourceMode"
+    return {
+        "sourceMode": mode,
+        "classification": "semantic_invalid",
+        "validationStage": "semantic",
+        "fieldPath": f"$.{field}",
+        "ruleCode": reason,
+        "inputDigest": (
+            evidence_digest
+            if isinstance(evidence_digest, str) and re.fullmatch(r"[a-f0-9]{64}", evidence_digest)
+            else None
+        ),
+    }
+
 
 def _generation_failure_diagnostic(
     error: Exception, *, model_class: str, prompt_version: str, input_digest: str, sample_id: str | None = None
@@ -464,9 +510,18 @@ def _stable_profile_failure(
             return "profile_evidence_mismatch", failure.stage
         return "profile_translation_unavailable", failure.stage
     if failure.stage == "positioning":
-        if any(token in code for token in ("invalid_json", "schema_invalid", "empty", "evidence_mismatch")):
+        if code in _POSITIONING_CANDIDATE_REJECTIONS or any(
+            token in code for token in ("invalid_json", "schema_invalid", "empty", "evidence_mismatch")
+        ):
             return "profile_model_invalid_output", failure.stage
-        return "profile_model_unavailable", failure.stage
+        if code in {
+            "positioning_timeout",
+            "positioning_provider_error",
+            "positioning_rate_limited",
+            "positioning_budget",
+        }:
+            return "profile_model_unavailable", failure.stage
+        return "profile_unknown_failure", failure.stage
     if failure.stage == "cache":
         return "profile_unknown_failure", failure.stage
     if failure.stage == "fallback":
@@ -628,7 +683,9 @@ def _positioning_candidate_issue(
 ) -> str | None:
     """Use the final v6 contract before preference ordering can discard alternatives."""
 
-    if not _publishable_primary_text(candidate.text):
+    from app.integrations.rardar.project_introductions import non_project_prose
+
+    if not _publishable_primary_text(candidate.text) or non_project_prose(candidate.text):
         return "text_invalid"
     if candidate.source_mode != "rardar_derived" and not _official_positioning_is_high_signal(candidate.text, "zh"):
         return "official_prose_not_positioning"
@@ -821,7 +878,11 @@ def _semantic_structuring_required(
 def _official_positioning_is_high_signal(value: str, source_language: str | None) -> bool:
     """Reject navigation, operation, and validation prose before treating it as positioning."""
 
+    from app.integrations.rardar.project_introductions import non_project_prose
+
     cleaned = _clean_inline(value, 2000)
+    if non_project_prose(cleaned):
+        return False
     if len(cleaned) > 600 or _navigation_line(cleaned):
         return False
     # A flattened Markdown table is still a table, not a positioning sentence.
@@ -867,7 +928,7 @@ def _official_positioning_is_high_signal(value: str, source_language: str | None
         return bool(
             re.search(
                 r"(?:是(?:一|由)|一套|一个|一种|一款|架构|驱动|机制|框架|系统|工具|平台|插件|引擎|渲染器|"
-                r"用于|帮助|支持|提供|实现|构建|转换|转化|通过|采用|利用|面向|选择|指导|将|把)",
+                r"用于|帮助|支持|提供|实现|构建|转换|转化|通过|采用|利用|基于|面向|选择|指导|将|把)",
                 cleaned,
                 re.IGNORECASE,
             )
@@ -1055,7 +1116,7 @@ def _warning_only(value: str) -> bool:
 
 
 def _valid_intro_prose(raw: str, *, tagline: bool = False) -> str | None:
-    from app.integrations.rardar.project_introductions import introduction_boilerplate
+    from app.integrations.rardar.project_introductions import introduction_boilerplate, non_project_prose
 
     if (
         not raw
@@ -1066,7 +1127,7 @@ def _valid_intro_prose(raw: str, *, tagline: bool = False) -> str | None:
     ):
         return None
     cleaned = _clean_inline(raw, 2000)
-    if not cleaned or _warning_only(cleaned) or introduction_boilerplate(cleaned):
+    if not cleaned or _warning_only(cleaned) or introduction_boilerplate(cleaned) or non_project_prose(cleaned):
         return None
     if re.search(r"(?:当前|current)\s*(?:开发\s*)?版本|\bv?\d+\.\d+\.\d+\b", cleaned, re.IGNORECASE):
         return None
@@ -1182,6 +1243,29 @@ def _extract_official_narrative(
     )
     positioning = positioning_pair[1] if positioning_pair else None
     positioning_ref = "readme:narrative:positioning" if positioning_pair else None
+    # An H1 may be followed by sponsor blocks/notices before the actual H2
+    # introduction. Reuse the existing parsed source sections and their refs,
+    # not an unrelated first paragraph or a generated replacement.
+    if tagline_pair is None:
+        sections = _parse_readme(markdown, readme_path)
+        summary, source_ref, *_ = _source_claims(sections, description)
+        if summary and _valid_intro_prose(summary):
+            tagline, tagline_ref = summary, source_ref
+        for sequence, section in enumerate(sections, 1):
+            if section.purpose != "overview":
+                continue
+            for index, item in enumerate(section.listItems, 1):
+                if (
+                    _valid_intro_prose(item)
+                    and _official_positioning_is_high_signal(item, _source_language(item, None))
+                    and {"core_mechanism", "primary_outcome"}.intersection(_positioning_roles(item))
+                    and not _primary_semantic_duplicate(tagline or "", item)
+                ):
+                    positioning = item
+                    positioning_ref = f"readme:section:{sequence}:item:{index}"
+                    break
+            if positioning:
+                break
     issues: list[str] = []
     if tagline is None:
         issues.append("tagline_missing")
@@ -1204,11 +1288,16 @@ def _extract_official_narrative(
 
 
 def _parse_readme(markdown: str, readme_path: str) -> list[ReadmeSection]:
+    from app.integrations.rardar.project_introductions import alternate_edition_boundary
+
     sections: list[dict[str, Any]] = []
     current: dict[str, Any] = {"heading": "项目概览", "purpose": "overview", "paragraphs": [], "items": []}
     paragraph: list[str] = []
     in_fence = False
     pending_html_item_title: str | None = None
+    details_depth = 0
+    edition_parent: dict[str, Any] | None = None
+    edition_details_depth = 0
 
     def flush_paragraph() -> None:
         if paragraph:
@@ -1235,6 +1324,7 @@ def _parse_readme(markdown: str, readme_path: str) -> list[ReadmeSection]:
             sections.append(
                 {
                     "heading": title,
+                    "anchorHeading": current.get("anchorHeading", title),
                     "purpose": current["purpose"],
                     "paragraphs": paragraphs[:4],
                     "items": current["items"][:8],
@@ -1248,7 +1338,43 @@ def _parse_readme(markdown: str, readme_path: str) -> list[ReadmeSection]:
             continue
         if in_fence:
             continue
+        if re.fullmatch(r"<details(?:\s[^>]*)?>", line, re.IGNORECASE):
+            flush_paragraph()
+            details_depth += 1
+            continue
+        if re.fullmatch(r"</details\s*>", line, re.IGNORECASE):
+            flush_paragraph()
+            details_depth = max(0, details_depth - 1)
+            if edition_parent is not None and details_depth < edition_details_depth:
+                flush_section()
+                current = {**edition_parent, "paragraphs": [], "items": []}
+                edition_parent = None
+                pending_html_item_title = None
+            continue
         heading = _heading_parts(line)
+        boundary = heading[1] if heading else _clean_inline(line, 200)
+        if alternate_edition_boundary(boundary):
+            # Preserve source role before the 24-character paragraph filter can
+            # discard a short "other edition" label. Keep adjacent current-
+            # edition items in their own section instead of dropping them too.
+            flush_section()
+            anchor_heading = heading[1] if heading else current.get("anchorHeading", current["heading"])
+            if details_depth and edition_parent is None:
+                edition_parent = {
+                    "heading": current["heading"],
+                    "purpose": current["purpose"],
+                    "anchorHeading": current.get("anchorHeading", current["heading"]),
+                }
+                edition_details_depth = details_depth
+            current = {
+                "heading": boundary,
+                "anchorHeading": anchor_heading,
+                "purpose": "other",
+                "paragraphs": [],
+                "items": [],
+            }
+            pending_html_item_title = None
+            continue
         if heading:
             level, title = heading
             if level <= 2:
@@ -1258,6 +1384,7 @@ def _parse_readme(markdown: str, readme_path: str) -> list[ReadmeSection]:
                 if purpose == "other" and not sections:
                     purpose = "overview"
                 current = {"heading": title, "purpose": purpose, "paragraphs": [], "items": []}
+                edition_parent = None
                 pending_html_item_title = None
             elif _HTML_HEADING.match(line) and current["purpose"] == "capabilities":
                 flush_paragraph()
@@ -1313,7 +1440,7 @@ def _parse_readme(markdown: str, readme_path: str) -> list[ReadmeSection]:
     selected = sorted(enumerate(sections), key=lambda pair: (priority[pair[1]["purpose"]], pair[0]))[:12]
     result: list[ReadmeSection] = []
     for sequence, (_, section) in enumerate(selected, 1):
-        anchor = _anchor(section["heading"])
+        anchor = _anchor(section.get("anchorHeading", section["heading"]))
         path = f"{readme_path}#{anchor}" if anchor else readme_path
         references = [f"readme:section:{sequence}"]
         references.extend(f"readme:section:{sequence}:item:{index}" for index in range(1, len(section["items"]) + 1))
@@ -2865,6 +2992,114 @@ def _nonduplicate_differentiators(
     return result[:2]
 
 
+def _saved_narrative_reading(profile, evidence) -> dict[str, Any]:
+    """Select exact saved prose, never repair the immutable source in place."""
+    from app.integrations.rardar.project_introductions import alternate_edition_section, non_project_prose
+
+    sections = evidence.selectedSections
+    excluded_refs = {
+        ref
+        for index, section in enumerate(sections, 1)
+        if alternate_edition_section(section)
+        for ref in evidence.evidenceIndex
+        if ref == f"readme:section:{index}" or ref.startswith(f"readme:section:{index}:item:")
+    }
+    refs = dict(profile.claimEvidenceRefs)
+    result: dict[str, Any] = {}
+
+    def exact(text, source_refs):
+        return bool(
+            text
+            and source_refs
+            and all(ref in evidence.evidenceIndex for ref in source_refs)
+            and any(text in evidence.evidenceIndex[ref] for ref in source_refs)
+        )
+
+    summary = profile.identitySummaryZh or profile.officialSummaryZh
+    if non_project_prose(summary):
+        replacement, ref, *_ = _source_claims(sections, evidence.evidenceIndex.get("description"))
+        if not replacement or not _CHINESE.search(replacement) or not exact(replacement, [ref]):
+            # No trustworthy replacement: omit this optional enhancement rather
+            # than invent a description or conceal a broken source artifact.
+            raise ValueError("reading_primary_source_unavailable")
+        summary = replacement
+        refs[summary] = [ref]
+        result.update(
+            identitySummaryZh=summary,
+            officialSummaryZh=summary,
+            officialTaglineZh=summary,
+            officialTaglineEvidenceRefs=[ref],
+        )
+
+    if non_project_prose(profile.positioningZh or profile.officialPositioningZh):
+        candidates = []
+        for sequence, section in enumerate(sections, 1):
+            if section.purpose != "overview" or alternate_edition_section(section):
+                continue
+            source = [(text, f"readme:section:{sequence}") for text in section.excerpts]
+            source += [
+                (text, f"readme:section:{sequence}:item:{index}") for index, text in enumerate(section.listItems, 1)
+            ]
+            for text, ref in source:
+                if _CHINESE.search(text) and _valid_intro_prose(text) and exact(text, [ref]):
+                    candidates.append(
+                        _PositioningCandidate(
+                            text=text,
+                            evidence_refs=(ref,),
+                            source_mode="official_zh",
+                            included_roles=tuple(_positioning_roles(text)),
+                        )
+                    )
+        selected, _ = _select_positioning_candidate(
+            candidates, identity=summary, allowed_refs=set(evidence.evidenceIndex)
+        )
+        text = selected.text if selected else None
+        source_refs = list(selected.evidence_refs) if selected else []
+        if text:
+            refs[text] = source_refs
+        result.update(
+            positioningZh=text,
+            officialPositioningZh=text,
+            positioningEvidenceRefs=source_refs,
+            officialPositioningEvidenceRefs=source_refs,
+            positioningSourceMode=selected.source_mode if selected else "insufficient",
+            positioningIncludedRoles=list(selected.included_roles) if selected else [],
+            positioningExcludedClauses=[],
+        )
+
+    def belongs(item):
+        return not item.evidenceRefs or not all(ref in excluded_refs for ref in item.evidenceRefs)
+
+    for name in ("capabilities", "keyDifferentiators", "rardarDifferentiators", "officialHighlights"):
+        original = getattr(profile, name)
+        kept = [item for item in original if belongs(item)]
+        if len(kept) != len(original):
+            result[name] = [item.model_dump(mode="json") for item in kept]
+            if name == "officialHighlights":
+                for index, item in enumerate(result[name], 1):
+                    item["sourceOrder"] = index
+            if name == "capabilities":
+                result["capabilityBulletsZh"] = [item.detail for item in kept]
+    for name, ref_name in (
+        ("coreValueZh", "coreValueEvidenceRefs"),
+        ("rardarAssessmentZh", "rardarAssessmentEvidenceRefs"),
+    ):
+        if non_project_prose(getattr(profile, name)):
+            result.update({name: None, ref_name: []})
+    if result:
+        # Removing a misattributed layer must not retain a completeness claim.
+        result.update(
+            profileState="partial",
+            qualityState="partial",
+            qualityIssues=list(dict.fromkeys([*profile.qualityIssues, "reading_source_roles_corrected"])),
+            officialNarrativeMode="rardar_derived",
+            officialNarrativeIssues=list(dict.fromkeys([*profile.officialNarrativeIssues, "source_structure_weak"])),
+            sourceLabel="Rardar 整理",
+            claimEvidenceRefs=refs,
+        )
+    return result
+
+
 def project_reading_semantics(
     profile: OfficialProjectProfile,
     evidence: ProjectEvidenceProjection,
@@ -2889,7 +3124,7 @@ def project_reading_semantics(
             # Changed support still replaces the old references in full.
             if set(refs.get(claim.text, [])) != set(claim.evidenceRefs):
                 refs[claim.text] = claim.evidenceRefs
-    return {
+    result = {
         "productFormsZh": [item.text for item in forms],
         "supportedEnvironmentsZh": [item.text for item in environments],
         "deliveryFormsZh": [item.text for item in delivery],
@@ -2907,6 +3142,17 @@ def project_reading_semantics(
         ],
         "claimEvidenceRefs": refs,
     }
+    narrative = _saved_narrative_reading(profile, evidence)
+    if narrative:
+        result.update(narrative)
+        result["claimEvidenceRefs"] = {**refs, **narrative["claimEvidenceRefs"]}
+        capabilities = [
+            ServingCapability.model_validate(item) for item in narrative.get("capabilities", profile.capabilities)
+        ]
+        for name in ("keyDifferentiators", "rardarDifferentiators"):
+            items = [ServingCapability.model_validate(item) for item in result[name]]
+            result[name] = [item.model_dump(mode="json") for item in _nonduplicate_differentiators(items, capabilities)]
+    return result
 
 
 def _separate_official_assessment_differentiators(
@@ -3799,20 +4045,31 @@ def _source_claims(
     sections: list[ReadmeSection],
     description: str | None,
 ) -> tuple[str | None, str, list[str], list[str], list[str], dict[str, list[str]]]:
-    from app.integrations.rardar.project_introductions import introduction_boilerplate
+    from app.integrations.rardar.project_introductions import (
+        alternate_edition_section,
+        introduction_boilerplate,
+        non_project_prose,
+    )
 
     safe_description = _safe_source_text(description)
+    if non_project_prose(safe_description):
+        safe_description = None
+    eligible = [(index, section) for index, section in enumerate(sections, 1) if not alternate_edition_section(section)]
     overview_pair = next(
         (
             (sequence, section)
-            for sequence, section in enumerate(sections, 1)
-            if section.purpose == "overview" and section.excerpts
+            for sequence, section in eligible
+            if section.purpose == "overview" and any(_valid_intro_prose(text) for text in section.excerpts)
         ),
         None,
     )
     if overview_pair is None:
         overview_pair = next(
-            ((sequence, section) for sequence, section in enumerate(sections, 1) if section.excerpts),
+            (
+                (sequence, section)
+                for sequence, section in eligible
+                if any(_valid_intro_prose(text) for text in section.excerpts)
+            ),
             None,
         )
     overview = overview_pair[1] if overview_pair else None
@@ -3821,8 +4078,10 @@ def _source_claims(
             (
                 text
                 for text in overview.excerpts
-                if not re.search(r"\d[\d,.]*[kK+]*\s*(?:stars|forks|贡献者)", text, re.I)
+                if _valid_intro_prose(text)
+                and not re.search(r"\d[\d,.]*[kK+]*\s*(?:stars|forks|贡献者)", text, re.I)
                 and not introduction_boilerplate(text)
+                and not non_project_prose(text)
             ),
             safe_description,
         )
@@ -3834,24 +4093,33 @@ def _source_claims(
         if overview_pair and summary in overview_pair[1].excerpts
         else ("description" if safe_description else "repository")
     )
-    capability_sections = [section for section in sections if section.purpose == "capabilities"]
-    use_case_sections = [section for section in sections if section.purpose == "use_cases"]
+    capability_sections = [section for _, section in eligible if section.purpose == "capabilities"]
+    use_case_sections = [section for _, section in eligible if section.purpose == "use_cases"]
     delivery_sections = [
-        section for section in sections if section.purpose in {"quick_start", "architecture", "examples"}
+        section for _, section in eligible if section.purpose in {"quick_start", "architecture", "examples"}
     ]
 
     def claims(source: list[ReadmeSection]) -> list[str]:
-        return [item for section in source for item in (section.listItems or section.excerpts[:1])][:8]
+        return [
+            item
+            for section in source
+            for item in (section.listItems or section.excerpts[:1])
+            if not non_project_prose(item)
+        ][:8]
 
     capability_overview = overview or next(
         (
             section
-            for section in sections
+            for _, section in eligible
             if section.purpose in {"overview", "architecture", "other"} and section.listItems
         ),
         None,
     )
-    overview_capabilities = capability_overview.listItems[:8] if capability_overview else []
+    overview_capabilities = (
+        [item for item in capability_overview.listItems if not non_project_prose(item)][:8]
+        if capability_overview
+        else []
+    )
     capabilities = overview_capabilities or claims(capability_sections)
     use_cases = claims(use_case_sections)
     delivery = claims(delivery_sections)
@@ -4775,7 +5043,13 @@ async def collect_official_project_profile(
         candidates, identity=summary, allowed_refs=set(evidence.evidenceIndex)
     )
     generation_failures.extend(
-        ProfileGenerationFailure("positioning", code, selected_positioning is not None) for code in rejected_candidates
+        ProfileGenerationFailure(
+            "positioning",
+            code,
+            selected_positioning is not None,
+            _positioning_failure_diagnostic(code, evidence_digest=evidence.digest),
+        )
+        for code in rejected_candidates
     )
     if selected_positioning is None:
         official_positioning = None

@@ -20,7 +20,9 @@ def test_markdown_cleanup_preserves_technical_meaning():
 def test_banner_fallback_keeps_actual_description_reference():
     from app.integrations.rardar.serving_profiles import _source_claims
 
-    banner = SimpleNamespace(purpose="overview", excerpts=["140K+ stars | 21K+ forks"], listItems=[])
+    banner = SimpleNamespace(
+        heading="项目概览", purpose="overview", excerpts=["140K+ stars | 21K+ forks"], listItems=[]
+    )
     summary, reference, *_ = _source_claims([banner], "A configuration collection for coding agents.")
     assert summary == "A configuration collection for coding agents."
     assert reference == "description"

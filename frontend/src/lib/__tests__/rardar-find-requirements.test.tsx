@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import ClientLayout from '@/components/ClientLayout';
 import RardarFindProjectPage, { FindResults, validSavedFindResults } from '@/components/RardarFindProjectPage';
-import type { FindProjectResponse } from '@/lib/rardar-product';
+import type { FindProjectResponse, FindRun } from '@/lib/rardar-product';
 import type { AuthUser } from '@/types';
 
 vi.mock('next/navigation', () => ({ usePathname: () => '/find', useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }) }));
@@ -22,6 +22,35 @@ function response(count: number): FindProjectResponse {
 }
 
 describe('Find requirement-first real component tree', () => {
+  it('dates saved results by their original run and does not label readback as live or newly generated', () => {
+    const data = response(1);
+    const run: Pick<FindRun, 'createdAt' | 'finishedAt'> = {
+      createdAt: '2026-09-14T00:00:00Z', finishedAt: '2026-09-14T00:02:03Z',
+    };
+    const html = renderToStaticMarkup(<FindResults result={data} run={run} />);
+    expect(html).toContain('已保存的 GitHub 检索结果');
+    expect(html).toContain('运行创建：2026/09/14 08:00:00 北京时间');
+    expect(html).toContain('运行结束：2026/09/14 08:02:03 北京时间');
+    expect(html).toContain('查看不会重新检索或调用模型');
+    expect(html).toContain('原运行生成');
+    expect(html).not.toContain('GitHub 实时召回');
+    expect(html).not.toContain('GitHub live');
+    expect(html).not.toContain('本次生成');
+  });
+  it('does not invent an original execution time for missing or malformed saved timestamps', () => {
+    const html = renderToStaticMarkup(<FindResults result={response(1)} run={{ createdAt: 'invalid', finishedAt: null }} />);
+    expect(html).toContain('运行创建：时间未知');
+    expect(html).not.toContain('运行结束：');
+    expect(html).not.toContain('Invalid Date');
+  });
+  it('normalizes legacy UTC timestamps and retains the original cache provenance on saved readback', () => {
+    const data = response(1); data.cacheHit = true;
+    const html = renderToStaticMarkup(<FindResults result={data} run={{ createdAt: '2026-09-14T00:00:00', finishedAt: '2026-09-14T08:02:03+08:00' }} />);
+    expect(html).toContain('运行创建：2026/09/14 08:00:00 北京时间');
+    expect(html).toContain('运行结束：2026/09/14 08:02:03 北京时间');
+    expect(html).toContain('原运行复用缓存');
+    expect(html).not.toContain('原运行生成');
+  });
   it('keeps partial results readable before requirement decomposition completed', () => {
     const data = response(0); data.requirementProfile = null; data.aiState = 'unavailable'; data.comparison = null;
     const html = renderToStaticMarkup(<FindResults result={data} />);

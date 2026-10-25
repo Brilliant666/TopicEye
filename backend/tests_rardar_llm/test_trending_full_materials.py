@@ -27,7 +27,7 @@ async def test_shared_display_preserves_original_material_with_explicit_reading_
     original = record.profile.model_dump(mode="json")
     expected = {**original, **service.project_reading_semantics(record.profile, record.evidence)}
     assert material["displayProfile"] == expected
-    assert material["material"]["readingSemanticsVersion"] == "v1"
+    assert material["material"]["readingSemanticsVersion"] == "v2"
     assert ProfileStoreEnvelopeV2.model_validate_json(path.read_bytes(), strict=True) == record
     assert material["displayEvidence"] == record.evidence.model_dump(mode="json")
     assert material["displayProfile"]["capabilities"][0]["title"]

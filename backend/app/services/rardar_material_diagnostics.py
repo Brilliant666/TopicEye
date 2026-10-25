@@ -23,10 +23,12 @@ from app.integrations.rardar.serving_profiles import (
     _GENERATION_VALIDATION_TYPES,
     _OFFICIAL_NARRATIVE_PROMPT_VERSION,
     _OFFICIAL_POSITIONING_PROMPT_VERSION,
+    _POSITIONING_CANDIDATE_REJECTIONS,
     _RARDAR_ASSESSMENT_PROMPT_VERSION,
     OfficialNarrativeTranslation,
     OfficialPositioningTranslation,
     ProfileTranslation,
+    _positioning_failure_diagnostic,
 )
 
 _FIELDS = frozenset(
@@ -80,7 +82,7 @@ _GENERATION_CODES = frozenset(
         "schema_invalid",
         "timeout",
     )
-)
+) | frozenset(_POSITIONING_CANDIDATE_REJECTIONS)
 _GENERATION_PROMPT_VERSIONS = frozenset(
     {_RARDAR_ASSESSMENT_PROMPT_VERSION, _OFFICIAL_NARRATIVE_PROMPT_VERSION, _OFFICIAL_POSITIONING_PROMPT_VERSION}
 )
@@ -135,6 +137,11 @@ def _safe_generation_failure(failure: object) -> dict | None:
     }
     detail = getattr(failure, "diagnostic", None)
     if not isinstance(detail, dict):
+        return result
+    if isinstance(code, str) and code in _POSITIONING_CANDIDATE_REJECTIONS:
+        # These are final local candidate checks; do not invent model, prompt,
+        # HTTP or response metadata for official/cache-derived prose.
+        result["detail"] = _positioning_failure_diagnostic(code, evidence_digest=detail.get("inputDigest"))
         return result
     model_class = detail.get("modelClass")
     prompt_version = detail.get("promptVersion")

@@ -98,6 +98,10 @@ for (const identity of ['admin']) {
       await page.evaluate(() => sessionStorage.clear()); // Server result survives loss of all tab storage.
       await page.reload();
       await expect(page.getByRole('heading', { name: `需求与证据对照 · ${count} 个重点方案` })).toBeVisible();
+      await expect(page.getByRole('region', { name: '原运行时间' })).toContainText('运行创建：2026/09/14 08:00:00 北京时间');
+      await expect(page.getByText('已保存的 GitHub 检索结果', { exact: true })).toBeVisible();
+      await expect(page.getByText('GitHub 实时召回', { exact: true })).toHaveCount(0);
+      await expect(page.getByText('GitHub live', { exact: true })).toHaveCount(0);
       await page.getByRole('region', { name: '最近需求结果' }).getByRole('button').first().click();
       expect(transport.posts()).toBe(2); // Create + execute; every later view is GET only.
       await page.goto('/find?runId=synthetic-run');
@@ -106,6 +110,7 @@ for (const identity of ['admin']) {
       const newTab = await context.newPage();
       await newTab.goto('http://127.0.0.1:3410/find?runId=synthetic-run');
       await expect(newTab.getByRole('heading', { name: `需求与证据对照 · ${count} 个重点方案` })).toBeVisible();
+      await expect(newTab.getByRole('region', { name: '原运行时间' })).toContainText('运行创建：2026/09/14 08:00:00 北京时间');
       expect(await newTab.evaluate(() => sessionStorage.length)).toBe(0);
       expect(transport.posts()).toBe(2);
       await newTab.close();
@@ -161,7 +166,7 @@ test('saved recent results wrap without overlapping explanation or adjacent reco
   await expect(recent.getByRole('button')).toHaveCount(2);
   const boxes = await recent.evaluate((element) => {
     const rect = (node: Element) => { const r = node.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right }; };
-    return { panel: rect(element), description: rect(element.querySelector('p')!), buttons: [...element.querySelectorAll('button')].map(rect) };
+    return { panel: rect(element), description: rect(element.querySelector('p')!), buttons: [...element.querySelectorAll('button')].map(rect), lines: [...element.querySelectorAll('button')].map((button) => [...button.querySelectorAll('span')].map(rect)) };
   });
   expect(boxes.buttons[0].top).toBeGreaterThanOrEqual(boxes.description.bottom + 8);
   expect(boxes.buttons[1].top).toBeGreaterThanOrEqual(boxes.buttons[0].bottom + 8);
@@ -169,8 +174,13 @@ test('saved recent results wrap without overlapping explanation or adjacent reco
     expect(box.left).toBeGreaterThanOrEqual(boxes.panel.left);
     expect(box.right).toBeLessThanOrEqual(boxes.panel.right);
   }
+  for (const lines of boxes.lines) {
+    for (let index = 1; index < lines.length; index += 1) expect(lines[index].top).toBeGreaterThanOrEqual(lines[index - 1].bottom);
+  }
   await recent.getByRole('button').first().click();
   await expect(page.getByRole('region', { name: '保存与运行状态' })).toContainText('完整结果已保存');
+  await expect(page.getByRole('region', { name: '原运行时间' })).toContainText('运行结束：2026/09/14 08:00:01 北京时间');
+  await expect(recent.getByRole('button').first()).toContainText('运行创建：2026/09/14 08:00:00 北京时间');
   expect(posts).toBe(0);
 });
 

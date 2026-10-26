@@ -1,12 +1,10 @@
 """Independently valid primary fields survive optional-stage failure and restart."""
 
-import json
-
 import httpx
 import pytest
 
 from app.integrations.rardar import project_introductions as introductions, serving_profiles as profiles
-from tests_rardar_selection.test_profile_cache_v2 import _handler, _project
+from tests_rardar_selection.test_profile_cache_v2 import _handler, _project, _readme
 
 
 def _files(root):
@@ -35,7 +33,8 @@ async def test_partial_primary_reassembles_without_source_or_provider_after_rest
     saved = introductions.saved(tmp_path)[project.repository.lower()]
     assert saved["reuseIdentity"]["repositoryId"] == project.githubRepositoryId
     assert saved["reuseIdentity"]["identityDigest"]
-    readme = json.loads(next((tmp_path / "readmes").glob("*/*.json")).read_bytes())
+    readme = profiles._cached_readme(tmp_path, project)
+    assert readme is not None and readme["sha"] == first.evidence.readmeBlobSha
     source = (first.evidence.topLevelTree, readme)
     before = _files(tmp_path)
 
@@ -103,7 +102,8 @@ async def test_partial_reuse_binding_does_not_bless_changed_material_or_route(tm
         source_label=saved["sourceLabel"],
         partial_profile=first.profile,
     )
-    readme = json.loads(next((tmp_path / "readmes").glob("*/*.json")).read_bytes())
+    readme = profiles._cached_readme(tmp_path, project)
+    assert readme is not None and readme["sha"] == first.evidence.readmeBlobSha
     original = profiles._build_evidence_context(project, "next", first.evidence.topLevelTree, readme)
     original_ids = profiles._profile_identity_candidates(project, original.evidence, "official_zh", "a" * 64)
     assert (
@@ -342,6 +342,7 @@ def test_readme_blob_artifact_is_immutable_while_check_receipt_changes(tmp_path)
     with pytest.raises(ValueError, match="readme_blob_content_mismatch"):
         profiles._store_readme_cache(tmp_path, project, {**original, "markdown": "An unrelated claim."})
     assert path.read_bytes() == first_bytes
+
     # A real path move with the same Git Blob is not identity contamination.
     # Preserve both source paths instead of overwriting an old evidence file.
     moved = {**original, "path": "docs/README.md"}
@@ -354,6 +355,24 @@ def test_readme_blob_artifact_is_immutable_while_check_receipt_changes(tmp_path)
     profiles._store_readme_cache(tmp_path, renamed, {**original, "repository": renamed.repository})
     assert profiles._cached_readme(tmp_path, renamed)["repository"] == renamed.repository
     assert path.read_bytes() == first_bytes
+
+
+@pytest.mark.parametrize("pointer_created_first", [False, True])
+def test_saved_readme_source_is_selected_by_current_pointer_not_directory_order(tmp_path, pointer_created_first):
+    project = _project()
+    directory = tmp_path / "readmes" / str(project.githubRepositoryId)
+    if pointer_created_first:
+        profiles._atomic_json(
+            directory / "current.json", {"schemaVersion": 2, "repository": project.repository, "sha": "a" * 40}
+        )
+    # A retained older Blob and the pointer are both JSON files, neither is a
+    # substitute for the source currently referenced by the real cache reader.
+    profiles._store_readme_cache(tmp_path, project, {**_readme("0" * 40), "repository": project.repository})
+    profiles._store_readme_cache(tmp_path, project, {**_readme(), "repository": project.repository})
+    assert len(list(directory.glob("*.json"))) == 3
+    selected = profiles._cached_readme(tmp_path, project)
+    assert selected["sha"] == "a" * 40
+    assert selected["path"] == "README_ZH.md" and selected["markdown"] == _readme()["markdown"]
 
 
 @pytest.mark.asyncio

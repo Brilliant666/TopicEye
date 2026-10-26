@@ -1563,7 +1563,19 @@ async def historical_work(
                     )
                     if isinstance(exc, httpx.HTTPError):
                         status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
-                        if status in {401, 403}:
+                        # GitHub uses 403 for both access denial and exhausted
+                        # API allowance. Match the existing source collector's
+                        # protocol evidence, never upstream message keywords.
+                        rate_limited = status == 429 or (
+                            status == 403 and exc.response.headers.get("x-ratelimit-remaining") == "0"
+                        )
+                        if rate_limited:
+                            action = {
+                                **action,
+                                "action": "retry_transient_later",
+                                "reason": "profile_source_rate_limited",
+                            }
+                        elif status in {401, 403}:
                             action = {
                                 **action,
                                 "action": "not_recoverable_without_new_input",
@@ -1571,11 +1583,11 @@ async def historical_work(
                             }
                         elif status == 404:
                             action = {**action, "action": "retry_transient_later", "reason": "profile_source_http_404"}
-                        elif status == 429 or (status is not None and status >= 500):
+                        elif status is not None and status >= 500:
                             action = {
                                 **action,
                                 "action": "retry_transient_later",
-                                "reason": "profile_source_rate_limited" if status == 429 else "profile_source_http_5xx",
+                                "reason": "profile_source_http_5xx",
                             }
                         elif status is None and isinstance(exc, httpx.TransportError):
                             action = {

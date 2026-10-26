@@ -329,3 +329,54 @@ async def test_eleven_compensation_runs_zero_model_recovery_when_daily_budget_is
     assert state["materialQualification"]["scopes"]["today"]["zeroModelEligible"] == 1
     budget_available.assert_not_awaited()
     recovery.model.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("headers", "expected_action", "expected_reason"),
+    [
+        ({"X-RateLimit-Remaining": "0"}, "retry_transient_later", "profile_source_rate_limited"),
+        ({}, "not_recoverable_without_new_input", "source_access_denied"),
+        ({"X-RateLimit-Remaining": "5"}, "not_recoverable_without_new_input", "source_access_denied"),
+    ],
+)
+async def test_metadata_403_uses_rate_limit_evidence_and_persists_accurate_next_action(
+    recovery, monkeypatch, headers, expected_action, expected_reason
+):
+    repository = "unseen/metadata-response"
+    value = board("github", [repository])
+    value["entries"][0]["reportedDelta"] = 250
+    trending_store.publish_sources(recovery.target, [value])
+    monkeypatch.setattr(
+        daily_provider_budget,
+        "daily_execution_budget",
+        AsyncMock(return_value=(SimpleNamespace(snapshot=lambda: {"remaining": 80}), {})),
+    )
+    requests = []
+
+    def denied(request):
+        requests.append(request.url.path)
+        assert request.url.path == f"/repos/{repository}"
+        # The same text deliberately appears in every case. Classification must
+        # depend on the trusted protocol evidence, not a guessed body keyword.
+        return httpx.Response(403, headers=headers, json={"message": "API rate limit exceeded"})
+
+    @asynccontextmanager
+    async def client(_token):
+        async with httpx.AsyncClient(base_url="https://api.github.com", transport=httpx.MockTransport(denied)) as value:
+            yield value
+
+    monkeypatch.setattr(service, "github_material_client", client)
+    progress = {}
+    result = await work(recovery, progress)
+    assert result["failed"] == 1 and result["providerRequests"] == 0
+    saved = service.read_json(recovery.target / "progress.json")["materialWork"]["projects"][repository]
+    assert saved["status"] == "failed" and saved["stage"] == "source"
+    assert saved["diagnostic"]["httpStatus"] == 403
+    assert saved["nextAction"] == expected_action
+    assert saved["reason"] == expected_reason
+    assert saved["failures"] == 1 and saved["providerRequests"] == 0
+    assert requests == [f"/repos/{repository}"]
+    assert not list((recovery.target / "profile-cache" / "profile-attempts").rglob("*.json"))
+    assert service.today()["projects"][0]["repository"] == repository
+    recovery.model.assert_not_awaited()

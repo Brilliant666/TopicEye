@@ -24,7 +24,7 @@ import {
   type ProjectDetail,
 } from '@/lib/rardar-intelligence';
 import type { DiscoverProjectDetail } from '@/lib/rardar-discover';
-import { beijingTime, boardPeriodLabel, boardTime, introductionUnavailableText, materialSourceNotice, safeSourceUrl, totalStarsProvenance, type TrendingDetail } from '@/lib/rardar-trending';
+import { beijingTime, boardPeriodLabel, boardTime, identityEvidenceNotice, introductionUnavailableText, materialSourceNotice, safeSourceUrl, totalStarsProvenance, type TrendingDetail } from '@/lib/rardar-trending';
 import styles from './RardarFoundation.module.css';
 import RardarProjectExplanation from './RardarProjectExplanation';
 import RardarGrowthFacts from './RardarGrowthFacts';
@@ -83,6 +83,7 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
   const findHref = `/find?repositoryUrl=${encodeURIComponent(project.htmlUrl)}`;
   const sourceLabel = profile.officialNarrativeMode ? narrativeSourceLabel(profile.officialNarrativeMode) : trendingDetail?.profile?.summary ? trendingDetail.profile.sourceLabel || '已保存中文简介' : '资料暂未补齐';
   const sourceNotice = trendingDetail ? materialSourceNotice(trendingDetail) : null;
+  const identityNotice = trendingDetail ? identityEvidenceNotice(trendingDetail) : null;
   const positioningLabel = profile.positioningSourceMode ? positioningSourceLabel(profile.positioningSourceMode) : '已保存项目档案';
   const primaryLinks = profile.startHere.slice(0, 4);
   const moreLinks = profile.startHere.slice(4);
@@ -103,7 +104,9 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
         <div className={styles.detailHeroCopy}>
           <div className={styles.detailEyebrow}><ShieldCheck size={15} /> 静态项目档案 · {trendingDetail ? materialLabel(trendingDetail.materialState) : todayDetail?.schemaVersion === 8 ? materialLabel(profile.materialState) : sourceLabel}</div>
           <h1>{project.repository}</h1>
-          {profile.officialTaglineZh ? (
+          {identityNotice ? (
+            <p className={styles.detailSafeIdentity}>{identityNotice}</p>
+          ) : profile.officialTaglineZh ? (
             <p className={styles.officialTagline} data-testid="detail-official-tagline">{profile.officialTaglineZh}</p>
           ) : profile.identitySummaryZh || profile.officialSummaryZh ? (
             <p className={styles.detailSafeIdentity}>{profile.identitySummaryZh || profile.officialSummaryZh}</p>

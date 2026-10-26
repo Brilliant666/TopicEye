@@ -63,3 +63,12 @@ read-only: valid introduction and positioning remained readable while unavailabl
 optional capabilities stayed absent. No source evidence or generation timestamp
 was rewritten. New unattended recovery after deployment remains to be observed;
 offline counterfactuals are not newly generated production materials.
+
+Final identity-boundary replay also reproduced historical name reuse: distinct
+numeric repositories could share one name-based appearance history. The read
+projection now retains source IDs but leaves conflicting names unassigned, with
+no merged cumulative Stars, Profile or dual-listing claim. The same rule covers
+current source disagreement and retained legacy Serving input. It does not
+rewrite captures, historical daily membership, Find runs or the >=200 ordering
+policy. Unresolved shared insights stop before source or Provider dispatch. This
+is a persisted counterfactual, not a claimed production contamination incident.

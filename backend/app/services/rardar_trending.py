@@ -509,6 +509,7 @@ def _read_saved_materials(target, *, original_profile_digest=None, repositories=
 
 def _history_with_materials(target: Path, materials: dict, *, repositories: set[str] | None = None) -> dict:
     from app.integrations.rardar.trending_metrics import apply_history_context, select_historical_total
+    from app.integrations.rardar.trending_store import mark_identity_conflict
 
     snapshot = historical_snapshot(target, materials=materials, repositories=repositories)
     projects = {project["repository"]: project for project in snapshot["projects"]}
@@ -522,8 +523,13 @@ def _history_with_materials(target: Path, materials: dict, *, repositories: set[
         if repositories is not None and repository not in repositories:
             continue
         existing = projects.get(repository)
-        if existing and existing.get("githubRepositoryId") not in (None, fact.githubRepositoryId):
-            continue
+        if existing:
+            identifiers = set(existing.get("identityRepositoryIds", []))
+            if existing.get("githubRepositoryId") is not None:
+                identifiers.add(existing["githubRepositoryId"])
+            identifiers.add(fact.githubRepositoryId)
+            if len(identifiers) > 1:
+                mark_identity_conflict(existing, identifiers)
         key = (repository, fact.windowStartedAt, fact.windowEndedAt)
         if key in seen:
             continue  # same fact generation can have several material rebuilds
@@ -557,10 +563,11 @@ def _history_with_materials(target: Path, materials: dict, *, repositories: set[
                 "windowStartedAt": fact.windowStartedAt.isoformat(),
                 "windowEndedAt": fact.windowEndedAt.isoformat(),
                 "totalStars": fact.totalStars,
+                "githubRepositoryId": fact.githubRepositoryId,
             }
         )
     for project in projects.values():
-        if project.get("historicalRardarEvidence"):
+        if project.get("historicalRardarEvidence") and project.get("identityState") != "needs_identity_evidence":
             project["historicalRardarEvidence"].sort(
                 key=lambda item: datetime.fromisoformat(item["windowEndedAt"]), reverse=True
             )

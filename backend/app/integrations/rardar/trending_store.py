@@ -58,7 +58,7 @@ MATERIAL_FIELDS = (
 
 
 def _apply_material(project: dict, material: dict | None, *, identity: dict | None = None) -> None:
-    if not material:
+    if not material or project.get("identityState") == "needs_identity_evidence":
         return
     # Repository name is canonical in both indexes. A known numeric ID must
     # also agree: a reused name must not inherit another repository's reading.
@@ -94,7 +94,16 @@ def apply_materials(snapshot: dict, materials: dict, *, target: Path | None = No
         if target is not None:
             try:
                 identity = project_identity.resolve(target, project)
-            except (ValueError, OSError, RuntimeError):
+            except ValueError as exc:
+                if str(exc) == "repository_identity_mismatch":
+                    try:
+                        prior = project_identity.resolve(target, {"repository": project["repository"]})
+                    except (ValueError, OSError, RuntimeError):
+                        prior = None
+                    if prior and project.get("githubRepositoryId") is not None:
+                        mark_identity_conflict(project, [prior["githubRepositoryId"], project["githubRepositoryId"]])
+                continue
+            except (OSError, RuntimeError):
                 # Unverified/corrupt alias evidence is not a license to attach
                 # a different repository's material. Board facts remain valid.
                 continue
@@ -258,6 +267,23 @@ def load_snapshot(target: Path, generation: str | None = None) -> dict:
     for project in result["projects"]:
         project["dualListed"] = project["dualListed"] and len(healthy) == 2
     _apply_display_metrics(result, value["captures"])
+    numeric = {}
+    source_numeric = {}
+    for capture in value["captures"]:
+        for item in capture["entries"]:
+            repository = canonical_repository(item["repository"])
+            identifier = item.get("githubRepositoryId")
+            source_numeric[capture["source"], repository] = identifier
+            if identifier is not None:
+                numeric.setdefault(repository, set()).add(identifier)
+    for project in result["projects"]:
+        identifiers = numeric.get(project["repository"], set())
+        if len(identifiers) == 1:
+            project["githubRepositoryId"] = next(iter(identifiers))
+        elif len(identifiers) > 1:
+            mark_identity_conflict(project, identifiers)
+            for appearance in project["appearances"]:
+                appearance["githubRepositoryId"] = source_numeric[appearance["source"], project["repository"]]
     order_today(result["projects"])
     result["rankingSchemaVersion"] = 1
     result["refreshPolicy"] = policy_status()
@@ -559,7 +585,38 @@ def historical_snapshot(target: Path, *, materials: dict | None = None, reposito
     )
     # Source freshness/checks are evaluated now, not frozen in the fact cache.
     current = load_snapshot(target)
-    return apply_materials({**current, **facts}, materials or {})
+    return apply_materials({**current, **facts}, materials or {}, target=target)
+
+
+def mark_identity_conflict(project: dict, identifiers) -> None:
+    """Retain name-level sources without assigning them to another repository."""
+    project.update(
+        identityState="needs_identity_evidence",
+        identityRepositoryIds=sorted(set(identifiers)),
+        dualListed=False,
+        githubRepositoryId=None,
+        description=None,
+        totalStars=None,
+        totalStarsSource=None,
+        historyAppearances=None,
+        unresolvedAppearances=len(project.get("appearances", [])),
+        firstSeenAt=None,
+        lastSeenAt=None,
+        materialState="unavailable",
+        profile=None,
+        displayCard=None,
+        displayProfile=None,
+        displayEvidence=None,
+        material=None,
+        language=None,
+        topics=[],
+        license=None,
+        pushedAt=None,
+        metadataSource=None,
+        productForms=[],
+        runtimeEnvironments=[],
+        artifactTypes=[],
+    )
 
 
 def _historical_facts(target: Path) -> dict:
@@ -568,6 +625,7 @@ def _historical_facts(target: Path) -> dict:
     projects: dict[str, dict] = {}
     seen: dict[str, dict[tuple, dict]] = {}
     total_candidates: dict[str, list[dict]] = {}
+    numeric_identities: dict[str, set[int]] = {}
     archive = _root(target) / "historical-evidence"
     plain(archive, missing=True)
     for path in sorted(archive.glob("*.json")) if archive.exists() else []:
@@ -619,6 +677,8 @@ def _historical_facts(target: Path) -> dict:
         validate_source(capture)
         for item in capture["entries"]:
             key = canonical_repository(item["repository"])
+            if item.get("githubRepositoryId") is not None:
+                numeric_identities.setdefault(key, set()).add(item["githubRepositoryId"])
             if key not in projects:
                 projects[key] = _project(item, capture)
                 projects[key]["appearances"] = []
@@ -640,6 +700,7 @@ def _historical_facts(target: Path) -> dict:
                 "totalStars": item.get("totalStars"),
                 "sourceStatus": "healthy",
                 "period": "daily",
+                "githubRepositoryId": item.get("githubRepositoryId"),
             }
             total_candidates[key].append(appearance)
             previous = seen[key].get(occurrence)
@@ -663,6 +724,14 @@ def _historical_facts(target: Path) -> dict:
             firstSeenAt=min(times, key=datetime.fromisoformat),
             lastSeenAt=max(times, key=datetime.fromisoformat),
         )
+        identifiers = numeric_identities.get(key, set())
+        if len(identifiers) == 1:
+            project["githubRepositoryId"] = next(iter(identifiers))
+        elif len(identifiers) > 1:
+            # Retained captures prove a reused name, not identity continuity.
+            # Keep each source observation intact and explicitly unattributed;
+            # neither a current alias nor a recent Star value can resolve it.
+            mark_identity_conflict(project, identifiers)
     return {
         "metricSchemaVersion": 2,
         "byRepository": {

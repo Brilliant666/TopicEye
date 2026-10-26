@@ -17,6 +17,7 @@ export type BoardSource = BoardPeriod & {
 };
 export type BoardAppearance = BoardPeriod & {
   source: 'github' | 'trendshift'; rank: number; sourceDate: string | null;
+  githubRepositoryId?: number | null;
   fetchedAt: string; captureDate?: string; period: string;
   reportedDelta: number | null; reportedDeltaPeriod?: string | null;
   trendshiftStarsGained?: number | null; trendshiftStarsGainedLabel?: string | null;
@@ -29,6 +30,7 @@ export type TrendingCardNarrative = Pick<ProjectDetail['profile'],
   | 'positioningZh' | 'productFormsZh' | 'officialNarrativeMode' | 'positioningSourceMode'>;
 export type TrendingProject = {
   projectId: string; repository: string; repositoryUrl: string; githubRepositoryId: number | null;
+  identityState?: 'needs_identity_evidence'; identityRepositoryIds?: number[];
   description: string | null; totalStars: number | null; dualListed: boolean;
   appearances: BoardAppearance[];
   primaryGrowth?: (Omit<Partial<BoardAppearance>, 'source'> & { source: 'github' | 'trendshift' | 'rardar_history'; value: number; windowStartedAt?: string; windowEndedAt?: string }) | null;
@@ -45,7 +47,7 @@ export type TrendingProject = {
   metadataSource?: { fetchedAt: string; sourceUrl: string };
   productForms?: string[]; runtimeEnvironments?: string[]; artifactTypes?: string[];
   profile: null | { summary: string; positioning: string | null; capabilities?: string[]; generatedAt: string | null; savedAt?: string; sourceUrl: string; sourceLabel?: string; summaryEvidence?: Array<{ ref: string; text: string; url: string }>; useCases?: string[]; limitations?: string[] | null; startHere?: Array<{ label: string; url: string }> };
-  historyAppearances?: number; firstSeenAt?: string | null; lastSeenAt?: string | null;
+  historyAppearances?: number | null; firstSeenAt?: string | null; lastSeenAt?: string | null;
   historicalEvidence?: Array<{ source: string; sourceUrl: string; reportedAppearanceCount: number; sourceDate: string | null; fetchedAt: string }>;
   historicalRardarEvidence?: Array<{ source: 'rardar_today'; sourceGeneration: string; servingGeneration: string; rank: number; windowStartedAt: string; windowEndedAt: string; observedStarDelta?: number; totalStars: number }>;
 };
@@ -101,6 +103,13 @@ export function introductionUnavailableText(project: TrendingProject) {
   return project.materialAttempt?.status === 'failed' && project.materialAttempt.stage === 'source'
     ? '资料读取失败，暂时保留上榜信息。'
     : '暂未取得可用的项目介绍，仓库与榜单事实仍可查看。';
+}
+
+/** A reused repository name cannot establish continuity between different IDs. */
+export function identityEvidenceNotice(project: TrendingProject) {
+  return project.identityState === 'needs_identity_evidence'
+    ? '同一仓库名称存在不同身份记录，暂不合并资料与 Star；请按原来源核对。'
+    : null;
 }
 
 /** A checked source revision is distinct from the saved interpretation's age. */

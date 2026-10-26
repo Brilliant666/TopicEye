@@ -6,7 +6,7 @@ import { ArrowRight, ArrowUpRight, BookOpen, Clock3, FolderGit2, ShieldCheck, Sp
 import RardarTodayOperations from './RardarTodayOperations';
 import RardarGrowthFacts from './RardarGrowthFacts';
 import { narrativeSourceLabel, positioningSourceLabel } from '@/lib/rardar-intelligence';
-import { beijingTime, boardPeriodLabel, boardTime, introductionUnavailableText, materialSourceNotice, projectLink, safeSourceUrl, totalStarsProvenance, type TrendingBoard, type TrendingProject } from '@/lib/rardar-trending';
+import { beijingTime, boardPeriodLabel, boardTime, identityEvidenceNotice, introductionUnavailableText, materialSourceNotice, projectLink, safeSourceUrl, totalStarsProvenance, type TrendingBoard, type TrendingProject } from '@/lib/rardar-trending';
 import styles from './RardarFoundation.module.css';
 
 export const boardSourceName = { github: 'GitHub Trending', trendshift: 'Trendshift' };
@@ -19,11 +19,12 @@ export function TrendingCard({ project, generationId, historical = false, index 
   const forms = profile?.productFormsZh || project.productForms || [];
   const sourceLabel = profile ? narrativeSourceLabel(profile.officialNarrativeMode) : project.profile?.sourceLabel;
   const sourceNotice = materialSourceNotice(project);
+  const identityNotice = identityEvidenceNotice(project);
   return <article className={styles.rankingCard} data-project-id={project.projectId}>
     <div className={styles.rank} aria-label="展示序号">{index === undefined ? <FolderGit2 size={24} /> : String(index + 1).padStart(2, '0')}</div>
     <div className={styles.projectIdentity}>
       <Link href={detailHref} className={styles.repository}><FolderGit2 size={18} aria-hidden="true" />{project.repository}<ArrowRight size={14} /></Link>
-      {summary ? <p className={styles.officialTagline}>{summary}</p> : project.description ? <p className={styles.projectDescription}><small>原始介绍{!/[\u3400-\u9fff]/u.test(project.description) ? ' · 中文解读待补充' : ''} · </small>{project.description}</p> : <p className={styles.projectDescription}>{introductionUnavailableText(project)}</p>}
+      {identityNotice ? <p className={styles.projectDescription}>{identityNotice}</p> : summary ? <p className={styles.officialTagline}>{summary}</p> : project.description ? <p className={styles.projectDescription}><small>原始介绍{!/[\u3400-\u9fff]/u.test(project.description) ? ' · 中文解读待补充' : ''} · </small>{project.description}</p> : <p className={styles.projectDescription}>{introductionUnavailableText(project)}</p>}
       {forms.length > 0 && <div className={styles.productForms} aria-label="产品形态">{forms.map(form => <span key={form}>{form}</span>)}</div>}
       {positioning && <section className={styles.officialPositioningBlock} aria-label={profile?.coreValueZh ? '核心价值' : '核心定位'} data-testid="today-official-positioning"><span>{profile?.coreValueZh ? '核心价值 · Rardar 解读' : `核心定位 · ${profile ? positioningSourceLabel(profile.positioningSourceMode) : '已保存解读'}`}</span><p>{positioning}</p></section>}
       {sourceNotice && <p className={styles.projectDescription} data-testid="material-source-change">{sourceNotice}</p>}

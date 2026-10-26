@@ -4,7 +4,7 @@ import RardarTodayOperations, { TodayOperationResult } from '@/components/Rardar
 import { todayOperationsApi, todayOperationLabel, type TodayOperation } from '@/lib/api/today-operations';
 
 const state = vi.hoisted(() => ({ user: null as null | { id: number; role: string }, loading: false, request: vi.fn() }));
-vi.mock('@/providers/AppProvider', () => ({ useAuthContext: () => ({ currentUser: state.user, authLoading: state.loading }) }));
+vi.mock('@/providers/AuthProvider', () => ({ useAuthContext: () => ({ currentUser: state.user, authLoading: state.loading }) }));
 vi.mock('@/lib/api/_core', () => ({ request: state.request }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
@@ -19,8 +19,8 @@ function operation(status: TodayOperation['status']): TodayOperation {
 }
 
 describe('Today daily operator entry', () => {
-  it('offers admin login, hides ordinary-user actions, and never submits during render', () => {
-    expect(renderToStaticMarkup(<RardarTodayOperations syncedAt={null} />)).toContain('管理员登录');
+  it('hides all administrator UI from anonymous/ordinary readers and never submits during render', () => {
+    expect(renderToStaticMarkup(<RardarTodayOperations syncedAt={null} />)).toBe('');
     state.user = { id: 1, role: 'user' };
     expect(renderToStaticMarkup(<RardarTodayOperations syncedAt={null} />)).toBe('');
     state.user = { id: 1, role: 'admin' };

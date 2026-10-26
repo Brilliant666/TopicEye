@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.v1 import rardar as rardar_api
+from app.api.v1 import auth, rardar as rardar_api
 from app.schemas.rardar_product import FindProjectResponse, ProjectExplanationResponse
 from app.services.rardar_product import RardarProductError
 
@@ -13,7 +17,17 @@ def _client(monkeypatch) -> TestClient:
     app.include_router(rardar_api.router, prefix="/api/v1")
     monkeypatch.setattr(rardar_api, "is_rardar_product", lambda: True)
     monkeypatch.setattr(rardar_api.settings, "CORS_ORIGINS", "http://testserver")
-    return TestClient(app)
+
+    @asynccontextmanager
+    async def inert_session():
+        yield SimpleNamespace(commit=AsyncMock())
+
+    monkeypatch.setattr(rardar_api, "async_session", inert_session)
+    monkeypatch.setattr(auth, "get_user_for_token", AsyncMock(return_value=SimpleNamespace(id=7)))
+    client = TestClient(app)
+    client.cookies.set(rardar_api.settings.AUTH_COOKIE_NAME, "synthetic-app-cookie")
+    client.headers["Origin"] = "http://testserver"
+    return client
 
 
 def test_explanation_endpoint_exposes_stable_revision_error(monkeypatch) -> None:

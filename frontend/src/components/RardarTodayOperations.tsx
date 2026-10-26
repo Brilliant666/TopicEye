@@ -1,9 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthContext } from '@/providers/AppProvider';
+import { useAuthContext } from '@/providers/AuthProvider';
 import { todayOperationsApi, todayOperationLabel, type TodayOperation } from '@/lib/api/today-operations';
 import styles from './RardarNewsOperations.module.css';
 import { beijingTime } from '@/lib/rardar-trending';
@@ -13,8 +12,7 @@ type BoardContext = { syncedAt: string | null; checkedAt?: string | null; contex
 export default function RardarTodayOperations({ syncedAt, checkedAt, context = 'exact_explosion' }: BoardContext) {
   const { currentUser, authLoading } = useAuthContext();
   if (authLoading) return null;
-  if (!currentUser) return <p className={styles.login}><Link href="/login">管理员登录</Link>后可检查并同步榜单</p>;
-  if (currentUser.role !== 'admin') return null;
+  if (currentUser?.role !== 'admin') return null;
   return <AdminTodayOperations syncedAt={syncedAt} checkedAt={checkedAt} context={context} userId={currentUser.id} key={currentUser.id} />;
 }
 

@@ -4,6 +4,9 @@ import { afterEach, expect, it, vi } from 'vitest';
 import RardarProjectExplanation, { SavedProjectInsight } from '@/components/RardarProjectExplanation';
 import { explainSharedProject, readSharedProjectInsight, type ProjectExplanation } from '@/lib/rardar-product';
 
+vi.mock('@/providers/AuthProvider', () => ({ useAuthContext: () => ({ currentUser: null, authLoading: false }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
 afterEach(() => vi.unstubAllGlobals());
 
 it('reads a saved insight using GET and only posts after the explicit action', async () => {
@@ -23,7 +26,7 @@ it('renders the same opt-in control for a new stable project without numeric leg
   vi.stubGlobal('fetch', fetcher);
   for (const source of ['trending', 'historical_hot'] as const) {
     const html = renderToStaticMarkup(<RardarProjectExplanation stableId="stable-one" repository="real/project" generationId="boards-one" source={source} />);
-    expect(html).toContain('生成 AI 深度解读');
+    expect(html).toContain('登录后生成 AI 深度解读');
   }
   expect(fetcher).not.toHaveBeenCalled();
 });

@@ -9,7 +9,6 @@ import RardarShell from '@/components/RardarShell';
 import { AppProvider, useAuthContext, useFavoritesContext, useAppContext } from '@/providers/AppProvider';
 import { AuthProvider } from '@/providers/AuthProvider';
 import {
-  RARDAR_INTERNAL_HOME,
   RARDAR_ROUTE_VISIBILITY,
   activeProductProfile,
   rardarRouteVisibility,
@@ -44,23 +43,29 @@ export default function ClientLayout({
   if (activeProductProfile.rardarEnabled) {
     const visibility = rardarRouteVisibility(pathname);
     if (visibility === RARDAR_ROUTE_VISIBILITY.ALLOW) {
-      if (pathname === '/news' || pathname === '/discover' || pathname === '/find' || pathname === '/' || pathname === RARDAR_INTERNAL_HOME) {
-        return (
-          <AuthProvider initialUser={initialData.user} initialFeatureFlags={initialData.featureFlags}>
-            <RardarShell>{children}</RardarShell>
-          </AuthProvider>
-        );
-      }
-      return <RardarShell>{children}</RardarShell>;
+      return (
+        <AuthProvider initialUser={initialData.user} initialFeatureFlags={initialData.featureFlags}>
+          <RardarShell>{children}</RardarShell>
+        </AuthProvider>
+      );
     }
     if (visibility === RARDAR_ROUTE_VISIBILITY.REDIRECT) {
       return (
-        <RardarShell>
-          <RardarLegacyRouteRedirect />
-        </RardarShell>
+        <AuthProvider initialUser={initialData.user} initialFeatureFlags={initialData.featureFlags}>
+          <RardarShell>
+            <RardarLegacyRouteRedirect />
+          </RardarShell>
+        </AuthProvider>
       );
     }
-    // Admin, login and OAuth remain on the TopicEye compatibility boundary.
+    if (pathname === '/login' || pathname === '/oauth/callback') {
+      return (
+        <AuthProvider initialUser={initialData.user} initialFeatureFlags={initialData.featureFlags}>
+          <main className="h-dvh overflow-hidden bg-page">{children}</main>
+        </AuthProvider>
+      );
+    }
+    // Admin remains on the TopicEye compatibility boundary.
   }
 
   return (

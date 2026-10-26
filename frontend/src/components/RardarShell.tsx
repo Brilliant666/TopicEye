@@ -1,8 +1,10 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Activity, Radar, Settings2 } from 'lucide-react';
+import { useAuthContext } from '@/providers/AuthProvider';
+import { currentLoginHref, loginHrefForPath } from '@/lib/auth-redirect';
 
 import {
   RARDAR_NAVIGATION,
@@ -12,6 +14,8 @@ import styles from './RardarFoundation.module.css';
 
 export default function RardarShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { currentUser, authLoading, logout } = useAuthContext();
 
   return (
     <div
@@ -50,9 +54,11 @@ export default function RardarShell({ children }: { children: React.ReactNode })
             <span className={styles.statusPill}>
               <Activity size={14} aria-hidden="true" /> Facts first · AI assisted
             </span>
-            <Link href="/admin" className={styles.adminLink} aria-label="打开 TopicEye 管理后台">
+            {!authLoading && !currentUser && <Link href={loginHrefForPath(pathname)} className={styles.adminLink} onClick={(event) => { event.preventDefault(); router.push(currentLoginHref(pathname)); }}>登录</Link>}
+            {currentUser && <button type="button" className={styles.adminLink} onClick={() => void logout()} aria-label="退出登录">退出</button>}
+            {currentUser?.role === 'admin' && <Link href="/admin" className={styles.adminLink} aria-label="打开 TopicEye 管理后台">
               <Settings2 size={18} aria-hidden="true" />
-            </Link>
+            </Link>}
           </div>
         </div>
       </header>

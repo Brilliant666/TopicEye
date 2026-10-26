@@ -144,7 +144,8 @@ test('anonymous Find requires app login and cannot submit', async ({ page }) => 
   let posts = 0;
   page.on('request', (request) => { if (request.method() === 'POST') posts += 1; });
   await page.goto('/find');
-  await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toBeDisabled();
+  await expect(page.getByLabel('你想完成什么？')).toBeVisible();
+  await expect(page.getByRole('button', { name: '登录后开始找项目', exact: true })).toBeEnabled();
   await expect(page.getByRole('link', { name: '登录后开始找项目或读取已保存结果' })).toBeVisible();
   expect(posts).toBe(0);
 });

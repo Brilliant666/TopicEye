@@ -2,6 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/providers/AppProvider', () => ({ useAuthContext: () => ({ currentUser: null, authLoading: false }) }));
+vi.mock('@/providers/AuthProvider', () => ({ useAuthContext: () => ({ currentUser: null, authLoading: false }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 import RardarProjectDetailPage from '@/components/RardarProjectDetailPage';
 import { TodayFoundation } from '@/components/RardarFoundationPage';

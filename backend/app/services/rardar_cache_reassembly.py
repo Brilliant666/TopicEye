@@ -55,9 +55,16 @@ def _source_witness(cache_root: Path, repository: str, repository_id: int) -> tu
     sha = evidence.readmeBlobSha
     if sha is None:
         raise ValueError("cache_reassembly_readme_missing")
-    path = cache_root / "readmes" / str(repository_id) / f"{sha}.json"
+    path = serving_profiles._readme_artifact_path(
+        cache_root, repository_id, sha, evidence.readmePath, repository=repository
+    )
     raw = _read_plain(path, root=cache_root)
     if raw is None:
+        legacy = cache_root / "readmes" / str(repository_id) / f"{sha}.json"
+        if _read_plain(legacy, root=cache_root) is not None:
+            # A recorded Blob belonging to another source is an integrity
+            # conflict, not a cache miss that can fund another model attempt.
+            raise ValueError("cache_reassembly_readme_mismatch")
         raise ValueError("cache_reassembly_readme_missing")
     readme = json.loads(raw)
     if (

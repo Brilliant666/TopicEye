@@ -13,7 +13,7 @@ import stat
 import tempfile
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
@@ -26,6 +26,9 @@ from pydantic_core import ErrorType
 
 from app.integrations.rardar.profile_cache_v2 import (
     PROFILE_CACHE_IDENTITY_VERSION,
+    PROFILE_EXTRACTOR_VERSION,
+    PROFILE_SANITIZER_VERSION,
+    PROFILE_TRANSLATION_VERSION,
     ProfileCacheIdentityV2,
     ProfileCacheIntegrityError,
     ProfileFailureCode,
@@ -277,7 +280,9 @@ class CollectedProjectProfile:
     profile_cache_identity: str | None = None
     profile_revision: str | None = None
     profile_binding_digest: str | None = None
-    profile_cache_state: Literal["hit", "rebound", "migrated", "rebuilt", "unavailable"] = "unavailable"
+    profile_cache_state: Literal["hit", "rebound", "migrated", "rebuilt", "partial_reused", "unavailable"] = (
+        "unavailable"
+    )
     profile_failure_code: ProfileFailureCode | None = None
     profile_failure_retryable: bool = False
     profile_next_retry_at: datetime | None = None
@@ -1777,10 +1782,19 @@ def _cached_readme(cache_root: Path, project: ExactExplosionProject) -> dict[str
     sha = pointer.get("sha")
     if not isinstance(sha, str) or not re.fullmatch(r"[A-Fa-f0-9]{7,64}", sha):
         return None
-    value = _load_json(directory / f"{sha}.json")
+    record_name = pointer.get("record", f"{sha}.json")
+    if not isinstance(record_name, str) or not re.fullmatch(
+        rf"{re.escape(sha)}(?:-[a-f0-9]{{16}})?\.json", record_name
+    ):
+        return None
+    value = _load_json(directory / record_name)
     if not value or value.get("sha") != sha or value.get("repository") != project.repository:
         return None
-    return value
+    return {
+        **value,
+        **({"etag": pointer["etag"]} if isinstance(pointer.get("etag"), str) else {}),
+        **({"checkedAt": pointer["checkedAt"]} if isinstance(pointer.get("checkedAt"), str) else {}),
+    }
 
 
 def _readme_redirect_target(markdown: str, current_path: str) -> str | None:
@@ -1836,15 +1850,55 @@ def _decode_readme_response(
         "path": payload_path,
         "etag": response.headers.get("etag"),
         "markdown": markdown[:_README_CHARS],
+        "fetchedAt": datetime.now(UTC).isoformat(),
     }
+
+
+def _readme_artifact_path(
+    cache_root: Path, repository_id: int, sha: str, readme_path: str, *, repository: str | None = None
+) -> Path:
+    """Keep old Blob/source-path witnesses when identical bytes move files."""
+    if not re.fullmatch(r"[A-Fa-f0-9]{7,64}", sha) or not _safe_repository_path(readme_path):
+        raise ProfileCacheIntegrityError("readme_blob_source_identity_invalid")
+    directory = cache_root / "readmes" / str(repository_id)
+    legacy = directory / f"{sha}.json"
+    existing = _load_json(legacy)
+    if legacy.exists() and existing is None:
+        raise ProfileCacheIntegrityError("readme_blob_cache_invalid")
+    if existing is not None and (
+        existing.get("path") != readme_path or (repository is not None and existing.get("repository") != repository)
+    ):
+        source = {"repository": repository or existing.get("repository"), "path": readme_path}
+        return directory / f"{sha}-{_digest(source)[:16]}.json"
+    return legacy
 
 
 def _store_readme_cache(cache_root: Path, project: ExactExplosionProject, value: dict[str, Any]) -> None:
     directory = _readme_cache_dir(cache_root, project)
-    _atomic_json(directory / f"{value['sha']}.json", value)
+    original = _load_json(directory / f"{value['sha']}.json")
+    if original is not None and original.get("markdown") != value["markdown"]:
+        raise ProfileCacheIntegrityError("readme_blob_content_mismatch")
+    path = _readme_artifact_path(
+        cache_root, project.githubRepositoryId, value["sha"], value["path"], repository=project.repository
+    )
+    existing = _load_json(path)
+    if path.exists() and existing is None:
+        raise ProfileCacheIntegrityError("readme_blob_cache_invalid")
+    if existing is not None:
+        if any(existing.get(name) != value.get(name) for name in ("repository", "sha", "path", "markdown")):
+            raise ProfileCacheIntegrityError("readme_blob_content_mismatch")
+    else:
+        _atomic_json(path, value)
     _atomic_json(
         directory / "current.json",
-        {"schemaVersion": 2, "repository": project.repository, "sha": value["sha"]},
+        {
+            "schemaVersion": 2,
+            "repository": project.repository,
+            "sha": value["sha"],
+            "record": path.name,
+            "etag": value.get("etag"),
+            "checkedAt": datetime.now(UTC).isoformat(),
+        },
     )
 
 
@@ -1890,6 +1944,7 @@ async def _collect_github_source(
     client: httpx.AsyncClient,
     *,
     refresh: bool = True,
+    refresh_tree: bool = False,
 ) -> tuple[list[dict[str, str]], dict[str, Any] | None, int, bool, list[tuple[str, ProfileFailureCode]]]:
     counter = [0]
     failures: list[tuple[str, ProfileFailureCode]] = []
@@ -1902,27 +1957,49 @@ async def _collect_github_source(
         and isinstance(cached_tree.get("items"), list)
     ):
         tree = [item for item in cached_tree["items"] if isinstance(item, dict)][:_TREE_ITEMS]
-    elif refresh:
+    if refresh and (not tree or refresh_tree):
+        tree_headers = {}
+        if cached_tree and isinstance(cached_tree.get("etag"), str):
+            tree_headers["If-None-Match"] = cached_tree["etag"]
         response = await _github_get(
             client,
             f"/repos/{project.repository}/contents",
             counter,
             failures=failures,
             stage="tree",
+            headers=tree_headers,
         )
-        if response:
+        if response is not None and response.status_code == 200:
             try:
                 payload = response.json()
             except ValueError:
-                payload = []
+                payload = None
             if isinstance(payload, list):
+                current_tree = []
                 for item in payload[:_TREE_ITEMS]:
                     if not isinstance(item, dict):
                         continue
                     path, kind = item.get("path"), item.get("type")
                     if isinstance(path, str) and isinstance(kind, str) and _safe_repository_path(path):
-                        tree.append({"path": path, "type": kind})
-                _atomic_json(tree_cache, {"schemaVersion": 1, "repository": project.repository, "items": tree})
+                        current_tree.append({"path": path, "type": kind})
+                if current_tree:
+                    tree = current_tree
+                    _atomic_json(
+                        tree_cache,
+                        {
+                            "schemaVersion": 1,
+                            "repository": project.repository,
+                            "items": tree,
+                            "etag": response.headers.get("etag"),
+                            "fetchedAt": datetime.now(UTC).isoformat(),
+                        },
+                    )
+                else:
+                    failures.append(("tree", "profile_source_invalid"))
+            else:
+                failures.append(("tree", "profile_source_invalid"))
+        elif response is not None and response.status_code == 304 and not tree:
+            failures.append(("tree", "profile_source_invalid"))
 
     preferred = _preferred_chinese_readme(tree)
     cached = _cached_readme(cache_root, project)
@@ -1950,6 +2027,7 @@ async def _collect_github_source(
         stage="readme",
     )
     if response and response.status_code == 304 and cached:
+        _store_readme_cache(cache_root, project, cached)
         followed = await _follow_readme_redirects(cached, project, cache_root, client, counter, failures)
         return tree, followed, counter[0], True, failures
     if response:
@@ -1958,6 +2036,7 @@ async def _collect_github_source(
             _store_readme_cache(cache_root, project, value)
             followed = await _follow_readme_redirects(value, project, cache_root, client, counter, failures)
             return tree, followed, counter[0], bool(cached and cached.get("sha") == followed["sha"]), failures
+        failures.append(("readme", "profile_source_invalid"))
     return tree, cached, counter[0], cached is not None, failures
 
 
@@ -3624,6 +3703,28 @@ async def _translate_official_positioning_with_control(payload: dict[str, Any]) 
     return result.value
 
 
+def _stage_input_cache_identity(project, payload, stage, prompt_version, schema_version, route):
+    """Bind the actual stage input, not unrelated README bytes or board facts.
+
+    The output is revalidated against current evidence on every hit. A changed
+    reference's text changes the input, even if its numeric label is reused.
+    """
+    return _model_route_cache_identity(
+        {
+            "scope": "material-stage-input-v1",
+            "githubRepositoryId": project.githubRepositoryId,
+            "stage": stage,
+            "prompt": prompt_version,
+            "schema": schema_version,
+            "sanitizer": PROFILE_SANITIZER_VERSION,
+            "extractor": PROFILE_EXTRACTOR_VERSION,
+            "translation": PROFILE_TRANSLATION_VERSION,
+            "input": payload,
+        },
+        route,
+    )
+
+
 async def _official_translation(
     *,
     project: ExactExplosionProject,
@@ -3643,21 +3744,49 @@ async def _official_translation(
         finish_sample,
     )
 
-    revision = evidence.readmeBlobSha or cache_evidence_identity or evidence.digest
-    identity = _model_route_cache_identity(
-        {
-            "githubRepositoryId": project.githubRepositoryId,
-            "revision": revision,
-            "schema": _OFFICIAL_TRANSLATION_CACHE_SCHEMA,
-            "prompt": _OFFICIAL_NARRATIVE_PROMPT_VERSION,
-            "evidenceDigest": cache_evidence_identity or evidence.digest,
-            "narrativeMode": "official_translated",
-        },
-        model_route_identity,
+    payload = {
+        "repository": project.repository,
+        "sourceTagline": narrative.tagline,
+        "sourcePositioning": narrative.positioning,
+        "sourceHighlights": [
+            {
+                "sourceOrder": highlight.source_order,
+                "sourceTitle": highlight.title,
+                "sourceDetail": highlight.detail,
+            }
+            for highlight in narrative.highlights
+        ],
+    }
+    legacy_payload = {
+        "githubRepositoryId": project.githubRepositoryId,
+        "revision": evidence.readmeBlobSha or cache_evidence_identity or evidence.digest,
+        "schema": _OFFICIAL_TRANSLATION_CACHE_SCHEMA,
+        "prompt": _OFFICIAL_NARRATIVE_PROMPT_VERSION,
+        "evidenceDigest": cache_evidence_identity or evidence.digest,
+        "narrativeMode": "official_translated",
+    }
+    identity = (
+        _stage_input_cache_identity(
+            project,
+            payload,
+            "official_narrative",
+            _OFFICIAL_NARRATIVE_PROMPT_VERSION,
+            _OFFICIAL_TRANSLATION_CACHE_SCHEMA,
+            model_route_identity,
+        )
+        if cache_evidence_identity
+        else _model_route_cache_identity(
+            legacy_payload,
+            model_route_identity,
+        )
     )
     path = cache_root / "official-translations" / str(project.githubRepositoryId) / f"{identity}.json"
     cached = _load_json(path)
     legacy_hit = False
+    if cached is None and cache_evidence_identity:
+        exact_legacy = _model_route_cache_identity(legacy_payload, model_route_identity)
+        cached = _load_json(path.with_name(f"{exact_legacy}.json"))
+        legacy_hit = cached is not None
     if cached is None and cache_evidence_identity:
         legacy_identity = _model_route_cache_identity(
             {
@@ -3683,19 +3812,6 @@ async def _official_translation(
             pass
     if cache_only:
         raise ValueError("cache_reassembly_official_translation_missing")
-    payload = {
-        "repository": project.repository,
-        "sourceTagline": narrative.tagline,
-        "sourcePositioning": narrative.positioning,
-        "sourceHighlights": [
-            {
-                "sourceOrder": highlight.source_order,
-                "sourceTitle": highlight.title,
-                "sourceDetail": highlight.detail,
-            }
-            for highlight in narrative.highlights
-        ],
-    }
     calls = 0
     for attempt in range(1, 3):
         checkpoint = None
@@ -3764,20 +3880,35 @@ async def _official_positioning_translation(
         finish_sample,
     )
 
-    revision = evidence.readmeBlobSha or cache_evidence_identity or evidence.digest
-    identity = _model_route_cache_identity(
-        {
-            "githubRepositoryId": project.githubRepositoryId,
-            "revision": revision,
-            "prompt": _OFFICIAL_POSITIONING_PROMPT_VERSION,
-            "sourcePositioning": source_positioning,
-            **({"contentEvidenceIdentity": cache_evidence_identity} if cache_evidence_identity else {}),
-        },
-        model_route_identity,
+    legacy_payload = {
+        "githubRepositoryId": project.githubRepositoryId,
+        "revision": evidence.readmeBlobSha or cache_evidence_identity or evidence.digest,
+        "prompt": _OFFICIAL_POSITIONING_PROMPT_VERSION,
+        "sourcePositioning": source_positioning,
+        **({"contentEvidenceIdentity": cache_evidence_identity} if cache_evidence_identity else {}),
+    }
+    identity = (
+        _stage_input_cache_identity(
+            project,
+            {"repository": project.repository, "sourcePositioning": source_positioning},
+            "official_positioning",
+            _OFFICIAL_POSITIONING_PROMPT_VERSION,
+            _PROFILE_SCHEMA,
+            model_route_identity,
+        )
+        if cache_evidence_identity
+        else _model_route_cache_identity(
+            legacy_payload,
+            model_route_identity,
+        )
     )
     path = cache_root / "official-positionings" / str(project.githubRepositoryId) / f"{identity}.json"
     cached = _load_json(path)
     legacy_hit = False
+    if cached is None and cache_evidence_identity:
+        exact_legacy = _model_route_cache_identity(legacy_payload, model_route_identity)
+        cached = _load_json(path.with_name(f"{exact_legacy}.json"))
+        legacy_hit = cached is not None
     if cached is None and cache_evidence_identity:
         legacy_identity = _model_route_cache_identity(
             {
@@ -3922,22 +4053,46 @@ async def _translation(
         finish_sample,
     )
 
-    revision = evidence.readmeBlobSha or cache_evidence_identity or evidence.digest
-    identity = _model_route_cache_identity(
-        {
-            "githubRepositoryId": project.githubRepositoryId,
-            "revision": revision,
-            "schema": _PROFILE_SCHEMA,
-            "prompt": _RARDAR_ASSESSMENT_PROMPT_VERSION,
-            "namespace": "rardar_assessment",
-            "narrativeMode": "rardar_derived",
-            **({"contentEvidenceIdentity": cache_evidence_identity} if cache_evidence_identity else {}),
-        },
-        model_route_identity,
+    structured_forms = _structured_traits(evidence.evidenceIndex)[0]
+    payload = {
+        "repository": project.repository,
+        "sourceLanguage": evidence.sourceLanguage,
+        "evidenceIndex": _bounded_translation_evidence(evidence.evidenceIndex),
+        "structuredPositioningForms": [
+            claim.model_dump(mode="json") for claim in structured_forms if claim.text in _POSITIONING_FORM_LABELS
+        ],
+    }
+    legacy_payload = {
+        "githubRepositoryId": project.githubRepositoryId,
+        "revision": evidence.readmeBlobSha or cache_evidence_identity or evidence.digest,
+        "schema": _PROFILE_SCHEMA,
+        "prompt": _RARDAR_ASSESSMENT_PROMPT_VERSION,
+        "namespace": "rardar_assessment",
+        "narrativeMode": "rardar_derived",
+        **({"contentEvidenceIdentity": cache_evidence_identity} if cache_evidence_identity else {}),
+    }
+    identity = (
+        _stage_input_cache_identity(
+            project,
+            payload,
+            "assessment",
+            _RARDAR_ASSESSMENT_PROMPT_VERSION,
+            _PROFILE_SCHEMA,
+            model_route_identity,
+        )
+        if cache_evidence_identity
+        else _model_route_cache_identity(
+            legacy_payload,
+            model_route_identity,
+        )
     )
     path = cache_root / "rardar-assessments" / str(project.githubRepositoryId) / f"{identity}.json"
     cached = _load_json(path)
     legacy_hit = False
+    if cached is None and cache_evidence_identity:
+        exact_legacy = _model_route_cache_identity(legacy_payload, model_route_identity)
+        cached = _load_json(path.with_name(f"{exact_legacy}.json"))
+        legacy_hit = cached is not None
     # The old SHA-keyed assessment did not bind Description or other evidence.
     # Without an input fingerprint, do not promote it to a content-bound key.
     if cached is None and cache_evidence_identity and evidence.readmeBlobSha is None:
@@ -3966,15 +4121,6 @@ async def _translation(
             pass
     if cache_only:
         raise ValueError("cache_reassembly_assessment_missing")
-    structured_forms = _structured_traits(evidence.evidenceIndex)[0]
-    payload = {
-        "repository": project.repository,
-        "sourceLanguage": evidence.sourceLanguage,
-        "evidenceIndex": _bounded_translation_evidence(evidence.evidenceIndex),
-        "structuredPositioningForms": [
-            claim.model_dump(mode="json") for claim in structured_forms if claim.text in _POSITIONING_FORM_LABELS
-        ],
-    }
     calls = 0
     for attempt in range(1, 3):
         checkpoint = None
@@ -4459,6 +4605,7 @@ async def collect_official_project_profile(
     save_partial_introduction: bool = False,
     cache_only: bool = False,
     cached_source: tuple[list[dict[str, str]], dict[str, Any]] | None = None,
+    refresh_source: bool = False,
 ) -> CollectedProjectProfile:
     if cache_only and (model_route_identity is None or cached_source is None):
         raise ValueError("cache_only_source_and_route_required")
@@ -4475,9 +4622,14 @@ async def collect_official_project_profile(
             project,
             cache_root,
             client,
-            refresh=not use_profile_cache_v2,
+            refresh=refresh_source or not use_profile_cache_v2,
+            refresh_tree=refresh_source,
         )
     context = _build_evidence_context(project, generation_id, tree, readme)
+    if refresh_source and source_failures:
+        # The saved reading remains available to GET, but a failed refresh is
+        # not proof of current material and must not trigger paid derivation.
+        allow_model_generation = False
     narrative_mode_hint = (
         "official_zh"
         if context.official_narrative.mature and context.source_language == "zh"
@@ -4493,7 +4645,7 @@ async def collect_official_project_profile(
         narrative_mode_hint,
         model_route_identity,
     )
-    if use_profile_cache_v2 and not cache_only:
+    if use_profile_cache_v2 and not cache_only and not source_failures:
         cached_v2 = _rebind_cached_profile(
             cache_root,
             project,
@@ -4502,8 +4654,8 @@ async def collect_official_project_profile(
             identities,
             required_model_route_identity=model_route_identity,
         )
-        if cached_v2 is not None:
-            return cached_v2
+        if cached_v2 is not None and not source_failures:
+            return replace(cached_v2, github_requests=github_requests, readme_cache_hit=readme_cache_hit)
     failure_identity = identities[0]
     # A cache-only correction reads already generated stages and never creates
     # an attempt. Its explicit operator gate is separate from normal 2/2
@@ -4557,12 +4709,47 @@ async def collect_official_project_profile(
             identities,
             required_model_route_identity=model_route_identity,
         )
-        if cached_v2 is not None:
-            return cached_v2
+        if cached_v2 is not None and not source_failures:
+            return replace(cached_v2, github_requests=github_requests, readme_cache_hit=readme_cache_hit)
     elif retry_suppressed:
         allow_model_generation = False
         source_failures.append(("negative_cache", previous_attempt.errorCode))
-    if not use_profile_cache_v2:
+    if use_profile_cache_v2 and (cache_only or not allow_model_generation or retry_suppressed):
+        from app.integrations.rardar.project_introductions import compatible_partial
+
+        partial = compatible_partial(cache_root, project, context.evidence, identities, model_route_identity)
+        if partial is not None and not any(stage != "negative_cache" for stage, _code in source_failures):
+            value, saved_profile, identity = partial
+            saved_evidence = ProjectEvidenceProjection.model_validate(value["evidence"], strict=True)
+            start_here = _start_here(project, context.readme_path, context.sections, context.tree, context.path_refs)
+            rebound, binding, remapped = rebind_profile(
+                SimpleNamespace(cacheIdentity=identity, evidence=saved_evidence, profile=saved_profile),
+                identity,
+                context.evidence,
+                project,
+                generation_id,
+                start_here=start_here,
+            )
+            return CollectedProjectProfile(
+                profile=rebound,
+                evidence=context.evidence,
+                github_requests=github_requests,
+                readme_cache_hit=readme_cache_hit,
+                translation_calls=0,
+                translation_cache_hit=saved_profile.translationState == "translated",
+                deterministic_fallback_used=value["deterministicFallbackUsed"],
+                current_evidence_fingerprint=identity.profileEvidenceManifestDigest,
+                profile_cache_identity=identity.identityDigest,
+                profile_binding_digest=binding.bindingDigest,
+                profile_cache_state="partial_reused",
+                profile_failure_code=previous_attempt.errorCode if retry_suppressed else None,
+                profile_failure_retryable=previous_attempt.retryable if retry_suppressed else False,
+                profile_next_retry_at=previous_attempt.nextRetryAt if retry_suppressed else None,
+                profile_retry_suppressed=retry_suppressed,
+                evidence_refs_examined=len(context.evidence.evidenceIndex),
+                evidence_refs_remapped=remapped,
+            )
+    if not use_profile_cache_v2 and not refresh_source:
         # Preserve the established Today/legacy Discover profile collector;
         # Selection passes an audited route identity and is the only caller
         # participating in Content Identity v2 and its Attempt Ledger.
@@ -4593,7 +4780,7 @@ async def collect_official_project_profile(
         evidence,
         translate=translate,
     )
-    if cached is not None and not use_profile_cache_v2:
+    if cached is not None and not use_profile_cache_v2 and not source_failures:
         cached_profile, deterministic_fallback_used = cached
         fingerprint = _evidence_fingerprint(project, evidence)
         return CollectedProjectProfile(
@@ -5341,6 +5528,22 @@ async def collect_official_project_profile(
                     source_label=profile.sourceLabel,
                     generated_at=profile.generatedAt.isoformat() if positioning_generated_now else None,
                     partial_profile=profile,
+                    reuse_identity=(
+                        _profile_identity_for_result(
+                            project,
+                            evidence,
+                            profile,
+                            model_route_identity=model_route_identity,
+                            model_derived_used=any(
+                                item is not None
+                                for item in (translated, official_translation, official_positioning_translation)
+                            ),
+                            deterministic_fallback_used=deterministic_fallback_used,
+                        )
+                        if model_route_identity is not None
+                        else None
+                    ),
+                    deterministic_fallback_used=deterministic_fallback_used,
                 )
     if not publishable and last_known_good is not None:
         resolved_failures = tuple(
@@ -5361,6 +5564,10 @@ async def collect_official_project_profile(
                 last_known_good_reused=True,
                 last_known_good_fingerprint=evidence_fingerprint,
                 current_evidence_fingerprint=evidence_fingerprint,
+                profile_failure_code=source_failures[0][1] if refresh_source and source_failures else None,
+                profile_failure_retryable=(
+                    retryable_error(source_failures[0][1]) if refresh_source and source_failures else False
+                ),
             )
         rebound, identity, revision, binding_digest, remapped = _persist_and_bind_profile(
             cache_root,
@@ -5495,11 +5702,30 @@ async def collect_official_project_profile(
             last_known_good_reused=False,
             last_known_good_fingerprint=evidence_fingerprint if last_known_good_available else None,
             current_evidence_fingerprint=evidence_fingerprint,
+            profile_failure_code=source_failures[0][1] if refresh_source and source_failures else None,
+            profile_failure_retryable=(
+                retryable_error(source_failures[0][1]) if refresh_source and source_failures else False
+            ),
         )
     if cache_only:
         raise ValueError("cache_only_profile_not_publishable")
+    # A deliberately zero-model check is not an unsuccessful model attempt.
+    # Keep source failures independently retryable, but do not create a paid-
+    # content negative receipt merely because no generation was authorized.
+    generation_deferred = not allow_model_generation and not source_failures and translation_calls == 0
     failure_code, failure_stage = _stable_profile_failure(generation_failures)
-    if retry_suppressed and previous_attempt is not None:
+    if generation_deferred:
+        attempt = None
+        # A measured local semantic rejection remains a diagnostic even when
+        # no Provider request was authorized. It must not spend a generation
+        # retry, while a merely missing model stage is only waiting for work.
+        known_semantic_rejection = any(
+            not failure.resolved and failure.code in _POSITIONING_CANDIDATE_REJECTIONS
+            for failure in generation_failures
+        )
+        if not known_semantic_rejection:
+            failure_code = None
+    elif retry_suppressed and previous_attempt is not None:
         attempt = previous_attempt
     else:
         attempt = record_failure(
@@ -5528,8 +5754,8 @@ async def collect_official_project_profile(
         profile_binding_digest=None,
         profile_cache_state="unavailable",
         profile_failure_code=failure_code,
-        profile_failure_retryable=attempt.retryable,
-        profile_next_retry_at=attempt.nextRetryAt,
+        profile_failure_retryable=attempt.retryable if attempt is not None else False,
+        profile_next_retry_at=attempt.nextRetryAt if attempt is not None else None,
         profile_retry_suppressed=retry_suppressed,
         evidence_refs_examined=len(evidence.evidenceIndex),
     )

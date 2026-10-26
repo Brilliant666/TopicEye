@@ -29,7 +29,7 @@ def content_key(evidence):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sha", [None, "a" * 40])
 @pytest.mark.parametrize("stage", ["official", "assessment", "positioning"])
-async def test_stage_content_keys_ignore_only_generation(tmp_path, monkeypatch, sha, stage):
+async def test_stage_content_keys_bind_actual_stage_input_not_board_generation(tmp_path, monkeypatch, sha, stage):
     captured = []
     original = profiles._model_route_cache_identity
 
@@ -45,7 +45,9 @@ async def test_stage_content_keys_ignore_only_generation(tmp_path, monkeypatch, 
 
     monkeypatch.setattr(profiles, "_model_route_cache_identity", capture)
 
-    async def key(generation, *, description=None, scoped=True, route="route-a"):
+    async def key(
+        generation, *, description=None, scoped=True, route="route-a", source_positioning="Build documentation."
+    ):
         project, ctx = context(generation, sha, description=description)
         original_digest = ctx.evidence.digest
         kwargs = {
@@ -63,14 +65,19 @@ async def test_stage_content_keys_ignore_only_generation(tmp_path, monkeypatch, 
             elif stage == "assessment":
                 await profiles._translation(**kwargs, stage="translation")
             else:
-                await profiles._official_positioning_translation(**kwargs, source_positioning="Build documentation.")
+                await profiles._official_positioning_translation(**kwargs, source_positioning=source_positioning)
         assert ctx.evidence.digest == original_digest
         assert ctx.evidence.generationId == generation
         return captured[-1]
 
     first = await key("generation-a")
     assert await key("generation-b") == first
-    assert await key("generation-b", description="A changed source description.") != first
+    description_changed = await key("generation-b", description="A changed source description.")
+    # The positioning-only translator does not receive Description. Other
+    # stages do, either directly or as an extracted source tagline.
+    assert (description_changed != first) is (stage != "positioning")
+    if stage == "positioning":
+        assert await key("generation-b", source_positioning="Build and search documentation.") != first
     assert await key("generation-b", route="route-b") != first
     legacy_a = await key("generation-a", scoped=False)
     legacy_b = await key("generation-b", scoped=False)
@@ -89,12 +96,12 @@ async def test_positioning_content_cache_reuses_valid_result_across_generation(t
             translatedPositioning="使用 Markdown 编写文档，并将资料构建成可供团队阅读的文档站。"
         )
 
-    async def run(generation, description=None):
+    async def run(generation, description=None, source_positioning="Build documentation from Markdown."):
         project, ctx = context(generation, sha, description=description)
         return await profiles._official_positioning_translation(
             project=project,
             evidence=ctx.evidence,
-            source_positioning="Build documentation from Markdown.",
+            source_positioning=source_positioning,
             cache_root=tmp_path,
             translator=translate,
             model_route_identity="route-a",
@@ -107,7 +114,11 @@ async def test_positioning_content_cache_reuses_valid_result_across_generation(t
     assert cached.cache_hit and cached.calls == 0 and cached.value == first.value
     assert calls == 1
     changed = await run("generation-c", "A changed source description.")
-    assert not changed.cache_hit and calls == 2
+    assert changed.cache_hit and calls == 1
+    changed_material = await run(
+        "generation-d", source_positioning="Build documentation and a search index from Markdown."
+    )
+    assert not changed_material.cache_hit and calls == 2
 
 
 @pytest.mark.asyncio
@@ -194,3 +205,83 @@ async def test_same_evidence_legacy_stage_is_validated_before_reuse(tmp_path, st
     cached = await run(True)
     assert cached.cache_hit and cached.calls == 0
     assert calls == (1 if reused else 2)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["official", "assessment", "positioning"])
+async def test_unused_readme_blob_change_reuses_actual_stage_but_changed_input_does_not(tmp_path, stage):
+    """Blob changes outside the submitted section are not model-input changes."""
+    project, ctx = context("first", "a" * 40)
+    ref = next(key for key in ctx.evidence.evidenceIndex if key.startswith("readme:"))
+    text = "使用 Markdown 编写文档，并将资料构建成可供团队阅读的文档站。"
+    narrative = replace(
+        ctx.official_narrative,
+        tagline="Documentation tool",
+        positioning="Build documentation from Markdown.",
+        highlights=(profiles.ExtractedOfficialHighlight(1, "Docs", "Build documentation.", ref),),
+    )
+    values = {
+        "official": profiles.OfficialNarrativeTranslation(
+            translatedTagline="面向团队的文档构建工具。",
+            translatedPositioning=text,
+            translatedHighlights=[
+                profiles.TranslatedOfficialHighlight(sourceOrder=1, titleZh="文档构建", detailZh=text)
+            ],
+        ),
+        "positioning": profiles.OfficialPositioningTranslation(translatedPositioning=text),
+        "assessment": profiles.ProfileTranslation(
+            summary=profiles.EvidenceClaim(text="面向团队的文档构建工具。", evidenceRefs=[ref]),
+            positioning=profiles.DerivedPositioning(
+                positioningZh=text,
+                includedEvidenceRefs=[ref],
+                includedRoles=["core_mechanism"],
+            ),
+            capabilities=[profiles.ServingCapability(title="文档构建", detail=text, evidenceRefs=[ref])],
+            productForms=[],
+            supportedEnvironments=[],
+            useCases=[],
+            deliveryForms=[],
+        ),
+    }
+    calls = 0
+
+    async def model(_payload):
+        nonlocal calls
+        calls += 1
+        return values[stage]
+
+    async def run(evidence, *, changed=False):
+        kwargs = {
+            "project": project,
+            "evidence": evidence,
+            "cache_root": tmp_path,
+            "translator": model,
+            "model_route_identity": "same-route",
+            "cache_evidence_identity": content_key(evidence),
+        }
+        if stage == "official":
+            return await profiles._official_translation(
+                **kwargs,
+                narrative=replace(narrative, positioning="Build searchable documentation.") if changed else narrative,
+            )
+        if stage == "positioning":
+            return await profiles._official_positioning_translation(
+                **kwargs,
+                source_positioning="Build searchable documentation." if changed else narrative.positioning,
+            )
+        return await profiles._translation(**kwargs, stage="translation")
+
+    assert (await run(ctx.evidence)).calls == 1
+    another_blob = ctx.evidence.model_copy(update={"readmeBlobSha": "b" * 40, "generationId": "next"})
+    assert (await run(another_blob)).cache_hit
+    assert calls == 1
+    changed_evidence = another_blob.model_copy(
+        update={
+            "evidenceIndex": {
+                **another_blob.evidenceIndex,
+                ref: "README.md: Build a search index from source documents.",
+            }
+        }
+    )
+    changed = await run(changed_evidence, changed=True)
+    assert not changed.cache_hit and calls == 2

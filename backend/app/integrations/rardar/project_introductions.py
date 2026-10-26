@@ -161,6 +161,20 @@ def _validate(payload: dict) -> ProjectEvidenceProjection:
             or (payload["generatedAt"] is not None and payload["generatedAt"] != profile.generatedAt.isoformat())
         ):
             raise ValueError("project_partial_positioning_invalid")
+        if payload.get("reuseIdentity") is not None:
+            from app.integrations.rardar.profile_cache_v2 import ProfileCacheIdentityV2
+
+            identity = ProfileCacheIdentityV2.model_validate(payload["reuseIdentity"], strict=True)
+            if (
+                identity.repositoryId != evidence.githubRepositoryId
+                or identity.readmePath != evidence.readmePath
+                or identity.readmeBlobSha != evidence.readmeBlobSha
+                or identity.profileSchemaVersion != profile.profileSchemaVersion
+                or identity.profilePromptVersion != profile.promptVersion
+                or identity.derivationMode != profile.officialNarrativeMode
+                or type(payload.get("deterministicFallbackUsed")) is not bool
+            ):
+                raise ValueError("project_partial_reuse_binding_invalid")
     return evidence
 
 
@@ -174,6 +188,8 @@ def save(
     source_label: str,
     generated_at: str | None = None,
     partial_profile: OfficialProjectProfile | None = None,
+    reuse_identity=None,
+    deterministic_fallback_used: bool = False,
 ) -> dict:
     payload = {
         "schemaVersion": 2 if partial_profile is not None else 1,
@@ -189,6 +205,11 @@ def save(
     }
     if partial_profile is not None:
         payload["partialProfile"] = partial_profile.model_dump(mode="json")
+        if reuse_identity is not None:
+            payload["reuseIdentity"] = reuse_identity.model_dump(mode="json")
+            payload["deterministicFallbackUsed"] = deterministic_fallback_used
+    elif reuse_identity is not None:
+        raise ValueError("project_partial_reuse_requires_profile")
     _validate(payload)
     # No board date, rank, stars or binding generation in the content identity.
     identity = digest(
@@ -200,6 +221,7 @@ def save(
             "sources": {ref: evidence.evidenceIndex[ref] for ref in refs},
             "readmeBlobSha": evidence.readmeBlobSha,
             **({"partialProfile": digest(payload["partialProfile"])} if partial_profile is not None else {}),
+            **({"reuseIdentity": reuse_identity.identityDigest} if reuse_identity is not None else {}),
         }
     )
     path = cache_root / "introductions" / str(evidence.githubRepositoryId) / f"{identity}.json"
@@ -242,6 +264,42 @@ def saved(cache_root: Path) -> dict:
         except (ValueError, KeyError, TypeError, OSError):
             continue
     return found
+
+
+def compatible_partial(cache_root: Path, project, evidence, identities, required_model_route_identity):
+    """Find a proven partial primary without promoting it to a complete Profile.
+
+    Older introductions remain readable but lack the model/rule binding needed
+    to treat them as executable stage caches. Content identities exclude board
+    rank/date/Star while still requiring exact source and current rule versions.
+    """
+    from app.integrations.rardar.profile_cache_v2 import ProfileCacheIdentityV2
+
+    directory = cache_root / "introductions" / str(project.githubRepositoryId)
+    plain(directory, missing=True)
+    paths = sorted(directory.glob("*.json")) if directory.exists() else []
+    if len(paths) > 128:
+        raise ValueError("project_partial_inventory_unbounded")
+    current = {identity.identityDigest: identity for identity in identities}
+    candidates = []
+    for path in paths:
+        value = read(path)
+        if value["schemaVersion"] != 2 or value.get("reuseIdentity") is None:
+            continue
+        identity = ProfileCacheIdentityV2.model_validate(value["reuseIdentity"], strict=True)
+        if identity != current.get(identity.identityDigest) or identity.repositoryId != evidence.githubRepositoryId:
+            continue
+        profile = OfficialProjectProfile.model_validate_json(json.dumps(value["partialProfile"]), strict=True)
+        route_required = profile.translationState == "translated" or (
+            profile.officialNarrativeMode in {"official_translated", "rardar_derived"}
+            and not value["deterministicFallbackUsed"]
+        )
+        if route_required and (
+            identity.modelRouteIdentity is None or identity.modelRouteIdentity != required_model_route_identity
+        ):
+            continue
+        candidates.append((value, profile, identity))
+    return max(candidates, key=lambda item: item[0]["savedAt"]) if candidates else None
 
 
 def material(value: dict) -> dict:

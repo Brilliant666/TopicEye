@@ -66,6 +66,7 @@ _DYNAMIC_PROFILE_KEYS = {
     "startHere",
 }
 _RETRY_DELAYS = (timedelta(minutes=5), timedelta(minutes=30), timedelta(hours=2), timedelta(hours=6))
+_SEMANTIC_RETRY_LIMIT = 2
 
 
 class _StrictModel(BaseModel):
@@ -606,14 +607,29 @@ def retry_is_due(
     now: datetime | None = None,
     force_retryable: bool = False,
 ) -> bool:
-    last = latest_attempt(cache_root, repository_id, evidence_digest)
+    attempts = list_attempts(cache_root, repository_id, evidence_digest)
+    last = attempts[-1] if attempts else None
     if last is None:
         return True
+    # The identity already includes evidence, route and rule versions. Repeating
+    # the same rejected content after midnight is not a new recovery input.
+    # This also applies to retained v1 receipts written before this policy.
+    if semantic_retry_exhausted(attempts):
+        return False
     if force_retryable and last.retryable:
         return True
     if not last.retryable:
         return False
     return last.nextRetryAt is not None and (now or datetime.now(UTC)) >= last.nextRetryAt
+
+
+def semantic_retry_exhausted(attempts: list[ProfileAttemptRecordV1]) -> bool:
+    """Only repeated invalid model content spends this content-bound allowance.
+
+    Network failures retain their existing backoff; no transport failure is
+    reclassified as a semantic rejection or refunded by this predicate.
+    """
+    return sum(item.errorCode == "profile_model_invalid_output" for item in attempts) >= _SEMANTIC_RETRY_LIMIT
 
 
 def record_failure(
@@ -630,6 +646,9 @@ def record_failure(
     attempts = list_attempts(cache_root, repository_id, evidence_digest)
     count = len(attempts) + 1
     first = attempts[0].firstAttemptAt if attempts else current
+    if error_code == "profile_model_invalid_output":
+        semantic_count = 1 + sum(item.errorCode == error_code for item in attempts)
+        retryable = retryable and semantic_count < _SEMANTIC_RETRY_LIMIT
     delay = _RETRY_DELAYS[min(count - 1, len(_RETRY_DELAYS) - 1)] if retryable else None
     if error_code == "profile_source_http_404" and delay is not None:
         delay = max(delay, timedelta(hours=2))

@@ -40,6 +40,7 @@ from app.integrations.rardar.profile_cache_v2 import (
     record_failure,
     retry_is_due,
     retryable_error,
+    semantic_profile_revision,
     store_profile,
 )
 from app.integrations.rardar.profile_validation_rules import PROFILE_VALIDATION_RULES, profile_validation_context
@@ -4612,7 +4613,7 @@ async def collect_official_project_profile(
     if cache_only:
         allow_model_generation = False
     use_profile_cache_v2 = model_route_identity is not None
-    if cache_only:
+    if cache_only or (cached_source is not None and not refresh_source):
         tree, readme = cached_source
         if not tree or not readme:
             raise ValueError("cache_only_source_incomplete")
@@ -5497,7 +5498,7 @@ async def collect_official_project_profile(
     # network access, so this only guards incomplete misses. Existing
     # evidence-bound deterministic model fallbacks retain their prior contract.
     publishable = _profile_is_publishable(profile) and not source_failures
-    if (
+    partial_needs_save = (
         save_partial_introduction
         and not cache_only
         and not publishable
@@ -5506,7 +5507,18 @@ async def collect_official_project_profile(
         and profile.positioningZh is not None
         and profile.positioningEvidenceRefs
         and profile.translationState in {"translated", "not_needed"}
-    ):
+    )
+    if partial_needs_save and model_route_identity is not None:
+        from app.integrations.rardar.project_introductions import compatible_partial
+
+        saved_partial = compatible_partial(cache_root, project, evidence, identities, model_route_identity)
+        if saved_partial is not None and semantic_profile_revision(saved_partial[1]) == semantic_profile_revision(
+            profile
+        ):
+            # An unchanged main-field result is not a newly generated material
+            # version merely because another optional stage failed later.
+            partial_needs_save = False
+    if partial_needs_save:
         # The full Profile gate still requires independently valid capabilities.
         # A validated positioning can nevertheless be kept with its exact
         # evidence for read-only partial display, without changing retries.

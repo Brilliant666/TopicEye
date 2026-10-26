@@ -233,6 +233,32 @@ describe('Rardar project detail', () => {
     generationId: 'boards-shared', historyAppearances: 1,
   };
 
+  it('shows an identity warning for a reused historical repository name while retaining source records', () => {
+    const conflict = {
+      ...sharedDetail, identityState: 'needs_identity_evidence' as const, identityRepositoryIds: [42, 43],
+      githubRepositoryId: null, totalStars: null, historyAppearances: null, description: null,
+      displayProfile: null, displayEvidence: null, profile: null, material: null, materialState: 'unavailable' as const,
+      appearances: [
+        { source: 'github' as const, rank: 1, sourceDate: '2026-10-24', fetchedAt: '2026-10-24T01:00:00Z', period: 'daily', reportedDelta: null, githubRepositoryId: 42, totalStars: 1000 },
+        { source: 'github' as const, rank: 3, sourceDate: '2026-10-25', fetchedAt: '2026-10-25T01:00:00Z', period: 'daily', reportedDelta: null, githubRepositoryId: 43, totalStars: 9000 },
+      ],
+    };
+    const before = JSON.stringify(conflict);
+    const html = renderToStaticMarkup(<RardarProjectDetailPage detail={conflict} historical />);
+    const notice = '仓库身份尚待核实，暂不合并资料与 Star；请按原来源核对。';
+    expect(html.split(notice)).toHaveLength(2);
+    expect(html).toContain('累计 Star 未取得');
+    expect(html).toContain('历史上榜依据');
+    expect(html).toContain('2026-10-24');
+    expect(html).toContain('2026-10-25');
+    expect(html).toContain('打开 GitHub');
+    expect(html).not.toContain('暂未取得可用的项目介绍');
+    expect(html).not.toContain('9,000');
+    expect(html).not.toContain('needs_identity_evidence');
+    expect(html).not.toContain('identityRepositoryIds');
+    expect(JSON.stringify(conflict)).toBe(before);
+  });
+
   it.each([false, true])('keeps source-change checks separate from saved detail generation (history=%s)', historical => {
     const saved: TrendingDetail = { ...sharedDetail, material: {
       schemaVersion: 2, sourceKind: 'profile_cache', sourceGeneration: 'original-source', sourceRevision: 'a'.repeat(40),

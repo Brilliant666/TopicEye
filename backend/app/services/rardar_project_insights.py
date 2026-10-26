@@ -220,6 +220,8 @@ def _key(project: dict) -> tuple[str, str]:
 
 async def read_project_insight(identifier: str, request: SharedProjectInsightRequest) -> SharedProjectInsightStatus:
     project = await asyncio.to_thread(_project, identifier, request)
+    if project.get("identityState") == "needs_identity_evidence":
+        return SharedProjectInsightStatus(state="unavailable", errorCode="repository_identity_evidence_required")
     key = _key(project)
     if key in _RUNNING:
         return SharedProjectInsightStatus(state="running")
@@ -276,6 +278,8 @@ async def _execute(project: dict, request: SharedProjectInsightRequest) -> Share
 
 async def start_project_insight(identifier: str, request: SharedProjectInsightRequest) -> SharedProjectInsightStatus:
     project = await asyncio.to_thread(_project, identifier, request)
+    if project.get("identityState") == "needs_identity_evidence":
+        return SharedProjectInsightStatus(state="unavailable", errorCode="repository_identity_evidence_required")
     key = _key(project)
     task = _RUNNING.get(key)
     if task is None:

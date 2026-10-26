@@ -6,6 +6,28 @@ import { boardTime, loadTrending, projectLink, safeSourceUrl, type TrendingBoard
 vi.mock('@/components/RardarTodayOperations', () => ({ default: () => null }));
 const project: TrendingProject = { projectId: 'new-repo--12345678901234567890', repository: 'new/repo', repositoryUrl: 'https://github.com/new/repo', githubRepositoryId: null, totalStars: null, description: null, dualListed: true, appearances: [{ source: 'github', rank: 1, sourceDate: null, fetchedAt: '2026-09-10T00:00:00Z', period: 'daily', reportedDelta: null }, { source: 'trendshift', rank: 4, sourceDate: '2026-09-09', fetchedAt: '2026-09-10T00:00:00Z', period: 'daily', reportedDelta: null }], materialState: 'unavailable', profile: null };
 describe('refocused trending reading', () => {
+  it('explains conflicting historical identities without merging their Star or material', () => {
+    const conflict = {
+      ...project, identityState: 'needs_identity_evidence' as const, identityRepositoryIds: [42, 43],
+      githubRepositoryId: null, totalStars: null, historyAppearances: null,
+      appearances: [
+        { ...project.appearances[0], githubRepositoryId: 42, totalStars: 1000 },
+        { ...project.appearances[1], githubRepositoryId: 43, totalStars: 9000 },
+      ],
+    };
+    const before = JSON.stringify(conflict);
+    const html = renderToStaticMarkup(<TrendingCard historical project={conflict} generationId="history" />);
+    const notice = '仓库身份尚待核实，暂不合并资料与 Star；请按原来源核对。';
+    expect(html.split(notice)).toHaveLength(2);
+    expect(html).toContain('累计 Star 未取得');
+    expect(html).toContain('查看项目详情');
+    expect(html).not.toContain('暂未取得可用的项目介绍');
+    expect(html).not.toContain('9,000');
+    expect(html).not.toContain('needs_identity_evidence');
+    expect(html).not.toContain('identityRepositoryIds');
+    expect(JSON.stringify(conflict)).toBe(before);
+  });
+
   it.each([false, true])('marks a changed source as saved material, not freshly generated content (history=%s)', historical => {
     const saved: TrendingProject = { ...project, materialState: 'partial', profile: {
       summary: '此前保存的中文介绍。', positioning: '此前保存的项目定位。', generatedAt: '2026-09-10T00:00:00Z',

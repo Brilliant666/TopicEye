@@ -101,6 +101,8 @@ def _load_index(path: Path) -> dict:
 
 def resolve(target: Path, project: dict) -> dict | None:
     """Read existing numeric continuity proof; a similar name is never proof."""
+    if project.get("identityState") == "needs_identity_evidence":
+        raise ValueError("repository_identity_evidence_required")
     repository = canonical_repository(project["repository"])
     expected = project.get("githubRepositoryId")
     if expected is not None and (type(expected) is not int or expected <= 0):

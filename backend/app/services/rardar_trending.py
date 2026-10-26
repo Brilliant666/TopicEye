@@ -1395,6 +1395,19 @@ async def historical_work(
                             previous_code=getattr(collected, "profile_failure_code", None),
                             budget_available=budget_wait is None,
                         )
+                        if (
+                            action["action"] == "resume_missing_stage"
+                            and getattr(collected, "profile_failure_code", None) == "profile_model_invalid_output"
+                        ):
+                            # Retained v1 receipts can still say retryable even
+                            # though the current content-bound allowance is
+                            # exhausted. The collector has proved suppression;
+                            # do not advertise another paid retry as actionable.
+                            action = {
+                                **action,
+                                "action": "not_recoverable_without_new_input",
+                                "reason": "repeated_content_rejection",
+                            }
                         record.update(nextAction=action["action"], reason=action["reason"])
                         result["contentRetryDeferred"] = result.get("contentRetryDeferred", 0) + 1
                         deferred.add(repository)

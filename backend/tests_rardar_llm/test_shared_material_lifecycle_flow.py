@@ -1,8 +1,9 @@
 """Real persisted board -> daily worker -> shared readers; synthetic source, no Provider."""
 
 import base64
+import json
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -11,6 +12,7 @@ import pytest
 
 from app.core.config import settings
 from app.integrations.rardar import read_cache, trending_metadata, trending_store
+from app.integrations.rardar.profile_cache_v2 import digest, record_failure
 from app.services import rardar_llm_control, rardar_trending as service
 from app.services.llm import daily_provider_budget
 from tests_rardar_llm.test_rardar_trending_store import board
@@ -167,3 +169,47 @@ async def test_new_board_metrics_and_metadata_stars_reuse_the_same_material(sour
         service.saved_materials(source.target)[source.repository]["displayProfile"]["generatedAt"]
         == original["generatedAt"]
     )
+
+
+@pytest.mark.asyncio
+async def test_retained_semantic_exhaustion_is_not_advertised_as_another_paid_retry(source, monkeypatch):
+    start = datetime.now(UTC) - timedelta(days=3)
+    root = source.target / "profile-cache"
+    for offset in range(2):
+        record_failure(
+            root,
+            771234,
+            "b" * 64,
+            error_code="profile_model_invalid_output",
+            retryable=True,
+            source_failure_stage="positioning",
+            now=start + timedelta(days=offset),
+        )
+    path = sorted((root / "profile-attempts/v1/771234" / ("b" * 64)).glob("*.json"))[-1]
+    old = json.loads(path.read_bytes())
+    old.update(retryable=True, nextRetryAt=(start + timedelta(days=1, minutes=30)).isoformat().replace("+00:00", "Z"))
+    old["recordDigest"] = digest({key: value for key, value in old.items() if key != "recordDigest"})
+    path.write_text(json.dumps(old), encoding="utf-8")
+    original = path.read_bytes()
+    monkeypatch.setattr(
+        service,
+        "_collect_project_material",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                profile=SimpleNamespace(githubRepositoryId=771234),
+                evidence=object(),
+                profile_cache_identity="b" * 64,
+                profile_cache_state="unavailable",
+                profile_retry_suppressed=True,
+                profile_failure_code="profile_model_invalid_output",
+                profile_next_retry_at=start + timedelta(days=1, minutes=30),
+            )
+        ),
+    )
+    progress = {}
+    result = await run(source, progress)
+    record = progress["materialWork"]["projects"][source.repository]
+    assert record["nextAction"] == "not_recoverable_without_new_input"
+    assert record["reason"] == "repeated_content_rejection"
+    assert result["providerRequests"] == 0
+    assert path.read_bytes() == original

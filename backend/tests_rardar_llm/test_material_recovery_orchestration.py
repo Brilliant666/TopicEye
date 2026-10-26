@@ -180,6 +180,51 @@ async def test_corrupt_saved_source_is_item_local_and_never_becomes_a_paid_retry
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("damage", ["identity", "digest"])
+async def test_invalid_metadata_isolated_before_qualification_and_paid_work(recovery, monkeypatch, damage):
+    monkeypatch.setattr(
+        daily_provider_budget,
+        "daily_execution_budget",
+        AsyncMock(return_value=(SimpleNamespace(snapshot=lambda: {"remaining": 80}), {})),
+    )
+    bad = add(recovery, "recovery/a-metadata", 751)
+    healthy = add(recovery, "recovery/b-readable", 752)
+    await seed(recovery, bad, monkeypatch)
+    await seed(recovery, healthy, monkeypatch)
+    value = board("github", [bad.repository, healthy.repository])
+    for item, project in zip(value["entries"], [bad, healthy], strict=True):
+        item.update(reportedDelta=250, githubRepositoryId=project.githubRepositoryId)
+    if damage == "identity":
+        value["entries"][0]["githubRepositoryId"] = 799
+    else:
+        path = trending_metadata._path(recovery.target, bad.repository)
+        record = json.loads(path.read_bytes())
+        record["payload"]["description"] = "Unbound changed content"
+        path.write_text(json.dumps(record), encoding="utf-8")
+    trending_store.publish_sources(recovery.target, [value])
+    service.atomic(
+        recovery.target / "trending-boards" / "material-work.json",
+        {"_successfulChecks": {healthy.repository: {"sourceCheckedAt": datetime.now(UTC).isoformat()}}},
+    )
+    before = len(recovery.requests)
+    progress = {}
+    qualification = await service.historical_work(recovery.target, progress, lambda: None, qualification_only=True)
+    assert qualification["qualification"]["today"]["zeroModelEligible"] == 1
+    assert progress == {}  # qualification is read-only
+    result = await work(recovery, progress)
+    assert result["cacheReassembled"] == 1 and result["providerRequests"] == 0
+    assert len(recovery.requests) == before
+    records = service.read_json(recovery.target / "progress.json")["materialWork"]["projects"]
+    assert records[bad.repository]["status"] == "invalid"
+    assert records[bad.repository]["nextAction"] == (
+        "needs_identity_evidence" if damage == "identity" else "not_recoverable_without_new_input"
+    )
+    assert records[healthy.repository]["status"] == "completed"
+    assert len(service.today()["projects"]) == 2  # facts are not removed
+    recovery.model.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_partial_reuse_rotates_to_later_reassembly_without_spending_historical_admissions(recovery, monkeypatch):
     projects = [add(recovery, f"recovery/project-{index}", 710 + index) for index in range(4)]
     for project in projects[:3]:

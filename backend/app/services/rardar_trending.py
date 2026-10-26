@@ -1096,11 +1096,25 @@ async def historical_work(
     rotation_path = target / "trending-boards" / "material-work.json"
     rotation = read_json(rotation_path) or {}
     checks = rotation.setdefault("_successfulChecks", {})
+    metadata_faults = {}
+
+    def metadata_available(project: dict) -> bool:
+        try:
+            return trending_metadata.read(target, project) is not None
+        except ValueError as exc:
+            metadata_faults[project["repository"]] = exc
+        except OSError:
+            metadata_faults[project["repository"]] = ValueError("repository_metadata_read_failed")
+        return False
 
     def source_check_due(project: dict) -> bool:
         try:
             revision = trending_metadata.content_revision(target, project)
-        except ValueError:
+        except ValueError as exc:
+            metadata_faults[project["repository"]] = exc
+            return True  # The item collector diagnoses/isolates it; other items continue.
+        except OSError:
+            metadata_faults[project["repository"]] = ValueError("repository_metadata_read_failed")
             return True  # The item collector diagnoses/isolates it; other items continue.
         if revision is None:
             return False
@@ -1171,7 +1185,7 @@ async def historical_work(
                 "admissionBlocked": sum(not admitted(p["repository"]) for p in retryable),
                 # Qualification is an opportunity, not proof that a saved stage
                 # is healthy. The real item reader validates it before reuse.
-                "zeroModelEligible": sum(trending_metadata.read(target, p) is not None for p in retryable),
+                "zeroModelEligible": sum(metadata_available(p) for p in retryable),
             }
         result.update(
             remaining=len(outstanding),
@@ -1223,9 +1237,49 @@ async def historical_work(
         )
     )
     recovered = set()
-    invalid_cache = set()
+    invalid_cache = set(metadata_faults)
+
+    def record_invalid_input(project, exc, stage):
+        repository = project["repository"]
+        invalid_cache.add(repository)
+        identity_code = (
+            str(exc) if str(exc) in {"repository_identity_mismatch", "repository_identity_evidence_required"} else None
+        )
+        action = material_next_action(
+            identity_verified=identity_code is None,
+            integrity_error=identity_code is None,
+            previous_code=identity_code,
+        )
+        record = records.setdefault(
+            repository,
+            {
+                "scope": "today" if repository in today_repositories else "historical",
+                "cacheOnly": True,
+                "failures": 0,
+                "interruptions": 0,
+                "legacyAttempts": 0,
+                "providerRequests": 0,
+            },
+        )
+        record.update(status="invalid", nextAction=action["action"], reason=action["reason"])
+        record["diagnostic"] = material_failure_diagnostic(exc, project=project, stage="profile")
+        rotation.setdefault("_attempts", {})[repository] = {
+            "status": "invalid",
+            "stage": stage,
+            "errorCode": identity_code or "material_integrity_invalid",
+            "nextAction": record["nextAction"],
+            "reason": record["reason"],
+            "checkedAt": datetime.now(UTC).isoformat(),
+        }
+        atomic(rotation_path, rotation)
+        save()
+
     cache_checks = rotation.setdefault("_cacheChecks", {})
     offline_candidates = [p for p in pending if p.get("materialState") != "complete" and not source_check_due(p)]
+    for project in pending:
+        if project["repository"] in metadata_faults:
+            record_invalid_input(project, metadata_faults[project["repository"]], "repository_metadata")
+    offline_candidates = [p for p in offline_candidates if p["repository"] not in invalid_cache]
     offline_candidates.sort(
         key=lambda p: (
             cache_checks.get(p["repository"], ""),
@@ -1243,32 +1297,7 @@ async def historical_work(
                 collected = persist_cached_material(target, cached_material)
                 material = project_material(collected.profile, collected.evidence)
         except ValueError as exc:
-            invalid_cache.add(repository)
-            record = records.setdefault(
-                repository,
-                {
-                    "scope": "today" if repository in today_repositories else "historical",
-                    "cacheOnly": True,
-                    "failures": 0,
-                    "interruptions": 0,
-                    "legacyAttempts": 0,
-                    "providerRequests": 0,
-                },
-            )
-            record.update(
-                status="invalid", nextAction="not_recoverable_without_new_input", reason="material_integrity_invalid"
-            )
-            record["diagnostic"] = material_failure_diagnostic(exc, project=project, stage="profile")
-            rotation.setdefault("_attempts", {})[repository] = {
-                "status": "invalid",
-                "stage": "cache_reassembly",
-                "errorCode": "material_integrity_invalid",
-                "nextAction": record["nextAction"],
-                "reason": record["reason"],
-                "checkedAt": datetime.now(UTC).isoformat(),
-            }
-            atomic(rotation_path, rotation)
-            save()
+            record_invalid_input(project, exc, "cache_reassembly")
             continue
         if cached_material is None:
             continue

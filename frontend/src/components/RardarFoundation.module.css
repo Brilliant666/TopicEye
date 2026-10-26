@@ -2200,6 +2200,13 @@
   opacity: 1;
 }
 
+.actionHint {
+  margin: 0.5rem 0 0;
+  color: #64748b;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
 .formError {
   margin: 0.75rem 0 0;
   display: flex;

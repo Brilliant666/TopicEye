@@ -217,7 +217,7 @@ function FindProjectSession({
           {loading ? <Loader2 size={17} className={styles.spin} /> : <Search size={17} />}
           {loading ? '正在召回候选并比较' : '开始找项目'}
         </button>
-        {(!currentUser || authLoading) && <p className={styles.sourceLine}>{authLoading ? '身份确认中，暂不可用。' : '此功能需登录，暂不向访客开放。'}</p>}
+        {(!currentUser || authLoading) && <p className={styles.actionHint}>{authLoading ? '身份确认中，暂不可用。' : '此功能需登录，暂不向访客开放。'}</p>}
         {error && <p className={styles.formError}><AlertTriangle size={15} /> 请求失败：{error}</p>}
       </form>
 

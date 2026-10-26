@@ -126,3 +126,43 @@ def test_same_day_source_identity_disagreement_is_read_only_uncertainty_not_dual
     assert value["primaryGrowth"]["value"] == 250
     assert value["primaryGrowth"]["source"] == "github"
     assert path.read_bytes() == original
+
+
+@pytest.mark.asyncio
+async def test_new_bound_identity_failure_hides_current_overlay_not_pinned_historical_result(tmp_path, monkeypatch):
+    project = await _seed(tmp_path, REPOSITORY, 42)
+    _metadata(tmp_path, project)
+    captures(tmp_path, 42, 42)
+    monkeypatch.setattr(settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(tmp_path))
+    current = store.load_snapshot(tmp_path)
+    generations = tmp_path / "trending-boards/generations"
+    old = next(p.stem for p in generations.glob("*.json") if p.stem != current["generationId"])
+    service.atomic(
+        tmp_path / "trending-boards/material-work.json",
+        {
+            "_attempts": {
+                REPOSITORY: {
+                    "status": "invalid",
+                    "stage": "source",
+                    "nextAction": "needs_identity_evidence",
+                    "reason": "repository_identity_mismatch",
+                    "sourceGeneration": current["generationId"],
+                    "checkedAt": "2026-10-26T01:00:00+00:00",
+                }
+            }
+        },
+    )
+    identifier = service.project_id_for_repository(REPOSITORY)
+    latest = service.detail(identifier, current["generationId"])
+    assert latest["identityState"] == "needs_identity_evidence"
+    assert latest["profile"] is latest["githubRepositoryId"] is latest["totalStars"] is None
+    pinned = service.detail(identifier, old)
+    assert pinned["profile"] and pinned["githubRepositoryId"] == 42
+    assert pinned.get("identityState") is None
+    next_source = board("github", [REPOSITORY], when="2026-10-26T01:00:00+00:00", day="2026-10-26")
+    next_source["entries"][0].update(githubRepositoryId=42, totalStars=9500, reportedDelta=300)
+    store.publish_sources(tmp_path, [next_source])
+    next_current = service.detail(identifier, None)
+    assert next_current["identityState"] == "needs_identity_evidence"
+    assert next_current["profile"] is None  # a new board date is not new identity proof
+    assert service.detail(identifier, old)["profile"]  # no mutation of the pinned original

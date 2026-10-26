@@ -786,6 +786,7 @@ def daily_history_view(target: Path) -> dict:
 def _material_attempts(snapshot: dict, target: Path) -> dict:
     progress = read_json(target / "trending-boards" / "material-work.json") or {}
     attempts = progress.get("_attempts", {})
+    current = read_json(target / "trending-boards" / "current.json") or {}
     for project in snapshot["projects"]:
         names = [project["repository"]]
         try:
@@ -797,6 +798,27 @@ def _material_attempts(snapshot: dict, target: Path) -> dict:
         candidates = [attempts[name] for name in names if isinstance(attempts.get(name), dict)]
         attempt = max(candidates, key=lambda value: str(value.get("checkedAt") or ""), default=None)
         if isinstance(attempt, dict):
+            identity_wait = attempt.get("nextAction") == "needs_identity_evidence"
+            attempt_generation = attempt.get("sourceGeneration")
+            current_view = bool(current.get("generationId") and current["generationId"] == snapshot.get("generationId"))
+            if (
+                identity_wait
+                and attempt_generation
+                and attempt_generation != snapshot.get("generationId")
+                and not current_view
+            ):
+                continue  # A later namespace conflict cannot rewrite an older pinned result.
+            if (
+                identity_wait
+                and attempt_generation
+                and (attempt_generation == snapshot.get("generationId") or current_view)
+            ):
+                from app.integrations.rardar.trending_store import mark_identity_conflict
+
+                identifiers = set(project.get("identityRepositoryIds", []))
+                if project.get("githubRepositoryId") is not None:
+                    identifiers.add(project["githubRepositoryId"])
+                mark_identity_conflict(project, identifiers)
             project["materialAttempt"] = {
                 key: attempt[key]
                 for key in ("status", "stage", "errorCode", "checkedAt", "nextAction", "nextAllowedAt", "reason")
@@ -1273,6 +1295,7 @@ async def historical_work(
         rotation.setdefault("_attempts", {})[repository] = {
             "status": "invalid",
             "stage": stage,
+            "sourceGeneration": snapshot.get("generationId"),
             "errorCode": identity_code or "material_integrity_invalid",
             "nextAction": record["nextAction"],
             "reason": record["reason"],
@@ -1615,6 +1638,7 @@ async def historical_work(
                     result["providerRequests"] += used
                     rotation.setdefault("_attempts", {})[repository] = {
                         "status": record["status"],
+                        "sourceGeneration": snapshot.get("generationId"),
                         "stage": record.get("stage"),
                         "errorCode": record.get("errorCode") if record["status"] in {"failed", "deferred"} else None,
                         "nextRetryAt": record.get("nextRetryAt") if record["status"] == "deferred" else None,

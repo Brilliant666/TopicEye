@@ -108,7 +108,7 @@ export function introductionUnavailableText(project: TrendingProject) {
 /** A reused repository name cannot establish continuity between different IDs. */
 export function identityEvidenceNotice(project: TrendingProject) {
   return project.identityState === 'needs_identity_evidence'
-    ? '同一仓库名称存在不同身份记录，暂不合并资料与 Star；请按原来源核对。'
+    ? '仓库身份尚待核实，暂不合并资料与 Star；请按原来源核对。'
     : null;
 }
 

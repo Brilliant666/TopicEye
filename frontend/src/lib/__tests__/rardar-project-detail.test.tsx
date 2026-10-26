@@ -245,7 +245,7 @@ describe('Rardar project detail', () => {
     };
     const before = JSON.stringify(conflict);
     const html = renderToStaticMarkup(<RardarProjectDetailPage detail={conflict} historical />);
-    const notice = '同一仓库名称存在不同身份记录，暂不合并资料与 Star；请按原来源核对。';
+    const notice = '仓库身份尚待核实，暂不合并资料与 Star；请按原来源核对。';
     expect(html.split(notice)).toHaveLength(2);
     expect(html).toContain('累计 Star 未取得');
     expect(html).toContain('历史上榜依据');

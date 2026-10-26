@@ -72,3 +72,6 @@ current source disagreement and retained legacy Serving input. It does not
 rewrite captures, historical daily membership, Find runs or the >=200 ordering
 policy. Unresolved shared insights stop before source or Provider dispatch. This
 is a persisted counterfactual, not a claimed production contamination incident.
+New identity-failure receipts retain their source context: current views can
+degrade safely without rewriting an older pinned project result, and a new board
+date alone is not identity recovery.

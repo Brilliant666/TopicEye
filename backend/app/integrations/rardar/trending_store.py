@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
+from app.integrations.rardar import project_identity
 from app.integrations.rardar.project_identity import canonical_repository, project_id_for_repository
 from app.integrations.rardar.trending_metrics import order_today, select_historical_total
 from app.integrations.rardar.trending_periods import due_period, policy_status
@@ -56,19 +57,26 @@ MATERIAL_FIELDS = (
 )
 
 
-def _apply_material(project: dict, material: dict | None) -> None:
+def _apply_material(project: dict, material: dict | None, *, identity: dict | None = None) -> None:
     if not material:
         return
     # Repository name is canonical in both indexes. A known numeric ID must
     # also agree: a reused name must not inherit another repository's reading.
     if material.get("repository") and material["repository"] != project["repository"]:
-        return
-    if project.get("githubRepositoryId") and project["githubRepositoryId"] != material.get("githubRepositoryId"):
+        if not identity or not {
+            project["repository"],
+            material["repository"],
+        }.issubset(identity["aliases"]):
+            return
+        if material.get("githubRepositoryId") != identity["githubRepositoryId"]:
+            return
+    expected = project.get("githubRepositoryId") or (identity or {}).get("githubRepositoryId")
+    if expected and expected != material.get("githubRepositoryId"):
         return
     project.update({key: deepcopy(material[key]) for key in MATERIAL_FIELDS if key in material})
 
 
-def apply_materials(snapshot: dict, materials: dict) -> dict:
+def apply_materials(snapshot: dict, materials: dict, *, target: Path | None = None) -> dict:
     """Read-time v2 display overlay; the immutable board's facts stay untouched.
 
     v1 snapshots remain readable. Their small profile is only a legacy fallback;
@@ -82,7 +90,25 @@ def apply_materials(snapshot: dict, materials: dict) -> dict:
             project.setdefault(key, None)
         for key in ("topics", "productForms", "runtimeEnvironments", "artifactTypes"):
             project.setdefault(key, [])
-        _apply_material(project, materials.get(project["repository"]))
+        identity = None
+        if target is not None:
+            try:
+                identity = project_identity.resolve(target, project)
+            except (ValueError, OSError, RuntimeError):
+                # Unverified/corrupt alias evidence is not a license to attach
+                # a different repository's material. Board facts remain valid.
+                continue
+        candidate = materials.get(project["repository"])
+        if candidate is None and identity:
+            candidate = next(
+                (
+                    materials[name]
+                    for name in identity["aliases"]
+                    if name in materials and materials[name].get("githubRepositoryId") == identity["githubRepositoryId"]
+                ),
+                None,
+            )
+        _apply_material(project, candidate, identity=identity)
     return result
 
 

@@ -2,6 +2,8 @@
 
 from copy import deepcopy
 
+import pytest
+
 from app.integrations.rardar import trending_metadata as metadata, trending_store as store
 from app.integrations.rardar.trending_metrics import select_historical_total
 from app.services.llm.provider_budget import atomic, digest
@@ -61,8 +63,14 @@ def test_legacy_metadata_is_read_without_inventing_stars(tmp_path):
 def test_metadata_does_not_carry_star_fallback_across_repository_identity(tmp_path):
     unknown_id = {**project(), "githubRepositoryId": None}
     metadata.save(tmp_path, unknown_id, {**response(), "stargazers_count": 400})
-    metadata.save(tmp_path, unknown_id, {**response(), "id": 43, "stargazers_count": None})
-    assert metadata.read(tmp_path, unknown_id)["totalStars"] is None
+    with pytest.raises(ValueError, match="repository_identity_mismatch"):
+        metadata.save(tmp_path, unknown_id, {**response(), "id": 43, "stargazers_count": None})
+    assert metadata.read(tmp_path, unknown_id)["githubRepositoryId"] == 42
+    assert metadata.read(tmp_path, unknown_id)["totalStars"] == 400
+    # A conflicting newly observed name is not assigned the previous owner's
+    # material or Stars; its independent, verified board facts remain readable.
+    newer = {**unknown_id, "githubRepositoryId": 43, "totalStars": 8}
+    assert metadata.apply({"kind": "historical", "projects": [newer]}, tmp_path)["projects"] == [newer]
 
 
 def test_history_keeps_old_valid_value_when_latest_archive_omits_it(tmp_path):

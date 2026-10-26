@@ -94,6 +94,13 @@ def _material_pending(day: dict, qualification: dict | None = None) -> bool:
     result = day.get("materials", {})
     if result.get("status") not in {None, "pending", "partial", "interrupted"}:
         return False
+    if result.get("waitReason") in {
+        "daily_budget_exhausted",
+        "daily_budget_not_configured",
+        "provider_daily_budget_unconfigured",
+    }:
+        scopes = (qualification or {}).get("qualification", {})
+        return any(scopes.get(scope, {}).get("zeroModelEligible", 0) > 0 for scope in ("today", "historical"))
     if result.get("waitReason") in {"historical_daily_limit_reached", "material_retry_limit_reached"}:
         scopes = (qualification or result).get("qualification")
         if isinstance(scopes, dict):
@@ -157,7 +164,13 @@ async def run_refresh(
                 and material_work
                 and material_qualification
                 and day.get("materials", {}).get("waitReason")
-                in {"historical_daily_limit_reached", "material_retry_limit_reached"}
+                in {
+                    "historical_daily_limit_reached",
+                    "material_retry_limit_reached",
+                    "daily_budget_exhausted",
+                    "daily_budget_not_configured",
+                    "provider_daily_budget_unconfigured",
+                }
             ):
                 # Read current saved materials and original per-project daily
                 # debits, not yesterday's/earlier slice's aggregate stop reason.
@@ -177,7 +190,11 @@ async def run_refresh(
                     or day.get("historyMetadata", {}).get("status") in {"partial", "failed"}
                 )
                 if not pending and material_work and _material_pending(day, qualification):
-                    pending = await material_budget_available()
+                    scopes = (qualification or {}).get("qualification", {})
+                    zero_model = any(
+                        scopes.get(scope, {}).get("zeroModelEligible", 0) > 0 for scope in ("today", "historical")
+                    )
+                    pending = zero_model or await material_budget_available()
                     material_budget_wait = not pending
                 if not pending:
                     return {

@@ -77,3 +77,19 @@ test('Today and history reuse the complete Profile, evidence and analysis contro
   }
   expect(posts).toEqual([]);
 });
+
+test('changed source keeps saved reading and distinguishes its time without starting work', async ({ page }) => {
+  const posts: string[] = [];
+  page.on('request', event => { if (event.method() === 'POST') posts.push(new URL(event.url()).pathname); });
+  for (const path of ['/', '/historical-hot']) {
+    await page.goto(path);
+    const notice = page.getByTestId('material-source-change');
+    await expect(notice).toHaveCount(1);
+    await expect(notice).toContainText('当前展示已保存资料');
+    await page.getByRole('link', { name: 'fixture/project-0', exact: true }).click();
+    await expect(page.getByTestId('material-source-change')).toContainText('等待后续更新');
+    await expect(page.getByTestId('project-identity-hero')).toContainText('用于示例技术文档的合成档案');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  }
+  expect(posts).toEqual([]);
+});

@@ -24,7 +24,7 @@ import {
   type ProjectDetail,
 } from '@/lib/rardar-intelligence';
 import type { DiscoverProjectDetail } from '@/lib/rardar-discover';
-import { beijingTime, boardPeriodLabel, boardTime, introductionUnavailableText, safeSourceUrl, totalStarsProvenance, type TrendingDetail } from '@/lib/rardar-trending';
+import { beijingTime, boardPeriodLabel, boardTime, introductionUnavailableText, materialSourceNotice, safeSourceUrl, totalStarsProvenance, type TrendingDetail } from '@/lib/rardar-trending';
 import styles from './RardarFoundation.module.css';
 import RardarProjectExplanation from './RardarProjectExplanation';
 import RardarGrowthFacts from './RardarGrowthFacts';
@@ -82,6 +82,7 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
   const generationId = trendingDetail ? trendingDetail.generationId || 'history' : discoverDetail ? discoverDetail.discoverGenerationId : todayDetail!.generationId;
   const findHref = `/find?repositoryUrl=${encodeURIComponent(project.htmlUrl)}`;
   const sourceLabel = profile.officialNarrativeMode ? narrativeSourceLabel(profile.officialNarrativeMode) : trendingDetail?.profile?.summary ? trendingDetail.profile.sourceLabel || '已保存中文简介' : '资料暂未补齐';
+  const sourceNotice = trendingDetail ? materialSourceNotice(trendingDetail) : null;
   const positioningLabel = profile.positioningSourceMode ? positioningSourceLabel(profile.positioningSourceMode) : '已保存项目档案';
   const primaryLinks = profile.startHere.slice(0, 4);
   const moreLinks = profile.startHere.slice(4);
@@ -113,6 +114,7 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
           ) : (
             <p>{trendingDetail ? introductionUnavailableText(trendingDetail) : '暂未取得可用的项目介绍，仓库与榜单事实仍可查看。'}</p>
           )}
+          {sourceNotice && <p className={styles.projectDescription} data-testid="material-source-change">{sourceNotice}</p>}
           {!savedProfile && trendingDetail?.profile?.summaryEvidence && trendingDetail.profile.summaryEvidence.length > 0 && <details className={styles.provenanceDetails}><summary>中文简介依据</summary><div className={styles.provenanceDetailsBody}>{trendingDetail.profile.summaryEvidence.map(item => <blockquote key={item.ref}><p>{item.text}</p>{safeSourceUrl(item.url) && <a href={safeSourceUrl(item.url)} target="_blank" rel="noopener noreferrer">查看原始资料 ↗</a>}</blockquote>)}</div></details>}
           <div className={styles.profileSignalGrid} aria-label="项目形态、环境与交付形式">
             <ProfileSignal label="产品形态" values={profile.productFormsZh} />
@@ -283,6 +285,7 @@ export default function RardarProjectDetailPage({ detail, historical = false }: 
               {profile.generatedAt && (
                 <div><dt>已保存资料时间</dt><dd>{formatTime(profile.generatedAt)}</dd></div>
               )}
+              {trendingDetail?.material?.sourceCheckedAt && <div><dt>项目资料来源检查</dt><dd>{beijingTime(trendingDetail.material.sourceCheckedAt)}</dd></div>}
               <div><dt>{isDiscover ? 'Discover Generation' : 'Generation'}</dt><dd><code>{generationId}</code></dd></div>
               {!trendingDetail && <div><dt>Serving</dt><dd><code>{(detail as ProjectDetail | DiscoverProjectDetail).servingGenerationId}</code></dd></div>}
               {trendingDetail?.material?.sourceGeneration && <div><dt>资料来源版本</dt><dd><code>{trendingDetail.material.sourceGeneration}</code></dd></div>}
@@ -321,7 +324,7 @@ function TrendingFactContext({ detail, historical }: { detail: TrendingDetail; h
     <dl>
       {detail.appearances.map(item => <Fact key={`${item.source}-${item.sourceDate}-${item.fetchedAt}`} label={`${item.source === 'github' ? 'GitHub Trending' : 'Trendshift'} 日榜`} value={`#${item.rank} · ${boardPeriodLabel(item)} · 成功采集 ${beijingTime(item.fetchedAt)}`} />)}
       {historical && detail.firstSeenAt && <Fact label="本地最早采集" value={boardTime(detail.firstSeenAt)} />}
-      {detail.displayProfile?.generatedAt && <Fact label="项目资料生成时间" value={boardTime(detail.displayProfile.generatedAt)} />}
+      {detail.displayProfile?.generatedAt && <Fact label="已保存资料版本时间" value={boardTime(detail.displayProfile.generatedAt)} />}
       {!detail.displayProfile && detail.profile?.generatedAt && <Fact label="中文简介生成时间" value={boardTime(detail.profile.generatedAt)} />}
       {!detail.displayProfile && detail.profile?.savedAt && <Fact label="中文简介保存时间" value={boardTime(detail.profile.savedAt)} />}
       {!historical && detail.primaryGrowth && <Fact label="主增长统计口径" value={detail.primaryGrowth.source === 'rardar_history' ? `${boardTime(detail.primaryGrowth.windowStartedAt)} → ${boardTime(detail.primaryGrowth.windowEndedAt)}` : detail.primaryGrowth.reportedDeltaPeriod || detail.primaryGrowth.trendshiftMetricPeriod || '来源日榜，未声明精确窗口'} />}

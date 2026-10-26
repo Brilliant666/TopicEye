@@ -233,6 +233,37 @@ describe('Rardar project detail', () => {
     generationId: 'boards-shared', historyAppearances: 1,
   };
 
+  it.each([false, true])('keeps source-change checks separate from saved detail generation (history=%s)', historical => {
+    const saved: TrendingDetail = { ...sharedDetail, material: {
+      schemaVersion: 2, sourceKind: 'profile_cache', sourceGeneration: 'original-source', sourceRevision: 'a'.repeat(40),
+      generatedAt: detail.profile.generatedAt, sourceState: 'changed', sourceCheckedAt: '2026-10-26T01:00:00Z',
+    }, materialAttempt: { status: 'deferred', nextAction: 'defer_budget', reason: 'daily_budget_exhausted', nextAllowedAt: '2026-10-27T01:00:00Z' } };
+    const before = JSON.stringify(saved);
+    const html = renderToStaticMarkup(<RardarProjectDetailPage detail={saved} historical={historical} />);
+    expect(html).toContain('来源内容已更新，当前展示已保存资料；等待后续更新。');
+    expect(html.split('data-testid="material-source-change"')).toHaveLength(2);
+    expect(html).toContain('<dt>已保存资料时间</dt>');
+    expect(html).toContain('已保存资料版本时间');
+    expect(html).not.toContain('项目资料生成时间');
+    expect(html).toContain('<dt>项目资料来源检查</dt>');
+    expect(html).toContain('2026/8/28');
+    expect(html).toContain('2026/10/26');
+    expect(html).not.toContain('daily_budget_exhausted');
+    expect(html).not.toContain('defer_budget');
+    expect(html).not.toContain('资料已重新生成');
+    expect(JSON.stringify(saved)).toBe(before);
+  });
+
+  it.each([undefined, 'unchanged'] as const)('does not label unrecorded or compatible cached detail as new (%s)', sourceState => {
+    const html = renderToStaticMarkup(<RardarProjectDetailPage detail={{ ...sharedDetail, material: {
+      schemaVersion: 2, sourceKind: 'profile_cache', sourceGeneration: 'original-source', sourceRevision: 'a'.repeat(40),
+      generatedAt: detail.profile.generatedAt, sourceState,
+    } }} />);
+    expect(html).not.toContain('material-source-change');
+    expect(html).not.toContain('最新资料');
+    expect(html).not.toContain('资料已重新生成');
+  });
+
   it.each([false, true])('describes saved sections without claiming factual or adoption verification, history=%s', (historical) => {
     const html = renderToStaticMarkup(<RardarProjectDetailPage detail={sharedDetail} historical={historical} />);
     const card = renderToStaticMarkup(<TrendingCard project={sharedDetail} historical={historical} generationId="boards-shared" />);

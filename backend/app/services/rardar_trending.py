@@ -12,8 +12,13 @@ from types import SimpleNamespace
 import httpx
 
 from app.core.config import settings
-from app.integrations.rardar import trending_metadata
-from app.integrations.rardar.profile_cache_v2 import ProfileStoreEnvelopeV2, _read_plain
+from app.integrations.rardar import project_identity, trending_metadata
+from app.integrations.rardar.profile_cache_v2 import (
+    ProfileCacheIntegrityError,
+    ProfileStoreEnvelopeV2,
+    _read_plain,
+    latest_attempt,
+)
 from app.integrations.rardar.project_identity import canonical_repository, project_id_for_repository
 from app.integrations.rardar.read_cache import cached, signature
 from app.integrations.rardar.serving_profiles import (
@@ -32,6 +37,7 @@ from app.services.llm.provider_budget import ProviderBudgetError, atomic, digest
 from app.services.rardar_github_client import github_material_client
 from app.services.rardar_material_diagnostics import material_failure_diagnostic
 from app.services.rardar_material_failure_samples import SampleStoreUnavailable
+from app.services.rardar_material_lifecycle import source_content_digest
 
 
 def project_material(profile, evidence, *, source_kind: str = "profile_cache", metadata=None) -> dict:
@@ -303,12 +309,27 @@ def saved_materials(
         repositories = {canonical_repository(repo) for repo in repositories}
         if not repositories:
             return {}
+        # A name is a historical alias. Expand only through the integrity-checked
+        # numeric-ID witness, never through a redirect or similar spelling.
+        requested = set(repositories)
+        for repository in requested:
+            try:
+                identity = project_identity.resolve(target, {"repository": repository})
+            except (ValueError, OSError):
+                continue  # Untrusted alias data grants no broader material scope.
+            if identity:
+                repositories.update(identity["aliases"])
     # Explicit global callers (publication/work selection) retain their exact
     # semantics. Interactive reads use only the bounded repository scope.
     if repositories is None:
-        return _read_saved_materials(target, original_profile_digest=original_profile_digest)
+        found = _read_saved_materials(target, original_profile_digest=original_profile_digest)
+        return _material_aliases(target, found)
     selected_ids = _selected_material_ids(target, repositories)
-    paths = [target / "serving" / "current.json", target / "serving" / "sources"]
+    paths = [
+        target / "serving" / "current.json",
+        target / "serving" / "sources",
+        target / "profile-cache" / "repository-metadata" / "identities-v1.json",
+    ]
     for name in ("profile-cache", "selection-profile-cache"):
         paths.extend(
             target / name / directory for directory in ("display-content-revisions", "display-trait-revisions")
@@ -317,7 +338,7 @@ def saved_materials(
             paths.extend(
                 target / name / directory / str(identifier) for directory in ("profile-store/v2", "introductions")
             )
-    return cached(
+    found = cached(
         (
             "scoped-materials",
             str(target.absolute()),
@@ -332,6 +353,28 @@ def saved_materials(
             selected_ids=selected_ids,
         ),
     )
+    return _material_aliases(target, found)
+
+
+def _material_aliases(target: Path, materials: dict) -> dict:
+    """Share a saved interpretation without rewriting its original evidence."""
+    result = dict(materials)
+    for repository, material in materials.items():
+        try:
+            identity = project_identity.resolve(target, {"repository": repository})
+        except (ValueError, OSError):
+            continue
+        if not identity or identity["githubRepositoryId"] != material.get("githubRepositoryId"):
+            continue
+        for alias in identity["aliases"]:
+            previous = result.get(alias)
+            if previous is not None and previous.get("githubRepositoryId") != identity["githubRepositoryId"]:
+                continue  # conflicting evidence is not authority to move a profile
+            if previous is None or (material["material"].get("generatedAt") or "") > (
+                previous.get("material", {}).get("generatedAt") or ""
+            ):
+                result[alias] = material
+    return result
 
 
 def apply_reading_semantics(profile, evidence, material):
@@ -526,7 +569,7 @@ def _history_with_materials(target: Path, materials: dict, *, repositories: set[
                 candidates.append({**project["totalStarsSource"], "totalStars": project.get("totalStars")})
             select_historical_total(project, candidates)
     snapshot["projects"] = list(projects.values())
-    snapshot = apply_materials(snapshot, materials)
+    snapshot = apply_materials(snapshot, materials, target=target)
     snapshot = trending_metadata.apply(snapshot, target)
     snapshot["projects"].sort(key=lambda p: (p["profile"] is None, -(p["totalStars"] or 0), p["repository"]))
     for project in snapshot["projects"]:
@@ -604,7 +647,9 @@ def today() -> dict:
         _material_attempts(
             trending_metadata.apply(
                 apply_materials(
-                    snapshot, saved_materials(target, repositories={p["repository"] for p in snapshot["projects"]})
+                    snapshot,
+                    saved_materials(target, repositories={p["repository"] for p in snapshot["projects"]}),
+                    target=target,
                 ),
                 target,
             ),
@@ -657,7 +702,7 @@ def publish_history_review(target: Path, *, now=None, trigger="main") -> dict:
     ]
     return historical_daily.publish(
         target,
-        eligible,
+        project_identity.unique_projects(target, eligible),
         now=now or datetime.now(UTC),
         trigger=trigger,
         limit=settings.RARDAR_HISTORICAL_REVIEW_SIZE,
@@ -684,7 +729,16 @@ def daily_history_view(target: Path) -> dict:
     snapshot = _history_with_materials(
         target, saved_materials(target, repositories=repositories), repositories=repositories
     )
-    by_id = {p["projectId"]: p for p in snapshot["projects"]}
+    by_id = {}
+    for project in snapshot["projects"]:
+        by_id[project["projectId"]] = project
+        try:
+            identity = project_identity.resolve(target, project)
+        except (ValueError, OSError):
+            identity = None
+        if identity:
+            for identifier in project_identity.identifiers(identity):
+                by_id.setdefault(identifier, project)
     identities = {item["projectId"]: item for item in batch["identities"]}
     selected = []
     for identifier in batch["projectIds"]:
@@ -726,11 +780,31 @@ def _material_attempts(snapshot: dict, target: Path) -> dict:
     progress = read_json(target / "trending-boards" / "material-work.json") or {}
     attempts = progress.get("_attempts", {})
     for project in snapshot["projects"]:
-        attempt = attempts.get(project["repository"])
+        names = [project["repository"]]
+        try:
+            identity = project_identity.resolve(target, project)
+        except (ValueError, OSError):
+            identity = None
+        if identity:
+            names.extend(identity["aliases"])
+        candidates = [attempts[name] for name in names if isinstance(attempts.get(name), dict)]
+        attempt = max(candidates, key=lambda value: str(value.get("checkedAt") or ""), default=None)
         if isinstance(attempt, dict):
             project["materialAttempt"] = {
-                key: attempt[key] for key in ("status", "stage", "errorCode", "checkedAt") if key in attempt
+                key: attempt[key]
+                for key in ("status", "stage", "errorCode", "checkedAt", "nextAction", "nextAllowedAt", "reason")
+                if key in attempt
             }
+            evidence = project.get("displayEvidence")
+            revision = attempt.get("contentRevision")
+            if evidence is not None and revision:
+                project["material"] = {
+                    **(project.get("material") or {}),
+                    # displayEvidence was already strictly validated by the
+                    # material reader; do not parse its full body a second time.
+                    "sourceState": "unchanged" if source_content_digest(evidence) == revision else "changed",
+                    "sourceCheckedAt": attempt.get("sourceCheckedAt"),
+                }
     return snapshot
 
 
@@ -738,7 +812,7 @@ def detail(identifier: str, generation: str | None, *, historical: bool = False)
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
     if historical:
         candidates = historical_snapshot(target)["projects"]
-        repositories = {p["repository"] for p in candidates if p["projectId"] == identifier}
+        repositories = {p["repository"] for p in candidates if _project_identifier_matches(target, p, identifier)}
         for retained in _retained_serving_snapshots(target):
             repositories.update(
                 canonical_repository(p.repository)
@@ -750,16 +824,18 @@ def detail(identifier: str, generation: str | None, *, historical: bool = False)
         facts = _history_with_materials(target, {}, repositories=repositories)
     else:
         facts = load_snapshot(target, generation)
-    selected = [p for p in facts["projects"] if p["projectId"] == identifier]
+    selected = [p for p in facts["projects"] if _project_identifier_matches(target, p, identifier)]
     if not selected:
         raise LookupError("trending_project_not_found")
     snapshot = apply_materials(
-        {**facts, "projects": selected}, saved_materials(target, repositories={p["repository"] for p in selected})
+        {**facts, "projects": selected},
+        saved_materials(target, repositories={p["repository"] for p in selected}),
+        target=target,
     )
     trending_metadata.apply(snapshot, target)
     _material_attempts(snapshot, target)
     for project in snapshot["projects"]:
-        if project["projectId"] == identifier:
+        if _project_identifier_matches(target, project, identifier):
             return {
                 **project,
                 "generationId": snapshot["generationId"],
@@ -770,12 +846,20 @@ def detail(identifier: str, generation: str | None, *, historical: bool = False)
     raise LookupError("trending_project_not_found")
 
 
+def _project_identifier_matches(target: Path, project: dict, identifier: str) -> bool:
+    if project["projectId"] == identifier:
+        return True
+    try:
+        identity = project_identity.resolve(target, project)
+    except (ValueError, OSError):
+        return False
+    return identity is not None and identifier in project_identity.identifiers(identity)
+
+
 async def _collect_project_material(target: Path, project: dict, generation: str, client, route):
     """The shared one-project collector, independent of old Explosion membership."""
     repository = canonical_repository(project["repository"])
-    response = await client.get(f"/repos/{repository}")
-    response.raise_for_status()
-    meta = response.json()
+    meta = await trending_metadata.fetch(target, project, client)
     if (
         not isinstance(meta, dict)
         or not isinstance(meta.get("full_name"), str)
@@ -787,11 +871,13 @@ async def _collect_project_material(target: Path, project: dict, generation: str
         or (meta.get("pushed_at") is not None and not isinstance(meta["pushed_at"], str))
     ):
         raise ValueError("repository_metadata_invalid")
-    if canonical_repository(meta["full_name"]) != repository or project.get("githubRepositoryId") not in (
+    if project.get("githubRepositoryId") not in (
         None,
         meta["id"],
     ):
         raise ValueError("repository_identity_mismatch")
+    trending_metadata.save(target, project, meta)
+    repository = canonical_repository(meta["full_name"])
     facts = SimpleNamespace(
         githubRepositoryId=meta["id"],
         repository=repository,
@@ -803,13 +889,14 @@ async def _collect_project_material(target: Path, project: dict, generation: str
         licenseSpdxId=(meta.get("license") or {}).get("spdx_id"),
         pushedAt=datetime.fromisoformat(meta["pushed_at"].replace("Z", "+00:00")) if meta.get("pushed_at") else None,
     )
-    trending_metadata.save(target, project, meta)
     return await collect_official_project_profile(
         facts,
         generation,
         target / "profile-cache",
         client=client,
         translate=True,
+        allow_model_generation=project.get("_allowModelGeneration", True),
+        refresh_source=True,
         model_route_identity=route,
         save_partial_introduction=True,
     )
@@ -974,11 +1061,17 @@ async def historical_work(
     continuations advance in small passes under the same daily Provider budget.
     """
     from app.services.llm.daily_provider_budget import ProviderWorkYield, daily_execution_budget, work_slice
-    from app.services.rardar_llm_control import resolve_rardar_route_identity
+    from app.services.rardar_llm_control import RardarLLMError, resolve_rardar_route_identity
+    from app.services.rardar_material_lifecycle import (
+        collect_cached_material,
+        material_next_action,
+        persist_cached_material,
+    )
 
     materials = saved_materials(target)
     snapshot = _history_with_materials(target, materials)
-    projects = snapshot["projects"]
+    by_repository = {p["repository"]: p for p in snapshot["projects"]}
+    projects = [by_repository[p["repository"]] for p in project_identity.unique_projects(target, snapshot["projects"])]
     today_repositories = {p["repository"] for p in today_candidates(target)["projects"]}
     from app.integrations.rardar import historical_daily
 
@@ -1003,6 +1096,42 @@ async def historical_work(
     rotation_path = target / "trending-boards" / "material-work.json"
     rotation = read_json(rotation_path) or {}
     checks = rotation.setdefault("_successfulChecks", {})
+    metadata_faults = {}
+
+    def metadata_available(project: dict) -> bool:
+        try:
+            return trending_metadata.read(target, project) is not None
+        except ValueError as exc:
+            metadata_faults[project["repository"]] = exc
+        except OSError:
+            metadata_faults[project["repository"]] = ValueError("repository_metadata_read_failed")
+        return False
+
+    def source_check_due(project: dict) -> bool:
+        try:
+            revision = trending_metadata.content_revision(target, project)
+        except ValueError as exc:
+            metadata_faults[project["repository"]] = exc
+            return True  # The item collector diagnoses/isolates it; other items continue.
+        except OSError:
+            metadata_faults[project["repository"]] = ValueError("repository_metadata_read_failed")
+            return True  # The item collector diagnoses/isolates it; other items continue.
+        if revision is None:
+            return False
+        prior = checks.get(project["repository"], {})
+        if prior.get("metadataDigest") and prior["metadataDigest"] != revision["metadataDigest"]:
+            return True
+        if project["repository"] not in today_repositories and project["projectId"] not in review_ids:
+            return False
+        from app.integrations.rardar.trending_periods import ZONE
+
+        checked = prior.get("sourceCheckedAt")
+        return checked is None or datetime.fromisoformat(checked).astimezone(ZONE).date() < datetime.now(ZONE).date()
+
+    def collected_attempt(collected):
+        identity = getattr(collected, "profile_cache_identity", None)
+        identifier = getattr(getattr(collected, "profile", None), "githubRepositoryId", None)
+        return latest_attempt(target / "profile-cache", identifier, identity) if identity and identifier else None
 
     def due(project: dict) -> bool:
         from app.integrations.rardar.project_introductions import readable_chinese_introduction
@@ -1014,6 +1143,8 @@ async def historical_work(
             or project.get("materialState") == "partial"
         ):
             return True
+        if source_check_due(project):
+            return True
         checked = datetime.fromisoformat(profile["generatedAt"])
         prior = checks.get(project["repository"], {})
         if _digest(profile) in prior.get("profileDigests", []):
@@ -1022,7 +1153,11 @@ async def historical_work(
 
     pending = [p for p in projects if due(p) and (only_project_id is None or p["projectId"] == only_project_id)]
     records = _material_work_records(deepcopy(progress) if qualification_only else progress, today_repositories)
-    historical_before = sum(r["scope"] == "historical" for r in records.values())
+
+    def historical_admissions():
+        return sum(r["scope"] == "historical" and not r.get("cacheOnly", False) for r in records.values())
+
+    historical_before = historical_admissions()
 
     def retry_debit(repository):
         record = records.get(repository, {})
@@ -1031,8 +1166,8 @@ async def historical_work(
     def admitted(repository):
         return (
             repository in today_repositories
-            or repository in records
-            or sum(r["scope"] == "historical" for r in records.values()) < settings.RARDAR_HISTORICAL_DAILY_LIMIT
+            or (repository in records and not records[repository].get("cacheOnly", False))
+            or historical_admissions() < settings.RARDAR_HISTORICAL_DAILY_LIMIT
         )
 
     def metrics(completed=()):
@@ -1048,13 +1183,16 @@ async def historical_work(
                 "admissionEligible": sum(admitted(p["repository"]) for p in retryable),
                 "dailyRetryBlocked": len(items) - len(retryable),
                 "admissionBlocked": sum(not admitted(p["repository"]) for p in retryable),
+                # Qualification is an opportunity, not proof that a saved stage
+                # is healthy. The real item reader validates it before reuse.
+                "zeroModelEligible": sum(metadata_available(p) for p in retryable),
             }
         result.update(
             remaining=len(outstanding),
             todayPending=sum(p["repository"] in today_repositories for p in outstanding),
             historicalPending=sum(p["repository"] not in today_repositories for p in outstanding),
-            historicalAdmitted=sum(r["scope"] == "historical" for r in records.values()),
-            historicalNewAdmitted=sum(r["scope"] == "historical" for r in records.values()) - historical_before,
+            historicalAdmitted=historical_admissions(),
+            historicalNewAdmitted=historical_admissions() - historical_before,
             failedAttempts=sum(r.get("failures", 0) for r in records.values()),
             unclassifiedAttempts=sum(r.get("legacyAttempts", 0) + r.get("interruptions", 0) for r in records.values()),
             qualification=qualification,
@@ -1073,12 +1211,136 @@ async def historical_work(
         if exc.code != "provider_daily_budget_unconfigured":
             raise
         budget = None
-    if budget is None:
-        return {**result, "status": "pending", "waitReason": "daily_budget_not_configured"}
-    ledger = budget[0]
-    if ledger.snapshot()["remaining"] <= 0:
-        return {**result, "status": "pending", "waitReason": "daily_budget_exhausted"}
-    route = await resolve_rardar_route_identity()
+    budget_wait = (
+        "daily_budget_not_configured"
+        if budget is None
+        else "daily_budget_exhausted"
+        if budget[0].snapshot()["remaining"] <= 0
+        else None
+    )
+    # Recovery of already funded stages is independent of today's remaining
+    # allowance. It uses the same source/identity/rule readers and writer scope,
+    # and cannot issue either a source or Provider request.
+    has_sources = (target / "profile-cache" / "introductions").exists()
+    try:
+        route = await resolve_rardar_route_identity() if not budget_wait or has_sources else None
+    except RardarLLMError as exc:
+        if exc.code != "rardar_llm_not_configured":
+            raise
+        route = None
+        budget_wait = budget_wait or "model_not_configured"
+    pending.sort(
+        key=lambda p: (
+            0 if p["repository"] in today_repositories else 1 if p["projectId"] in review_ids else 2,
+            rotation.get(p["repository"], ""),
+            p["repository"],
+        )
+    )
+    recovered = set()
+    invalid_cache = set(metadata_faults)
+
+    def record_invalid_input(project, exc, stage):
+        repository = project["repository"]
+        invalid_cache.add(repository)
+        identity_code = (
+            str(exc) if str(exc) in {"repository_identity_mismatch", "repository_identity_evidence_required"} else None
+        )
+        action = material_next_action(
+            identity_verified=identity_code is None,
+            integrity_error=identity_code is None,
+            previous_code=identity_code,
+        )
+        record = records.setdefault(
+            repository,
+            {
+                "scope": "today" if repository in today_repositories else "historical",
+                "cacheOnly": True,
+                "failures": 0,
+                "interruptions": 0,
+                "legacyAttempts": 0,
+                "providerRequests": 0,
+            },
+        )
+        record.update(status="invalid", nextAction=action["action"], reason=action["reason"])
+        record["diagnostic"] = material_failure_diagnostic(exc, project=project, stage="profile")
+        rotation.setdefault("_attempts", {})[repository] = {
+            "status": "invalid",
+            "stage": stage,
+            "errorCode": identity_code or "material_integrity_invalid",
+            "nextAction": record["nextAction"],
+            "reason": record["reason"],
+            "checkedAt": datetime.now(UTC).isoformat(),
+        }
+        atomic(rotation_path, rotation)
+        save()
+
+    cache_checks = rotation.setdefault("_cacheChecks", {})
+    offline_candidates = [p for p in pending if p.get("materialState") != "complete" and not source_check_due(p)]
+    for project in pending:
+        if project["repository"] in metadata_faults:
+            record_invalid_input(project, metadata_faults[project["repository"]], "repository_metadata")
+    offline_candidates = [p for p in offline_candidates if p["repository"] not in invalid_cache]
+    offline_candidates.sort(
+        key=lambda p: (
+            cache_checks.get(p["repository"], ""),
+            p["repository"] not in today_repositories,
+            p["repository"],
+        )
+    )
+    for project in offline_candidates[:MATERIAL_PROJECT_SLICE_LIMIT]:
+        repository = project["repository"]
+        cache_checks[repository] = datetime.now(UTC).isoformat()
+        atomic(rotation_path, rotation)
+        try:
+            cached_material = await collect_cached_material(target, project, route) if route else None
+            if cached_material is not None and cached_material.collected.profile_cache_state != "partial_reused":
+                collected = persist_cached_material(target, cached_material)
+                material = project_material(collected.profile, collected.evidence)
+        except ValueError as exc:
+            record_invalid_input(project, exc, "cache_reassembly")
+            continue
+        if cached_material is None:
+            continue
+        if cached_material.collected.profile_cache_state == "partial_reused":
+            continue  # Already readable; it is not another reassembly or paid admission.
+        result["cacheReassembled"] = result.get("cacheReassembled", 0) + 1
+        project.update(material)
+        if material["materialState"] == "complete":
+            recovered.add(repository)
+            result["refreshed"] += 1
+        record = records.setdefault(
+            repository,
+            {
+                "scope": "today" if repository in today_repositories else "historical",
+                "cacheOnly": True,
+                "failures": 0,
+                "interruptions": 0,
+                "legacyAttempts": 0,
+                "providerRequests": 0,
+            },
+        )
+        action = material_next_action(identity_verified=True, material=material)
+        record.update(
+            status="completed" if repository in recovered else "partial",
+            nextAction=action["action"],
+            reason=action["reason"],
+            sourceReceipt=cached_material.receipt,
+        )
+        rotation.setdefault("_attempts", {})[repository] = {
+            "status": record["status"],
+            "stage": "cache_reassembly",
+            "errorCode": None,
+            "nextAction": record["nextAction"],
+            "reason": record["reason"],
+            "checkedAt": datetime.now(UTC).isoformat(),
+        }
+        atomic(rotation_path, rotation)
+        save()
+    if recovered:
+        pending[:] = [p for p in pending if p["repository"] not in recovered]
+        metrics()
+        if not pending:
+            return result
     # Previously failed projects rotate behind never-attempted work, with a
     # daily bounded retry record rather than a permanent negative cache.
     pending.sort(key=lambda p: (rotation.get(p["repository"], ""), -(p["totalStars"] or 0), p["repository"]))
@@ -1108,9 +1370,11 @@ async def historical_work(
                 if result["visited"] >= (1 if only_project_id else MATERIAL_PROJECT_SLICE_LIMIT):
                     break
                 repository = project["repository"]
-                if retry_debit(repository) >= MATERIAL_FAILURE_LIMIT or not admitted(repository):
+                if repository in invalid_cache:
+                    continue  # Do not turn a corrupt saved input into another paid attempt.
+                if retry_debit(repository) >= MATERIAL_FAILURE_LIMIT or (not budget_wait and not admitted(repository)):
                     continue
-                new_admission = repository not in records
+                new_admission = repository not in records or records[repository].get("cacheOnly", False)
                 record = records.setdefault(
                     repository,
                     {
@@ -1122,6 +1386,10 @@ async def historical_work(
                     },
                 )
                 record["status"] = "running"
+                if not budget_wait:
+                    record.pop("cacheOnly", None)
+                elif new_admission:
+                    record["cacheOnly"] = True
                 previous_scope = rotation.get("_nextMaterialScope")
                 rotation["_nextMaterialScope"] = "historical" if repository in today_repositories else "today"
                 rotation[repository] = datetime.now(UTC).isoformat()
@@ -1132,8 +1400,17 @@ async def historical_work(
                 collected = None
                 try:
                     collected = await _collect_project_material(
-                        target, project, snapshot["generationId"], client, route
+                        target,
+                        {**project, "_allowModelGeneration": False} if budget_wait else project,
+                        snapshot["generationId"] or f"historical-material-{project['projectId']}",
+                        client,
+                        route,
                     )
+                    source_failure = str(getattr(collected, "profile_failure_code", "")).startswith("profile_source_")
+                    if hasattr(getattr(collected, "evidence", None), "model_dump") and not source_failure:
+                        record["contentRevision"] = source_content_digest(collected.evidence)
+                        if getattr(collected, "github_requests", 0) > 0:
+                            record["sourceCheckedAt"] = datetime.now(UTC).isoformat()
                     if getattr(collected, "profile_retry_suppressed", False):
                         # This is an existing content-bound cooldown, not a new
                         # failed generation. Preserve all prior daily debits.
@@ -1141,18 +1418,49 @@ async def historical_work(
                         record["errorCode"] = "material_content_retry_deferred"
                         retry_at = getattr(collected, "profile_next_retry_at", None)
                         record["nextRetryAt"] = retry_at.isoformat() if retry_at else None
+                        action = material_next_action(
+                            identity_verified=True,
+                            attempt=collected_attempt(collected),
+                            previous_code=getattr(collected, "profile_failure_code", None),
+                            budget_available=budget_wait is None,
+                        )
+                        if (
+                            action["action"] == "resume_missing_stage"
+                            and getattr(collected, "profile_failure_code", None) == "profile_model_invalid_output"
+                        ):
+                            # Retained v1 receipts can still say retryable even
+                            # though the current content-bound allowance is
+                            # exhausted. The collector has proved suppression;
+                            # do not advertise another paid retry as actionable.
+                            action = {
+                                **action,
+                                "action": "not_recoverable_without_new_input",
+                                "reason": "repeated_content_rejection",
+                            }
+                        record.update(nextAction=action["action"], reason=action["reason"])
                         result["contentRetryDeferred"] = result.get("contentRetryDeferred", 0) + 1
                         deferred.add(repository)
+                        continue
+                    if (
+                        budget_wait
+                        and collected.profile_cache_state == "unavailable"
+                        and getattr(collected, "profile_failure_code", None) is None
+                    ):
+                        record.update(status="waiting", nextAction="defer_budget", reason=budget_wait)
                         continue
                     material = project_material(collected.profile, collected.evidence)
                     from app.integrations.rardar.project_introductions import readable_chinese_introduction
 
                     if not readable_chinese_introduction(material.get("profile", {}).get("summary")):
                         raise ValueError("historical_intro_not_readable")
-                    if collected.profile_cache_state not in {"hit", "rebound", "migrated", "rebuilt"}:
+                    if collected.profile_cache_state not in {"hit", "rebound", "migrated", "rebuilt", "partial_reused"}:
                         raise ValueError("historical_profile_not_readable")
                     checks[repository] = {
                         "checkedAt": datetime.now(UTC).isoformat(),
+                        "sourceCheckedAt": datetime.now(UTC).isoformat(),
+                        "metadataDigest": (trending_metadata.content_revision(target, project) or {}).get(
+                            "metadataDigest"
+                        ),
                         # A compatible rebound is not persisted over its immutable
                         # cache envelope. Keep its original generation/time.
                         "profileDigests": sorted(
@@ -1169,13 +1477,25 @@ async def historical_work(
                             result["reused"] += 1
                     else:
                         result["processed"] += 1
-                    record["status"] = "completed"
-                    completed.add(repository)
+                    record["status"] = "completed" if material.get("materialState") != "partial" else "partial"
+                    record["nextAction"] = (
+                        "reuse_healthy" if material.get("materialState") == "complete" else "resume_missing_stage"
+                    )
+                    record["reason"] = (
+                        "compatible_material_saved"
+                        if record["nextAction"] == "reuse_healthy"
+                        else "missing_material_stage"
+                    )
+                    if hasattr(collected.evidence, "model_dump"):
+                        record["contentRevision"] = source_content_digest(collected.evidence)
+                    if record["status"] == "completed":
+                        completed.add(repository)
                     if only_project_id:
                         result["profileCacheState"] = collected.profile_cache_state
                         result["materialState"] = material.get("materialState")
                 except ProviderWorkYield as exc:
                     record["status"] = "yielded"
+                    record.update(nextAction="resume_missing_stage", reason=exc.code)
                     if work.used_requests == used_before and new_admission:
                         # Release only this new zero-paid cooperative admission.
                         # Existing paid stages/admissions and all caches survive.
@@ -1208,6 +1528,17 @@ async def historical_work(
                         or (exc.code if isinstance(exc, ProviderBudgetError) else None)
                         or type(exc).__name__
                     )
+                    if isinstance(exc, ValueError) and str(exc) in {
+                        "repository_identity_mismatch",
+                        "repository_identity_evidence_required",
+                        "repository_redirect_invalid",
+                        "repository_redirect_limit",
+                        "repository_content_revision_invalid",
+                        "repository_identity_index_invalid",
+                    }:
+                        record["errorCode"] = str(exc)
+                    if isinstance(exc, ProfileCacheIntegrityError):
+                        record["errorCode"] = "material_integrity_invalid"
                     record["stage"] = (
                         "source"
                         if isinstance(exc, httpx.HTTPError) or str(record["errorCode"]).startswith("profile_source_")
@@ -1217,6 +1548,59 @@ async def historical_work(
                     record["diagnostic"] = material_failure_diagnostic(
                         exc, project=project, stage=record["stage"], collected=collected
                     )
+                    code = record["errorCode"]
+                    action = material_next_action(
+                        identity_verified=code
+                        not in {"repository_identity_mismatch", "repository_identity_evidence_required"},
+                        attempt=collected_attempt(collected),
+                        previous_code=code,
+                        integrity_error=code
+                        in {
+                            "material_integrity_invalid",
+                            "repository_content_revision_invalid",
+                            "repository_identity_index_invalid",
+                        },
+                    )
+                    if isinstance(exc, httpx.HTTPError):
+                        status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+                        # GitHub uses 403 for both access denial and exhausted
+                        # API allowance. Match the existing source collector's
+                        # protocol evidence, never upstream message keywords.
+                        rate_limited = status == 429 or (
+                            status == 403 and exc.response.headers.get("x-ratelimit-remaining") == "0"
+                        )
+                        if rate_limited:
+                            action = {
+                                **action,
+                                "action": "retry_transient_later",
+                                "reason": "profile_source_rate_limited",
+                            }
+                        elif status in {401, 403}:
+                            action = {
+                                **action,
+                                "action": "not_recoverable_without_new_input",
+                                "reason": "source_access_denied",
+                            }
+                        elif status == 404:
+                            action = {**action, "action": "retry_transient_later", "reason": "profile_source_http_404"}
+                        elif status is not None and status >= 500:
+                            action = {
+                                **action,
+                                "action": "retry_transient_later",
+                                "reason": "profile_source_http_5xx",
+                            }
+                        elif status is None and isinstance(exc, httpx.TransportError):
+                            action = {
+                                **action,
+                                "action": "retry_transient_later",
+                                "reason": "profile_source_timeout"
+                                if isinstance(exc, httpx.TimeoutException)
+                                else "profile_source_remote_disconnected",
+                            }
+                        else:
+                            action = {**action, "action": "degrade_with_evidence", "reason": "profile_source_invalid"}
+                    record.update(nextAction=action["action"], reason=action["reason"])
+                    record["nextRetryAt"] = action.get("nextAllowedAt")
                     result["failed"] += 1
                 finally:
                     used = work.used_requests - used_before
@@ -1229,12 +1613,21 @@ async def historical_work(
                         "nextRetryAt": record.get("nextRetryAt") if record["status"] == "deferred" else None,
                         "diagnostic": record.get("diagnostic") if record["status"] == "failed" else None,
                         "checkedAt": datetime.now(UTC).isoformat(),
+                        "nextAction": record.get("nextAction"),
+                        "reason": record.get("reason"),
+                        "nextAllowedAt": record.get("nextRetryAt"),
+                        "contentRevision": record.get("contentRevision"),
+                        "sourceCheckedAt": record.get("sourceCheckedAt"),
                     }
                     atomic(rotation_path, rotation)
                     save()
                 save()
                 await asyncio.sleep(0)
     outstanding = metrics(completed)
+    result["nextActions"] = {
+        action: sum(record.get("nextAction") == action for record in records.values())
+        for action in sorted({record["nextAction"] for record in records.values() if record.get("nextAction")})
+    }
     from app.integrations.rardar.project_introductions import saved as saved_introductions
 
     introductions = saved_introductions(target / "profile-cache")
@@ -1249,6 +1642,8 @@ async def historical_work(
         elif deferred and all(p["repository"] in deferred for p in retryable if admitted(p["repository"])):
             reason = "material_content_retry_deferred"
         result.update(status="partial", waitReason=reason)
+    if outstanding and budget_wait:
+        result.update(status="pending", waitReason=budget_wait)
     return result
 
 

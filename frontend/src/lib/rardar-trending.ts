@@ -36,11 +36,11 @@ export type TrendingProject = {
   historicalContext?: { kind: 'board' | 'rardar' | 'reported_count'; source: string; rank?: number; dateKind?: 'source' | 'capture' | 'window'; date?: string; fetchedAt?: string; reportedAppearanceCount?: number } | null;
   totalStarsSource?: { source: 'github' | 'trendshift' | 'github_metadata' | 'rardar_history'; sourceDate: string | null; fetchedAt: string | null; status: 'healthy' | 'stale' | 'failed' | 'saved'; sourceUrl?: string; observedAt?: string | null; timeKind?: 'observed' | 'source_date' | 'unknown'; historicalSaved?: boolean } | null;
   materialState: 'complete' | 'partial' | 'unavailable';
-  materialAttempt?: { status: string; stage?: 'source' | 'translation' | 'profile' | null; errorCode?: string | null; checkedAt?: string | null } | null;
+  materialAttempt?: { status: string; stage?: 'source' | 'translation' | 'profile' | null; errorCode?: string | null; checkedAt?: string | null; nextAction?: string | null; reason?: string | null; nextAllowedAt?: string | null } | null;
   displayCard?: TrendingCardNarrative | null;
   displayProfile?: (Omit<ProjectDetail['profile'], 'generatedAt'> & { generatedAt: string | null }) | null;
   displayEvidence?: ProjectDetail['evidence'] | null;
-  material?: { schemaVersion: 2; sourceKind: 'profile_cache' | 'published_serving' | 'partial_introduction' | 'partial_profile'; sourceGeneration: string; sourceRevision: string; generatedAt: string | null; savedAt?: string } | null;
+  material?: { schemaVersion: 2; sourceKind: 'profile_cache' | 'published_serving' | 'partial_introduction' | 'partial_profile'; sourceGeneration: string; sourceRevision: string; generatedAt: string | null; savedAt?: string; sourceState?: 'changed' | 'unchanged'; sourceCheckedAt?: string | null } | null;
   language?: string | null; topics?: string[]; license?: string | null;
   metadataSource?: { fetchedAt: string; sourceUrl: string };
   productForms?: string[]; runtimeEnvironments?: string[]; artifactTypes?: string[];
@@ -101,6 +101,14 @@ export function introductionUnavailableText(project: TrendingProject) {
   return project.materialAttempt?.status === 'failed' && project.materialAttempt.stage === 'source'
     ? '资料读取失败，暂时保留上榜信息。'
     : '暂未取得可用的项目介绍，仓库与榜单事实仍可查看。';
+}
+
+/** A checked source revision is distinct from the saved interpretation's age. */
+export function materialSourceNotice(project: TrendingProject) {
+  if (project.material?.sourceState !== 'changed') return null;
+  return project.displayCard || project.displayProfile || project.profile
+    ? '来源内容已更新，当前展示已保存资料；等待后续更新。'
+    : '来源内容已更新，项目资料待补充。';
 }
 
 /** Only timezone-aware instants are rendered; source calendar dates are not instants. */

@@ -6,7 +6,7 @@ import { ArrowRight, ArrowUpRight, BookOpen, Clock3, FolderGit2, ShieldCheck, Sp
 import RardarTodayOperations from './RardarTodayOperations';
 import RardarGrowthFacts from './RardarGrowthFacts';
 import { narrativeSourceLabel, positioningSourceLabel } from '@/lib/rardar-intelligence';
-import { beijingTime, boardPeriodLabel, boardTime, introductionUnavailableText, projectLink, safeSourceUrl, totalStarsProvenance, type TrendingBoard, type TrendingProject } from '@/lib/rardar-trending';
+import { beijingTime, boardPeriodLabel, boardTime, introductionUnavailableText, materialSourceNotice, projectLink, safeSourceUrl, totalStarsProvenance, type TrendingBoard, type TrendingProject } from '@/lib/rardar-trending';
 import styles from './RardarFoundation.module.css';
 
 export const boardSourceName = { github: 'GitHub Trending', trendshift: 'Trendshift' };
@@ -18,6 +18,7 @@ export function TrendingCard({ project, generationId, historical = false, index 
   const positioning = profile?.coreValueZh || profile?.positioningZh || project.profile?.positioning;
   const forms = profile?.productFormsZh || project.productForms || [];
   const sourceLabel = profile ? narrativeSourceLabel(profile.officialNarrativeMode) : project.profile?.sourceLabel;
+  const sourceNotice = materialSourceNotice(project);
   return <article className={styles.rankingCard} data-project-id={project.projectId}>
     <div className={styles.rank} aria-label="展示序号">{index === undefined ? <FolderGit2 size={24} /> : String(index + 1).padStart(2, '0')}</div>
     <div className={styles.projectIdentity}>
@@ -25,6 +26,7 @@ export function TrendingCard({ project, generationId, historical = false, index 
       {summary ? <p className={styles.officialTagline}>{summary}</p> : project.description ? <p className={styles.projectDescription}><small>原始介绍{!/[\u3400-\u9fff]/u.test(project.description) ? ' · 中文解读待补充' : ''} · </small>{project.description}</p> : <p className={styles.projectDescription}>{introductionUnavailableText(project)}</p>}
       {forms.length > 0 && <div className={styles.productForms} aria-label="产品形态">{forms.map(form => <span key={form}>{form}</span>)}</div>}
       {positioning && <section className={styles.officialPositioningBlock} aria-label={profile?.coreValueZh ? '核心价值' : '核心定位'} data-testid="today-official-positioning"><span>{profile?.coreValueZh ? '核心价值 · Rardar 解读' : `核心定位 · ${profile ? positioningSourceLabel(profile.positioningSourceMode) : '已保存解读'}`}</span><p>{positioning}</p></section>}
+      {sourceNotice && <p className={styles.projectDescription} data-testid="material-source-change">{sourceNotice}</p>}
       <div className={styles.tags}>
         {project.language && <span>{project.language}</span>}{project.topics?.slice(0, 4).map(topic => <span key={topic}>{topic}</span>)}{project.license && <span>{project.license}</span>}
         {sourceLabel && <span>{sourceLabel}</span>}
@@ -36,6 +38,7 @@ export function TrendingCard({ project, generationId, historical = false, index 
         {project.appearances.map(item => <p key={`${item.source}-${item.fetchedAt}`}>{boardSourceName[item.source]} #{item.rank} · {boardPeriodLabel(item)} · 成功采集 {beijingTime(item.fetchedAt)}{!historical && ` · ${item.source === 'github' ? item.reportedDeltaPeriod : item.trendshiftMetricPeriod}`}</p>)}
           {project.totalStarsSource && <p>累计 Star 来源：{totalStarsProvenance(project.totalStarsSource)}</p>}
           {project.metadataSource && <p>语言、主题和许可证：GitHub 仓库元数据 · 读取 {boardTime(project.metadataSource.fetchedAt)}</p>}
+        {project.material?.sourceCheckedAt && <p>项目资料来源检查：{beijingTime(project.material.sourceCheckedAt)}</p>}
         {historical && project.historicalEvidence?.map(item => <p key={item.sourceUrl}>来源报告历史上榜 {item.reportedAppearanceCount} 次；具体日期未知，不等于本地逐日记录。{safeSourceUrl(item.sourceUrl) && <a href={safeSourceUrl(item.sourceUrl)} target="_blank" rel="noopener noreferrer">核对来源 ↗</a>}</p>)}
         {historical && project.historicalRardarEvidence?.map(item => <p key={item.sourceGeneration}>Rardar 历史榜 #{item.rank} · {boardTime(item.windowStartedAt)} → {boardTime(item.windowEndedAt)}</p>)}
       </div></details>

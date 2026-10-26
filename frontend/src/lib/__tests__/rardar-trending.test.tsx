@@ -6,6 +6,34 @@ import { boardTime, loadTrending, projectLink, safeSourceUrl, type TrendingBoard
 vi.mock('@/components/RardarTodayOperations', () => ({ default: () => null }));
 const project: TrendingProject = { projectId: 'new-repo--12345678901234567890', repository: 'new/repo', repositoryUrl: 'https://github.com/new/repo', githubRepositoryId: null, totalStars: null, description: null, dualListed: true, appearances: [{ source: 'github', rank: 1, sourceDate: null, fetchedAt: '2026-09-10T00:00:00Z', period: 'daily', reportedDelta: null }, { source: 'trendshift', rank: 4, sourceDate: '2026-09-09', fetchedAt: '2026-09-10T00:00:00Z', period: 'daily', reportedDelta: null }], materialState: 'unavailable', profile: null };
 describe('refocused trending reading', () => {
+  it.each([false, true])('marks a changed source as saved material, not freshly generated content (history=%s)', historical => {
+    const saved: TrendingProject = { ...project, materialState: 'partial', profile: {
+      summary: '此前保存的中文介绍。', positioning: '此前保存的项目定位。', generatedAt: '2026-09-10T00:00:00Z',
+      sourceUrl: project.repositoryUrl,
+    }, material: {
+      schemaVersion: 2, sourceKind: 'profile_cache', sourceGeneration: 'saved-source', sourceRevision: 'a'.repeat(40),
+      generatedAt: '2026-09-10T00:00:00Z', sourceState: 'changed', sourceCheckedAt: '2026-10-26T01:00:00Z',
+    } };
+    const before = JSON.stringify(saved);
+    const html = renderToStaticMarkup(<TrendingCard project={saved} generationId="boards-saved" historical={historical} />);
+    expect(html).toContain('来源内容已更新，当前展示已保存资料；等待后续更新。');
+    expect(html.split('data-testid="material-source-change"')).toHaveLength(2);
+    expect(html).toContain('此前保存的项目定位。');
+    expect(html).toContain('项目资料来源检查：');
+    expect(html).not.toContain('资料已重新生成');
+    expect(JSON.stringify(saved)).toBe(before);
+  });
+
+  it.each([undefined, 'unchanged'] as const)('does not infer freshness from missing/unchanged state (%s)', sourceState => {
+    const html = renderToStaticMarkup(<TrendingCard project={{ ...project, material: {
+      schemaVersion: 2, sourceKind: 'profile_cache', sourceGeneration: 'saved-source', sourceRevision: 'a'.repeat(40),
+      generatedAt: null, sourceState,
+    } }} generationId="boards-saved" />);
+    expect(html).not.toContain('material-source-change');
+    expect(html).not.toContain('最新资料');
+    expect(html).not.toContain('资料已重新生成');
+  });
+
   it.each([false, true])('preserves every rendered card field with the light narrative (historical=%s)', historical => {
     const displayCard: TrendingCardNarrative = {
       officialTaglineZh: '在实际资料中查找项目能力。', identitySummaryZh: '后备身份介绍',

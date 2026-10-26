@@ -24,6 +24,7 @@ export const refocusBoard = {
     primaryGrowth: { source: i % 2 ? 'github' : 'trendshift', value: 223 - i },
     appearances: (i === 0 ? ['github', 'trendshift'] : [i % 2 ? 'github' : 'trendshift']).map(source => ({ source, rank: i + 1, sourceDate: null, fetchedAt: '2026-09-10T00:00:00Z', period: 'daily', reportedDelta: null })),
     materialState: i === 0 ? 'complete' : 'unavailable', profile: null, displayProfile: i === 0 ? fullProfile : null, historyAppearances: 1, firstSeenAt: null, lastSeenAt: null,
+    material: i === 0 ? { schemaVersion: 2, sourceKind: 'profile_cache', sourceGeneration: 'synthetic-saved-source', sourceRevision: 'd'.repeat(64), generatedAt: fullProfile.generatedAt, sourceState: 'changed', sourceCheckedAt: '2026-09-10T01:00:00Z' } : null,
   })),
 };
 export const refocusHistory = {

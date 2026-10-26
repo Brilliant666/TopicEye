@@ -1378,7 +1378,7 @@ async def historical_work(
                         route,
                     )
                     source_failure = str(getattr(collected, "profile_failure_code", "")).startswith("profile_source_")
-                    if hasattr(collected.evidence, "model_dump") and not source_failure:
+                    if hasattr(getattr(collected, "evidence", None), "model_dump") and not source_failure:
                         record["contentRevision"] = source_content_digest(collected.evidence)
                         if getattr(collected, "github_requests", 0) > 0:
                             record["sourceCheckedAt"] = datetime.now(UTC).isoformat()

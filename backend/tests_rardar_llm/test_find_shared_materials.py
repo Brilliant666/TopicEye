@@ -1,6 +1,7 @@
 """Find reuses verified raw shared sources, not previously generated AI claims."""
 
 import base64
+import hashlib
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -11,8 +12,15 @@ from app.core.config import settings
 from app.schemas.rardar_product import FindProjectRequest, RequirementProfile
 from app.services import rardar_product, rardar_project_evidence as evidence_service
 from tests_rardar_llm.test_find_requirement_first import comparison, profile, repo, wire_comparison
-from tests_rardar_llm.test_shared_material_consumers import _metadata, _seed
+from tests_rardar_llm.test_shared_material_consumers import _metadata, _seed as _seed_profile
 from tests_rardar_selection.test_profile_cache_v2 import MARKDOWN
+
+_RAW = MARKDOWN.encode("utf-8")
+BLOB_SHA = hashlib.sha1(f"blob {len(_RAW)}\0".encode() + _RAW).hexdigest()
+
+
+async def _seed(target):
+    return await _seed_profile(target, markdown=MARKDOWN, blob_sha=BLOB_SHA)
 
 
 @pytest.fixture(autouse=True)
@@ -50,13 +58,13 @@ async def test_find_reuses_verified_alias_raw_readme_without_another_source_call
     snapshot = material.payload["sourceSnapshot"]
     assert snapshot["mode"] == "saved_shared_readme"
     assert snapshot["repository"] == project.repository
-    assert snapshot["readmeBlobSha"] == "a" * 40
+    assert snapshot["readmeBlobSha"] == BLOB_SHA
     assert snapshot["fetchedAt"] and snapshot["checkedAt"]
     assert material.payload["collectionLimits"]["githubRequests"] == 0
     sources = rardar_product._find_sources(renamed, material)
     readme_sources = [source for source in sources if source["kind"] == "readme"]
     assert readme_sources and all(
-        source["url"] == f"https://api.github.com/repos/{project.repository}/git/blobs/{'a' * 40}"
+        source["url"] == f"https://api.github.com/repos/{project.repository}/git/blobs/{BLOB_SHA}"
         for source in readme_sources
     )
     assert all(source["repository"] == renamed for source in sources)
@@ -65,7 +73,16 @@ async def test_find_reuses_verified_alias_raw_readme_without_another_source_call
 
 @pytest.mark.parametrize(
     "change",
-    ["new_push", "unknown_push", "stale_source", "unproven_alias", "id_conflict", "changed_pointer", "polluted_body"],
+    [
+        "new_push",
+        "unknown_push",
+        "stale_source",
+        "unproven_alias",
+        "id_conflict",
+        "changed_pointer",
+        "polluted_body",
+        "ignored_code",
+    ],
 )
 @pytest.mark.asyncio
 async def test_find_falls_back_to_its_live_public_reader_when_shared_version_is_not_proven(
@@ -95,10 +112,14 @@ async def test_find_falls_back_to_its_live_public_reader_when_shared_version_is_
         saved["sha"] = "b" * 40
         saved["record"] = "b" * 40 + ".json"
         pointer.write_text(evidence_service.json.dumps(saved), encoding="utf-8")
-    elif change == "polluted_body":
+    elif change in {"polluted_body", "ignored_code"}:
         path = root / saved["record"]
         record = evidence_service.json.loads(path.read_bytes())
-        record["markdown"] = "# Unrelated\n\nThis claim does not belong to the stored evidence."
+        record["markdown"] = (
+            record["markdown"] + "\n```sh\nnot-the-original-command\n```\n"
+            if change == "ignored_code"
+            else "# Unrelated\n\nThis claim does not belong to the stored evidence."
+        )
         path.write_text(evidence_service.json.dumps(record), encoding="utf-8")
     calls = []
     fresh_text = "# Public tool\n\nA fresh source body read through the existing Find path."

@@ -293,6 +293,17 @@ def _shared_readme(repository: str, facts: dict[str, Any]) -> dict[str, Any] | N
                     or not re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", readme["sha"])
                 ):
                     continue
+                # The structured projection deliberately omits code/navigation.
+                # It cannot prove integrity of the full raw body reused by Find.
+                # Truncated or lossy-decoded legacy caches fail this proof and
+                # retain the existing bounded live reader instead.
+                raw = readme["markdown"].encode("utf-8")
+                blob = f"blob {len(raw)}\0".encode("ascii") + raw
+                blob_hash = (
+                    hashlib.sha1(blob).hexdigest() if len(readme["sha"]) == 40 else hashlib.sha256(blob).hexdigest()
+                )
+                if blob_hash != readme["sha"].lower():
+                    continue
                 checked = readme.get("checkedAt") or readme.get("fetchedAt")
                 checked_at = (
                     datetime.fromisoformat(checked.replace("Z", "+00:00")) if isinstance(checked, str) else None

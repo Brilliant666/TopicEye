@@ -39,7 +39,7 @@ def fresh_reads():
     read_cache.clear()
 
 
-async def _seed(target, repository=None, identifier=None, *, markdown=None):
+async def _seed(target, repository=None, identifier=None, *, markdown=None, blob_sha=None):
     project = _project()
     if repository is not None:
         project = project.model_copy(
@@ -49,7 +49,7 @@ async def _seed(target, repository=None, identifier=None, *, markdown=None):
                 "htmlUrl": f"https://github.com/{repository}",
             }
         )
-    handle = _handler([], sha="b" * 40 if markdown is not None else "a" * 40)
+    handle = _handler([], sha=blob_sha or ("b" * 40 if markdown is not None else "a" * 40))
 
     def source(request):
         result = handle(request)

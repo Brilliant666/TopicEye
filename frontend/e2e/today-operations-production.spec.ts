@@ -14,7 +14,8 @@ test('Today ordinary page reads never start synchronization', async ({ page }) =
     await route.fulfill({ json: { latest: null, lastSuccessfulSyncAt: null } });
   });
   await page.goto('/');
-  await expect(page.getByRole('link', { name: '登录', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: '打开 TopicEye 管理后台', exact: true })).toHaveAttribute('href', '/admin');
+  await expect(page.getByRole('link', { name: '登录', exact: true })).toHaveCount(0);
   await expect(page.getByRole('region', { name: '管理员榜单更新', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '检查并同步榜单' })).toHaveCount(0);
   await page.reload();

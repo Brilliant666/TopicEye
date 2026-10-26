@@ -21,12 +21,16 @@ it('reads a saved insight using GET and only posts after the explicit action', a
   expect(fetcher.mock.calls[1][1]).toMatchObject({ method: 'POST', body: JSON.stringify({ generationId: 'history', context: 'historical_hot' }) });
 });
 
-it('renders the same opt-in control for a new stable project without numeric legacy ID', () => {
+it('keeps the normal AI control disabled for anonymous readers without offering login navigation', () => {
   const fetcher = vi.fn();
   vi.stubGlobal('fetch', fetcher);
   for (const source of ['trending', 'historical_hot'] as const) {
     const html = renderToStaticMarkup(<RardarProjectExplanation stableId="stable-one" repository="real/project" generationId="boards-one" source={source} />);
-    expect(html).toContain('登录后生成 AI 深度解读');
+    expect(html).toContain('生成 AI 深度解读');
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('此功能需登录，暂不向访客开放');
+    expect(html).not.toContain('登录后生成');
+    expect(html).not.toContain('href="/login');
   }
   expect(fetcher).not.toHaveBeenCalled();
 });

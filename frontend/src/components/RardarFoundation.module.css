@@ -1932,9 +1932,15 @@
   background: #dbeafe;
 }
 
-.aiButton:disabled {
-  cursor: wait;
+.aiButton:disabled,
+.aiRetryButton:disabled {
+  cursor: not-allowed;
   opacity: 0.72;
+}
+
+.aiButton:disabled[aria-busy='true'],
+.aiRetryButton:disabled[aria-busy='true'] {
+  cursor: wait;
 }
 
 .spin {
@@ -2176,8 +2182,22 @@
 }
 
 .findSubmit:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.65;
+}
+
+.findSubmit:disabled[aria-busy='true'] {
+  cursor: wait;
+}
+
+.aiButton:disabled[aria-busy='false'],
+.aiRetryButton:disabled[aria-busy='false'],
+.findSubmit:disabled[aria-busy='false'] {
+  color: #64748b;
+  border-color: #cbd5e1;
+  background: #e2e8f0;
+  box-shadow: none;
+  opacity: 1;
 }
 
 .formError {

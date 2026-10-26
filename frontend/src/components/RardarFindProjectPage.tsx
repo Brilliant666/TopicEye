@@ -2,9 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useAuthContext } from '@/providers/AuthProvider';
-import { currentLoginHref, loginHrefForPath } from '@/lib/auth-redirect';
 import { consumeFindDraft, saveFindDraft, type FindDraft } from '@/lib/rardar-find-draft';
 import { parseUTC } from '@/lib/datetime';
 import {
@@ -52,7 +50,6 @@ function FindProjectSession({
   initialRunId = '',
 }: FindPageProps) {
   const { currentUser, authLoading } = useAuthContext();
-  const router = useRouter();
   const [requirement, setRequirement] = useState(examples[0]);
   const [repositoryUrl, setRepositoryUrl] = useState(initialRepositoryUrl);
   const [result, setResult] = useState<FindProjectResponse | null>(null);
@@ -150,18 +147,9 @@ function FindProjectSession({
     preserveDraft({ requirement, repositoryUrl: value });
   }
 
-  function loginWithDraft() {
-    preserveDraft({ requirement, repositoryUrl });
-    router.push(currentLoginHref('/find'));
-  }
-
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!activeIdentity.current || busy.current || authLoading) return;
-    if (!userId) {
-      loginWithDraft();
-      return;
-    }
+    if (!activeIdentity.current || busy.current || authLoading || !userId) return;
     if (pendingKey || run) return;
     busy.current = true;
     setLoading(true);
@@ -225,11 +213,11 @@ function FindProjectSession({
           onChange={(event) => changeRepositoryUrl(event.target.value)}
           placeholder="https://github.com/owner/repository"
         />
-        <button className={styles.findSubmit} type="submit" disabled={authLoading || loading || !!pendingKey || !!run || requirement.trim().length < 6}>
+        <button className={styles.findSubmit} type="submit" disabled={!currentUser || authLoading || loading || !!pendingKey || !!run || requirement.trim().length < 6} aria-busy={!!currentUser && !authLoading && loading}>
           {loading ? <Loader2 size={17} className={styles.spin} /> : <Search size={17} />}
-          {loading ? '正在召回候选并比较' : currentUser ? '开始找项目' : '登录后开始找项目'}
+          {loading ? '正在召回候选并比较' : '开始找项目'}
         </button>
-        {!authLoading && !currentUser && <p><Link href={loginHrefForPath(initialRunId ? `/find?runId=${encodeURIComponent(initialRunId)}` : '/find')} onClick={(event) => { event.preventDefault(); loginWithDraft(); }}>登录后开始找项目或读取已保存结果</Link>。未提交草稿仅临时保留在此标签页，登录返回后仍需明确提交；保存结果仅原账号可读。</p>}
+        {(!currentUser || authLoading) && <p className={styles.sourceLine}>{authLoading ? '身份确认中，暂不可用。' : '此功能需登录，暂不向访客开放。'}</p>}
         {error && <p className={styles.formError}><AlertTriangle size={15} /> 请求失败：{error}</p>}
       </form>
 

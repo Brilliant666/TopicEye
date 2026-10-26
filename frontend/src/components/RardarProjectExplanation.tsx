@@ -1,10 +1,8 @@
 'use client';
 
 import { type ReactNode, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { AlertTriangle, BookOpen, Boxes, Compass, Gauge, Loader2, Sparkles, Target } from 'lucide-react';
 import { useAuthContext } from '@/providers/AuthProvider';
-import { currentLoginHref } from '@/lib/auth-redirect';
 
 import {
   explainDiscoverProjectById,
@@ -31,13 +29,15 @@ export default function RardarProjectExplanation({
   source?: 'today' | 'discover' | SharedProjectContext;
 }) {
   const { currentUser, authLoading } = useAuthContext();
-  const router = useRouter();
+  const canGenerate = !authLoading && !!currentUser;
   const sharedContext = source === 'trending' || source === 'historical_hot' ? source : null;
   const usesStaticEvidence = githubRepositoryId !== undefined || sharedContext !== null;
   const [result, setResult] = useState<ProjectExplanation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [waiting, setWaiting] = useState(false);
+  const showLoading = canGenerate && loading;
+  const actionHint = !canGenerate && <p className={styles.sourceLine}>{authLoading ? '身份确认中，暂不可用。' : '此功能需登录，暂不向访客开放。'}</p>;
 
   useEffect(() => {
     if (!sharedContext || !stableId) return;
@@ -63,11 +63,7 @@ export default function RardarProjectExplanation({
   }, [stableId, generationId, sharedContext]);
 
   async function run() {
-    if (authLoading) return;
-    if (!currentUser) {
-      router.push(currentLoginHref());
-      return;
-    }
+    if (!canGenerate || loading) return;
     setLoading(true);
     setError(null);
     setWaiting(false);
@@ -94,19 +90,21 @@ export default function RardarProjectExplanation({
   if (waiting) {
     return <div className={styles.aiPanel} role="status"><strong>解读等待可用额度或执行机会</strong>
       <p>已保存的项目资料可继续阅读。不会自动扩额或重复提交。</p>
-      <button type="button" onClick={run} disabled={loading || authLoading}>{currentUser ? '稍后重试' : '登录后生成 AI 深度解读'}</button></div>;
+      <button type="button" className={styles.aiRetryButton} onClick={run} disabled={!canGenerate || loading} aria-busy={showLoading}>稍后重试</button>
+      {actionHint}</div>;
   }
 
   if (!result && !error) {
     return (
       <>
-        <button type="button" className={styles.aiButton} onClick={run} disabled={loading || authLoading}>
-          {loading ? <Loader2 size={15} className={styles.spin} /> : <Sparkles size={15} />}
-          {!currentUser ? '登录后生成 AI 深度解读' : loading
+        <button type="button" className={styles.aiButton} onClick={run} disabled={!canGenerate || loading} aria-busy={showLoading}>
+          {showLoading ? <Loader2 size={15} className={styles.spin} /> : <Sparkles size={15} />}
+          {showLoading
             ? (usesStaticEvidence ? '正在基于静态证据分析' : '正在读取项目事实并分析')
-            : (usesStaticEvidence ? '生成 AI 深度解读' : 'AI 解读')}
+            : '生成 AI 深度解读'}
         </button>
-        {loading && (
+        {actionHint}
+        {showLoading && (
           <div className={`${styles.aiPanel} ${styles.aiLoading}`} role="status" aria-live="polite">
             <div><Loader2 size={15} className={styles.spin} /><strong>正在基于静态证据分析</strong></div>
             <p>首次生成预计需要一些时间。其他项目资料与榜单事实仍可继续阅读；重复提交会复用当前处理。</p>
@@ -121,7 +119,8 @@ export default function RardarProjectExplanation({
       <div className={`${styles.aiPanel} ${styles.aiUnavailable}`}>
         <div><AlertTriangle size={15} /><strong>AI 暂不可用</strong></div>
         <p>{error === 'project_insight_login_required' ? '请先登录，再明确发起按需解读。' : '已保存的项目资料和榜单事实不受影响，可以稍后重试。'}</p>
-        <button type="button" onClick={run} disabled={loading || authLoading}>{currentUser ? '重试' : '登录后生成 AI 深度解读'}</button>
+        <button type="button" className={styles.aiRetryButton} onClick={run} disabled={!canGenerate || loading} aria-busy={showLoading}>重试</button>
+        {actionHint}
       </div>
     );
   }

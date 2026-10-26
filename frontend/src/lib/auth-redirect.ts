@@ -18,4 +18,3 @@ export function currentLoginHref(fallback = '/'): string {
   const path = typeof window === 'undefined' ? fallback : `${window.location.pathname}${window.location.search}`;
   return loginHrefForPath(path);
 }
-

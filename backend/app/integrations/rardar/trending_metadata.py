@@ -318,7 +318,11 @@ def save(target: Path, project: dict, meta: dict) -> dict:
         identity_project = {**project, "githubRepositoryId": expected}
         project_identity.bind(target, identity_project, meta, fetched_at=now)
         _archive_content(target, payload, revision)
-        atomic(path, {"schemaVersion": 3, "payload": payload, "digest": digest(payload), "contentRevision": revision})
+        # Keep the deployed v2 metadata wire readable by the rollback release.
+        # The separately versioned revision envelope is additive and does not
+        # change the original payload/digest contract. Prior v3 writes remain
+        # readable above, without requiring any data rewrite during rollback.
+        atomic(path, {"schemaVersion": 2, "payload": payload, "digest": digest(payload), "contentRevision": revision})
     return payload
 
 

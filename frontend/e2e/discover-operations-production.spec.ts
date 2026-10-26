@@ -10,7 +10,8 @@ for (const [path, title] of [['discover', 'Discover'], ['news', '热点资讯'],
       await page.route('**/api/v1/rardar/**/operations**', async route => { operations++; await route.fulfill({ json: {} }); });
       await page.goto('/' + path);
       await expect(page.getByRole('heading', { name: title + '已暂停' })).toBeVisible();
-      await expect(page.getByRole('button')).toHaveCount(0);
+      await expect(page.locator('main').getByRole('button')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '退出登录', exact: true })).toHaveCount(admin ? 1 : 0);
       await page.reload();
       expect(operations).toBe(0);
     });

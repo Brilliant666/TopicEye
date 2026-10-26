@@ -2,7 +2,10 @@
 
 import { FormEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useAuthContext } from '@/providers/AppProvider';
+import { useRouter } from 'next/navigation';
+import { useAuthContext } from '@/providers/AuthProvider';
+import { currentLoginHref, loginHrefForPath } from '@/lib/auth-redirect';
+import { consumeFindDraft, saveFindDraft, type FindDraft } from '@/lib/rardar-find-draft';
 import { parseUTC } from '@/lib/datetime';
 import {
   AlertTriangle,
@@ -49,6 +52,7 @@ function FindProjectSession({
   initialRunId = '',
 }: FindPageProps) {
   const { currentUser, authLoading } = useAuthContext();
+  const router = useRouter();
   const [requirement, setRequirement] = useState(examples[0]);
   const [repositoryUrl, setRepositoryUrl] = useState(initialRepositoryUrl);
   const [result, setResult] = useState<FindProjectResponse | null>(null);
@@ -59,6 +63,7 @@ function FindProjectSession({
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [viewOwner, setViewOwner] = useState<number | undefined>(undefined);
   const [recentOwner, setRecentOwner] = useState<number | undefined>(undefined);
+  const restoredDraft = useRef<{ path: string; draft: FindDraft | null } | null>(null);
   const busy = useRef(false);
   const activeIdentity = useRef(false);
   useLayoutEffect(() => {
@@ -76,15 +81,28 @@ function FindProjectSession({
   }, [userId]);
   const loadRecent = useCallback(async () => { if (!activeIdentity.current) return; const saved = await listFindRuns(); if (!activeIdentity.current) return; setRecentOwner(userId); setRecent(saved.runs); }, [userId]);
 
+  // Public inputs follow URL changes, not a background auth-loading transition.
+  // Account changes already remount this session via its owner/anonymous key.
+  useEffect(() => {
+    setRequirement(examples[0]); setRepositoryUrl(initialRepositoryUrl);
+  }, [initialRunId, initialRepositoryUrl]);
+
   useEffect(() => {
     let active = true;
     setRun(null); setResult(null); setRecent([]); setPendingKey(null);
-    setRequirement(examples[0]); setRepositoryUrl(initialRepositoryUrl);
     // Legacy browser-only results are neither imported nor silently deleted.
     if (!userId || authLoading) return;
     let key: string | null = null;
     try { key = sessionStorage.getItem(`${pendingPrefix}${userId}`); } catch { /* optional temporary ID */ }
     setPendingKey(key);
+    // A draft is not a durable run or an execution request. Existing run/key
+    // recovery wins; a new form only restores its own unsent inputs once.
+    if (!initialRunId && !key) {
+      const path = `${window.location.pathname}${window.location.search}`;
+      if (restoredDraft.current?.path !== path) restoredDraft.current = { path, draft: consumeFindDraft(path) };
+      const draft = restoredDraft.current.draft;
+      if (draft) { setRequirement(draft.requirement); setRepositoryUrl(draft.repositoryUrl); }
+    }
     void listFindRuns().then((saved) => { if (active) { setRecentOwner(userId); setRecent(saved.runs); } }).catch((reason) => { if (active) setError(reason.message); });
     const saved = initialRunId ? readFindRun(initialRunId) : key ? readFindRunByKey(key) : null;
     if (saved) void saved.then((next) => { if (active) applyRun(next); }).catch((reason) => { if (active) setError(reason.message); });
@@ -118,9 +136,33 @@ function FindProjectSession({
     finally { if (activeIdentity.current) { busy.current = false; setLoading(false); } }
   }
 
+  function preserveDraft(draft: FindDraft) {
+    if (!userId) saveFindDraft(draft, `${window.location.pathname}${window.location.search}`);
+  }
+
+  function changeRequirement(value: string) {
+    setRequirement(value);
+    preserveDraft({ requirement: value, repositoryUrl });
+  }
+
+  function changeRepositoryUrl(value: string) {
+    setRepositoryUrl(value);
+    preserveDraft({ requirement, repositoryUrl: value });
+  }
+
+  function loginWithDraft() {
+    preserveDraft({ requirement, repositoryUrl });
+    router.push(currentLoginHref('/find'));
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!activeIdentity.current || busy.current || !userId || pendingKey || run) return;
+    if (!activeIdentity.current || busy.current || authLoading) return;
+    if (!userId) {
+      loginWithDraft();
+      return;
+    }
+    if (pendingKey || run) return;
     busy.current = true;
     setLoading(true);
     setError(null);
@@ -157,7 +199,7 @@ function FindProjectSession({
         <textarea
           id="rardar-requirement"
           value={requirement}
-          onChange={(event) => setRequirement(event.target.value)}
+          onChange={(event) => changeRequirement(event.target.value)}
           minLength={6}
           maxLength={1200}
           rows={5}
@@ -165,7 +207,7 @@ function FindProjectSession({
         />
         <div className={styles.exampleRow}>
           {examples.map((example, index) => (
-            <button type="button" key={example} onClick={() => setRequirement(example)}>示例 {index + 1}</button>
+            <button type="button" key={example} onClick={() => changeRequirement(example)}>示例 {index + 1}</button>
           ))}
         </div>
         <label htmlFor="rardar-repository-url"><Code2 size={15} /> 公开 GitHub 仓库 URL <span>（可选）</span></label>
@@ -180,14 +222,14 @@ function FindProjectSession({
           type="url"
           inputMode="url"
           value={repositoryUrl}
-          onChange={(event) => setRepositoryUrl(event.target.value)}
+          onChange={(event) => changeRepositoryUrl(event.target.value)}
           placeholder="https://github.com/owner/repository"
         />
-        <button className={styles.findSubmit} type="submit" disabled={authLoading || !currentUser || loading || !!pendingKey || !!run || requirement.trim().length < 6}>
+        <button className={styles.findSubmit} type="submit" disabled={authLoading || loading || !!pendingKey || !!run || requirement.trim().length < 6}>
           {loading ? <Loader2 size={17} className={styles.spin} /> : <Search size={17} />}
-          {loading ? '正在召回候选并比较' : '开始找项目'}
+          {loading ? '正在召回候选并比较' : currentUser ? '开始找项目' : '登录后开始找项目'}
         </button>
-        {!authLoading && !currentUser && <p><Link href={`/login?redirect=${encodeURIComponent(initialRunId ? `/find?runId=${initialRunId}` : '/find')}`}>登录后开始找项目或读取已保存结果</Link></p>}
+        {!authLoading && !currentUser && <p><Link href={loginHrefForPath(initialRunId ? `/find?runId=${encodeURIComponent(initialRunId)}` : '/find')} onClick={(event) => { event.preventDefault(); loginWithDraft(); }}>登录后开始找项目或读取已保存结果</Link>。未提交草稿仅临时保留在此标签页，登录返回后仍需明确提交；保存结果仅原账号可读。</p>}
         {error && <p className={styles.formError}><AlertTriangle size={15} /> 请求失败：{error}</p>}
       </form>
 

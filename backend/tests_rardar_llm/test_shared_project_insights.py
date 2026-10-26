@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api.v1 import rardar as api
+from app.api.v1 import auth, rardar as api
 from app.schemas.rardar_product import SharedProjectInsightRequest, SharedProjectInsightStatus
 from app.services import rardar_product, rardar_project_insights as service
 from app.services.llm.daily_provider_budget import ProviderWorkYield
@@ -313,8 +315,9 @@ def test_post_requires_real_auth_dependency_and_same_origin_while_get_only_reads
     monkeypatch.setattr(api.settings, "CORS_ORIGINS", "http://127.0.0.1:3000")
     called = []
 
-    async def denied():
-        raise HTTPException(status_code=401)
+    @asynccontextmanager
+    async def inert_session():
+        yield SimpleNamespace(commit=AsyncMock())
 
     async def start(identifier, payload):
         called.append(identifier)
@@ -323,14 +326,15 @@ def test_post_requires_real_auth_dependency_and_same_origin_while_get_only_reads
     async def read(identifier, payload):
         return SharedProjectInsightStatus(state="unprocessed")
 
-    app.dependency_overrides[api.get_current_user] = denied
+    monkeypatch.setattr(api, "async_session", inert_session)
+    monkeypatch.setattr(auth, "get_user_for_token", AsyncMock(return_value=SimpleNamespace(id=1)))
     monkeypatch.setattr(service, "start_project_insight", start)
     monkeypatch.setattr(service, "read_project_insight", read)
     client = TestClient(app)
     path = "/api/v1/rardar/project-insights/new-project"
     assert client.get(path, params={"generationId": "one"}).status_code == 200
     assert client.post(path, json={"generationId": "one"}).status_code == 401
-    app.dependency_overrides[api.get_current_user] = lambda: SimpleNamespace(id=1)
+    client.cookies.set(api.settings.AUTH_COOKIE_NAME, "synthetic-app-cookie")
     assert (
         client.post(path, json={"generationId": "one"}, headers={"origin": "https://elsewhere.test"}).status_code == 403
     )

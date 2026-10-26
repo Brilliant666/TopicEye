@@ -6,6 +6,8 @@ import RardarProjectDetailPage from '@/components/RardarProjectDetailPage';
 import { latestBoardAppearances, totalStarsProvenance, type BoardAppearance, type TrendingProject } from '@/lib/rardar-trending';
 
 vi.mock('@/components/RardarTodayOperations', () => ({ default: () => null }));
+vi.mock('@/providers/AuthProvider', () => ({ useAuthContext: () => ({ currentUser: null, authLoading: false }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 const github: BoardAppearance = { source: 'github', rank: 2, sourceDate: '2026-09-10', fetchedAt: '2026-09-11T01:00:00Z', period: 'daily', reportedDelta: 627, reportedDeltaPeriod: 'GitHub reported stars today', sourceStatus: 'healthy', totalStars: 40030 };
 const trendshift: BoardAppearance = { ...github, source: 'trendshift', rank: 8, reportedDelta: null, trendshiftStarsGained: 637, trendshiftMetricPeriod: 'past 24 hours', totalStars: 40109 };
 const project: TrendingProject = { projectId: 'fixture-metrics', repository: 'fixture/metrics', repositoryUrl: 'https://github.com/fixture/metrics', githubRepositoryId: null, description: 'Fixture, not a product result.', totalStars: 40109, totalStarsSource: { source: 'trendshift', sourceDate: trendshift.sourceDate, fetchedAt: trendshift.fetchedAt, status: 'healthy' }, dualListed: true, appearances: [github, trendshift], primaryGrowth: { ...github, value: 627 }, materialState: 'unavailable', profile: null };

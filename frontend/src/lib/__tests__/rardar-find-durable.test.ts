@@ -3,7 +3,7 @@ import { executeFindRun, listFindRuns, readFindRun, submitFindRun, type FindRun 
 import RardarFindProjectPage, { findRunLabel } from '@/components/RardarFindProjectPage';
 
 const identity = vi.hoisted(() => ({ id: 1 }));
-vi.mock('@/providers/AppProvider', () => ({ useAuthContext: () => ({ currentUser: { id: identity.id }, authLoading: false }) }));
+vi.mock('@/providers/AuthProvider', () => ({ useAuthContext: () => ({ currentUser: { id: identity.id }, authLoading: false }) }));
 
 const run = (status: FindRun['status'] = 'created'): FindRun => ({ runId: 'stable-id', status, stage: status, request: { requirement: '测试私有需求', repositoryUrl: null }, result: null, createdAt: '2026-09-14T00:00:00Z', updatedAt: '2026-09-14T00:00:00Z', finishedAt: null, errorCode: null, requestLimit: 2, requestsUsed: 0, schemaVersion: 'rardar-find-run-v1' });
 const json = (value: unknown) => new Response(JSON.stringify(value), { status: 200 });

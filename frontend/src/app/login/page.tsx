@@ -3,8 +3,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, KeyRound, LockKeyhole, Mail, Radar, UserRound } from 'lucide-react';
-import { useAppContext } from '@/components/ClientLayout';
+import { useAuthContext } from '@/providers/AuthProvider';
 import { authApi } from '@/lib/api';
+import { activeProductProfile } from '@/lib/product-profile';
+import { safeLoginRedirect } from '@/lib/auth-redirect';
 import { Badge, Button, Panel, cx } from '@/components/ui';
 
 type AuthMode = 'login' | 'register';
@@ -35,7 +37,8 @@ const OAUTH_META: Record<'google' | 'github', { label: string; Icon: (p: { class
 
 export default function LoginPage() {
   const router = useRouter();
-  const { applyAuthSession, currentUser } = useAppContext();
+  const { applyAuthSession, currentUser } = useAuthContext();
+  const isRardar = activeProductProfile.rardarEnabled;
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -47,12 +50,14 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [oauthProviders, setOauthProviders] = useState<string[]>([]);
 
-  // 拉取后端已启用的 OAuth provider 列表，决定是否渲染对应按钮
+  // Rardar currently exposes existing-account password login only. OAuth can
+  // create accounts and its protected discovery endpoint is not a public read.
   useEffect(() => {
+    if (isRardar) return;
     authApi.oauthProviders()
       .then((res) => setOauthProviders(res.providers || []))
       .catch(() => { /* 未配置或后端不可用，静默隐藏按钮 */ });
-  }, []);
+  }, [isRardar]);
 
   // 验证码倒计时
   useEffect(() => {
@@ -61,11 +66,12 @@ export default function LoginPage() {
     return () => clearTimeout(timer);
   }, [codeCountdown]);
 
-  const enabledOauth = (['google', 'github'] as const).filter((p) => oauthProviders.includes(p));
+  const enabledOauth = (['google', 'github'] as const).filter((p) => !isRardar && oauthProviders.includes(p));
 
   const handleOauthLogin = (provider: 'google' | 'github') => {
+    if (isRardar) return;
     // 整页跳转到后端，后端 302 到 provider 授权页
-    window.location.href = authApi.oauthLoginUrl(provider);
+    window.location.assign(authApi.oauthLoginUrl(provider));
   };
 
   const handleSendCode = async () => {
@@ -105,7 +111,9 @@ export default function LoginPage() {
             verification_code: verificationCode.trim(),
           });
       applyAuthSession(session);
-      router.push('/');
+      // A return target restores navigation only. Generation remains an explicit
+      // action on the destination page; no pending-action flag is carried here.
+      router.push(isRardar ? safeLoginRedirect(new URLSearchParams(window.location.search).get('redirect')) : '/');
     } catch (err) {
       setError(err instanceof Error ? err.message : mode === 'login' ? '登录失败' : '注册失败');
     } finally {
@@ -121,24 +129,23 @@ export default function LoginPage() {
             <Radar size={22} strokeWidth={2.4} />
           </div>
           <h1 className="mb-3 max-w-[560px] text-[30px] font-black leading-tight text-gray-900">
-            把选题、收藏和创作流绑定到你的账号
+            {isRardar ? '登录后，按需使用 AI 分析' : '把选题、收藏和创作流绑定到你的账号'}
           </h1>
           <p className="max-w-[560px] text-[14px] leading-7 text-gray-500">
-            登录后可以稳定保存收藏、信源偏好和后续付费区权限。复盘、创作和个人工作台需要登录，管理入口仅管理员可见。
+            {isRardar ? '今日热榜、历史回顾和已保存的共享解读无需登录。登录只用于明确发起 AI 深度解读或找项目；返回原页面后不会自动生成。' : '登录后可以稳定保存收藏、信源偏好和后续付费区权限。复盘、创作和个人工作台需要登录，管理入口仅管理员可见。'}
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             <Badge tone="primary">邮箱登录</Badge>
-            <Badge tone="teal">免费版默认开通</Badge>
-            <Badge tone="neutral">付费区预留</Badge>
+            {!isRardar && <><Badge tone="teal">免费版默认开通</Badge><Badge tone="neutral">付费区预留</Badge></>}
           </div>
         </div>
 
         <Panel className="p-6 shadow-sm">
           <div className="mb-5 flex rounded-sm border border-gray-200 bg-gray-100 p-0.5">
-            {[
+            {(isRardar ? [{ key: 'login' as const, label: '登录' }] : [
               { key: 'login' as const, label: '登录' },
               { key: 'register' as const, label: '注册' },
-            ].map((item) => (
+            ]).map((item) => (
               <button
                 key={item.key}
                 type="button"

@@ -13,6 +13,7 @@
 
 import { cookies } from 'next/headers';
 import type { AuthUser } from '@/types';
+import { activeProductProfile } from '@/lib/product-profile';
 
 // 后端 API 绝对地址（Server Component 中不能走 Next.js rewrite 代理，需要直接访问后端）
 const BACKEND_URL = process.env.BACKEND_API_URL || 'http://127.0.0.1:8102';
@@ -100,6 +101,21 @@ export async function prefetchInitialData(): Promise<PrefetchData> {
   }
 
   const cookieHeader = `${AUTH_COOKIE_NAME}=${authToken}`;
+
+  // Rardar's public reader only needs identity. Do not load TopicEye sidebar,
+  // source or favorites data for this surface. Preserve feature flags for the
+  // administrator compatibility pages; ordinary readers never need that call.
+  if (activeProductProfile.rardarEnabled) {
+    const user = await fetchJsonSafe<AuthUser>('/auth/me', cookieHeader);
+    const flags = user?.role === 'admin'
+      ? await fetchJsonSafe<{ flags: Record<string, boolean> }>('/settings/feature-flags', cookieHeader)
+      : null;
+    return {
+      user,
+      featureFlags: flags?.flags ?? {},
+      counts: null,
+    };
+  }
 
   // 第一批：auth/me + feature-flags 并行（不依赖用户信息）
   const [user, featureFlagsResult] = await Promise.all([

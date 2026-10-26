@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Radar } from 'lucide-react';
-import { useAppContext } from '@/components/ClientLayout';
+import { useAuthContext } from '@/providers/AuthProvider';
 import { authApi, setAuthToken } from '@/lib/api';
 import { Button, Panel } from '@/components/ui';
 
@@ -22,7 +22,7 @@ type Status = 'loading' | 'error' | 'success';
  */
 export default function OauthCallbackPage() {
   const router = useRouter();
-  const { applyAuthSession } = useAppContext();
+  const { applyAuthSession } = useAuthContext();
   const [status, setStatus] = useState<Status>('loading');
   const [errorMsg, setErrorMsg] = useState<string>('');
 

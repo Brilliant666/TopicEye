@@ -2,6 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/providers/AppProvider', () => ({ useAuthContext: () => ({ currentUser: null, authLoading: false }) }));
+vi.mock('@/providers/AuthProvider', () => ({ useAuthContext: () => ({ currentUser: null, authLoading: false }) }));
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 import { DiscoverFoundation, TodayFoundation } from '@/components/RardarFoundationPage';
 import {
@@ -785,8 +787,7 @@ describe('Rardar intelligence client contract', () => {
     expect(html).not.toContain('fixture-lab/alpha');
     expect(html).toContain('观察中');
     expect(html).toContain('12.0h');
-    expect(html).toContain('AI 解读');
-    expect(html).not.toContain('生成 AI 深度解读');
+    expect(html).toContain('登录后生成 AI 深度解读');
     expect(html).not.toContain('预计 24');
     expect(html).toContain('/find?repositoryUrl=https%3A%2F%2Fgithub.com%2Ffixture-lab%2Fnewcomer');
   });

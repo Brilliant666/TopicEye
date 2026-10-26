@@ -1,10 +1,11 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useStore } from 'zustand';
 import { getAuthToken, getAuthTokenExpiresAt, setAuthToken, setAuthTokenExpiresAt, authApi, settingsApi } from '@/lib/api';
 import { canAccessPath, requiredAccessForPath } from '@/lib/navigation';
+import { activeProductProfile, rardarRouteVisibility, RARDAR_ROUTE_VISIBILITY } from '@/lib/product-profile';
 import type { AuthUser } from '@/types';
 import { createAuthStore, type AuthStore, type AuthState, type AuthContextType } from '@/stores/authStore';
 
@@ -62,15 +63,12 @@ export function AuthProvider({
   const router = useRouter();
   const pathname = usePathname();
 
-  // per-instance store（useRef 保证 SSR 安全：每个请求/组件实例独立 store）
-  const storeRef = useRef<AuthStore | null>(null);
-  if (!storeRef.current) {
-    storeRef.current = createAuthStore({
-      user: initialUser,
-      featureFlags: initialFeatureFlags,
-    });
-  }
-  const store = storeRef.current;
+  // Lazy state keeps one store per mounted Provider/request without reading a
+  // mutable ref during render. Later prop changes retain the same session store.
+  const [store] = useState(() => createAuthStore({
+    user: initialUser,
+    featureFlags: initialFeatureFlags,
+  }));
 
   // 读取响应式 state（用于路由守卫 effect）
   const authLoading = useStore(store, (s) => s.authLoading);
@@ -155,6 +153,9 @@ export function AuthProvider({
   // 路由守卫：feature 关闭或权限不足时踢回首页/登录
   useEffect(() => {
     if (authLoading || featuresLoading) return;
+    // Rardar's public reading routes have their own contract. In particular,
+    // Find's form is public; only its explicit action and saved runs require auth.
+    if (activeProductProfile.rardarEnabled && rardarRouteVisibility(pathname) === RARDAR_ROUTE_VISIBILITY.ALLOW) return;
     if (canAccessPath(pathname, currentUser, enabledFeatures)) return;
     router.replace(
       requiredAccessForPath(pathname, enabledFeatures) === 'admin' && currentUser

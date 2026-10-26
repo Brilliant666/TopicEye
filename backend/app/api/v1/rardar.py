@@ -57,6 +57,34 @@ from app.services.rardar_product import (
 router = APIRouter(prefix="/rardar", tags=["rardar"])
 
 
+def _has_bearer_authorization(request: Request) -> bool:
+    return request.headers.get("authorization", "").partition(" ")[0].lower() == "bearer"
+
+
+async def _paid_action_user_id(request: Request) -> int:
+    # Finish authentication's short transaction before waiting on a model.
+    if not is_rardar_product():
+        raise HTTPException(status_code=404, detail="Not found")
+    async with async_session() as db:
+        authorization = request.headers.get("authorization")
+        # Edge Basic is not application identity. Only it falls back to the app
+        # cookie; invalid Bearer credentials must never fall back to a cookie.
+        if authorization and authorization.partition(" ")[0].lower() == "basic":
+            authorization = None
+        user = await get_current_user(request, authorization=authorization, db=db)
+        user_id = user.id
+        await db.commit()
+        return user_id
+
+
+def _require_paid_action_origin(request: Request) -> None:
+    if not _has_bearer_authorization(request) and (
+        request.headers.get("origin") not in settings.cors_origins
+        or request.headers.get("sec-fetch-site") == "cross-site"
+    ):
+        raise HTTPException(status_code=403, detail={"code": "project_insight_origin_rejected"})
+
+
 @router.get("/project-insights/{project_id}", response_model=SharedProjectInsightStatus)
 async def shared_project_insight_read(
     project_id: str,
@@ -85,17 +113,13 @@ async def shared_project_insight_start(
     payload: SharedProjectInsightRequest,
     request: Request,
     response: Response,
-    _user=Depends(get_current_user),
+    _user_id=Depends(_paid_action_user_id),
 ):
     from app.services.rardar_project_insights import start_project_insight
 
     if not is_rardar_product():
         raise HTTPException(status_code=404, detail="Not found")
-    if not request.headers.get("authorization") and (
-        request.headers.get("origin") not in settings.cors_origins
-        or request.headers.get("sec-fetch-site") == "cross-site"
-    ):
-        raise HTTPException(status_code=403, detail={"code": "project_insight_origin_rejected"})
+    _require_paid_action_origin(request)
     response.headers["Cache-Control"] = "no-store"
     try:
         return await start_project_insight(project_id, payload)
@@ -261,7 +285,7 @@ async def news_operation_start(
     _require_active_module("news")
     # Cookie auth needs an explicit same-origin browser request. Bearer clients
     # retain the existing CLI/API authentication contract; localhost is not auth.
-    if not request.headers.get("authorization"):
+    if not _has_bearer_authorization(request):
         origin = request.headers.get("origin")
         if origin not in settings.cors_origins or request.headers.get("sec-fetch-site") == "cross-site":
             raise HTTPException(status_code=403, detail="news_origin_rejected")
@@ -306,7 +330,7 @@ async def discover_operation_prepare(
     if not is_rardar_product() or settings.is_production:
         raise HTTPException(status_code=404, detail="Not found")
     _require_active_module("discover")
-    if not request.headers.get("authorization") and (
+    if not _has_bearer_authorization(request) and (
         request.headers.get("origin") not in settings.cors_origins
         or request.headers.get("sec-fetch-site") == "cross-site"
     ):
@@ -325,7 +349,7 @@ async def discover_operation_start(
     if not is_rardar_product() or settings.is_production:
         raise HTTPException(status_code=404, detail="Not found")
     _require_active_module("discover")
-    if not request.headers.get("authorization") and (
+    if not _has_bearer_authorization(request) and (
         request.headers.get("origin") not in settings.cors_origins
         or request.headers.get("sec-fetch-site") == "cross-site"
     ):
@@ -371,7 +395,7 @@ async def today_operation_start(
 ):
     if not is_rardar_product() or settings.is_production:
         raise HTTPException(status_code=404, detail="Not found")
-    if not request.headers.get("authorization") and (
+    if not _has_bearer_authorization(request) and (
         request.headers.get("origin") not in settings.cors_origins
         or request.headers.get("sec-fetch-site") == "cross-site"
     ):
@@ -570,9 +594,12 @@ def project_detail(
 
 
 @router.post("/projects/explain", response_model=ProjectExplanationResponse)
-async def project_explanation(payload: ProjectExplanationRequest) -> ProjectExplanationResponse:
+async def project_explanation(
+    payload: ProjectExplanationRequest, request: Request, _user_id=Depends(_paid_action_user_id)
+) -> ProjectExplanationResponse:
     if not is_rardar_product():
         raise HTTPException(status_code=404, detail="Not found")
+    _require_paid_action_origin(request)
     try:
         return await explain_project(payload)
     except RardarProductError as exc:
@@ -585,10 +612,13 @@ async def project_explanation(payload: ProjectExplanationRequest) -> ProjectExpl
 @router.post("/projects/{github_repository_id}/insight", response_model=ProjectExplanationResponse)
 async def project_insight(
     payload: ProjectInsightRequest,
+    request: Request,
     github_repository_id: int = Path(gt=0),
+    _user_id=Depends(_paid_action_user_id),
 ) -> ProjectExplanationResponse:
     if not is_rardar_product():
         raise HTTPException(status_code=404, detail="Not found")
+    _require_paid_action_origin(request)
     try:
         return await explain_project_by_id(github_repository_id, payload.generationId)
     except RardarProductError as exc:
@@ -611,10 +641,13 @@ async def project_insight(
 @router.post("/discover/projects/{github_repository_id}/insight", response_model=ProjectExplanationResponse)
 async def discover_project_insight(
     payload: ProjectInsightRequest,
+    request: Request,
     github_repository_id: int = Path(gt=0),
+    _user_id=Depends(_paid_action_user_id),
 ) -> ProjectExplanationResponse:
     if not is_rardar_product():
         raise HTTPException(status_code=404, detail="Not found")
+    _require_paid_action_origin(request)
     _require_active_module("discover")
     try:
         return await explain_discover_project_by_id(github_repository_id, payload.generationId)
@@ -632,19 +665,7 @@ async def discover_project_insight(
 
 
 async def _find_user_id(request: Request) -> int:
-    # Finish authentication's short transaction before a synchronous model wait.
-    if not is_rardar_product():
-        raise HTTPException(status_code=404, detail="Not found")
-    async with async_session() as db:
-        authorization = request.headers.get("authorization", "")
-        # The edge's Basic header is not an application token. A real app cookie
-        # is still required when it is present; Basic alone never authenticates.
-        bearer = authorization if authorization.lower().startswith("bearer ") else None
-        user = await get_current_user(request, authorization=bearer, db=db)
-        user_id = user.id
-        # Keep the existing session sliding renewal/token last-used updates.
-        await db.commit()
-        return user_id
+    return await _paid_action_user_id(request)
 
 
 @router.post("/find-projects", response_model=FindProjectResponse)
@@ -669,10 +690,9 @@ def _find_access(request: Request, response: Response, *, write=False):
         raise HTTPException(status_code=404, detail="Not found")
     response.headers["Cache-Control"] = "private, no-store"
     # Basic Auth protects the edge, not the application user or CSRF boundary.
-    bearer = request.headers.get("authorization", "").lower().startswith("bearer ")
     if (
         write
-        and not bearer
+        and not _has_bearer_authorization(request)
         and (
             request.headers.get("origin") not in settings.cors_origins
             or request.headers.get("sec-fetch-site") == "cross-site"

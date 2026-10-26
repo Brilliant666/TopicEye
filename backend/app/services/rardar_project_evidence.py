@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -10,6 +11,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import quote
 
@@ -238,6 +240,101 @@ def _canonical_digest(value: dict[str, Any]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _shared_readme(repository: str, facts: dict[str, Any]) -> dict[str, Any] | None:
+    """Reuse raw source bytes only after current identity/version proof.
+
+    A generated positioning or translated summary is never README evidence.
+    Missing/stale/unproved data falls back to Find's existing public fetch.
+    """
+    from app.core.config import settings
+    from app.integrations.rardar import project_identity, serving_profiles, trending_metadata
+    from app.integrations.rardar.serving_schemas import ProjectEvidenceProjection
+    from app.services.llm.provider_budget import ProviderBudgetError
+    from app.services.rardar_cache_reassembly import _source_witness
+    from app.services.rardar_trending import saved_materials
+
+    identifier = facts.get("githubRepositoryId")
+    if not settings.RARDAR_INTELLIGENCE_DATA_DIR or type(identifier) is not int or identifier <= 0:
+        return None
+    if not isinstance(facts.get("pushedAt"), str):
+        return None
+    try:
+        pushed_at = datetime.fromisoformat(facts["pushedAt"].replace("Z", "+00:00"))
+        if pushed_at.tzinfo is None:
+            return None
+        target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
+        project = {"repository": repository, "githubRepositoryId": identifier}
+        identity = project_identity.resolve(target, project)
+        names = identity["aliases"] if identity else [project_identity.canonical_repository(repository)]
+        metadata = trending_metadata.read(target, project)
+        material = saved_materials(target, repositories={repository}).get(repository.lower())
+        stored_evidence = material.get("displayEvidence") if material else None
+        for directory in ("profile-cache", "selection-profile-cache"):
+            root = target / directory
+            candidates = [stored_evidence] if stored_evidence else []
+            if not candidates:
+                for name in names:
+                    try:
+                        introduction, _readme = _source_witness(root, name, identifier)
+                        candidates.append(introduction["evidence"])
+                    except ValueError as exc:
+                        if str(exc) not in {"cache_reassembly_introduction_missing", "cache_reassembly_readme_missing"}:
+                            raise
+            for candidate in candidates:
+                evidence = ProjectEvidenceProjection.model_validate(candidate, strict=True)
+                if evidence.githubRepositoryId != identifier or evidence.repository not in names:
+                    continue
+                source_project = SimpleNamespace(repository=evidence.repository, githubRepositoryId=identifier)
+                readme = serving_profiles._cached_readme(root, source_project)
+                if (
+                    readme is None
+                    or readme.get("sha") != evidence.readmeBlobSha
+                    or readme.get("path") != evidence.readmePath
+                    or not re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", readme["sha"])
+                ):
+                    continue
+                checked = readme.get("checkedAt") or readme.get("fetchedAt")
+                checked_at = (
+                    datetime.fromisoformat(checked.replace("Z", "+00:00")) if isinstance(checked, str) else None
+                )
+                if checked_at is None or checked_at.tzinfo is None or pushed_at > checked_at:
+                    continue
+                age = datetime.now(UTC) - checked_at
+                if age < timedelta(0) or age > timedelta(days=1):
+                    continue
+                revision = trending_metadata.content_revision(target, project) if metadata else None
+                source_facts = SimpleNamespace(
+                    repository=evidence.repository,
+                    githubRepositoryId=identifier,
+                    htmlUrl=f"https://github.com/{evidence.repository}",
+                    description=evidence.evidenceIndex.get("description"),
+                    defaultBranch=(revision or {}).get("content", {}).get("defaultBranch") or "HEAD",
+                    primaryLanguage=(metadata or {}).get("language", facts.get("primaryLanguage")),
+                    topics=(metadata or {}).get("topics", facts.get("topics", [])),
+                    licenseSpdxId=(metadata or {}).get("license", facts.get("licenseSpdxId")),
+                    pushedAt=None,
+                )
+                rebuilt = serving_profiles._build_evidence_context(
+                    source_facts, evidence.generationId, evidence.topLevelTree, readme
+                )
+                if rebuilt.evidence != evidence:
+                    continue
+                return {
+                    "mode": "saved_shared_readme",
+                    "repository": evidence.repository,
+                    "githubRepositoryId": identifier,
+                    "readmeBlobSha": readme["sha"],
+                    "path": readme["path"],
+                    "markdown": readme["markdown"],
+                    "sourceEvidenceDigest": evidence.digest,
+                    "fetchedAt": readme.get("fetchedAt"),
+                    "checkedAt": checked,
+                }
+    except (KeyError, TypeError, ValueError, OSError, ProviderBudgetError):
+        return None
+    return None
+
+
 async def collect_project_evidence(
     repository: str,
     artifact_facts: dict[str, Any],
@@ -249,6 +346,11 @@ async def collect_project_evidence(
 ) -> ProjectEvidence:
     """Collect at most four public GitHub API responses; never clone or execute code."""
 
+    shared = (
+        await asyncio.to_thread(_shared_readme, repository, artifact_facts)
+        if include_readme_body and readme_only and not refresh_material
+        else None
+    )
     revision = _canonical_digest(
         {
             "repository": repository,
@@ -257,6 +359,11 @@ async def collect_project_evidence(
             "licenseSpdxId": artifact_facts.get("licenseSpdxId"),
             "includeReadmeBody": include_readme_body,
             "readmeOnly": readme_only,
+            **(
+                {"sharedSource": {key: shared[key] for key in ("repository", "readmeBlobSha", "path")}}
+                if shared
+                else {}
+            ),
         }
     )
     cache_key = (repository.lower(), revision)
@@ -274,8 +381,8 @@ async def collect_project_evidence(
             _CACHE[cache_key] = (time.monotonic(), persisted)
             return persisted
 
-    owned = client is None
-    if client is None:
+    owned = client is None and shared is None
+    if client is None and shared is None:
         client = httpx.AsyncClient(
             base_url="https://api.github.com",
             headers={"Accept": "application/vnd.github+json", "User-Agent": "TopicEye-Rardar/1.0"},
@@ -314,9 +421,12 @@ async def collect_project_evidence(
             if preferred_readme
             else f"/repos/{repository}/readme"
         )
-        readme_response = await _get(client, readme_endpoint)
+        readme_response = None if shared is not None else await _get(client, readme_endpoint)
         readme_payload = _json_object(readme_response) if readme_response else None
-        if (
+        if shared is not None:
+            readme_text = shared["markdown"][:_README_MAX_CHARS]
+            readme_path = shared["path"]
+        elif (
             readme_payload
             and readme_payload.get("encoding") in {None, "base64"}
             and isinstance(readme_payload.get("content"), str)
@@ -338,7 +448,7 @@ async def collect_project_evidence(
         if release_response:
             release = _json_object(release_response)
     finally:
-        if owned:
+        if owned and client is not None:
             await client.aclose()
 
     description = metadata.get("description") if isinstance(metadata.get("description"), str) else None
@@ -441,9 +551,10 @@ async def collect_project_evidence(
             "disabled": bool(metadata.get("disabled", False)),
         },
         "latestRelease": release_summary,
+        **({"sourceSnapshot": {key: value for key, value in shared.items() if key != "markdown"}} if shared else {}),
         "evidenceIndex": evidence_index,
         "collectionLimits": {
-            "githubRequests": 1 if readme_only else 4,
+            "githubRequests": 0 if shared else 1 if readme_only else 4,
             "readmeChars": _README_MAX_CHARS,
             "treeItems": _TREE_MAX_ITEMS,
             "releaseCount": 1,
@@ -457,7 +568,7 @@ async def collect_project_evidence(
         path_refs=path_refs,
         official_intro=official_intro,
         expected_intro_label=expected_intro_label,
-        cache_hit=False,
+        cache_hit=shared is not None,
     )
     while len(_CACHE) >= _CACHE_MAX_ENTRIES:
         _CACHE.pop(next(iter(_CACHE)))

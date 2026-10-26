@@ -14,7 +14,7 @@ Provider allowance. Normal future generation still uses the shared daily budget.
 | Field isolation and candidate selection | Valid primary reading fields were saved but not independently reusable | Bind existing partial introductions to the existing content/rule/route identity; retain complete-Profile semantics | `test_partial_material_reuse.py` |
 | Durable attempts, failure samples and cache-only reassembly | Daily work required budget before recovering already funded stages; repeated semantic failures could repeat across days | Bounded offline recovery before paid work; deterministic next actions from existing receipts; content-bound semantic retry exhaustion | `test_material_lifecycle.py`, `test_material_lifecycle_budgetless_recovery.py` |
 | Daily writer lock, work slices and conditional compensation | Partial work and zero-cost waiting could be mistaken for completed or failed work | Keep partial items outstanding; separate cache reuse from new historical admissions; preserve zero-model compensation opportunities | `test_material_recovery_orchestration.py`, `test_daily_refresh_policy.py` |
-| Today, historical review, detail and durable Find runs | Name-based reads could split one project; current materials must not rewrite old Find results | Read validated aliases without rewriting original evidence; deduplicate historical work by proven identity | `test_shared_material_consumers.py` |
+| Today, historical review, detail and durable Find runs | Name-based reads could split one project; Find fetched compatible saved raw sources again | Read validated aliases; reuse verified raw README versions for new Find work without rewriting old results | `test_shared_material_consumers.py`, `test_find_shared_materials.py` |
 
 ## Invariants
 
@@ -36,6 +36,10 @@ Provider allowance. Normal future generation still uses the shared daily budget.
   ranking publication, and cannot be counted as a complete material result.
 - Find runs keep their saved requirements, evidence and result timestamps.
   Current project material is a separate object, not a replacement for old runs.
+- New Find work may reuse a verified raw README, not a generated Profile claim.
+  Numeric identity, current Blob/path pointer, source witness and source age must
+  agree; a later GitHub push or uncertain version retains the existing live
+  reader. Public GitHub search remains independent of the local project list.
 
 ## Verification boundaries
 
@@ -49,3 +53,13 @@ Today growth filter, eight-project historical review and shared daily allowance.
 No new timer is introduced. A manual or simulated entry is not evidence that a
 future unattended natural cycle has occurred. CI, deployment, content readback,
 visual checks and natural operation must be reported separately.
+
+The saved 2026-10-26 PR82 baseline covers 23 public Today entries (21 with
+positioning) and the stable eight-entry historical review (eight with
+positioning). Its two Today gaps are a content-bound deferral and an HTTP 301
+without sufficient identity continuity evidence. These are observed counts,
+not a universal quality rate. A saved public material envelope was also replayed
+read-only: valid introduction and positioning remained readable while unavailable
+optional capabilities stayed absent. No source evidence or generation timestamp
+was rewritten. New unattended recovery after deployment remains to be observed;
+offline counterfactuals are not newly generated production materials.

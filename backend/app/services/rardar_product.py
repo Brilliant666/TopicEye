@@ -594,13 +594,26 @@ async def _recall_candidates(
 
 def _find_sources(repository: str, evidence: ProjectEvidence) -> list[dict[str, str]]:
     result = []
+    snapshot = evidence.payload.get("sourceSnapshot", {})
+    frozen_readme = (
+        snapshot.get("mode") == "saved_shared_readme"
+        and isinstance(snapshot.get("repository"), str)
+        and _REPOSITORY.fullmatch(snapshot["repository"])
+        and isinstance(snapshot.get("readmeBlobSha"), str)
+        and re.fullmatch(r"(?:[a-fA-F0-9]{40}|[a-fA-F0-9]{64})", snapshot["readmeBlobSha"])
+    )
     for ref, text in evidence.payload["evidenceIndex"].items():
         path = evidence.path_refs.get(ref)
         if path == "Releases":
             url = f"https://github.com/{repository}/releases"
         elif path:
             segment = "tree" if ref.startswith("tree:") else "blob"
-            url = f"https://github.com/{repository}/{segment}/HEAD/{quote(path, safe='/#')}"
+            if frozen_readme and ref.startswith("readme:"):
+                # A file Blob SHA is not a commit/tree revision for /blob/SHA/path.
+                # Use GitHub's immutable Blob resource rather than inventing a permalink.
+                url = f"https://api.github.com/repos/{snapshot['repository']}/git/blobs/{snapshot['readmeBlobSha']}"
+            else:
+                url = f"https://github.com/{repository}/{segment}/HEAD/{quote(path, safe='/#')}"
         else:
             url = f"https://github.com/{repository}"
         result.append(

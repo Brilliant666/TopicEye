@@ -57,6 +57,9 @@ test('anonymous core routes render through the actual production AuthProvider tr
     await expect(page).toHaveURL(new RegExp(`${path === '/' ? '/$' : `${path}$`}`));
     await expect(page.locator('[data-rardar-shell]')).toHaveCount(1);
     await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
+    await expect(page.getByRole('link', { name: '打开 TopicEye 管理后台', exact: true })).toHaveAttribute('href', '/admin');
+    await expect(page.getByRole('link', { name: '登录', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '退出登录', exact: true })).toHaveCount(0);
     if (path === '/activity') {
       await expect(page.getByText('后续计划', { exact: true })).toBeVisible();
       await expect(page.getByText(/目前不采集、不分析、不推送动态/)).toBeVisible();
@@ -71,7 +74,7 @@ test('anonymous core routes render through the actual production AuthProvider tr
   expect(after.privateFindReads).toEqual(before.privateFindReads);
 });
 
-test('anonymous Find shows its form and login CTA without reading private saved runs', async ({ page, request }) => {
+test('anonymous Find is disabled without login navigation or private saved-run reads', async ({ page, request }) => {
   const before = await stats(request);
   const browser = observe(page);
   const target = '/find?runId=synthetic-other-owner-private-run&repositoryUrl=https%3A%2F%2Fgithub.com%2Ffixture%2Fproject-0';
@@ -81,9 +84,14 @@ test('anonymous Find shows its form and login CTA without reading private saved 
   await expect(page.getByRole('region', { name: '最近需求结果' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: '保存与运行状态' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: '需求与证据对照', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: '登录后开始找项目', exact: true }).click();
-  await expect(page).toHaveURL(/\/login\?redirect=/);
-  expect(new URL(page.url()).searchParams.get('redirect')).toBe(target);
+  await page.getByLabel('你想完成什么？').fill('合成访客需求：自托管 Markdown 技术文档与全文搜索。');
+  await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toHaveCSS('background-color', 'rgb(226, 232, 240)');
+  await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toHaveCSS('cursor', 'not-allowed');
+  await expect(page.getByRole('link', { name: /登录后开始找项目/ })).toHaveCount(0);
+  // Even a synthetic submit that bypasses the disabled button must remain local.
+  await page.locator('form').evaluate(form => (form as HTMLFormElement).requestSubmit());
+  await expect(page).toHaveURL(`http://127.0.0.1:3410${target}`);
   expect(browser.posts).toEqual([]);
   expect(browser.errors).toEqual([]);
   const after = await stats(request);
@@ -92,26 +100,21 @@ test('anonymous Find shows its form and login CTA without reading private saved 
   await noOverflow(page);
 });
 
-test('Find login restores the edited draft without putting the requirement in its URL or automatically searching', async ({ page, request }) => {
+test('explicit existing-account login enables Find without automatically searching', async ({ page, request }) => {
   const before = await stats(request);
   const browser = observe(page);
   const repositoryUrl = 'https://github.com/fixture/project-0';
-  const requirement = '合成草稿：保留用户编辑的非默认技术文档需求，支持自托管、离线搜索与 Markdown。';
-  const editedRepositoryUrl = 'https://github.com/fixture/typed-draft-project';
   const target = `/find?repositoryUrl=${encodeURIComponent(repositoryUrl)}`;
   await page.goto(target);
-  await page.getByLabel('你想完成什么？').fill(requirement);
-  await page.getByLabel('公开 GitHub 仓库 URL （可选）').fill(editedRepositoryUrl);
-  await page.getByRole('button', { name: '登录后开始找项目', exact: true }).click();
-  await expect(page).toHaveURL(/\/login\?redirect=/);
+  await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toBeDisabled();
+  // The existing administrator/account login remains available directly; guests
+  // are not navigated here by the disabled Find action.
+  await page.goto(`/login?redirect=${encodeURIComponent(target)}`);
   expect(new URL(page.url()).searchParams.get('redirect')).toBe(target);
-  expect(page.url()).not.toContain(encodeURIComponent(requirement));
   await loginWithSyntheticSession(page);
   await expect(page).toHaveURL(`http://127.0.0.1:3410${target}`);
   await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toBeEnabled();
-  await expect(page.getByLabel('你想完成什么？')).toHaveValue(requirement);
-  await expect(page.getByLabel('公开 GitHub 仓库 URL （可选）')).toHaveValue(editedRepositoryUrl);
-  expect(page.url()).not.toContain(encodeURIComponent(requirement));
+  await expect(page.getByLabel('公开 GitHub 仓库 URL （可选）')).toHaveValue(repositoryUrl);
   await page.reload();
   await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toBeEnabled();
   expect(browser.errors).toEqual([]);
@@ -125,7 +128,7 @@ test('Find login restores the edited draft without putting the requirement in it
   await noOverflow(page);
 });
 
-test('slow anonymous authentication preserves edits made before auth resolves and through login', async ({ page, request, context }) => {
+test('slow anonymous authentication preserves edits but never unlocks the guest action', async ({ page, request, context }) => {
   const before = await stats(request);
   const browser = observe(page);
   await context.addCookies([
@@ -154,27 +157,23 @@ test('slow anonymous authentication preserves edits made before auth resolves an
     const target = '/find';
     await page.goto(target);
     await expect.poll(() => authHeld, { timeout: 5_000 }).toBe(true);
-    await expect(page.getByRole('button', { name: '登录后开始找项目', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toBeDisabled();
     await page.getByLabel('你想完成什么？').fill(requirement);
     await page.getByLabel('公开 GitHub 仓库 URL （可选）').fill(repositoryUrl);
+    const authResponse = page.waitForResponse(response => response.url().endsWith('/api/v1/auth/me') && response.status() === 401);
+    const refreshResponse = page.waitForResponse(response => response.url().endsWith('/api/v1/auth/refresh') && response.request().method() === 'POST');
     releaseAuth();
-    const login = page.getByRole('button', { name: '登录后开始找项目', exact: true });
-    await expect(login).toBeEnabled({ timeout: 10_000 });
+    await authResponse;
+    expect((await refreshResponse).status()).toBe(405);
+    await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toBeDisabled();
     await expect(page.getByLabel('你想完成什么？')).toHaveValue(requirement);
     await expect(page.getByLabel('公开 GitHub 仓库 URL （可选）')).toHaveValue(repositoryUrl);
-    await login.click();
-    await expect(page).toHaveURL(/\/login\?redirect=/);
-    expect(new URL(page.url()).searchParams.get('redirect')).toBe(target);
-    expect(page.url()).not.toContain(encodeURIComponent(requirement));
-    await loginWithSyntheticSession(page);
     await expect(page).toHaveURL(`http://127.0.0.1:3410${target}`);
-    await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toBeEnabled();
-    await expect(page.getByLabel('你想完成什么？')).toHaveValue(requirement);
-    await expect(page.getByLabel('公开 GitHub 仓库 URL （可选）')).toHaveValue(repositoryUrl);
+    await expect(page.getByRole('link', { name: /登录后开始找项目/ })).toHaveCount(0);
+    await expect.poll(() => browser.posts).toEqual(['/api/v1/auth/refresh']);
     expect(browser.errors).toEqual([]);
-    expect(browser.posts).toEqual(['/api/v1/auth/refresh', '/api/v1/auth/login']);
     const after = await stats(request);
-    expect(after.postPaths.slice(before.postPaths.length)).toEqual(['/api/v1/auth/refresh', '/api/v1/auth/login']);
+    expect(after.postPaths.slice(before.postPaths.length)).toEqual(['/api/v1/auth/refresh']);
     await noOverflow(page);
   } finally {
     releaseAuth();
@@ -186,7 +185,7 @@ for (const [context, query] of [
   ['trending', 'generation='],
   ['historical_hot', 'history=1&generation='],
 ] as const) {
-  test(`anonymous ${context} detail asks for login before AI and returns without executing`, async ({ page, request }) => {
+  test(`anonymous ${context} AI is disabled while explicit account login still works`, async ({ page, request }) => {
     const before = await stats(request);
     const browser = observe(page);
     const board = await (await request.get('http://127.0.0.1:3411/api/v1/rardar/trending-today')).json();
@@ -198,8 +197,12 @@ for (const [context, query] of [
     await expect(page.getByRole('heading', { name: project.repository, exact: true })).toBeVisible();
     await expect(page.getByTestId('project-identity-hero')).toContainText('用于示例技术文档的合成档案');
     await expect(page.getByTestId('project-trending-facts')).toHaveCount(1);
-    await page.getByRole('button', { name: '登录后生成 AI 深度解读', exact: true }).click();
-    await expect(page).toHaveURL(/\/login\?redirect=/);
+    await expect(page.getByRole('button', { name: '生成 AI 深度解读', exact: true })).toBeDisabled();
+    await expect(page.getByRole('button', { name: '生成 AI 深度解读', exact: true })).toHaveCSS('background-color', 'rgb(226, 232, 240)');
+    await expect(page.getByRole('button', { name: '生成 AI 深度解读', exact: true })).toHaveCSS('cursor', 'not-allowed');
+    await expect(page.getByRole('link', { name: '登录', exact: true })).toHaveCount(0);
+    await expect(page).toHaveURL(`http://127.0.0.1:3410${target}`);
+    await page.goto(`/login?redirect=${encodeURIComponent(target)}`);
     expect(new URL(page.url()).searchParams.get('redirect')).toBe(target);
     expect(browser.posts).toEqual([]);
     await loginWithSyntheticSession(page);

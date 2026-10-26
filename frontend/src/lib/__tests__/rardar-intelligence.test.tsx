@@ -787,7 +787,8 @@ describe('Rardar intelligence client contract', () => {
     expect(html).not.toContain('fixture-lab/alpha');
     expect(html).toContain('观察中');
     expect(html).toContain('12.0h');
-    expect(html).toContain('登录后生成 AI 深度解读');
+    expect(html).toContain('生成 AI 深度解读');
+    expect(html).not.toContain('登录后生成 AI 深度解读');
     expect(html).not.toContain('预计 24');
     expect(html).toContain('/find?repositoryUrl=https%3A%2F%2Fgithub.com%2Ffixture-lab%2Fnewcomer');
   });

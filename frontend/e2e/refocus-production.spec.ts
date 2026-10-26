@@ -18,7 +18,7 @@ test('eligible dual-board list is not truncated and unknown metadata does not bl
   await expect(page.getByRole('link', { name: '打开 GitHub' })).toHaveAttribute('href', 'https://github.com/fixture/project-22');
   await expect(page.getByTestId('project-trending-facts')).toContainText('Trendshift 日榜');
   await expect(page.getByTestId('project-trending-facts')).not.toContainText('基线 Star');
-  await expect(page.getByRole('button', { name: '登录后生成 AI 深度解读', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '生成 AI 深度解读', exact: true })).toBeDisabled();
   expect(errors).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await page.screenshot({ path: test.info().outputPath('refocus-detail.png'), fullPage: true });
@@ -68,7 +68,7 @@ test('Today and history reuse the complete Profile, evidence and analysis contro
     const start = page.locator('section').filter({ has: page.getByRole('heading', { name: '如何开始', exact: true }) });
     await start.locator('summary').click();
     await expect(start.locator('a')).toHaveCount(9);
-    await expect(page.getByRole('button', { name: '登录后生成 AI 深度解读', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: '生成 AI 深度解读', exact: true })).toBeDisabled();
     await page.getByTestId('official-evidence').locator('summary').click();
     await expect(page.getByTestId('official-evidence')).toContainText('Synthetic evidence excerpt, not real project output.');
     await expect(page.getByRole('link', { name: '用这个仓库评估我的需求', exact: true })).toHaveAttribute('href', '/find?repositoryUrl=https%3A%2F%2Fgithub.com%2Ffixture%2Fproject-0');

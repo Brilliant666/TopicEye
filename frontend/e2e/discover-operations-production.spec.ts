@@ -11,7 +11,8 @@ for (const [path, title] of [['discover', 'Discover'], ['news', '热点资讯'],
       await page.goto('/' + path);
       await expect(page.getByRole('heading', { name: title + '已暂停' })).toBeVisible();
       await expect(page.locator('main').getByRole('button')).toHaveCount(0);
-      await expect(page.getByRole('button', { name: '退出登录', exact: true })).toHaveCount(admin ? 1 : 0);
+      await expect(page.getByRole('button', { name: '退出登录', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('link', { name: '打开 TopicEye 管理后台', exact: true })).toHaveAttribute('href', '/admin');
       await page.reload();
       expect(operations).toBe(0);
     });

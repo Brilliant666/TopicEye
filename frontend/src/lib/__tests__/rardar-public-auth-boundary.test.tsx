@@ -39,9 +39,9 @@ describe('Rardar public reading uses the real lightweight authentication tree', 
   it.each([
     ['/', <RardarTrendingPage key="today" board={board} />, '双榜项目清单'],
     ['/historical-hot', <RardarTrendingPage key="history" historical board={board} />, '历史回顾'],
-    ['/project/stable/public-saved-project', <RardarProjectDetailPage key="stable" detail={detail} />, '登录后生成 AI 深度解读'],
-    ['/project/github/42', <RardarProjectDetailPage key="legacy" detail={detail} historical />, '登录后生成 AI 深度解读'],
-    ['/find', <RardarFindProjectPage key="find" initialRunId="another-users-private-run" />, '登录后开始找项目'],
+    ['/project/stable/public-saved-project', <RardarProjectDetailPage key="stable" detail={detail} />, '生成 AI 深度解读'],
+    ['/project/github/42', <RardarProjectDetailPage key="legacy" detail={detail} historical />, '生成 AI 深度解读'],
+    ['/find', <RardarFindProjectPage key="find" initialRunId="another-users-private-run" />, '开始找项目'],
   ])('renders %s anonymously with auth context and without fetching private/operator state', (pathname, page, content) => {
     const fetcher = vi.fn(); vi.stubGlobal('fetch', fetcher);
     const html = renderPage(pathname as string, page, null);
@@ -49,7 +49,11 @@ describe('Rardar public reading uses the real lightweight authentication tree', 
     expect(html).toContain(content);
     expect(html).not.toContain('管理员榜单更新');
     expect(html).not.toContain('管理员登录');
-    expect(html).not.toContain('打开 TopicEye 管理后台');
+    expect(html).toContain('aria-label="打开 TopicEye 管理后台" href="/admin"');
+    expect(html).not.toContain('href="/login');
+    expect(html).not.toContain('退出登录');
+    expect(html).not.toContain('登录后生成');
+    expect(html).not.toContain('登录后开始');
     expect(html).not.toContain('最近需求结果');
     expect(html).not.toContain('保存与运行状态');
     expect(fetcher).not.toHaveBeenCalled();
@@ -64,12 +68,22 @@ describe('Rardar public reading uses the real lightweight authentication tree', 
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it.each(['user', 'admin'])('shows generation to a signed-in %s but management only to administrators', (role) => {
+  it.each(['user', 'admin'])('retains the original gear entry and signed-in actions for %s', (role) => {
     const user = { id: 7, role } as AuthUser;
     const html = renderPage('/project/stable/public-saved-project', <RardarProjectDetailPage detail={detail} />, user);
     expect(html).toContain('生成 AI 深度解读');
     expect(html).not.toContain('登录后生成 AI 深度解读');
-    expect(html.includes('打开 TopicEye 管理后台')).toBe(role === 'admin');
+    expect(html).toContain('打开 TopicEye 管理后台');
+    expect(html).not.toContain('退出登录');
+  });
+
+  it.each([null, { id: 7, role: 'admin' } as AuthUser])('keeps the public Find form but disables anonymous submission for %j', (user) => {
+    const html = renderPage('/find', <RardarFindProjectPage />, user);
+    const submit = html.match(/<button\b[^>]*type="submit"[^>]*>[\s\S]*?<\/button>/u)?.[0] || '';
+    expect(submit).toContain('开始找项目');
+    expect(submit.includes('disabled=""')).toBe(!user);
+    expect(html).toContain('你想完成什么？');
+    expect(html).not.toContain('href="/login');
   });
 
   it('reuses only authentication on the Rardar login page and does not open registration', () => {

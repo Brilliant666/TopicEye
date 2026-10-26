@@ -1,6 +1,7 @@
 """Numeric continuity proofs over persisted metadata; no external requests."""
 
 from copy import deepcopy
+from datetime import UTC, datetime
 
 import httpx
 import pytest
@@ -21,6 +22,134 @@ def response(repository, identifier=42, **changes):
         "stargazers_count": 10,
         **changes,
     }
+
+
+@pytest.mark.parametrize("include_branch,stars", [(False, None), (True, None), (True, 25)])
+def test_new_metadata_keeps_deployed_v2_reader_wire_contract(tmp_path, include_branch, stars):
+    project = {"repository": "public/tool", "githubRepositoryId": 42}
+    source = response(project["repository"], stargazers_count=stars)
+    if not include_branch:
+        source.pop("default_branch")
+    payload = metadata.save(tmp_path, project, source)
+    envelope = metadata.read_json(metadata._path(tmp_path, project["repository"]))
+    # PR82's real reader accepts schema 1/2 and checks this exact payload set.
+    # New source-revision metadata is an additive envelope, not a new wire
+    # format that would make unchanged rollback readers discard every cache.
+    assert envelope["schemaVersion"] == 2
+    assert set(envelope["payload"]) == {
+        "repository",
+        "githubRepositoryId",
+        "language",
+        "topics",
+        "license",
+        "fetchedAt",
+        "sourceUrl",
+        "description",
+        "totalStars",
+        "totalStarsFetchedAt",
+    }
+    assert envelope["payload"] == payload
+    assert envelope["digest"] == metadata.digest(payload)
+    assert envelope["contentRevision"]["schemaVersion"] == 1
+    revision = metadata.content_revision(tmp_path, project)
+    assert revision["content"]["defaultBranch"] == ("main" if include_branch else None)
+    assert metadata.read_content_version(tmp_path, 42, revision["metadataDigest"])["content"] == revision["content"]
+    assert payload["totalStars"] == stars
+    assert (payload["totalStarsFetchedAt"] is None) == (stars is None)
+    assert metadata.read(tmp_path, project) == payload
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_legacy_metadata_can_be_refreshed_without_losing_known_star_time(tmp_path, version):
+    project = {"repository": "public/tool", "githubRepositoryId": 42}
+    when = datetime.now(UTC).isoformat()
+    payload = {
+        "repository": project["repository"],
+        "githubRepositoryId": 42,
+        "language": "Python",
+        "topics": [],
+        "license": "MIT",
+        "fetchedAt": when,
+        "sourceUrl": "https://api.github.com/repos/public/tool",
+    }
+    if version == 2:
+        payload.update(description="A public documentation tool.", totalStars=55, totalStarsFetchedAt=when)
+    path = metadata._path(tmp_path, project["repository"])
+    path.parent.mkdir(parents=True)
+    metadata.atomic(path, {"schemaVersion": version, "payload": payload, "digest": metadata.digest(payload)})
+    assert metadata.read(tmp_path, project) == payload
+    refreshed = metadata.save(
+        tmp_path,
+        project,
+        {
+            "id": 42,
+            "full_name": project["repository"],
+            "description": "A public documentation tool.",
+            "language": "Python",
+            "topics": [],
+            "license": {"spdx_id": "MIT"},
+        },
+    )
+    assert metadata.read_json(path)["schemaVersion"] == 2
+    assert refreshed["totalStars"] == (55 if version == 2 else None)
+    assert refreshed["totalStarsFetchedAt"] == (when if version == 2 else None)
+    assert metadata.content_revision(tmp_path, project)["content"]["defaultBranch"] is None
+
+
+def test_previous_v3_metadata_remains_readable_and_next_save_restores_v2_wire(tmp_path):
+    project = {"repository": "public/tool", "githubRepositoryId": 42}
+    payload = metadata.save(tmp_path, project, response(project["repository"]))
+    path = metadata._path(tmp_path, project["repository"])
+    record = metadata.read_json(path)
+    record["schemaVersion"] = 3  # Simulate a record written by the prior branch revision.
+    metadata.atomic(path, record)
+    assert metadata.read(tmp_path, project) == payload
+    original_revision = metadata.content_revision(tmp_path, project)
+    archived = metadata.read_content_version(tmp_path, 42, original_revision["metadataDigest"])
+    metadata.save(tmp_path, project, response(project["repository"]))
+    assert metadata.read_json(path)["schemaVersion"] == 2
+    assert metadata.content_revision(tmp_path, project)["revision"] == original_revision["revision"]
+    assert metadata.read_content_version(tmp_path, 42, original_revision["metadataDigest"]) == archived
+
+
+def test_missing_default_branch_does_not_invalidate_a_known_content_revision(tmp_path):
+    project = {"repository": "public/tool", "githubRepositoryId": 42}
+    metadata.save(tmp_path, project, response(project["repository"]))
+    previous = metadata.content_revision(tmp_path, project)
+    source = response(project["repository"], stargazers_count=None)
+    source.pop("default_branch")
+    metadata.save(tmp_path, project, source)
+    current = metadata.content_revision(tmp_path, project)
+    assert current["content"]["defaultBranch"] == "main"
+    assert current["metadataDigest"] == previous["metadataDigest"]
+    assert current["revision"] == previous["revision"]
+    assert metadata.read(tmp_path, project)["totalStars"] == 10
+
+
+@pytest.mark.parametrize("corruption", ["revision_schema", "revision_digest", "archive_digest"])
+def test_v2_compatible_metadata_still_validates_new_revision_evidence(tmp_path, corruption):
+    project = {"repository": "public/tool", "githubRepositoryId": 42}
+    saved = metadata.save(tmp_path, project, response(project["repository"]))
+    path = metadata._path(tmp_path, project["repository"])
+    record = metadata.read_json(path)
+    revision = record["contentRevision"]
+    if corruption == "archive_digest":
+        archive = path.parent / "revisions" / "42" / f"{revision['metadataDigest']}.json"
+        contents = metadata.read_json(archive)
+        contents["payload"]["content"]["description"] = "Tampered source."
+        metadata.atomic(archive, contents)
+        with pytest.raises(ValueError, match="repository_content_revision_invalid"):
+            metadata.read_content_version(tmp_path, 42, revision["metadataDigest"])
+    else:
+        revision["schemaVersion" if corruption == "revision_schema" else "recordDigest"] = (
+            2 if corruption == "revision_schema" else "0" * 64
+        )
+        metadata.atomic(path, record)
+        with pytest.raises(ValueError, match="repository_content_revision_invalid"):
+            metadata.content_revision(tmp_path, project)
+    # The legacy facts payload has its own unchanged digest and is independently
+    # readable; corrupt derivation evidence is never mistaken for valid input.
+    assert metadata.read(tmp_path, project) == saved
 
 
 @pytest.mark.parametrize("old,new", [("old-team/docs", "new-team/docs"), ("sample/tool", "sample/tool-v2")])

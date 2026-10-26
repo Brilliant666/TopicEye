@@ -37,7 +37,7 @@ export default function RardarProjectExplanation({
   const [error, setError] = useState<string | null>(null);
   const [waiting, setWaiting] = useState(false);
   const showLoading = canGenerate && loading;
-  const actionHint = !canGenerate && <p className={styles.sourceLine}>{authLoading ? '身份确认中，暂不可用。' : '此功能需登录，暂不向访客开放。'}</p>;
+  const actionHint = !canGenerate && <p className={styles.actionHint}>{authLoading ? '身份确认中，暂不可用。' : '此功能需登录，暂不向访客开放。'}</p>;
 
   useEffect(() => {
     if (!sharedContext || !stableId) return;

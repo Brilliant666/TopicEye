@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { APIRequestContext, Page, Route } from '@playwright/test';
+import type { APIRequestContext, Locator, Page, Route } from '@playwright/test';
 
 // The real production Next build, route tree, AuthProvider, and login UI run
 // against the explicitly synthetic HTTP fixture. No page.route/route.fulfill,
@@ -34,6 +34,14 @@ function observe(page: Page) {
 
 async function noOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+}
+
+async function noActionHintOverlap(page: Page, button: Locator) {
+  const hint = page.getByText('此功能需登录，暂不向访客开放。', { exact: true });
+  await expect(hint).toBeVisible();
+  const [buttonRect, hintRect] = await Promise.all([button.boundingBox(), hint.boundingBox()]);
+  if (!buttonRect || !hintRect) throw new Error('The disabled action and its hint must both have layout boxes');
+  expect(hintRect.y).toBeGreaterThanOrEqual(buttonRect.y + buttonRect.height + 4);
 }
 
 async function loginWithSyntheticSession(page: Page) {
@@ -88,6 +96,7 @@ test('anonymous Find is disabled without login navigation or private saved-run r
   await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toHaveCSS('background-color', 'rgb(226, 232, 240)');
   await expect(page.getByRole('button', { name: '开始找项目', exact: true })).toHaveCSS('cursor', 'not-allowed');
+  await noActionHintOverlap(page, page.getByRole('button', { name: '开始找项目', exact: true }));
   await expect(page.getByRole('link', { name: /登录后开始找项目/ })).toHaveCount(0);
   // Even a synthetic submit that bypasses the disabled button must remain local.
   await page.locator('form').evaluate(form => (form as HTMLFormElement).requestSubmit());
@@ -200,6 +209,7 @@ for (const [context, query] of [
     await expect(page.getByRole('button', { name: '生成 AI 深度解读', exact: true })).toBeDisabled();
     await expect(page.getByRole('button', { name: '生成 AI 深度解读', exact: true })).toHaveCSS('background-color', 'rgb(226, 232, 240)');
     await expect(page.getByRole('button', { name: '生成 AI 深度解读', exact: true })).toHaveCSS('cursor', 'not-allowed');
+    await noActionHintOverlap(page, page.getByRole('button', { name: '生成 AI 深度解读', exact: true }));
     await expect(page.getByRole('link', { name: '登录', exact: true })).toHaveCount(0);
     await expect(page).toHaveURL(`http://127.0.0.1:3410${target}`);
     await page.goto(`/login?redirect=${encodeURIComponent(target)}`);

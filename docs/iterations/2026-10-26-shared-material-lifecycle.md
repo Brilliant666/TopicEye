@@ -75,3 +75,15 @@ is a persisted counterfactual, not a claimed production contamination incident.
 New identity-failure receipts retain their source context: current views can
 degrade safely without rewriting an older pinned project result, and a new board
 date alone is not identity recovery.
+
+The final persisted-worker regressions also cover explicit GitHub rate-limit
+windows and same-day source continuation. A saved Retry-After/reset deadline
+defers the next source request without another failure debit; malformed headers
+remain unknown. Compatible, already checked source witnesses can feed a missing
+stage without fetching the same metadata/tree/README again. A new day or known
+material metadata change still requires the normal source check. A funded
+optional-stage failure preserves strictly read-back partial primary fields,
+along with its actual consumption, failure receipt and cooldown. Reusing those
+fields does not rewrite their original generation time or duplicate the saved
+introduction. These are temporary-store/virtual-transport regressions, not new
+production model executions.

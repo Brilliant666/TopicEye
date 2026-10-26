@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import suppress
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -885,8 +887,51 @@ def _project_identifier_matches(target: Path, project: dict, identifier: str) ->
     return identity is not None and identifier in project_identity.identifiers(identity)
 
 
+def _source_retry_after(response: httpx.Response, now: datetime) -> str | None:
+    """Respect explicit GitHub retry windows, without guessing from body text."""
+    candidates = []
+    retry_after = response.headers.get("retry-after", "").strip()
+    if retry_after.isascii() and retry_after.isdecimal():
+        with suppress(ValueError, OverflowError):
+            candidates.append(now + timedelta(seconds=int(retry_after)))
+    elif retry_after:
+        try:
+            parsed = parsedate_to_datetime(retry_after)
+            if parsed.tzinfo is not None:
+                candidates.append(parsed.astimezone(UTC))
+        except (TypeError, ValueError, OverflowError):
+            pass
+    reset = response.headers.get("x-ratelimit-reset", "").strip()
+    if reset.isascii() and reset.isdecimal():
+        with suppress(ValueError, OverflowError, OSError):
+            candidates.append(datetime.fromtimestamp(int(reset), UTC))
+    future = [value for value in candidates if value > now]
+    return max(future).isoformat() if future else None
+
+
 async def _collect_project_material(target: Path, project: dict, generation: str, client, route):
     """The shared one-project collector, independent of old Explosion membership."""
+    if not project.get("_refreshSource", True) and route:
+        from app.services.rardar_material_lifecycle import collect_cached_material
+
+        cached_material = await collect_cached_material(target, project, route)
+        if cached_material is not None:
+            # The existing witness checks immutable body/path/ref bindings and
+            # current route/rule compatibility before returning these inputs.
+            # Unlike cache_only, this still permits a missing stage to use the
+            # original budget and collector controls.
+            return await collect_official_project_profile(
+                cached_material.project,
+                generation,
+                target / "profile-cache",
+                client=client,
+                translate=True,
+                allow_model_generation=project.get("_allowModelGeneration", True),
+                cached_source=(cached_material.context.evidence.topLevelTree, cached_material.context.readme),
+                refresh_source=False,
+                model_route_identity=route,
+                save_partial_introduction=True,
+            )
     repository = canonical_repository(project["repository"])
     meta = await trending_metadata.fetch(target, project, client)
     if (
@@ -1127,6 +1172,36 @@ async def historical_work(
     checks = rotation.setdefault("_successfulChecks", {})
     metadata_faults = {}
 
+    def source_check_record(project: dict, revision: dict | None) -> dict:
+        if revision is None:
+            return {}
+        records = [checks.get(project["repository"], {}), rotation.get("_attempts", {}).get(project["repository"], {})]
+        compatible = []
+        for record in records:
+            try:
+                checked = record.get("sourceCheckedAt")
+                if checked is None:
+                    continue
+                parsed = datetime.fromisoformat(checked)
+                if parsed.tzinfo is None:
+                    raise ValueError("source_check_time_unaware")
+            except (AttributeError, TypeError, ValueError) as exc:
+                raise ValueError("material_source_check_receipt_invalid") from exc
+            if record.get("metadataDigest") == revision["metadataDigest"]:
+                compatible.append((parsed, record))
+        return max(compatible, key=lambda pair: pair[0])[1] if compatible else {}
+
+    def same_day_source_checked(project: dict) -> bool:
+        from app.integrations.rardar.trending_periods import ZONE
+
+        prior = source_check_record(project, trending_metadata.content_revision(target, project))
+        checked = datetime.fromisoformat(prior["sourceCheckedAt"]) if prior else None
+        return (
+            checked is not None
+            and checked.tzinfo is not None
+            and checked.astimezone(ZONE).date() == datetime.now(ZONE).date()
+        )
+
     def metadata_available(project: dict) -> bool:
         try:
             return trending_metadata.read(target, project) is not None
@@ -1139,6 +1214,7 @@ async def historical_work(
     def source_check_due(project: dict) -> bool:
         try:
             revision = trending_metadata.content_revision(target, project)
+            matching_check = source_check_record(project, revision)
         except ValueError as exc:
             metadata_faults[project["repository"]] = exc
             return True  # The item collector diagnoses/isolates it; other items continue.
@@ -1147,8 +1223,9 @@ async def historical_work(
             return True  # The item collector diagnoses/isolates it; other items continue.
         if revision is None:
             return False
-        prior = checks.get(project["repository"], {})
-        if prior.get("metadataDigest") and prior["metadataDigest"] != revision["metadataDigest"]:
+        prior = matching_check or checks.get(project["repository"], {})
+        previous_digest = checks.get(project["repository"], {}).get("metadataDigest")
+        if previous_digest and not matching_check and previous_digest != revision["metadataDigest"]:
             return True
         if project["repository"] not in today_repositories and project["projectId"] not in review_ids:
             return False
@@ -1394,6 +1471,7 @@ async def historical_work(
     )
     completed = set()
     deferred = set()
+    source_deferred = set()
     with work_slice(max_requests=MATERIAL_PROVIDER_SLICE_LIMIT, background=True) as work:
         async with github_material_client(settings.GITHUB_TOKEN) as client:
             for project in pending:
@@ -1402,6 +1480,16 @@ async def historical_work(
                 repository = project["repository"]
                 if repository in invalid_cache:
                     continue  # Do not turn a corrupt saved input into another paid attempt.
+                prior = records.get(repository) or rotation.get("_attempts", {}).get(repository, {})
+                retry_at = prior.get("nextRetryAt") or prior.get("nextAllowedAt")
+                if prior.get("reason") == "profile_source_rate_limited" and retry_at:
+                    retry_time = datetime.fromisoformat(retry_at)
+                    if retry_time.tzinfo is not None and retry_time > datetime.now(UTC):
+                        # An existing source failure already spent its debit.
+                        # Waiting is neither another attempt nor a new admission.
+                        source_deferred.add(repository)
+                        result["sourceRetryDeferred"] = result.get("sourceRetryDeferred", 0) + 1
+                        continue
                 if retry_debit(repository) >= MATERIAL_FAILURE_LIMIT or (not budget_wait and not admitted(repository)):
                     continue
                 new_admission = repository not in records or records[repository].get("cacheOnly", False)
@@ -1428,10 +1516,12 @@ async def historical_work(
                 save()  # durable admission precedes IO/model work, including interruption
                 used_before = work.used_requests
                 collected = None
+                collector_project = {**project, "_allowModelGeneration": False} if budget_wait else project
                 try:
+                    collector_project["_refreshSource"] = not same_day_source_checked(project)
                     collected = await _collect_project_material(
                         target,
-                        {**project, "_allowModelGeneration": False} if budget_wait else project,
+                        collector_project,
                         snapshot["generationId"] or f"historical-material-{project['projectId']}",
                         client,
                         route,
@@ -1441,6 +1531,9 @@ async def historical_work(
                         record["contentRevision"] = source_content_digest(collected.evidence)
                         if getattr(collected, "github_requests", 0) > 0:
                             record["sourceCheckedAt"] = datetime.now(UTC).isoformat()
+                            record["metadataDigest"] = (trending_metadata.content_revision(target, project) or {}).get(
+                                "metadataDigest"
+                            )
                     if getattr(collected, "profile_retry_suppressed", False):
                         # This is an existing content-bound cooldown, not a new
                         # failed generation. Preserve all prior daily debits.
@@ -1483,11 +1576,39 @@ async def historical_work(
 
                     if not readable_chinese_introduction(material.get("profile", {}).get("summary")):
                         raise ValueError("historical_intro_not_readable")
-                    if collected.profile_cache_state not in {"hit", "rebound", "migrated", "rebuilt", "partial_reused"}:
+                    cache_state = collected.profile_cache_state
+                    if cache_state == "unavailable" and material["materialState"] == "partial" and not source_failure:
+                        partial = await collect_cached_material(target, project, route) if route else None
+                        if partial is not None and partial.collected.profile_cache_state == "partial_reused":
+                            # Full-profile failure does not erase main fields
+                            # already validated, durably saved and read back.
+                            material = project_material(partial.collected.profile, partial.collected.evidence)
+                            cache_state = "partial_reused"
+                            if work.used_requests > used_before and getattr(collected, "profile_failure_code", None):
+                                # Publishing safe partial fields does not refund
+                                # a real failed generation or its retry cooldown.
+                                record["failures"] += 1
+                                result["failed"] += 1
+                                record["errorCode"] = collected.profile_failure_code
+                                record["nextRetryAt"] = (
+                                    collected.profile_next_retry_at.isoformat()
+                                    if collected.profile_next_retry_at
+                                    else None
+                                )
+                                record["diagnostic"] = material_failure_diagnostic(
+                                    ValueError("historical_profile_partial"),
+                                    project=project,
+                                    stage="profile",
+                                    collected=collected,
+                                )
+                    if cache_state not in {"hit", "rebound", "migrated", "rebuilt", "partial_reused"}:
                         raise ValueError("historical_profile_not_readable")
                     checks[repository] = {
                         "checkedAt": datetime.now(UTC).isoformat(),
-                        "sourceCheckedAt": datetime.now(UTC).isoformat(),
+                        "sourceCheckedAt": record.get("sourceCheckedAt")
+                        or source_check_record(project, trending_metadata.content_revision(target, project)).get(
+                            "sourceCheckedAt"
+                        ),
                         "metadataDigest": (trending_metadata.content_revision(target, project) or {}).get(
                             "metadataDigest"
                         ),
@@ -1516,12 +1637,21 @@ async def historical_work(
                         if record["nextAction"] == "reuse_healthy"
                         else "missing_material_stage"
                     )
+                    if (
+                        record["status"] == "partial"
+                        and work.used_requests > used_before
+                        and getattr(collected, "profile_failure_code", None)
+                    ):
+                        action = material_next_action(
+                            identity_verified=True, material=material, attempt=collected_attempt(collected)
+                        )
+                        record.update(nextAction=action["action"], reason=action["reason"])
                     if hasattr(collected.evidence, "model_dump"):
                         record["contentRevision"] = source_content_digest(collected.evidence)
                     if record["status"] == "completed":
                         completed.add(repository)
                     if only_project_id:
-                        result["profileCacheState"] = collected.profile_cache_state
+                        result["profileCacheState"] = cache_state
                         result["materialState"] = material.get("materialState")
                 except ProviderWorkYield as exc:
                     record["status"] = "yielded"
@@ -1604,6 +1734,7 @@ async def historical_work(
                                 **action,
                                 "action": "retry_transient_later",
                                 "reason": "profile_source_rate_limited",
+                                "nextAllowedAt": _source_retry_after(exc.response, datetime.now(UTC)),
                             }
                         elif status in {401, 403}:
                             action = {
@@ -1633,6 +1764,7 @@ async def historical_work(
                     record["nextRetryAt"] = action.get("nextAllowedAt")
                     result["failed"] += 1
                 finally:
+                    collector_project.pop("_refreshSource", None)
                     used = work.used_requests - used_before
                     record["providerRequests"] += used
                     result["providerRequests"] += used
@@ -1640,15 +1772,20 @@ async def historical_work(
                         "status": record["status"],
                         "sourceGeneration": snapshot.get("generationId"),
                         "stage": record.get("stage"),
-                        "errorCode": record.get("errorCode") if record["status"] in {"failed", "deferred"} else None,
-                        "nextRetryAt": record.get("nextRetryAt") if record["status"] == "deferred" else None,
-                        "diagnostic": record.get("diagnostic") if record["status"] == "failed" else None,
+                        "errorCode": record.get("errorCode")
+                        if record["status"] in {"failed", "deferred", "partial"}
+                        else None,
+                        "nextRetryAt": record.get("nextRetryAt")
+                        if record["status"] in {"failed", "deferred", "partial"}
+                        else None,
+                        "diagnostic": record.get("diagnostic") if record["status"] in {"failed", "partial"} else None,
                         "checkedAt": datetime.now(UTC).isoformat(),
                         "nextAction": record.get("nextAction"),
                         "reason": record.get("reason"),
                         "nextAllowedAt": record.get("nextRetryAt"),
                         "contentRevision": record.get("contentRevision"),
                         "sourceCheckedAt": record.get("sourceCheckedAt"),
+                        "metadataDigest": record.get("metadataDigest"),
                     }
                     atomic(rotation_path, rotation)
                     save()
@@ -1670,6 +1807,8 @@ async def historical_work(
             reason = "material_retry_limit_reached"
         elif not any(admitted(p["repository"]) for p in retryable):
             reason = "historical_daily_limit_reached"
+        elif source_deferred and all(p["repository"] in source_deferred for p in retryable):
+            reason = "source_rate_limit_wait"
         elif deferred and all(p["repository"] in deferred for p in retryable if admitted(p["repository"])):
             reason = "material_content_retry_deferred"
         result.update(status="partial", waitReason=reason)

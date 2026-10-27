@@ -25,11 +25,9 @@ describe('Today daily operator entry', () => {
     expect(renderToStaticMarkup(<RardarTodayOperations syncedAt={null} />)).toBe('');
     state.user = { id: 1, role: 'admin' };
     const html = renderToStaticMarkup(<RardarTodayOperations syncedAt="2026-09-09T01:00:00Z" />);
-    expect(html).toContain('检查并同步榜单');
-    expect(html).toContain('GitHub Trending 与 Trendshift 公开日榜 · 不调用模型');
-    expect(html).toContain('最近成功手动同步');
-    expect(html).toContain('最近手动操作');
-    expect(html).toContain('disabled'); // Status must load before an action is allowed.
+    expect(html).toContain('查看榜单更新管理');
+    expect(html).not.toContain('检查并同步榜单');
+    expect(html).not.toContain('最近成功手动同步');
     expect(html).not.toContain('补齐');
     expect(state.request).not.toHaveBeenCalled();
     state.loading = true;
@@ -58,12 +56,11 @@ describe('Today daily operator entry', () => {
     expect(state.request).not.toHaveBeenCalled();
   });
 
-  it('keeps publication, source-check and manual-operation times distinct', () => {
+  it('does not mount the management status reader during ordinary board rendering', () => {
     state.user = { id: 1, role: 'admin' };
     const html = renderToStaticMarkup(<RardarTodayOperations context="dual_board" syncedAt="2026-09-10T01:00:00Z" checkedAt="2026-09-11T02:00:00Z" />);
-    expect(html).toContain('当前清单发布：2026/9/10 09:00:00');
-    expect(html).toContain('最近来源检查：2026/9/11 10:00:00');
-    expect(html).toContain('最近成功手动同步：暂无记录');
+    expect(html).toContain('查看榜单更新管理');
+    expect(html).not.toContain('最近来源检查');
     expect(state.request).not.toHaveBeenCalled();
   });
 

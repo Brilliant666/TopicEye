@@ -50,6 +50,7 @@ for (const [index, status] of fixtures.entries()) {
     });
     await page.goto('/');
     const panel = page.getByRole('region', { name: '管理员榜单更新', exact: true });
+    await panel.getByRole('button', { name: '查看榜单更新管理', exact: true }).click();
     const button = panel.getByRole('button', { name: '检查并同步榜单', exact: true });
     await expect(button).toBeEnabled();
     expect(posts).toBe(0);
@@ -66,6 +67,7 @@ for (const [index, status] of fixtures.entries()) {
     await expect(panel.getByText(/最近成功手动同步/)).toContainText('2026/9/11 09:00:00');
     await expect(panel.getByText(/最近手动操作/)).toContainText('2026/9/11 10:00:05');
     await page.reload();
+    await panel.getByRole('button', { name: '查看榜单更新管理', exact: true }).click();
     await expect(panel.getByText(labels[index], { exact: true })).toBeVisible();
     expect(posts).toBe(1);
     const dimensions = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));

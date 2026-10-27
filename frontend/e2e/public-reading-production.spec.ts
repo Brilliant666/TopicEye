@@ -50,6 +50,50 @@ async function loginWithSyntheticSession(page: Page) {
   await page.locator('form').getByRole('button', { name: '登录', exact: true }).click();
 }
 
+for (const identity of ['anonymous', 'admin'] as const) {
+  test(`${identity} module navigation never prefetches or polls protected management routes`, async ({ page, context, request }) => {
+    if (identity === 'admin') await context.addCookies([
+      { name: 'topiceye_auth', value: 'synthetic-admin', url: 'http://127.0.0.1:3410', httpOnly: true },
+    ]);
+    const before = await stats(request);
+    const browser = observe(page);
+    const managementRequests: string[] = [];
+    page.on('request', request => {
+      const path = new URL(request.url()).pathname;
+      if (path === '/admin' || path.startsWith('/api/v1/rardar/today/operations')) managementRequests.push(path);
+    });
+    await page.goto('/');
+    const navigation = page.getByRole('navigation', {
+      name: test.info().project.name === 'mobile' ? 'Rardar 移动导航' : 'Rardar 主导航', exact: true,
+    });
+    const gear = page.getByRole('link', { name: '打开 TopicEye 管理后台', exact: true });
+    await gear.hover();
+    for (const [name, path, heading] of [
+      ['历史回顾', '/historical-hot', /^历史回顾/],
+      ['找项目', '/find', /别从零开始/],
+      ['动态', '/activity', '动态尚未接入'],
+      ['今日热榜', '/', /^今日热榜/],
+    ] as const) {
+      await navigation.getByRole('link', { name, exact: true }).click();
+      await expect(page).toHaveURL(`http://127.0.0.1:3410${path}`);
+      await expect(page.getByRole('heading', { level: 1, name: heading })).toBeVisible();
+    }
+    // Two old three-second polling intervals: mounting the admin reading view
+    // alone must not start its protected status reader, even after navigation.
+    if (identity === 'admin') await page.waitForTimeout(6_200);
+    expect(managementRequests).toEqual([]);
+    expect(browser.posts).toEqual([]);
+    expect(browser.errors).toEqual([]);
+    const after = await stats(request);
+    expect(after.postPaths).toEqual(before.postPaths);
+    // Explicitly selecting the gear still navigates to the protected backend.
+    const explicitNavigation = page.waitForRequest(request =>
+      new URL(request.url()).pathname === '/admin' && request.isNavigationRequest());
+    await gear.click();
+    expect((await explicitNavigation).method()).toBe('GET');
+  });
+}
+
 test('anonymous core routes render through the actual production AuthProvider tree', async ({ page, request, context }) => {
   const before = await stats(request);
   const browser = observe(page);

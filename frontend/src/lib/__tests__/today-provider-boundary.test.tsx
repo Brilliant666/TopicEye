@@ -24,7 +24,10 @@ describe.each(['/', '/rardar-foundation'])('actual Today auth provider at %s', (
     );
     expect(html).toContain('Saved Today facts remain readable');
     expect(html).toContain('data-rardar-shell="true"');
-    if (user?.role === 'admin') expect(html).toContain('检查并同步榜单');
+    if (user?.role === 'admin') {
+      expect(html).toContain('查看榜单更新管理');
+      expect(html).not.toContain('检查并同步榜单');
+    }
     else expect(html).not.toContain('aria-label="管理员榜单更新"');
   });
 });

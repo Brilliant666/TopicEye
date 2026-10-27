@@ -50,9 +50,10 @@ export default function RardarShell({ children }: { children: React.ReactNode })
             <span className={styles.statusPill}>
               <Activity size={14} aria-hidden="true" /> Facts first · AI assisted
             </span>
-            <Link href="/admin" className={styles.adminLink} aria-label="打开 TopicEye 管理后台">
+            {/* The admin route has its own HTTP authentication boundary. Never prefetch it from public reading pages. */}
+            <a href="/admin" className={styles.adminLink} aria-label="打开 TopicEye 管理后台">
               <Settings2 size={18} aria-hidden="true" />
-            </Link>
+            </a>
           </div>
         </div>
       </header>

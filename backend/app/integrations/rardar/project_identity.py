@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app.integrations.rardar.read_cache import cached, signature
+from app.integrations.rardar.read_scope import once
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
 
 REPOSITORY = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}/(?!\.{1,2}$)[A-Za-z0-9._-]{1,100}$")
@@ -107,13 +108,21 @@ def resolve(target: Path, project: dict) -> dict | None:
     expected = project.get("githubRepositoryId")
     if expected is not None and (type(expected) is not int or expected <= 0):
         raise ValueError("repository_identity_mismatch")
+    identity = once(
+        ("repository-identity", str(target.absolute()), repository),
+        lambda: _resolved_identity(target, repository),
+    )
+    if identity is not None and expected not in (None, identity["githubRepositoryId"]):
+        raise ValueError("repository_identity_mismatch")
+    return identity
+
+
+def _resolved_identity(target: Path, repository: str) -> dict | None:
     path = _index_path(target)
     plain(path, missing=True)
 
     def selected(data):
         identifier = data["aliases"].get(repository)
-        if identifier is not None and expected not in (None, identifier):
-            raise ValueError("repository_identity_mismatch")
         return data["projects"].get(str(identifier))
 
     # Select one small record before copying, not the full shared index for

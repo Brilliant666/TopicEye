@@ -11,8 +11,14 @@ type BoardContext = { syncedAt: string | null; checkedAt?: string | null; contex
 
 export default function RardarTodayOperations({ syncedAt, checkedAt, context = 'exact_explosion' }: BoardContext) {
   const { currentUser, authLoading } = useAuthContext();
+  const [opened, setOpened] = useState(false);
   if (authLoading) return null;
   if (currentUser?.role !== 'admin') return null;
+  // Reading a public board must not cross the separate management boundary.
+  // Mount the status reader only after an explicit administrator action.
+  if (!opened) return <section className={styles.panel} aria-label="管理员榜单更新">
+    <div className={styles.actions}><button type="button" onClick={() => setOpened(true)}>查看榜单更新管理</button></div>
+  </section>;
   return <AdminTodayOperations syncedAt={syncedAt} checkedAt={checkedAt} context={context} userId={currentUser.id} key={currentUser.id} />;
 }
 

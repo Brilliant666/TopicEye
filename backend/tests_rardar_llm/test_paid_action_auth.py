@@ -239,10 +239,12 @@ def test_discover_insight_stays_paused_after_authorization(setup):
 @pytest.mark.parametrize(
     "path,service",
     [
-        ("/trending-today", "today"),
-        ("/historical-hot", "history"),
-        ("/trending-projects/saved-project?generation=saved-generation", "detail"),
-        ("/historical-projects/saved-project", "detail"),
+        ("/trending-today", "published_today"),
+        ("/historical-hot", "published_history"),
+        ("/trending-projects/saved-project?generation=saved-generation", "published_detail"),
+        ("/historical-projects/saved-project", "published_detail"),
+        ("/public-reading", "published_reading_pointer"),
+        (f"/public-reading/trending-today/{'a' * 64}", "published_board"),
         ("/project-insights/saved-project?generationId=saved-generation", "shared"),
     ],
 )

@@ -25,6 +25,8 @@ request. The public Today/history path now separates publication from reading.
 - `python -m scripts.refresh_rardar_boards --publish-reading-only` publishes only
   saved local data. It cannot be combined with source/metadata/material modes.
   It neither creates a daily budget nor performs source or model requests.
+  The approved runtime script allowlist and isolated image check include this
+  same entry; deployment must not assume a development-only script is packaged.
 
 Saved production snapshot replay (2026-10-27): Today29/history8, all members and
 existing content equal before/after, excluding the added reading revision.

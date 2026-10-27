@@ -103,7 +103,9 @@ def test_reused_identity_still_checks_each_callers_numeric_identity(tmp_path, mo
     def read():
         identity = project_identity.resolve(tmp_path, project)
         identity["aliases"].append("forged/alias")
-        assert project_identity.resolve(tmp_path, {**project, "githubRepositoryId": 123})["aliases"] == ["scope/example"]
+        assert project_identity.resolve(tmp_path, {**project, "githubRepositoryId": 123})["aliases"] == [
+            "scope/example"
+        ]
         with pytest.raises(ValueError, match="repository_identity_mismatch"):
             project_identity.resolve(tmp_path, {**project, "githubRepositoryId": 456})
         with pytest.raises(ValueError, match="repository_identity_evidence_required"):

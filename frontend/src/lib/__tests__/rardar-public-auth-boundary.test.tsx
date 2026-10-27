@@ -49,7 +49,8 @@ describe('Rardar public reading uses the real lightweight authentication tree', 
     expect(html).toContain(content);
     expect(html).not.toContain('管理员榜单更新');
     expect(html).not.toContain('管理员登录');
-    expect(html).toContain('aria-label="打开 TopicEye 管理后台" href="/admin"');
+    const adminLink = html.match(/<a\b[^>]*aria-label="打开 TopicEye 管理后台"[^>]*>/u)?.[0] || '';
+    expect(adminLink).toContain('href="/admin"');
     expect(html).not.toContain('href="/login');
     expect(html).not.toContain('退出登录');
     expect(html).not.toContain('登录后生成');

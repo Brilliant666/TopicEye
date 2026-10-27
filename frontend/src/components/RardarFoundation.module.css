@@ -449,6 +449,7 @@
 }
 
 .navLink {
+  position: relative;
   min-height: 2.75rem;
   padding: 0.72rem 0.88rem;
   display: inline-flex;
@@ -459,6 +460,32 @@
   font-weight: 750;
   text-decoration: none;
   transition: background 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.navPendingHint {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  width: 0.45rem;
+  height: 0.45rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.navPendingHint[data-pending='true'] {
+  opacity: 1;
+  animation: navigationPending 700ms linear infinite;
+}
+
+@keyframes navigationPending {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navPendingHint[data-pending='true'] { animation: none; }
 }
 
 .navLink:hover {

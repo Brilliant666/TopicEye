@@ -27,6 +27,7 @@ from app.integrations.rardar.project_identity import canonical_repository, proje
 from app.integrations.rardar.serving_schemas import ProjectEvidenceProjection
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
 from app.services.rardar_daily_operations import operation_root
+from app.services.rardar_daily_refresh import record_reading_publication_async, safe_publish_reading_snapshots_async
 from app.services.rardar_llm_control import resolve_rardar_route_identity
 from app.services.rardar_trending import detail, project_material, saved_materials
 
@@ -195,7 +196,11 @@ async def apply(repository: str, expected_plan_digest: str) -> dict:
     root = operation_root()
     root.mkdir(parents=True, exist_ok=True)
     with file_lock(root / "writer.lock", blocking=False):
-        return await apply_locked(repository, expected_plan_digest)
+        result = await apply_locked(repository, expected_plan_digest)
+        target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
+        result["readingPublication"] = await safe_publish_reading_snapshots_async(target)
+        result["readingReceipt"] = await record_reading_publication_async(target, result["readingPublication"])
+        return result
 
 
 async def apply_locked(repository: str, expected_plan_digest: str) -> dict:

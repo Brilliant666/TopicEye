@@ -271,7 +271,7 @@ async def test_explicit_one_project_reuses_saved_reading_without_budget_or_outbo
 
 @pytest.mark.asyncio
 async def test_explicit_one_project_enters_existing_budget_collector_and_then_reuses(tmp_path, monkeypatch):
-    from app.services import rardar_daily_operations, rardar_llm_control
+    from app.services import rardar_daily_operations, rardar_daily_refresh, rardar_llm_control
     from app.services.llm import daily_provider_budget
 
     store.publish_sources(tmp_path, [board("github", [_project().repository]), board("trendshift", ["other/member"])])
@@ -292,6 +292,8 @@ async def test_explicit_one_project_enters_existing_budget_collector_and_then_re
 
     collector = AsyncMock(side_effect=collect)
     monkeypatch.setattr(service, "_collect_project_material", collector)
+    publisher = AsyncMock(wraps=rardar_daily_refresh.safe_publish_reading_snapshots_async)
+    monkeypatch.setattr(rardar_daily_refresh, "safe_publish_reading_snapshots_async", publisher)
     identifier = service.project_id_for_repository(_project().repository)
     first = await service.generate_project_material(tmp_path, identifier)
     assert first["status"] == "processed"
@@ -300,6 +302,11 @@ async def test_explicit_one_project_enters_existing_budget_collector_and_then_re
     second = await service.generate_project_material(tmp_path, identifier)
     assert second["status"] == "reused"
     assert budget.await_count == collector.await_count == 1
+    publisher.assert_awaited_once_with(tmp_path)
+    assert (tmp_path / "trending-boards/public-reading/current.json").exists()
+    assert first["readingReceipt"]["status"] == "saved"
+    day_receipt = next((tmp_path / "trending-boards/daily-refresh").glob("day-*.json"))
+    assert store.read_json(day_receipt)["readingPublication"] == first["readingPublication"]
     assert (tmp_path / "trending-boards" / "material-work.json").exists()
     state = next((tmp_path / "existing-operations").glob("*-refocus-v1.json"))
     assert store.read_json(state)["progress"]["historical"]["materialWork"]["projects"]

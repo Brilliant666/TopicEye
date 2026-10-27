@@ -17,6 +17,7 @@ import httpx
 from app.core.config import settings
 from app.integrations.rardar.project_identity import canonical_repository, project_id_for_repository
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
+from app.services.rardar_daily_refresh import record_reading_publication_async, safe_publish_reading_snapshots_async
 from app.services.rardar_github_client import github_material_client
 from app.services.rardar_material_diagnostics import material_failure_diagnostic
 
@@ -321,6 +322,10 @@ async def apply_once(repository: str, *, mode: str, expected_plan_digest: str, o
                 )
             finally:
                 receipt["completedAt"] = datetime.now(UTC).isoformat()
+                receipt["readingPublication"] = await safe_publish_reading_snapshots_async(target)
+                receipt["readingReceipt"] = await record_reading_publication_async(
+                    target, receipt["readingPublication"]
+                )
                 atomic(receipt_path, receipt)
             return {
                 key: receipt.get(key)
@@ -333,6 +338,8 @@ async def apply_once(repository: str, *, mode: str, expected_plan_digest: str, o
                     "errorCode",
                     "materialState",
                     "profileRevision",
+                    "readingPublication",
+                    "readingReceipt",
                 )
             }
         current = _history_with_materials(target, saved_materials(target, repositories={name}), repositories={name})
@@ -434,6 +441,10 @@ async def apply_once(repository: str, *, mode: str, expected_plan_digest: str, o
                     providerRequests=work.used_requests,
                     sourceRequests=source_requests,
                 )
+                receipt["readingPublication"] = await safe_publish_reading_snapshots_async(target)
+                receipt["readingReceipt"] = await record_reading_publication_async(
+                    target, receipt["readingPublication"]
+                )
                 atomic(receipt_path, receipt)
         return {
             key: receipt.get(key)
@@ -449,5 +460,7 @@ async def apply_once(repository: str, *, mode: str, expected_plan_digest: str, o
                 "diagnostic",
                 "materialState",
                 "qualityState",
+                "readingPublication",
+                "readingReceipt",
             )
         }

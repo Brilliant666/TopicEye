@@ -118,12 +118,25 @@ export function isDualBoardOperation(operation: TodayOperation) {
 
 export function TodayOperationResult({ operation, context = 'exact_explosion' }: { operation: TodayOperation; context?: BoardContext['context'] }) {
   if (context === 'dual_board' && !isDualBoardOperation(operation)) return null;
+  const readingStatus = operation.status === 'running' ? undefined : operation.result?.readingStatus;
+  const sourceStatus = operation.result?.sourceStatus;
+  const label = readingStatus === 'failed' ? '公开成品发布失败'
+    : readingStatus === 'published' ? '公开成品已发布'
+      : readingStatus === 'reused' ? '公开成品未变，继续复用' : todayOperationLabel(operation.status);
+  const partialSources = sourceStatus === 'partial' || (!sourceStatus && !readingStatus && operation.status === 'partial');
   return <div className={styles.result} aria-live="polite">
-    <strong>{todayOperationLabel(operation.status)}</strong>
+    <strong>{label}</strong>
     {operation.status === 'running' && <p>可以继续阅读；刷新页面后仍可查看结果，旧有效榜单会保留到验证通过。</p>}
     {['failed', 'interrupted', 'not_configured'].includes(operation.status) && <p>当前有效榜单保留，未自动重试。请检查已有只读同步配置或稍后重试。</p>}
     {operation.status === 'no_complete_board' && <p>来源尚无可替换的有效榜单，当前已保存内容保留。</p>}
-    {operation.status === 'partial' && <p>部分来源暂不可用，已取得的新内容和其他健康来源继续保留。</p>}
+    {partialSources && <p>部分来源暂不可用，已取得的新内容和其他健康来源继续保留。</p>}
+    {readingStatus === 'failed' && <>
+      {sourceStatus === 'updated' && <p>事实同步成功。</p>}
+      {sourceStatus === 'unchanged' && <p>事实来源检查完成，未发现变化。</p>}
+      <p>{operation.result?.readingNote || '公开Today成品发布失败，保留上次展示；事实同步结果单独保留。'}</p>
+    </>}
+    {readingStatus !== 'failed' && operation.result?.readingPublication?.history?.status === 'failed'
+      && <p>历史回顾公开成品发布失败，保留历史回顾上次展示；今日热榜发布状态单独记录。</p>}
     {context !== 'dual_board' && operation.result?.window && <p>历史来源观察窗口（北京时间）：{timeLabel(operation.result.window.startedAt)} → {timeLabel(operation.result.window.endedAt)}</p>}
   </div>;
 }

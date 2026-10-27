@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import Link, { useLinkStatus } from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Activity, Radar, Settings2 } from 'lucide-react';
 
@@ -9,6 +9,18 @@ import {
   isRardarNavigationActive,
 } from '@/lib/product-profile';
 import styles from './RardarFoundation.module.css';
+
+function NavigationPendingHint() {
+  const { pending } = useLinkStatus();
+  return <span
+    className={styles.navPendingHint}
+    data-testid="rardar-navigation-pending"
+    data-pending={pending ? 'true' : 'false'}
+    role="status"
+    aria-live="polite"
+    aria-label={pending ? '正在切换页面' : undefined}
+  />;
+}
 
 export default function RardarShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -36,12 +48,14 @@ export default function RardarShell({ children }: { children: React.ReactNode })
               <Link
                 key={item.href}
                 href={item.href}
+                aria-label={item.label}
                 aria-current={isRardarNavigationActive(pathname, item.href) ? 'page' : undefined}
                 className={`${styles.navLink} ${
                   isRardarNavigationActive(pathname, item.href) ? styles.navLinkActive : ''
                 }`}
               >
                 {item.label}
+                <NavigationPendingHint />
               </Link>
             ))}
           </nav>
@@ -67,12 +81,14 @@ export default function RardarShell({ children }: { children: React.ReactNode })
           <Link
             key={item.href}
             href={item.href}
+            aria-label={item.label}
             aria-current={isRardarNavigationActive(pathname, item.href) ? 'page' : undefined}
             className={`${styles.navLink} ${
               isRardarNavigationActive(pathname, item.href) ? styles.navLinkActive : ''
             }`}
           >
             {item.label}
+            <NavigationPendingHint />
           </Link>
         ))}
       </nav>

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -137,8 +137,8 @@ async def trending_today(response: Response):
         raise HTTPException(status_code=404, detail="Not found")
     response.headers["Cache-Control"] = "no-store"
     try:
-        return await asyncio.to_thread(rardar_trending.today)
-    except (ValueError, OSError):
+        return await asyncio.to_thread(rardar_trending.published_today)
+    except (ValueError, OSError, LookupError):
         raise HTTPException(status_code=503, detail="trending_snapshot_invalid") from None
 
 
@@ -150,19 +150,28 @@ async def historical_hot(response: Response):
         raise HTTPException(status_code=404, detail="Not found")
     response.headers["Cache-Control"] = "no-store"
     try:
-        return await asyncio.to_thread(rardar_trending.history)
-    except (ValueError, OSError):
+        return await asyncio.to_thread(rardar_trending.published_history)
+    except (ValueError, OSError, LookupError):
         raise HTTPException(status_code=503, detail="historical_snapshot_invalid") from None
 
 
 @router.get("/trending-projects/{project_id}")
-async def trending_project(project_id: str, generation: str = Query(min_length=1, max_length=128)):
+async def trending_project(
+    project_id: str,
+    generation: str = Query(min_length=1, max_length=128),
+    readingRevision: Annotated[str | None, Query(pattern=r"^[a-f0-9]{64}$")] = None,
+):
     from app.services import rardar_trending
 
     if not is_rardar_product():
         raise HTTPException(status_code=404, detail="Not found")
     try:
-        return await asyncio.to_thread(rardar_trending.detail, project_id, generation)
+        return await asyncio.to_thread(
+            rardar_trending.published_detail,
+            project_id,
+            generation,
+            reading_revision=readingRevision,
+        )
     except LookupError:
         raise HTTPException(status_code=404, detail="project_not_found") from None
     except (ValueError, OSError):
@@ -170,17 +179,55 @@ async def trending_project(project_id: str, generation: str = Query(min_length=1
 
 
 @router.get("/historical-projects/{project_id}")
-async def historical_project(project_id: str):
+async def historical_project(
+    project_id: str, readingRevision: Annotated[str | None, Query(pattern=r"^[a-f0-9]{64}$")] = None
+):
     from app.services import rardar_trending
 
     if not is_rardar_product():
         raise HTTPException(status_code=404, detail="Not found")
     try:
-        return await asyncio.to_thread(rardar_trending.detail, project_id, None, historical=True)
+        return await asyncio.to_thread(
+            rardar_trending.published_detail, project_id, None, historical=True, reading_revision=readingRevision
+        )
     except LookupError:
         raise HTTPException(status_code=404, detail="project_not_found") from None
     except (ValueError, OSError):
         raise HTTPException(status_code=503, detail="historical_snapshot_invalid") from None
+
+
+@router.get("/public-reading")
+async def public_reading_pointer(response: Response):
+    from app.services import rardar_trending
+
+    if not is_rardar_product():
+        raise HTTPException(status_code=404, detail="Not found")
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return await asyncio.to_thread(rardar_trending.published_reading_pointer)
+    except (ValueError, OSError):
+        raise HTTPException(status_code=503, detail="public_reading_pointer_invalid") from None
+
+
+@router.get("/public-reading/{view}/{revision}")
+async def public_reading_board(
+    response: Response,
+    view: Literal["trending-today", "historical-hot"],
+    revision: str = Path(pattern=r"^[a-f0-9]{64}$"),
+):
+    from app.services import rardar_trending
+
+    if not is_rardar_product():
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        value = await asyncio.to_thread(rardar_trending.published_board, view, revision)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="public_reading_revision_not_found") from None
+    except (ValueError, OSError):
+        raise HTTPException(status_code=503, detail="public_reading_product_invalid") from None
+    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    response.headers["ETag"] = f'"{revision}"'
+    return value
 
 
 _SERVING_CACHE_CONTROL = "private, max-age=15, stale-while-revalidate=45"

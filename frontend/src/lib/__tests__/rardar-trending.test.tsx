@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import RardarTrendingPage, { TrendingCard } from '@/components/RardarTrendingPage';
-import { boardTime, loadTrending, projectLink, safeSourceUrl, type TrendingBoard, type TrendingCardNarrative, type TrendingProject } from '@/lib/rardar-trending';
+import { boardTime, loadPublishedBoard, loadTrending, projectLink, safeSourceUrl, type PublishedBoardView, type TrendingBoard, type TrendingCardNarrative, type TrendingProject } from '@/lib/rardar-trending';
 
 vi.mock('@/components/RardarTodayOperations', () => ({ default: () => null }));
 const project: TrendingProject = { projectId: 'new-repo--12345678901234567890', repository: 'new/repo', repositoryUrl: 'https://github.com/new/repo', githubRepositoryId: null, totalStars: null, description: null, dualListed: true, appearances: [{ source: 'github', rank: 1, sourceDate: null, fetchedAt: '2026-09-10T00:00:00Z', period: 'daily', reportedDelta: null }, { source: 'trendshift', rank: 4, sourceDate: '2026-09-09', fetchedAt: '2026-09-10T00:00:00Z', period: 'daily', reportedDelta: null }], materialState: 'unavailable', profile: null };
@@ -117,6 +117,22 @@ describe('refocused trending reading', () => {
     expect(safeSourceUrl('https://secret@example.com/')).toBeUndefined();
     expect(projectLink('new/repo', 'a&b')).toContain('new%2Frepo?generation=a%26b');
   });
+  it.each([false, true])('pins detail links to the list reading revision even within the same generation (historical=%s)', historical => {
+    const oldRevision = 'a'.repeat(64);
+    const nextRevision = 'b'.repeat(64);
+    const render = (readingRevision: string) => renderToStaticMarkup(<RardarTrendingPage historical={historical} board={{
+      schemaVersion: 1, generationId: 'boards-same-generation', publishedAt: null, checkedAt: null,
+      sources: [], projects: [project], readingRevision,
+    }} />);
+    const oldHref = projectLink(project.projectId, 'boards-same-generation', historical, oldRevision);
+    const nextHref = projectLink(project.projectId, 'boards-same-generation', historical, nextRevision);
+    expect(oldHref).not.toBe(nextHref);
+    expect(render(oldRevision)).toContain(oldHref.replaceAll('&', '&amp;'));
+    expect(render(nextRevision)).toContain(nextHref.replaceAll('&', '&amp;'));
+    expect(render(oldRevision)).not.toContain(nextRevision);
+    expect(new URL(oldHref, 'http://fixture.test').searchParams.get(historical ? 'history' : 'generation')).toBe(historical ? '1' : 'boards-same-generation');
+    expect(projectLink(project.projectId, 'boards-same-generation', historical)).not.toContain('readingRevision');
+  });
   it('reading calls only the saved backend resource and safely handles failure', async () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: false });
     expect(await loadTrending('trending-today', fetcher)).toBeNull();
@@ -129,6 +145,156 @@ const board: TrendingBoard = {
   schemaVersion: 1, generationId: 'boards-saved', publishedAt: '2026-09-13T01:00:00Z',
   checkedAt: '2026-09-13T01:00:01Z', sources: [], projects: [],
 };
+
+describe('immutable published public boards', () => {
+  const revision = 'a'.repeat(64);
+  const publication = { revision, publishedAt: '2026-10-27T01:00:00Z', generationId: board.generationId };
+  const pointer = { schemaVersion: 1, views: { 'trending-today': publication, 'historical-hot': publication } };
+  const published = { ...board, projects: [project], readingRevision: revision };
+  const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });
+
+  it.each(['trending-today', 'historical-hot'] as const)('checks the live pointer but caches only the exact %s revision', async view => {
+    const fetcher = vi.fn().mockImplementation(async (url: string) => json(url.endsWith('/public-reading') ? pointer : published));
+    expect(await loadPublishedBoard(view, fetcher)).toEqual(published);
+    expect(await loadPublishedBoard(view, fetcher)).toEqual(published);
+    expect(fetcher.mock.calls[0][0]).toMatch(/\/api\/v1\/rardar\/public-reading$/);
+    expect(fetcher.mock.calls[0][1]).toMatchObject({ cache: 'no-store', headers: { Accept: 'application/json' } });
+    expect(fetcher.mock.calls[1][0]).toMatch(new RegExp(`/public-reading/${view}/${revision}$`));
+    expect(fetcher.mock.calls[1][1]).toMatchObject({ cache: 'force-cache', headers: { Accept: 'application/json' } });
+    expect(fetcher.mock.calls[1][0]).toBe(fetcher.mock.calls[3][0]);
+    expect(fetcher.mock.calls.every(([, init]) => !('Cookie' in init.headers) && !('Authorization' in init.headers))).toBe(true);
+  });
+
+  it('uses a new cache URL as soon as the publication revision changes', async () => {
+    const nextRevision = 'b'.repeat(64);
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(json(pointer)).mockResolvedValueOnce(json(published))
+      .mockResolvedValueOnce(json({ ...pointer, views: { 'trending-today': { ...publication, revision: nextRevision } } }))
+      .mockResolvedValueOnce(json({ ...published, readingRevision: nextRevision }));
+    expect((await loadPublishedBoard('trending-today', fetcher))?.readingRevision).toBe(revision);
+    expect((await loadPublishedBoard('trending-today', fetcher))?.readingRevision).toBe(nextRevision);
+    expect(fetcher.mock.calls[1][0]).not.toBe(fetcher.mock.calls[3][0]);
+  });
+
+  it.each([
+    null, {}, { schemaVersion: 2, views: pointer.views }, { schemaVersion: 1, views: [] },
+    { schemaVersion: 1, views: {} },
+    { schemaVersion: 1, views: { 'trending-today': { ...publication, revision: '../find-runs' } } },
+    { schemaVersion: 1, views: { 'trending-today': { ...publication, publishedAt: 'invalid' } } },
+    { schemaVersion: 1, views: { 'trending-today': { ...publication, generationId: {} } } },
+  ])('fails closed without falling back to a live aggregate for a missing/bad pointer: %j', async value => {
+    const fetcher = vi.fn().mockResolvedValue(json(value));
+    expect(await loadPublishedBoard('trending-today', fetcher)).toBeNull();
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    null, {}, { ...published, readingRevision: undefined }, { ...published, readingRevision: 'b'.repeat(64) },
+    { ...published, generationId: 'another-generation' }, { ...published, projects: {} },
+    { ...published, projects: [{}] }, { ...published, sources: [{ label: {} }] },
+    { ...published, projects: [{ ...project, description: {} }] },
+    { ...published, projects: [{ ...project, topics: [{}] }] },
+    { ...published, projects: [{ ...project, displayCard: { coreValueZh: {} } }] },
+    { ...published, projects: [{ ...project, primaryGrowth: { source: 'github', value: {} } }] },
+    { ...published, dailyReview: { lookbackDays: {} } },
+  ])('does not display malformed or revision-mismatched content: %j', async value => {
+    const fetcher = vi.fn().mockResolvedValueOnce(json(pointer)).mockResolvedValueOnce(json(value));
+    expect(await loadPublishedBoard('trending-today', fetcher)).toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps one unavailable view independent of another published view', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(json({ ...pointer, views: { 'historical-hot': publication } })).mockResolvedValueOnce(json(published));
+    expect(await loadPublishedBoard('historical-hot', fetcher)).toEqual(published);
+  });
+
+  it('keeps a legitimately published pending history view without inventing a generation', async () => {
+    const pending = { ...board, generationId: null, projects: [], state: 'pending_daily_review', readingRevision: revision };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(json({ ...pointer, views: { 'historical-hot': { ...publication, generationId: null } } }))
+      .mockResolvedValueOnce(json(pending));
+    const loaded = await loadPublishedBoard('historical-hot', fetcher);
+    expect(loaded).toEqual(pending);
+    expect(loaded?.generationId).toBeNull();
+    const html = renderToStaticMarkup(<RardarTrendingPage historical board={loaded} />);
+    expect(html).toContain('尚未发布每日回顾');
+    expect(html).not.toContain('已保存清单暂时不可用');
+    expect(html).not.toContain('generation=');
+  });
+
+  it('retains a valid completed empty history review without inventing facts', async () => {
+    const empty = { ...board, generationId: null, projects: [], state: 'ready', readingRevision: revision,
+      dailyReview: { date: '2026-10-27', publishedAt: '2026-10-27T01:00:00Z', projectIds: [] } };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(json({ ...pointer, views: { 'historical-hot': { ...publication, generationId: null } } }))
+      .mockResolvedValueOnce(json(empty));
+    const loaded = await loadPublishedBoard('historical-hot', fetcher);
+    expect(loaded).toEqual(empty);
+    expect(loaded?.dailyReview?.projectIds).toEqual([]);
+    expect(loaded?.generationId).toBeNull();
+    const html = renderToStaticMarkup(<RardarTrendingPage historical board={loaded} />);
+    expect(html).not.toContain('已保存清单暂时不可用');
+    expect(html).not.toContain('generation=');
+  });
+
+  it.each(['trending-today', 'historical-hot'] as const)('retains nullable partial material and optional display metrics for %s', async view => {
+    const partial = { ...published, projects: [{
+      ...project, description: '仅有原始介绍，中文资料待补充。', materialState: 'partial',
+      displayCard: null, displayProfile: null, primaryGrowth: null,
+      profile: { summary: null, positioning: null }, material: null,
+    }], sources: [{ source: 'github', label: 'GitHub Trending', status: 'healthy' }] };
+    const fetcher = vi.fn().mockResolvedValueOnce(json(pointer)).mockResolvedValueOnce(json(partial));
+    const loaded = await loadPublishedBoard(view, fetcher);
+    expect(loaded).toEqual(partial);
+    const html = renderToStaticMarkup(<RardarTrendingPage historical={view === 'historical-hot'} board={loaded} />);
+    expect(html).toContain('仅有原始介绍，中文资料待补充。');
+    expect(html).toContain('资料部分可用');
+    expect(html).not.toContain('已保存清单暂时不可用');
+  });
+
+  it('does not reject unknown primary growth that history never displays', async () => {
+    const historical = { ...published, projects: [{ ...project, primaryGrowth: { source: 'unknown', value: null } }] };
+    const fetcher = vi.fn().mockResolvedValueOnce(json(pointer)).mockResolvedValueOnce(json(historical));
+    const loaded = await loadPublishedBoard('historical-hot', fetcher);
+    expect(loaded).toEqual(historical);
+    const html = renderToStaticMarkup(<RardarTrendingPage historical board={loaded} />);
+    expect(html).toContain('累计 Star 未取得');
+    expect(html).not.toContain('data-growth-source');
+  });
+
+  it('still rejects a null generation for a nonempty history or a mismatched pointer', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(json({ ...pointer, views: { 'historical-hot': { ...publication, generationId: null } } }))
+      .mockResolvedValueOnce(json({ ...published, generationId: null, state: 'pending_daily_review' }));
+    expect(await loadPublishedBoard('historical-hot', fetcher)).toBeNull();
+    const mismatched = vi.fn().mockResolvedValueOnce(json({ ...pointer, views: { 'historical-hot': { ...publication, generationId: null } } })).mockResolvedValueOnce(json(published));
+    expect(await loadPublishedBoard('historical-hot', mismatched)).toBeNull();
+  });
+
+  it.each([0, 1])('safely handles unavailable endpoints and invalid JSON at stage %i', async stage => {
+    const unavailable = vi.fn();
+    if (stage) unavailable.mockResolvedValueOnce(json(pointer));
+    unavailable.mockResolvedValueOnce(new Response('{}', { status: 503 }));
+    expect(await loadPublishedBoard('trending-today', unavailable)).toBeNull();
+    const invalidJson = vi.fn();
+    if (stage) invalidJson.mockResolvedValueOnce(json(pointer));
+    invalidJson.mockResolvedValueOnce(new Response('not-json'));
+    expect(await loadPublishedBoard('trending-today', invalidJson)).toBeNull();
+    const rejected = vi.fn();
+    if (stage) rejected.mockResolvedValueOnce(json(pointer));
+    rejected.mockRejectedValueOnce(new Error('offline'));
+    expect(await loadPublishedBoard('trending-today', rejected)).toBeNull();
+  });
+
+  it('cannot select Find or another private resource for public artifact caching', async () => {
+    const fetcher = vi.fn();
+    expect(await loadPublishedBoard('find-runs' as PublishedBoardView, fetcher)).toBeNull();
+    expect(fetcher).not.toHaveBeenCalled();
+    const detailFetcher = vi.fn().mockResolvedValue(new Response('{}', { status: 404 }));
+    expect(await loadTrending('historical-projects/saved-project', detailFetcher)).toBeNull();
+    expect(detailFetcher.mock.calls[0][1]).toMatchObject({ cache: 'no-store' });
+  });
+});
 
 describe('daily focused lists', () => {
   it('renders the server-selected history batch in its saved order without loading a catalog', () => {

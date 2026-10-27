@@ -1,5 +1,7 @@
 import { request } from './_core';
 
+export type ReadingPublicationStatus = 'published' | 'reused' | 'failed';
+
 export type TodayOperation = {
   id: string;
   scope?: 'dual_board' | 'exact_explosion';
@@ -14,6 +16,11 @@ export type TodayOperation = {
     syncedAt: string | null;
     changed: boolean;
     sources?: Array<{ source: string; status: string; sourceDate?: string | null; errorCode?: string | null }>;
+    sourceStatus?: 'updated' | 'unchanged' | 'partial' | 'failed';
+    readingStatus?: ReadingPublicationStatus;
+    readingDisplay?: 'current' | 'previous';
+    readingNote?: string;
+    readingPublication?: Partial<Record<'today' | 'history', { status: ReadingPublicationStatus; revision?: string; errorCode?: string; changed?: boolean }>>;
   } | null;
 };
 

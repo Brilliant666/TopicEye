@@ -91,4 +91,41 @@ describe('Today daily operator entry', () => {
     expect(html).toContain('旧有效榜单会保留到验证通过');
     expect(html).not.toContain('fixture-internal-error');
   });
+
+  it('separates successful source sync from a failed public Today publication', () => {
+    const current: TodayOperation = { ...operation('partial'), scope: 'dual_board', result: {
+      ...operation('partial').result!, sourceStatus: 'updated', readingStatus: 'failed', readingDisplay: 'previous',
+      readingNote: '事实同步成功；公开成品发布失败，保留上次展示',
+      sources: [{ source: 'github', status: 'healthy' }, { source: 'trendshift', status: 'healthy' }],
+      readingPublication: { today: { status: 'failed', errorCode: 'internal-publication-failure' }, history: { status: 'published' } },
+    } };
+    const html = renderToStaticMarkup(<TodayOperationResult operation={current} context="dual_board" />);
+    expect(html).toContain('<strong>公开成品发布失败</strong>');
+    expect(html).toContain('事实同步成功；公开成品发布失败，保留上次展示');
+    expect(html).not.toContain('部分来源暂不可用');
+    expect(html).not.toContain('部分来源已更新');
+    expect(html).not.toContain('internal-publication-failure');
+    expect(state.request).not.toHaveBeenCalled();
+  });
+
+  it.each(['published', 'reused'] as const)('labels the actual Today public result %s instead of overall source status', readingStatus => {
+    const current: TodayOperation = { ...operation('partial'), scope: 'dual_board', result: {
+      ...operation('partial').result!, sourceStatus: 'updated', readingStatus, readingDisplay: 'current',
+      readingPublication: { today: { status: readingStatus }, history: { status: 'failed' } },
+    } };
+    const html = renderToStaticMarkup(<TodayOperationResult operation={current} context="dual_board" />);
+    expect(html).toContain(readingStatus === 'published' ? '<strong>公开成品已发布</strong>' : '<strong>公开成品未变，继续复用</strong>');
+    expect(html).toContain('历史回顾公开成品发布失败，保留历史回顾上次展示');
+    expect(html).not.toContain('<strong>公开成品发布失败</strong>');
+    expect(html).not.toContain('部分来源暂不可用');
+  });
+
+  it('retains the real partial-source warning even when a usable public board publishes', () => {
+    const current: TodayOperation = { ...operation('partial'), scope: 'dual_board', result: {
+      ...operation('partial').result!, sourceStatus: 'partial', readingStatus: 'published', readingDisplay: 'current',
+    } };
+    const html = renderToStaticMarkup(<TodayOperationResult operation={current} context="dual_board" />);
+    expect(html).toContain('公开成品已发布');
+    expect(html).toContain('部分来源暂不可用');
+  });
 });

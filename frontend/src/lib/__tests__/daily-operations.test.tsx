@@ -62,4 +62,37 @@ describe('Rardar daily admin controls', () => {
     expect(html).not.toContain('99999');
     expect(state.request).not.toHaveBeenCalled();
   });
+
+  it('summarizes failed Today publication separately from healthy facts without rendering nested objects', () => {
+    const html = renderToStaticMarkup(<DailyExecutionSummary budget={{ day: '2026-10-27', configuredLimit: null, attempted: 0, remaining: 0,
+      dailyStatus: { status: 'partial', modules: { today: {
+        status: 'partial', sourceStatus: 'updated', readingStatus: 'failed', readingDisplay: 'previous',
+        readingNote: '事实同步成功；公开成品发布失败，保留上次展示',
+        readingPublication: { today: { status: 'failed', errorCode: 'internal-publish-error' }, history: { status: 'published', revision: 'internal-revision' } },
+      } } },
+    }} />);
+    expect(html).toContain('事实来源：同步成功');
+    expect(html).toContain('今日热榜成品：发布失败，保留上次展示');
+    expect(html).toContain('今日热榜展示：上次展示');
+    expect(html).toContain('今日热榜：发布失败，保留上次展示；历史回顾：已发布');
+    expect(html).toContain('事实同步成功；公开成品发布失败，保留上次展示');
+    expect(html).not.toContain('[object Object]');
+    expect(html).not.toContain('internal-publish-error');
+    expect(html).not.toContain('internal-revision');
+    expect(state.request).not.toHaveBeenCalled();
+  });
+
+  it('does not attribute a history-only publication failure to Today', () => {
+    const html = renderToStaticMarkup(<DailyExecutionSummary budget={{ day: '2026-10-27', configuredLimit: null, attempted: 0, remaining: 0,
+      dailyStatus: { status: 'partial', modules: { today: {
+        status: 'partial', sourceStatus: 'unchanged', readingStatus: 'reused', readingDisplay: 'current',
+        readingPublication: { today: { status: 'reused' }, history: { status: 'failed' } },
+      } } },
+    }} />);
+    expect(html).toContain('今日热榜成品：成品未变，继续复用');
+    expect(html).toContain('今日热榜：成品未变，继续复用；历史回顾：发布失败，保留上次展示');
+    expect(html).not.toContain('今日热榜成品：发布失败');
+    expect(html).not.toContain('部分来源暂不可用');
+    expect(html).not.toContain('[object Object]');
+  });
 });

@@ -56,17 +56,18 @@ export type DailyHistoryReview = {
   relaxedRecentWindow: boolean; limit: number; lookbackDays: number; trigger: string;
 };
 export type TrendingBoard = {
-  schemaVersion: number; metricSchemaVersion?: 2; generationId: string;
+  schemaVersion: number; metricSchemaVersion?: 2; generationId: string | null;
+  readingRevision?: string;
   publishedAt: string | null; checkedAt: string | null; sources: BoardSource[];
   projects: TrendingProject[]; refreshPolicy?: RefreshPolicy;
   rawProjectCount?: number; eligibleProjectCount?: number; unknownGrowthCount?: number;
   minimumDailyGrowth?: number; dailyReview?: DailyHistoryReview | null;
   state?: string;
 };
-export type TrendingDetail = TrendingProject & { metricSchemaVersion?: 2; generationId?: string; publishedAt?: string | null; sources?: BoardSource[] };
+export type TrendingDetail = TrendingProject & { metricSchemaVersion?: 2; generationId?: string; readingRevision?: string; publishedAt?: string | null; sources?: BoardSource[] };
 
-export function projectLink(projectId: string, generationId: string, historical = false) {
-  return `/project/stable/${encodeURIComponent(projectId)}?${historical ? 'history=1' : `generation=${encodeURIComponent(generationId)}`}`;
+export function projectLink(projectId: string, generationId: string, historical = false, readingRevision?: string) {
+  return `/project/stable/${encodeURIComponent(projectId)}?${historical ? 'history=1' : `generation=${encodeURIComponent(generationId)}`}${readingRevision ? `&readingRevision=${encodeURIComponent(readingRevision)}` : ''}`;
 }
 export function safeSourceUrl(value: string): string | undefined {
   try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password ? url.href : undefined; } catch { return undefined; }
@@ -78,6 +79,100 @@ export async function loadTrending<T>(path: string, fetcher: typeof fetch = fetc
     return await response.json() as T;
   } catch { return null; }
 }
+
+export type PublishedBoardView = 'trending-today' | 'historical-hot';
+
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const text = (value: unknown) => value == null || typeof value === 'string';
+const finite = (value: unknown) => typeof value === 'number' && Number.isFinite(value);
+const scalar = (value: unknown) => value == null || ['string', 'number', 'boolean'].includes(typeof value);
+const textList = (value: unknown) => value == null || (Array.isArray(value) && value.every(item => typeof item === 'string'));
+const optionalObject = (value: unknown, validate: (item: Record<string, unknown>) => boolean) => value == null || (record(value) && validate(value));
+const optionalRows = (value: unknown, validate: (item: Record<string, unknown>) => boolean) => value == null || (Array.isArray(value) && value.every(item => record(item) && validate(item)));
+
+function validReadingProject(project: unknown, historical: boolean): boolean {
+  if (!record(project) || typeof project.projectId !== 'string' || typeof project.repository !== 'string'
+    || ![project.description, project.language, project.license].every(text)
+    || ![project.topics, project.productForms].every(textList)
+    || !Array.isArray(project.appearances)
+    || !project.appearances.every(appearance => record(appearance)
+      && text(appearance.source) && scalar(appearance.rank)
+      && [appearance.sourceDate, appearance.fetchedAt, appearance.reportedDeltaPeriod, appearance.trendshiftMetricPeriod].every(text))) return false;
+
+  const narrative = (value: unknown) => optionalObject(value, item => [
+    item.officialTaglineZh, item.identitySummaryZh, item.officialSummaryZh,
+    item.coreValueZh, item.positioningZh, item.officialNarrativeMode, item.positioningSourceMode,
+  ].every(text) && textList(item.productFormsZh));
+  return narrative(project.displayCard) && narrative(project.displayProfile)
+    && optionalObject(project.profile, item => [item.summary, item.positioning, item.sourceLabel].every(text))
+    && (historical || optionalObject(project.primaryGrowth, item => finite(item.value)))
+    && optionalObject(project.material, item => [item.sourceState, item.sourceCheckedAt].every(text))
+    && optionalObject(project.metadataSource, item => text(item.fetchedAt))
+    && optionalObject(project.historicalContext, item => [item.kind, item.source, item.date].every(text))
+    && optionalObject(project.totalStarsSource, item => [item.sourceDate, item.fetchedAt, item.observedAt].every(text))
+    && optionalRows(project.historicalEvidence, item => text(item.sourceUrl) && scalar(item.reportedAppearanceCount))
+    && optionalRows(project.historicalRardarEvidence, item => text(item.sourceGeneration)
+      && scalar(item.rank) && [item.windowStartedAt, item.windowEndedAt].every(text));
+}
+
+function validPublishedBoard(value: unknown, revision: string, view: PublishedBoardView): value is TrendingBoard {
+  if (!record(value) || value.readingRevision !== revision
+    || ![value.publishedAt, value.checkedAt].every(text)
+    || !Array.isArray(value.projects) || !Array.isArray(value.sources)) return false;
+  const emptyHistory = view === 'historical-hot' && value.projects.length === 0
+    && (value.state === 'pending_daily_review' || (value.state === 'ready' && record(value.dailyReview)));
+  if (typeof value.generationId !== 'string' && !(value.generationId === null && emptyHistory)) return false;
+
+  // The publisher validates the complete saved document. Check the reading
+  // boundary here as well so a malformed response cannot become a partial list.
+  return value.projects.every(project => validReadingProject(project, view === 'historical-hot'))
+    && value.sources.every(source => record(source)
+      && [source.source, source.sourceDate, source.fetchedAt, source.checkedAt].every(text)
+      && scalar(source.label) && scalar(source.count))
+    && optionalObject(value.dailyReview, item => text(item.date) && text(item.publishedAt)
+      && scalar(item.lookbackDays))
+    && optionalObject(value.refreshPolicy, item => record(item.duePeriod)
+      && text(item.duePeriod.sourceDate) && scalar(item.readinessMinutes));
+}
+
+/** Cache only immutable, public reading artifacts; never identity or Find data. */
+export async function loadPublishedBoard(
+  view: PublishedBoardView,
+  fetcher: typeof fetch = fetch,
+): Promise<TrendingBoard | null> {
+  if (view !== 'trending-today' && view !== 'historical-hot') return null;
+  const base = `${process.env.BACKEND_API_URL || 'http://127.0.0.1:8102'}/api/v1/rardar/public-reading`;
+  try {
+    // A publication change selects a new immutable URL. Do not cache this pointer
+    // or rely on a timed frontend rebuild to discover a newly published board.
+    const pointerResponse = await fetcher(base, {
+      cache: 'no-store', headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!pointerResponse.ok) return null;
+    const pointer: unknown = await pointerResponse.json();
+    if (!record(pointer) || pointer.schemaVersion !== 1 || !record(pointer.views)) return null;
+    const publication = pointer.views[view];
+    if (!record(publication) || typeof publication.revision !== 'string'
+      || !/^[a-f0-9]{64}$/.test(publication.revision)
+      || typeof publication.publishedAt !== 'string' || !Number.isFinite(Date.parse(publication.publishedAt))
+      || !(publication.generationId === null || typeof publication.generationId === 'string')) return null;
+
+    const response = await fetcher(`${base}/${view}/${publication.revision}`, {
+      cache: 'force-cache', headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) return null;
+    const board: unknown = await response.json();
+    if (!validPublishedBoard(board, publication.revision, view)
+      || board.generationId !== publication.generationId) return null;
+    return board;
+  } catch { return null; }
+}
+
 export function boardTime(value: string | null | undefined) {
   if (!value) return '日期未知';
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;

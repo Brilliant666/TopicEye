@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.integrations.rardar.material_content_revision import VERSION, derive, install
 from app.integrations.rardar.project_identity import canonical_repository
 from app.integrations.rardar.serving_schemas import OfficialProjectProfile, ProjectEvidenceProjection
+from app.services.rardar_daily_refresh import record_reading_publication, safe_publish_reading_snapshots
 from app.services.rardar_trending import load_saved_project_profile, saved_materials
 
 
@@ -53,7 +54,11 @@ def main():
                     **(install(target, profile, evidence) if args.apply else {"state": "dry_run"}),
                 }
             )
-    print(json.dumps({"version": VERSION, "providerCalls": 0, "results": results}, ensure_ascii=False, indent=2))
+    output = {"version": VERSION, "providerCalls": 0, "results": results}
+    if args.apply:
+        output["readingPublication"] = safe_publish_reading_snapshots(target)
+        output["readingReceipt"] = record_reading_publication(target, output["readingPublication"])
+    print(json.dumps(output, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

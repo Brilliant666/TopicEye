@@ -110,6 +110,21 @@ def _sync():
     )
 
 
+def _reading_result(result: dict) -> dict:
+    """Keep source success distinct from activation of the public Today product."""
+    source_status = result.get("sourceStatus", result["status"])
+    result = {**result, "sourceStatus": source_status}
+    today = result.get("readingPublication", {}).get("today", {})
+    reading_status = today.get("status", result.get("readingStatus"))
+    if reading_status in {"published", "reused", "failed"}:
+        result["readingStatus"] = reading_status
+        result["readingDisplay"] = "previous" if reading_status == "failed" else "current"
+        result["status"] = "partial" if reading_status == "failed" else source_status
+        if reading_status == "failed":
+            result["readingNote"] = "公开Today成品发布失败，当前展示未替换；事实同步结果单独保留。"
+    return result
+
+
 async def start_operation(payload: TodayOperationRequest, *, user_id: int) -> dict[str, Any]:
     root = operation_root()
     root.mkdir(parents=True, exist_ok=True)
@@ -165,9 +180,10 @@ def _execute(key: Path, loop: asyncio.AbstractEventLoop, ready: asyncio.Future) 
                 raise RardarSyncError("rardar_sync_invalid_configuration", "Not configured")
             result = _sync()
             if isinstance(result, dict):
+                result = _reading_result(result)
                 operation.update(status=result["status"], completedAt=datetime.now(UTC).isoformat(), result=result)
                 atomic(state_path, operation)
-                if result["changed"]:
+                if result["changed"] and result.get("readingStatus") != "failed":
                     atomic(
                         operation_root() / "last-successful-sync.json",
                         {"id": identifier, "completedAt": operation["completedAt"]},

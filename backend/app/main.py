@@ -361,6 +361,19 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("DuckDB startup initialization skipped — SQLAlchemy fallback remains available")
 
+    # Build public reading products once before scheduling starts. This only
+    # reads saved facts/materials; it neither initializes a history batch nor
+    # fetches a source, creates a budget, or dispatches a Provider request.
+    from app.core.product_profile import is_rardar_product
+
+    if is_rardar_product() and settings.RARDAR_INTELLIGENCE_DATA_DIR.strip():
+        from pathlib import Path
+
+        from app.services.rardar_daily_refresh import safe_publish_reading_snapshots
+
+        reading = await asyncio.to_thread(safe_publish_reading_snapshots, Path(settings.RARDAR_INTELLIGENCE_DATA_DIR))
+        logger.info("Public reading publication at startup: %s", reading)
+
     # Start the periodic scheduler
     if settings.SCHEDULER_ENABLED:
         start_scheduler()

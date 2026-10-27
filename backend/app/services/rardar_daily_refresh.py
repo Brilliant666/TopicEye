@@ -108,6 +108,85 @@ def _material_pending(day: dict, qualification: dict | None = None) -> bool:
     return result.get("waitReason") not in NON_RESUMABLE
 
 
+def safe_publish_reading_snapshots(target: Path, views=None) -> dict:
+    """Attach local reading publication without changing the source operation's outcome."""
+    selected = tuple(views) if views is not None else ("today", "history")
+    try:
+        from app.services import rardar_trending as service
+
+        result = service.publish_reading_snapshots(target, views=selected)
+        if not isinstance(result, dict):
+            raise ValueError("reading_snapshot_publication_result_invalid")
+        return result
+    except Exception:
+        return {view: {"status": "failed", "errorCode": "reading_snapshot_publication_failed"} for view in selected}
+
+
+async def safe_publish_reading_snapshots_async(target: Path, views=None) -> dict:
+    """Keep local card building off the event loop, with the same non-blocking failure boundary."""
+    try:
+        return await asyncio.to_thread(safe_publish_reading_snapshots, target, views=views)
+    except Exception:
+        selected = tuple(views) if views is not None else ("today", "history")
+        return {view: {"status": "failed", "errorCode": "reading_snapshot_publication_failed"} for view in selected}
+
+
+def record_reading_publication(target: Path, publication: dict, *, now=None) -> dict:
+    """Merge a manual publication receipt into the existing day ledger without waiting."""
+    result = {"status": "failed", "errorCode": "reading_publication_receipt_failed"}
+    try:
+        run_date = day_plan(instant(now))["runDate"]
+        result["date"] = run_date
+        if (
+            not isinstance(publication, dict)
+            or not publication
+            or any(
+                view not in {"today", "history"}
+                or not isinstance(value, dict)
+                or value.get("status") not in {"published", "reused", "failed"}
+                for view, value in publication.items()
+            )
+        ):
+            raise ValueError("reading_publication_receipt_invalid")
+        root = target.absolute() / "trending-boards" / "daily-refresh"
+        plain(root, missing=True)
+        root.mkdir(parents=True, exist_ok=True)
+        with file_lock(root / "writer.lock", blocking=False):
+            path = root / f"day-{run_date}.json"
+            day = read_json(path)
+            if day is None:
+                day = {"schemaVersion": 1, "date": run_date, "rounds": []}
+            if (
+                day.get("schemaVersion") != 1
+                or day.get("date") != run_date
+                or not isinstance(day.get("rounds"), list)
+                or not isinstance(day.get("readingPublication", {}), dict)
+            ):
+                raise ValueError("reading_publication_day_invalid")
+            day["readingPublication"] = {**day.get("readingPublication", {}), **publication}
+            atomic(path, day)
+        return {"status": "saved", "date": run_date}
+    except ProviderBudgetError as exc:
+        if exc.code == "provider_budget_busy":
+            return {**result, "status": "busy", "errorCode": "reading_publication_receipt_busy"}
+        return result
+    except Exception:
+        return result
+
+
+async def record_reading_publication_async(target: Path, publication: dict, *, now=None) -> dict:
+    """Record only the supplied receipt; no publication, source or budget work is started."""
+    try:
+        return await asyncio.to_thread(record_reading_publication, target, publication, now=now)
+    except Exception:
+        return {"status": "failed", "errorCode": "reading_publication_receipt_failed"}
+
+
+def _reading_pending(day: dict) -> tuple[str, ...]:
+    publication = day.get("readingPublication", {})
+    return tuple(view for view in ("today", "history") if publication.get(view, {}).get("status") == "failed")
+
+
 async def run_refresh(
     target: Path,
     *,
@@ -128,10 +207,23 @@ async def run_refresh(
     root = target.absolute() / "trending-boards" / "daily-refresh"
     plain(root, missing=True)
     root.mkdir(parents=True, exist_ok=True)
+    reading_publication = {}
+    attempted_reading = set()
+
+    async def publish_reading(views=None):
+        publication = await safe_publish_reading_snapshots_async(target, views=views)
+        reading_publication.update(publication)
+        attempted_reading.update(publication)
+        # Persist before another stage can fail or a manual run can return.
+        # This uses the daily writer lock already held by run_refresh.
+        day["readingPublication"] = dict(reading_publication)
+        atomic(day_path, day)
+
     try:
         with file_lock(root / "writer.lock", blocking=False):
             day_path = root / f"day-{plan['runDate']}.json"
             day = read_json(day_path) or {"schemaVersion": 1, "date": plan["runDate"], "rounds": []}
+            reading_publication.update(day.get("readingPublication", {}))
             rounds = day["rounds"]
             if len(rounds) > 2:
                 raise ValueError("daily_round_state_invalid")
@@ -188,6 +280,7 @@ async def run_refresh(
                     or (bool(cycle.get("publishedReceipts")) and not cycle.get("metadataComplete", False))
                     or (review_work is not None and day.get("historyReview", {}).get("status") != "published")
                     or day.get("historyMetadata", {}).get("status") in {"partial", "failed"}
+                    or bool(_reading_pending(day))
                 )
                 if not pending and material_work and _material_pending(day, qualification):
                     scopes = (qualification or {}).get("qualification", {})
@@ -225,6 +318,8 @@ async def run_refresh(
                 except Exception:
                     day["historyReview"] = {"status": "failed", "errorCode": "history_review_publication_failed"}
                 atomic(day_path, day)
+                if day["historyReview"]["status"] == "published":
+                    await publish_reading(("history",))
 
             from app.services import rardar_trending as service
 
@@ -234,6 +329,7 @@ async def run_refresh(
                 except Exception as exc:
                     day["historyMetadata"] = {"status": "failed", "errorType": type(exc).__name__, "providerCalls": 0}
                 atomic(day_path, day)
+                await publish_reading(("history",))
 
             def save_cycle():
                 atomic(cycle_path, cycle)
@@ -300,6 +396,9 @@ async def run_refresh(
                     publication_failed = True
                     cycle["publicationError"] = "board_publication_failed"
                     save_cycle()
+                # Source health may change even when the fact generation does not.
+                # Publish fact-first cards before metadata or Profile work starts.
+                await publish_reading()
             current = load_snapshot(target)
             if current.get("generationId") and not cycle.get("metadataComplete") and not publication_failed:
                 try:
@@ -313,6 +412,7 @@ async def run_refresh(
                 except Exception:
                     cycle["metadataError"] = "metadata_refresh_failed"
                     save_cycle()
+                await publish_reading()
 
             if changed and trigger == "automatic" and material_work and material_qualification:
                 # A recovered source may add Today projects after the initial
@@ -348,6 +448,7 @@ async def run_refresh(
                         totals[key] = totals.get(key, 0) + material_result.get(key, 0)
                     day["materialSlices"] = day.get("materialSlices", 0) + 1
                     atomic(day_path, day)
+                    await publish_reading()
                     if material_result.get("status") == "completed":
                         break
                     if material_result.get("waitReason") not in {"next_scheduled_pass", "work_slice_exhausted"}:
@@ -356,13 +457,22 @@ async def run_refresh(
                         break
                     await asyncio.sleep(0)
 
+            pending_reading = tuple(view for view in _reading_pending(day) if view not in attempted_reading)
+            if pending_reading:
+                # A failed local snapshot alone must get the existing 11:00
+                # opportunity, without reopening sources or Provider work.
+                await publish_reading(pending_reading)
             unfinished = _needs_sources(cycle) or _needs_publication(cycle) or publication_failed
+            source_status = "partial" if unfinished else "updated" if changed else "unchanged"
+            today_reading = reading_publication.get("today", {})
+            reading_failed = today_reading.get("status") == "failed"
             result = {
                 **installed,
                 "changed": changed,
                 "generationId": current.get("generationId"),
                 "count": len(current["projects"]),
-                "status": "partial" if unfinished else "updated" if changed else "unchanged",
+                "status": "partial" if reading_failed else source_status,
+                "sourceStatus": source_status,
                 "sources": current["sources"],
                 "sourceRequests": len(fetched),
                 "requestedSources": fetched,
@@ -372,7 +482,17 @@ async def run_refresh(
                 "metadata": cycle.get("metadata", {}),
                 "historyMetadata": day.get("historyMetadata", {}),
                 "oldResultPreserved": bool((publication_failed or unfinished) and current.get("generationId")),
+                "readingPublication": reading_publication,
             }
+            if reading_publication:
+                result["readingReceipt"] = {"status": "saved", "date": plan["runDate"]}
+            if today_reading.get("status") in {"published", "reused", "failed"}:
+                result["readingStatus"] = today_reading["status"]
+                result["readingDisplay"] = "previous" if reading_failed else "current"
+            if reading_failed:
+                result["readingNote"] = "公开Today成品发布失败，当前展示未替换；事实同步结果单独保留。"
+            elif reading_publication.get("history", {}).get("status") == "failed":
+                result["readingNote"] = "Today展示不受影响；历史回顾成品发布失败，历史展示未替换。"
             if trigger == "automatic":
                 result["auditRound"] = {
                     "schemaVersion": 1,

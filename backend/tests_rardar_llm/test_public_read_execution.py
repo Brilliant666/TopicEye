@@ -20,11 +20,17 @@ async def test_public_read_runs_off_event_loop(monkeypatch, name):
         seen.append((threading.get_ident(), args, kwargs))
         return {"ok": True}
 
-    service = "today" if name == "trending_today" else "history" if name == "historical_hot" else "detail"
+    service = (
+        "published_today"
+        if name == "trending_today"
+        else "published_history"
+        if name == "historical_hot"
+        else "published_detail"
+    )
     monkeypatch.setattr(rardar_trending, service, read)
     args = (
         (Response(),)
-        if service != "detail"
+        if service != "published_detail"
         else ("project", "generation")
         if name == "trending_project"
         else ("project",)
@@ -32,7 +38,7 @@ async def test_public_read_runs_off_event_loop(monkeypatch, name):
     assert await getattr(rardar, name)(*args) == {"ok": True}
     assert seen[0][0] != loop_thread
     if name == "historical_project":
-        assert seen[0][1:] == (("project", None), {"historical": True})
+        assert seen[0][1:] == (("project", None), {"historical": True, "reading_revision": None})
 
 
 @pytest.mark.asyncio
@@ -42,7 +48,7 @@ async def test_invalid_public_read_remains_unavailable(monkeypatch):
     def invalid():
         raise ValueError("invalid saved facts")
 
-    monkeypatch.setattr(rardar_trending, "today", invalid)
+    monkeypatch.setattr(rardar_trending, "published_today", invalid)
     with pytest.raises(HTTPException) as error:
         await rardar.trending_today(Response())
     assert error.value.status_code == 503

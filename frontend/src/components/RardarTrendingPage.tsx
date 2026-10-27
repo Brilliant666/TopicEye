@@ -11,9 +11,9 @@ import styles from './RardarFoundation.module.css';
 
 export const boardSourceName = { github: 'GitHub Trending', trendshift: 'Trendshift' };
 
-export function TrendingCard({ project, generationId, historical = false, index }: { project: TrendingProject; generationId: string; historical?: boolean; index?: number }) {
+export function TrendingCard({ project, generationId, readingRevision, historical = false, index }: { project: TrendingProject; generationId: string; readingRevision?: string; historical?: boolean; index?: number }) {
   const profile = project.displayCard ?? project.displayProfile;
-  const detailHref = projectLink(project.projectId, generationId, historical);
+  const detailHref = projectLink(project.projectId, generationId, historical, readingRevision);
   const summary = profile?.officialTaglineZh || profile?.identitySummaryZh || profile?.officialSummaryZh || project.profile?.summary;
   const positioning = profile?.coreValueZh || profile?.positioningZh || project.profile?.positioning;
   const forms = profile?.productFormsZh || project.productForms || [];
@@ -58,6 +58,7 @@ export function HistoricalContext({ project }: { project: TrendingProject }) {
 
 export default function RardarTrendingPage({ board, historical = false }: { board: TrendingBoard | null; historical?: boolean }) {
   const [visible, setVisible] = useState(20);
+  const generationId = board?.generationId;
   const publishedAt = historical ? board?.dailyReview?.publishedAt : board?.publishedAt;
   const shownProjects = historical ? board?.projects : board?.projects.slice(0, visible);
   const minimumGrowth = board?.minimumDailyGrowth ?? 200;
@@ -72,7 +73,7 @@ export default function RardarTrendingPage({ board, historical = false }: { boar
     <div className={styles.sectionHeading}><div><h2>{historical ? `本期回顾 · ${board?.projects.length ?? 0} 项` : '双榜项目清单'}</h2><p>{historical ? '每日稳定轮换，当天内容不重抽；展示序号不是热度排名。' : `展示来源报告日增长≥${minimumGrowth}的项目，双榜项目优先采用GitHub Trending。`}</p></div>{publishedAt && <span className={styles.timestamp}>{historical ? `回顾日期 ${board?.dailyReview?.date} · 发布` : '清单发布'} {boardTime(publishedAt)}</span>}</div>
     {!historical && board && <p className={styles.boardSourceSummary} aria-label="两源读取状态">{board.sources.map(source => <span key={source.source}>{source.label}：{source.status === 'healthy' ? '读取成功' : source.status === 'stale' ? '保留旧记录，待更新' : '读取失败'} · {source.sourceDate ? `源榜 ${source.sourceDate}${source.sourceTimezone ? `（${source.sourceTimezone}）` : ''}` : '源榜日期未知'} · 成功采集 {beijingTime(source.fetchedAt)}</span>)}</p>}
     {!board ? <section className={styles.emptyExactCard} role="status"><Clock3 size={28} /><div><h3>已保存清单暂时不可用</h3><p>请稍后重试；普通阅读不会触发采集或模型请求。</p></div></section> : <>
-      <section className={styles.rankingList} aria-label={historical ? '历史回顾项目' : '双榜今日热榜'}>{shownProjects?.map((project, index) => <TrendingCard key={project.projectId} project={project} generationId={board.generationId} historical={historical} index={index} />)}</section>
+      <section className={styles.rankingList} aria-label={historical ? '历史回顾项目' : '双榜今日热榜'}>{typeof generationId === 'string' && shownProjects?.map((project, index) => <TrendingCard key={project.projectId} project={project} generationId={generationId} readingRevision={board.readingRevision} historical={historical} index={index} />)}</section>
       {board.projects.length === 0 && <section className={styles.emptyExactCard} role="status"><BookOpen size={28} /><p>{historical ? board.dailyReview ? '本期尚无具备可读介绍的历史项目，已有项目详情仍可访问。' : '尚未发布每日回顾，等待日程生成；普通阅读不会重新抽取项目。' : noHealthySource ? '来源暂不可用，暂时没有可展示的达标项目；来源恢复后继续更新。' : `本次有效来源中暂无日增长达到 ${minimumGrowth} 的项目。`}</p></section>}
       {!historical && visible < board.projects.length && <div className={styles.expandBoard}><button type="button" className={styles.boardLoadMore} onClick={() => setVisible(value => value + 20)}>加载更多（剩余 {board.projects.length - visible} 项）</button></div>}
       <details className={styles.provenanceDetails}><summary><BookOpen size={16} /> {historical ? '回顾批次与来源' : '来源与更新时间'} <span>{board.projects.length} {historical ? '个回顾项目' : '个达标项目'}</span></summary><div className={styles.provenanceDetailsBody}>

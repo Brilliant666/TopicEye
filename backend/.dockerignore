@@ -32,6 +32,7 @@ scripts/*
 !scripts/reassemble_rardar_profile_cache.py
 !scripts/correct_rardar_material_once.py
 !scripts/replay_rardar_material_failure.py
+!scripts/refresh_rardar_boards.py
 docs/
 Dockerfile
 .dockerignore

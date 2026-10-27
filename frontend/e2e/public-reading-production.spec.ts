@@ -11,6 +11,9 @@ type FixtureStats = {
   postPaths: string[];
   privateFindReads: string[];
   insightReads: Array<{ projectId: string; generationId: string; context: string }>;
+  publicPointerReads: number;
+  publicSnapshotReads: Array<{ view: string; revision: string; hasCookie: boolean; hasAuthorization: boolean }>;
+  legacyBoardReads: number;
 };
 
 async function stats(request: APIRequestContext): Promise<FixtureStats> {
@@ -124,6 +127,98 @@ test('anonymous core routes render through the actual production AuthProvider tr
   const after = await stats(request);
   expect(after.postPaths).toEqual(before.postPaths);
   expect(after.privateFindReads).toEqual(before.privateFindReads);
+});
+
+test.describe('published public reading snapshots', () => {
+  test.afterEach(async ({ request }) => {
+    const response = await request.post('http://127.0.0.1:3411/fixture-public-reading');
+    expect(response.ok()).toBe(true);
+  });
+
+  test('rechecks publication changes while reusing the same immutable public content', async ({ page, request }) => {
+    const variant = `cache-${test.info().project.name}-${Date.now()}`;
+    await request.post(`http://127.0.0.1:3411/fixture-public-reading?variant=${variant}`);
+    const before = await stats(request);
+    const browser = observe(page);
+    await page.goto('/');
+    await expect(page.getByText(`合成发布版本 ${variant}，只验证发布成品切换。`, { exact: true })).toBeVisible();
+    const navigation = page.getByRole('navigation', {
+      name: test.info().project.name === 'mobile' ? 'Rardar 移动导航' : 'Rardar 主导航', exact: true,
+    });
+    const afterFirst = await stats(request);
+    const firstToday = afterFirst.publicSnapshotReads.slice(before.publicSnapshotReads.length).filter(read => read.view === 'trending-today');
+    expect(firstToday).toHaveLength(1);
+    await navigation.getByRole('link', { name: '历史回顾', exact: true }).click();
+    await expect(page.getByRole('heading', { name: /^历史回顾/, level: 1 })).toBeVisible();
+    await navigation.getByRole('link', { name: '今日热榜', exact: true }).click();
+    await expect(page.getByRole('heading', { name: /^今日热榜/, level: 1 })).toBeVisible();
+    const afterReturn = await stats(request);
+    expect(afterReturn.publicPointerReads).toBeGreaterThan(afterFirst.publicPointerReads);
+    expect(afterReturn.publicSnapshotReads.filter(read => read.view === 'trending-today' && read.revision === firstToday[0].revision)).toHaveLength(1);
+
+    const nextVariant = `${variant}-next`;
+    await request.post(`http://127.0.0.1:3411/fixture-public-reading?variant=${nextVariant}`);
+    await navigation.getByRole('link', { name: '历史回顾', exact: true }).click();
+    await expect(page.getByRole('heading', { name: /^历史回顾/, level: 1 })).toBeVisible();
+    await expect(page.getByText(`合成发布版本 ${nextVariant}，只验证发布成品切换。`, { exact: true })).toBeVisible();
+    await navigation.getByRole('link', { name: '今日热榜', exact: true }).click();
+    await expect(page.getByRole('heading', { name: /^今日热榜/, level: 1 })).toBeVisible();
+    await expect(page.getByText(`合成发布版本 ${nextVariant}，只验证发布成品切换。`, { exact: true })).toBeVisible();
+    const afterChange = await stats(request);
+    const todayReads = afterChange.publicSnapshotReads.slice(before.publicSnapshotReads.length).filter(read => read.view === 'trending-today');
+    expect(todayReads).toHaveLength(2);
+    expect(todayReads[1].revision).not.toBe(todayReads[0].revision);
+    expect(afterChange.publicSnapshotReads.slice(before.publicSnapshotReads.length).every(read => !read.hasCookie && !read.hasAuthorization)).toBe(true);
+    expect(afterChange.legacyBoardReads).toBe(before.legacyBoardReads);
+    expect(afterChange.privateFindReads).toEqual(before.privateFindReads);
+    expect(browser.posts).toEqual([]);
+    expect(browser.errors).toEqual([]);
+  });
+
+  test('shows a real inline pending hint while a public publication pointer is delayed', async ({ page, request }) => {
+    await request.post(`http://127.0.0.1:3411/fixture-public-reading?variant=pending-${Date.now()}&delay=1200`);
+    await page.goto('/activity');
+    const navigation = page.getByRole('navigation', {
+      name: test.info().project.name === 'mobile' ? 'Rardar 移动导航' : 'Rardar 主导航', exact: true,
+    });
+    const link = navigation.getByRole('link', { name: '历史回顾', exact: true });
+    const clicking = link.click();
+    await expect(link.getByTestId('rardar-navigation-pending')).toHaveAttribute('data-pending', 'true');
+    await expect(link.getByRole('status', { name: '正在切换页面' })).toBeVisible();
+    // The current screen remains usable; there is no global loading replacement.
+    await expect(page.getByRole('heading', { name: '动态尚未接入', exact: true })).toBeVisible();
+    await clicking;
+    await expect(page.getByRole('heading', { name: /^历史回顾/, level: 1 })).toBeVisible();
+    await expect(link.getByTestId('rardar-navigation-pending')).toHaveAttribute('data-pending', 'false');
+    await noOverflow(page);
+  });
+
+  for (const path of ['/', '/historical-hot']) {
+    test(`keeps old and new ${path} details pinned when one generation publishes new reading content`, async ({ page, request }) => {
+      const variant = `pinned-${test.info().project.name}-${Date.now()}`;
+      await request.post(`http://127.0.0.1:3411/fixture-public-reading?variant=${variant}`);
+      await page.goto(path);
+      const oldHref = await page.getByRole('link', { name: 'fixture/project-0', exact: true }).getAttribute('href');
+      expect(oldHref).not.toBeNull();
+      const oldUrl = new URL(oldHref!, 'http://127.0.0.1:3410');
+      expect(oldUrl.searchParams.get('readingRevision')).toMatch(/^[a-f0-9]{64}$/);
+
+      const nextVariant = `${variant}-next`;
+      await request.post(`http://127.0.0.1:3411/fixture-public-reading?variant=${nextVariant}`);
+      await page.reload();
+      await expect(page.getByText(`合成发布版本 ${nextVariant}，只验证发布成品切换。`, { exact: true })).toBeVisible();
+      const nextHref = await page.getByRole('link', { name: 'fixture/project-0', exact: true }).getAttribute('href');
+      const nextUrl = new URL(nextHref!, 'http://127.0.0.1:3410');
+      expect(nextUrl.searchParams.get('generation')).toBe(oldUrl.searchParams.get('generation'));
+      expect(nextUrl.searchParams.get('readingRevision')).not.toBe(oldUrl.searchParams.get('readingRevision'));
+      await page.goto(oldHref!);
+      await expect(page.getByTestId('detail-official-tagline')).toHaveText(`合成发布版本 ${variant}，只验证发布成品切换。`);
+      await page.reload();
+      await expect(page.getByTestId('detail-official-tagline')).toHaveText(`合成发布版本 ${variant}，只验证发布成品切换。`);
+      await page.goto(nextHref!);
+      await expect(page.getByTestId('detail-official-tagline')).toHaveText(`合成发布版本 ${nextVariant}，只验证发布成品切换。`);
+    });
+  }
 });
 
 test('anonymous Find is disabled without login navigation or private saved-run reads', async ({ page, request }) => {

@@ -101,6 +101,10 @@ def _publish(target, projects):
 def _app(target, monkeypatch):
     monkeypatch.setattr(settings, "RARDAR_INTELLIGENCE_DATA_DIR", str(target))
     monkeypatch.setattr(api, "is_rardar_product", lambda: True)
+    # Exercise the real write boundary before GET; the application lifespan
+    # normally bootstraps these saved products before accepting requests.
+    publication = service.publish_reading_snapshots(target)
+    assert all(item["status"] in {"published", "reused"} for item in publication.values()), publication
     app = FastAPI()
     app.include_router(api.router, prefix="/api/v1")
     original = httpx.AsyncClient.send

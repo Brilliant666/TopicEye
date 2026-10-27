@@ -53,7 +53,7 @@ from packaging.requirements import Requirement
 import fastapi, sqlalchemy, asyncpg, duckdb, pydantic
 for module in ('scripts.rebuild_rardar_serving', 'scripts.rebuild_rardar_discover_selection',
                'scripts.reassemble_rardar_profile_cache', 'scripts.correct_rardar_material_once',
-               'scripts.replay_rardar_material_failure'):
+               'scripts.replay_rardar_material_failure', 'scripts.refresh_rardar_boards'):
     assert importlib.util.find_spec(module), module
 ast.parse(Path('app/services/llm/provider_budget_handoff.py').read_text())
 issues = []

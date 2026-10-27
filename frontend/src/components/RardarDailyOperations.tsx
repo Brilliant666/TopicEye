@@ -5,20 +5,38 @@ import { request } from '@/lib/api/_core';
 import { Button, Panel } from '@/components/ui';
 import { beijingTime, type RefreshPolicy } from '@/lib/rardar-trending';
 
-type Metrics = Record<string, string | number | null>;
+type MetricValue = string | number | boolean | null | Record<string, unknown>;
+type Metrics = Record<string, MetricValue>;
 type MaterialExecution = { historicalDailyNewProjectLimit: number; historicalLimitUnit: 'new_historical_projects_per_day'; historicalLimitSource: 'explicit_settings_input' | 'code_default'; todayDailyProjectLimit: null; projectSliceLimit: number; providerSliceRequestLimit: number; failureRetryLimit: number; serverProcessId: number };
 export type DailyBudgetView = { configuredLimit: number | null; attempted: number; remaining: number; day: string; interactiveReserve?: number; earlyBackgroundLimit?: number; backgroundRemaining?: number; stageBreakdown?: Record<string, number>; materialExecution?: MaterialExecution; refreshSchedule?: RefreshPolicy; dailyStatus?: { status: string | null; scheduling?: Metrics; modules: Record<string, Metrics> } };
 const LABELS: Record<string, string> = { today: 'Today 事实同步', news_refresh: 'News 来源刷新', news_enhance: 'News 中文阅读', discover: 'Discover 精选', public_projects: '公共事实', find_public_materials: '公共项目资料', today_profiles: 'Today 资料', checked: '已检查', processed: '已处理', completed: '已完成', updated: '已更新', cached: '缓存复用', reused: '复用', failed: '失败', unfinished: '待完成', currentPending: '当前内容待处理', historyPending: '历史积压', workSlices: '执行切片', newlyPublishedTotal: '本轮新发布', currentPublishedCount: '当前展示', currentGenerationId: '当前展示版本', currentPublishedAt: '当前展示发布时间', attemptGenerationId: '最新尝试版本', attemptedAt: '最新尝试时间', project_profile: '项目画像', profile_translation: '项目翻译', news_quickread: '资讯中文阅读', scope_value: '价值判断', user_copy: '精选文案', find_project: 'Find 比较' };
 const STATUS: Record<string, string> = { completed: '已完成', partial: '部分完成', running: '运行中', pending: '待处理', failed: '失败', interrupted: '已中断', skipped: '已跳过', checked: '已检查', paused: '已暂停', waiting: '等待续接' };
 Object.assign(LABELS, { historical_hot: 'Today / 历史资料', find: 'Find 按需查找', reason: '原因', product_scope_paused: '当前产品范围已暂停' });
+Object.assign(LABELS, { sourceStatus: '事实来源', readingStatus: '今日热榜成品', readingDisplay: '今日热榜展示', readingNote: '展示说明', readingPublication: '公开成品' });
 Object.assign(LABELS, { historicalAdmitted: '今日已准入历史项目', historicalNewAdmitted: '本轮新准入历史项目', todayPending: 'Today 资料待处理', historicalPending: '历史资料待处理', visited: '本轮访问项目', providerRequests: '本轮模型请求', failedAttempts: '真实失败尝试', unclassifiedAttempts: '旧记录未分类尝试', refreshed: '资料已更新', remaining: '剩余待处理', checkedToday: 'Today 已检查', checkedHistorical: '历史已检查', historicalDailyNewProjectLimit: '每日历史新项目上限', historicalDailyLimit: '每日历史新项目上限', projectSliceLimit: '每工作片项目上限', providerSliceRequestLimit: '每工作片请求上限', failureRetryLimit: '单项目失败重试边界' });
 Object.assign(STATUS, { on_demand: '按需执行' });
 const WAIT: Record<string, string> = { slice_budget_exhausted: '本切片额度已用完，等待轮转', provider_slice_exhausted: '本切片额度已用完，等待轮转', interactive_reserve: '为手动操作保留额度', provider_daily_interactive_reserve: '为手动操作保留额度', early_background_limit: '08:30 前后台额度已用完', provider_daily_early_limit: '08:30 前后台额度已用完', daily_budget_exhausted: '今日额度已用完', calendar_day_changed: '日期已切换，等待下一日程', source_unavailable: '事实来源暂不可用', daily_budget_not_configured: '尚未配置费用上限' };
 Object.assign(WAIT, { work_slice_exhausted: '本轮处理时间片已完成，等待续跑', interactive_budget_reserved: '已保留交互请求额度', pre_window_background_limit: '08:30 前后台额度已达到上限', interactive_request_waiting: '优先处理用户检索', provider_request_busy: '等待当前模型请求完成', next_scheduled_pass: '等待下一次日程续跑', administrator_paused: '管理员已暂停，等待恢复' });
 Object.assign(WAIT, { historical_daily_limit_reached: '今日历史新项目名额已用完；新的历史项目等待下一自然日，Today 和已准入项目可继续续接', material_retry_limit_reached: '已达到真实失败或旧未分类记录的重试边界，保留有效资料' });
 
-function metricLabel(key: string, value: string | number | null) {
-  return value !== null && typeof value === 'string' && /At$/.test(key) ? beijingTime(value) : value ?? '未知';
+const READING_STATUS: Record<string, string> = { published: '已发布', reused: '成品未变，继续复用', failed: '发布失败，保留上次展示' };
+
+function metricLabel(key: string, value: MetricValue): string | number {
+  if (value !== null && typeof value === 'object') {
+    if (key !== 'readingPublication') return '已记录（详见执行日志）';
+    return (['today', 'history'] as const).flatMap(view => {
+      const result = value[view];
+      if (!result || typeof result !== 'object' || !('status' in result) || typeof result.status !== 'string') return [];
+      return [`${view === 'today' ? '今日热榜' : '历史回顾'}：${READING_STATUS[result.status] ?? '发布状态未知'}`];
+    }).join('；') || '暂无发布结果';
+  }
+  if (typeof value === 'string') {
+    if (key === 'sourceStatus') return ({ updated: '同步成功', unchanged: '未变化', partial: '部分来源暂不可用', failed: '来源失败' } as Record<string, string>)[value] ?? '未知';
+    if (key === 'readingStatus') return READING_STATUS[value] ?? '未知';
+    if (key === 'readingDisplay') return ({ current: '本次成品', previous: '上次展示' } as Record<string, string>)[value] ?? '未知';
+    if (/At$/.test(key)) return beijingTime(value);
+  }
+  return typeof value === 'boolean' ? value ? '是' : '否' : value ?? '未知';
 }
 
 export function DailyExecutionSummary({ budget }: { budget: DailyBudgetView }) {
@@ -30,9 +48,9 @@ export function DailyExecutionSummary({ budget }: { budget: DailyBudgetView }) {
       <p>Today 无独立每日项目配额 · 每工作片最多 {budget.materialExecution.projectSliceLimit} 个项目 / {budget.materialExecution.providerSliceRequestLimit} 次模型请求 · 单项目失败重试边界 {budget.materialExecution.failureRetryLimit} 次。</p>
       <p className="text-xs text-gray-500">以上由当前服务进程读取；所有实际请求仍受统一每日额度、交互预留和执行等待保护。零调用等待不占新项目名额。</p>
     </div>}
-    {scheduling && <p>执行切片：{scheduling.workSlices ?? 0} · 每切片请求上限：{scheduling.sliceRequestLimit ?? '未知'}{scheduling.waitReason ? ` · ${WAIT[String(scheduling.waitReason)] ?? `等待：${scheduling.waitReason}`}` : ''}</p>}
+    {scheduling && <p>执行切片：{metricLabel('workSlices', scheduling.workSlices ?? 0)} · 每切片请求上限：{metricLabel('sliceRequestLimit', scheduling.sliceRequestLimit ?? null)}{scheduling.waitReason ? ` · ${WAIT[String(scheduling.waitReason)] ?? `等待：${scheduling.waitReason}`}` : ''}</p>}
     {budget.stageBreakdown && <p aria-label="当日请求预留分布">当日请求预留分布：{Object.entries(budget.stageBreakdown).filter(([, count]) => count > 0).map(([stage, count]) => `${LABELS[stage] ?? stage} ${count}`).join(' · ') || '尚无预留'}（包含出站前的保守预记，不等同于费用账单）</p>}
-    {budget.dailyStatus?.modules && <ul className="space-y-3" aria-label="模块处理结果">{Object.entries(budget.dailyStatus.modules).map(([name, result]) => <li key={name} className="break-words rounded border p-3"><strong>{LABELS[name] ?? name} · {STATUS[String(result.status)] ?? result.status ?? '未知'}</strong><p>{Object.entries(result).filter(([key]) => key !== 'status' && key !== 'waitReason').map(([key, value]) => `${LABELS[key] ?? key}：${metricLabel(key, value)}`).join(' · ')}</p>{result.waitReason && <p>{WAIT[String(result.waitReason)] ?? `等待：${result.waitReason}`}</p>}</li>)}</ul>}
+    {budget.dailyStatus?.modules && <ul className="space-y-3" aria-label="模块处理结果">{Object.entries(budget.dailyStatus.modules).map(([name, result]) => <li key={name} className="break-words rounded border p-3"><strong>{LABELS[name] ?? name} · {typeof result.status === 'string' ? STATUS[result.status] ?? result.status : '未知'}</strong><p>{Object.entries(result).filter(([key]) => key !== 'status' && key !== 'waitReason').map(([key, value]) => `${LABELS[key] ?? key}：${metricLabel(key, value)}`).join(' · ')}</p>{result.waitReason && <p>{WAIT[String(result.waitReason)] ?? `等待：${result.waitReason}`}</p>}</li>)}</ul>}
     <p className="text-xs text-gray-500">检查、处理与发布分别计数；失败尝试不修改当前展示的版本和发布时间。</p>
   </div>;
 }

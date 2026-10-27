@@ -80,6 +80,11 @@ def io(tmp_path, monkeypatch):
     fetcher = AsyncMock(side_effect=fetch)
     monkeypatch.setattr(trending_boards, "fetch_board", fetcher)
     monkeypatch.setattr(service, "saved_materials", lambda _: {})
+    monkeypatch.setattr(
+        service,
+        "publish_reading_snapshots",
+        lambda _target, views=None: {view: {"status": "reused"} for view in views or ("today", "history")},
+    )
     monkeypatch.setattr(service, "refresh_metadata", AsyncMock(return_value={"checked": 2, "providerCalls": 0}))
     monkeypatch.setattr(refresh, "material_budget_available", AsyncMock(return_value=True))
     return tmp_path, fetcher

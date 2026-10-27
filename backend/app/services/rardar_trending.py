@@ -652,27 +652,131 @@ def today_candidates(target: Path) -> dict:
 
 @read_scoped
 def today() -> dict:
+    """Build a validated candidate for publication, not the HTTP read path."""
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
+    return _list_cards(_today_projection(target))
+
+
+def _today_projection(target: Path) -> dict:
     snapshot = today_candidates(target)
-    return _list_cards(
-        _material_attempts(
-            trending_metadata.apply(
-                apply_materials(
-                    snapshot,
-                    saved_materials(target, repositories={p["repository"] for p in snapshot["projects"]}),
-                    target=target,
-                ),
-                target,
+    return _material_attempts(
+        trending_metadata.apply(
+            apply_materials(
+                snapshot,
+                saved_materials(target, repositories={p["repository"] for p in snapshot["projects"]}),
+                target=target,
             ),
             target,
-        )
+        ),
+        target,
     )
 
 
 @read_scoped
 def history() -> dict:
+    """Build a validated candidate for publication, not the HTTP read path."""
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
     return _list_cards(daily_history_view(target))
+
+
+@read_scoped
+def _reading_product(target: Path, view: str) -> dict:
+    snapshot = _today_projection(target) if view == "trending-today" else daily_history_view(target)
+    details, identifiers = {}, {}
+    for project in snapshot["projects"]:
+        identifier = project["projectId"]
+        details[identifier] = {
+            **deepcopy(project),
+            "generationId": snapshot.get("generationId"),
+            "publishedAt": snapshot.get("publishedAt"),
+            "sources": deepcopy(snapshot.get("sources", [])),
+            "historical": view == "historical-hot",
+        }
+        aliases = {identifier, *project.get("identityProjectIds", []), *project.get("sourceProjectIds", [])}
+        if project.get("stableProjectId"):
+            aliases.add(project["stableProjectId"])
+        for alias in aliases:
+            if alias in identifiers and identifiers[alias] != identifier:
+                raise ValueError("public_reading_identity_collision")
+            identifiers[alias] = identifier
+    return {"view": view, "board": _list_cards(snapshot), "details": details, "identifiers": identifiers}
+
+
+def publish_reading_snapshots(target: Path, views=None) -> dict:
+    """Zero-outbound write-side assembly, isolated by public view.
+
+    Called after existing update boundaries and once at application startup.
+    Repeated identical candidates retain their revision and publication time.
+    Neither partial Profiles nor one failed view block another valid view.
+    """
+    from app.integrations.rardar import public_reading, read_cache
+
+    names = {"today": "trending-today", "history": "historical-hot"}
+    selected = tuple(views) if views is not None else tuple(names)
+    if any(name not in names for name in selected):
+        raise ValueError("public_reading_view_invalid")
+    # The writer must not assemble an old 20-second cached material projection.
+    # HTTP readers no longer use that source/material cache at all.
+    read_cache.clear()
+    result = {}
+    for name in selected:
+        view = names[name]
+        try:
+            result[name] = public_reading.publish(target, view, lambda view=view: _reading_product(target, view))
+        except Exception as exc:
+            result[name] = {
+                "status": "failed",
+                "errorCode": "public_reading_publication_failed",
+                "errorType": type(exc).__name__,
+            }
+    return result
+
+
+def published_reading_pointer() -> dict:
+    from app.integrations.rardar import public_reading
+
+    return public_reading.current(Path(settings.RARDAR_INTELLIGENCE_DATA_DIR))
+
+
+def published_board(view: str, revision: str | None = None) -> dict:
+    from app.integrations.rardar import public_reading
+
+    return public_reading.board(Path(settings.RARDAR_INTELLIGENCE_DATA_DIR), view, revision)
+
+
+def published_today() -> dict:
+    return published_board("trending-today")
+
+
+def published_history() -> dict:
+    return published_board("historical-hot")
+
+
+def published_detail(
+    identifier: str, generation: str | None, *, historical: bool = False, reading_revision: str | None = None
+) -> dict:
+    from app.integrations.rardar import public_reading
+
+    view = "historical-hot" if historical else "trending-today"
+    try:
+        return public_reading.detail(
+            Path(settings.RARDAR_INTELLIGENCE_DATA_DIR),
+            view,
+            identifier,
+            None if historical else generation,
+            revision=reading_revision,
+        )
+    except LookupError as exc:
+        # A versioned link is an exact published result, never an invitation
+        # to assemble newer material or silently switch to the current view.
+        if reading_revision is not None:
+            raise
+        if str(exc) in {"public_reading_not_published", "public_reading_revision_not_found"}:
+            raise ValueError("public_reading_not_ready") from None
+        # Old pinned URLs and projects outside the current published reading
+        # scope retain their existing strict archive path. Normal list links
+        # are served from the exact validated product above, without assembly.
+        return detail(identifier, generation, historical=historical)
 
 
 def _list_cards(snapshot: dict) -> dict:
@@ -1026,13 +1130,30 @@ async def generate_project_material(target: Path, project_id: str) -> dict:
             day = calendar_day()
             path = root / f"{day}-refocus-v1.json"
             state = read_json(path) or {"date": day, "modules": {}, "progress": {}}
-            result = await historical_work(
-                target,
-                state["progress"].setdefault("historical", {}),
-                lambda: atomic(path, state),
-                only_project_id=project_id,
-                budget_context=budget,
+            from app.services.rardar_daily_refresh import (
+                record_reading_publication_async,
+                safe_publish_reading_snapshots_async,
             )
+
+            try:
+                result = await historical_work(
+                    target,
+                    state["progress"].setdefault("historical", {}),
+                    lambda: atomic(path, state),
+                    only_project_id=project_id,
+                    budget_context=budget,
+                )
+            finally:
+                # Partial successful stages are durable too. Publish their
+                # validated projection without hiding the operation's error.
+                publication = await safe_publish_reading_snapshots_async(target)
+                receipt = await record_reading_publication_async(target, publication)
+                state["readingPublication"] = publication
+                state["readingReceipt"] = receipt
+                atomic(path, state)
+            reading = {"readingPublication": publication, "readingReceipt": receipt}
+            if any(view.get("status") == "failed" for view in publication.values()):
+                reading.update(readingStatus="failed", readingDisplay="previous")
             state.setdefault("manualRepairs", []).append(
                 {
                     "trigger": "manual_material_repair",
@@ -1050,6 +1171,7 @@ async def generate_project_material(target: Path, project_id: str) -> dict:
                     "providerCalls": result["providerRequests"],
                     "introductionAvailable": bool(result.get("introductionsAvailable")),
                     "profileComplete": False,
+                    **reading,
                 }
             return {
                 "status": "processed" if result["processed"] else "reused",
@@ -1057,6 +1179,7 @@ async def generate_project_material(target: Path, project_id: str) -> dict:
                 "materialState": result.get("materialState"),
                 "providerCalls": result["providerRequests"],
                 "profileCacheState": result["profileCacheState"],
+                **reading,
             }
     except ProviderWorkYield as exc:
         return {"status": "pending", "waitReason": exc.code, "providerCalls": work.used_requests if work else 0}

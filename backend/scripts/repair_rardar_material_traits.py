@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.integrations.rardar.material_trait_revision import FIELDS, VERSION, derive, install
 from app.integrations.rardar.project_identity import canonical_repository
 from app.integrations.rardar.serving_schemas import OfficialProjectProfile, ProjectEvidenceProjection
+from app.services.rardar_daily_refresh import record_reading_publication, safe_publish_reading_snapshots
 from app.services.rardar_trending import saved_materials
 
 
@@ -54,15 +55,19 @@ def main():
                 }
             )
     missing = sorted(chosen - set(materials))
+    output = {
+        "version": VERSION,
+        "apply": args.apply,
+        "providerCalls": 0,
+        "missingRepositories": missing,
+        "results": results,
+    }
+    if args.apply:
+        output["readingPublication"] = safe_publish_reading_snapshots(target)
+        output["readingReceipt"] = record_reading_publication(target, output["readingPublication"])
     print(
         json.dumps(
-            {
-                "version": VERSION,
-                "apply": args.apply,
-                "providerCalls": 0,
-                "missingRepositories": missing,
-                "results": results,
-            },
+            output,
             ensure_ascii=False,
             indent=2,
         )

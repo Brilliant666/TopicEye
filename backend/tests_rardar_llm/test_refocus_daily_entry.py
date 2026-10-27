@@ -421,6 +421,8 @@ def test_new_get_routes_only_read_saved_data(isolated, monkeypatch):
     identifier = store.load_snapshot(isolated)["projects"][0]["projectId"]
     fetch = AsyncMock(side_effect=AssertionError("GET must not fetch"))
     monkeypatch.setattr(trending_boards, "fetch_boards", fetch)
+    publication = service.publish_reading_snapshots(isolated)
+    assert all(row["status"] in {"published", "reused"} for row in publication.values()), publication
     app = FastAPI()
     app.include_router(rardar.router)
     with TestClient(app) as client:

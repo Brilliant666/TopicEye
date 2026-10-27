@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 
 from app.integrations.rardar import project_identity
 from app.integrations.rardar.project_identity import canonical_repository, project_id_for_repository
+from app.integrations.rardar.read_scope import once
 from app.integrations.rardar.trending_metrics import order_today, select_historical_total
 from app.integrations.rardar.trending_periods import due_period, policy_status
 from app.services.llm.provider_budget import atomic, digest, file_lock, plain
@@ -220,6 +221,13 @@ def _generation(root: Path, generation: str) -> dict:
 
 
 def load_snapshot(target: Path, generation: str | None = None) -> dict:
+    return once(
+        ("board-snapshot", str(target.absolute()), generation),
+        lambda: _load_snapshot(target, generation),
+    )
+
+
+def _load_snapshot(target: Path, generation: str | None = None) -> dict:
     root = _root(target)
     pointer = read_json(root / "current.json")
     if generation is None and not pointer:

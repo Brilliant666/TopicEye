@@ -23,6 +23,7 @@ from app.integrations.rardar.profile_cache_v2 import (
 )
 from app.integrations.rardar.project_identity import canonical_repository, project_id_for_repository
 from app.integrations.rardar.read_cache import cached, signature
+from app.integrations.rardar.read_scope import read_scoped
 from app.integrations.rardar.serving_profiles import (
     _digest,
     collect_official_project_profile,
@@ -649,6 +650,7 @@ def today_candidates(target: Path) -> dict:
     return qualifying_today(load_snapshot(target), minimum=settings.RARDAR_TODAY_MINIMUM_DAILY_GROWTH)
 
 
+@read_scoped
 def today() -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
     snapshot = today_candidates(target)
@@ -667,6 +669,7 @@ def today() -> dict:
     )
 
 
+@read_scoped
 def history() -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
     return _list_cards(daily_history_view(target))
@@ -839,6 +842,7 @@ def _material_attempts(snapshot: dict, target: Path) -> dict:
     return snapshot
 
 
+@read_scoped
 def detail(identifier: str, generation: str | None, *, historical: bool = False) -> dict:
     target = Path(settings.RARDAR_INTELLIGENCE_DATA_DIR)
     if historical:

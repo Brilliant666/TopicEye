@@ -7,6 +7,7 @@ from urllib.parse import urljoin, urlparse
 
 from app.integrations.rardar import project_identity
 from app.integrations.rardar.project_identity import canonical_repository
+from app.integrations.rardar.read_scope import once
 from app.integrations.rardar.trending_store import read_json
 from app.services.llm.provider_budget import ProviderBudgetError, atomic, digest, file_lock, plain
 
@@ -18,7 +19,10 @@ def _path(target: Path, repository: str) -> Path:
 def read(target: Path, project: dict) -> dict | None:
     repository = project_identity.resolved_repository(target, project)
     try:
-        record = read_json(_path(target, repository), maximum=30_000)
+        record = once(
+            ("repository-metadata", str(target.absolute()), repository),
+            lambda: read_json(_path(target, repository), maximum=30_000),
+        )
     except ProviderBudgetError as exc:
         raise ValueError("repository_metadata_path_invalid") from exc
     if not record:

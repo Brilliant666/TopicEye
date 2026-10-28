@@ -1,11 +1,15 @@
 # ruff: noqa: I001
 import asyncio
+import logging
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import pytest_asyncio
 from fastapi import BackgroundTasks, HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import event, select, update
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 from sqlalchemy.sql.selectable import Select
 
 from app.api.v1 import analyses as analyses_api
@@ -42,6 +46,25 @@ async def _session_factory():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     return engine, session_factory
+
+
+@pytest_asyncio.fixture
+async def concurrent_db(tmp_path):
+    # :memory: uses StaticPool: concurrent sessions then share one physical
+    # connection, and one session's rollback-on-return can erase another's
+    # uncommitted claim. File SQLite + NullPool gives each checkout its own
+    # transaction without changing the production PostgreSQL path.
+    engine = create_async_engine(
+        URL.create("sqlite+aiosqlite", database=str(tmp_path / "concurrent-analysis.db")),
+        poolclass=NullPool,
+    )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        yield engine, session_factory
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio
@@ -1621,18 +1644,21 @@ async def test_analyze_single_failure_sets_error_cooldown_timestamp(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_analyze_batch_concurrent_runs_items_in_parallel(monkeypatch):
-    engine, session_factory = await _session_factory()
+async def test_analyze_batch_concurrent_runs_items_in_parallel(monkeypatch, concurrent_db):
+    _, session_factory = concurrent_db
     active = 0
     max_active = 0
     lock = asyncio.Lock()
+    overlapped = asyncio.Event()
 
     async def fake_analyze_content(content, db):
         nonlocal active, max_active
         async with lock:
             active += 1
             max_active = max(max_active, active)
-        await asyncio.sleep(0.05)
+            if active == 2:
+                overlapped.set()
+        await asyncio.wait_for(overlapped.wait(), timeout=10)
         async with lock:
             active -= 1
 
@@ -1676,7 +1702,10 @@ async def test_analyze_batch_concurrent_runs_items_in_parallel(monkeypatch):
     )
 
     async with session_factory() as db:
-        statuses = {item.id: item.status for item in (await db.execute(select(ContentItem))).scalars().all()}
+        items = (await db.execute(select(ContentItem))).scalars().all()
+        statuses = {item.id: item.status for item in items}
+        attempts = {item.id: item.analysis_attempts for item in items}
+        saved_ids = (await db.execute(select(AiAnalysis.content_id).order_by(AiAnalysis.content_id))).scalars().all()
 
     assert [item.content_id for item in results] == [1, 2, 3, 4]
     assert max_active == 2
@@ -1686,7 +1715,103 @@ async def test_analyze_batch_concurrent_runs_items_in_parallel(monkeypatch):
         3: ContentStatus.ANALYZED,
         4: ContentStatus.ANALYZED,
     }
-    await engine.dispose()
+    assert attempts == dict.fromkeys([1, 2, 3, 4], 1)
+    assert saved_ids == [1, 2, 3, 4]
+
+
+@pytest.mark.asyncio
+async def test_analysis_claim_survives_other_session_pool_reset(monkeypatch, concurrent_db, caplog):
+    """Returning one connection cannot roll back another worker's new claim.
+
+    Force the exact reset/UPDATE/rollback order instead of hoping a short sleep
+    happens to expose it. A single-connection memory pool deterministically
+    loses the claim here, despite using two different AsyncSession objects.
+    """
+    engine, session_factory = concurrent_db
+    reset_started = asyncio.Event()
+    claim_written = asyncio.Event()
+    reset_finished = asyncio.Event()
+    worker_connections = []
+    tasks = []
+    caplog.set_level(logging.INFO, logger="app.services.analysis")
+
+    async with session_factory() as setup:
+        setup.add(ContentItem(id=1, title="隔离认领", url="https://example.com/isolated-claim"))
+        await setup.commit()
+
+    async def fake_analyzer(content, db):
+        record = AiAnalysis(content_id=content.id, summary="虚拟分析结果", curation_score=60)
+        db.add(record)
+        content.status = ContentStatus.ANALYZED
+        await db.flush()
+        return record
+
+    async with session_factory() as returning_db, session_factory() as worker_db:
+        await returning_db.execute(select(ContentItem.id))
+        returning_connection = await returning_db.connection()
+        returning_dbapi = returning_connection.sync_connection.connection.dbapi_connection
+        commit_worker = worker_db.commit
+        first_commit = True
+
+        async def commit_after_reset():
+            nonlocal first_commit
+            if first_commit:
+                first_commit = False
+                connection = await worker_db.connection()
+                worker_connections.append(connection.sync_connection.connection.dbapi_connection)
+                claim_written.set()
+                await reset_finished.wait()
+            await commit_worker()
+
+        def pause_before_reset(dbapi, record, state):
+            if dbapi is returning_dbapi and not reset_started.is_set():
+                assert not state.transaction_was_reset
+                reset_started.set()
+                dbapi.run_async(lambda driver: claim_written.wait())
+
+        def finish_reset(dbapi, record):
+            if dbapi is returning_dbapi and reset_started.is_set():
+                reset_finished.set()
+
+        monkeypatch.setattr(worker_db, "commit", commit_after_reset)
+        event.listen(engine.sync_engine.pool, "reset", pause_before_reset)
+        event.listen(engine.sync_engine.pool, "checkin", finish_reset)
+        try:
+            async with asyncio.timeout(10):
+                tasks.append(asyncio.create_task(returning_db.commit()))
+                await reset_started.wait()
+                tasks.append(
+                    asyncio.create_task(
+                        analysis.analyze_one_claimed(
+                            1,
+                            worker_db,
+                            analyzer=fake_analyzer,
+                            heartbeat_session_factory=session_factory,
+                        )
+                    )
+                )
+                _, result = await asyncio.gather(*tasks)
+        finally:
+            claim_written.set()
+            reset_finished.set()
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            event.remove(engine.sync_engine.pool, "reset", pause_before_reset)
+            event.remove(engine.sync_engine.pool, "checkin", finish_reset)
+
+    assert result is not None
+    assert result.content_id == 1
+    assert worker_connections and worker_connections[0] is not returning_dbapi
+    assert "lease ownership changed" not in caplog.text
+    async with session_factory() as verify:
+        stored = await verify.get(ContentItem, 1)
+        records = (await verify.execute(select(AiAnalysis.content_id))).scalars().all()
+    assert stored.status == ContentStatus.ANALYZED
+    assert stored.analysis_attempts == 1
+    assert stored.analysis_claim_token is None
+    assert records == [1]
 
 
 def test_source_sync_semaphore_uses_configured_concurrency(monkeypatch):

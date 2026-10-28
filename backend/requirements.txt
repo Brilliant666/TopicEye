@@ -8,7 +8,8 @@ sqlalchemy[asyncio]==2.0.36
 asyncpg==0.30.0
 psycopg[binary]==3.2.13
 pydantic==2.10.4
-pydantic-settings==2.7.1
+# Required by the patched LiteLLM SDK; Pydantic itself remains pinned above.
+pydantic-settings==2.14.2
 jsonschema==4.25.1
 apscheduler==3.10.4
 httpx==0.28.1
@@ -16,14 +17,14 @@ aiosmtplib==5.1.2
 feedparser==6.0.11
 beautifulsoup4==4.12.3
 python-dotenv==1.2.2
-litellm==1.95.1
+litellm==1.100.4
 tenacity==9.0.0
 duckdb==1.2.2
 jieba==0.42.1
 cryptography==50.0.0
 alembic==1.14.0
 # OAuth (Google/GitHub 登录); itsdangerous 是 authlib starlette 集成的依赖
-authlib==1.6.12
+authlib==1.9.1
 itsdangerous==2.2.0
 # 七猫 scraper: 执行 window.__NUXT__ IIFE 拿 listData (替代 Playwright, 镜像 -500MB)
 # 注: 包名 mini-racer (新版), import 仍走 py_mini_racer.MiniRacer

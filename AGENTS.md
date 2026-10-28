@@ -1,5 +1,22 @@
 # Agent Guidelines
 
+## Repository and document routing
+
+- This repository, `Brilliant666/TopicEye`, implements the current Rardar
+  product. The separate `Brilliant666/rardar` checkout has legacy/upstream
+  responsibilities; its Vinext/D1/systemd instructions are not this product's
+  deployment procedure.
+- Read only the guidance needed for the task: the root README's
+  [production/development boundary](README.md#rardar-production-and-local-development)
+  for Rardar execution, `CONTRIBUTING.md` for contribution workflow, and the
+  relevant adapter/platform contract for changes to that boundary. Generic
+  TopicEye deployment guides are not a substitute for the active Rardar
+  Runtime's existing release records.
+- Establish completion from the relevant commit and dated evidence, not an old
+  "current task", branch name or cached remote ref. Update the existing task
+  record rather than copying a live-status checklist into multiple guides;
+  deferred work requires a current instruction to resume.
+
 ## Commit Discipline
 
 Follow the existing project history. Recent commits use concise Conventional
@@ -72,7 +89,7 @@ the failure is being reproduced, or the risk of the new operation requires it.
 - At the start, name the user-visible outcome, existing data to recover, release path, cost/permission bounds and verification. A known missing capability is development work; only a real external boundary blocks its dependent step.
 - For material-generation fixes, verify durable failed-candidate capture and network-free cross-process replay before an authorized real recovery call; finish with production save and readback when in scope.
 - Keep one cause's fix, tests, packaging and authorized data recovery in one task when safe. Report code merged, production deployed, content saved/read back and visual acceptance separately; none implies the next.
-- Diagnostic and readback zero-call limits do not prohibit separately authorized generation. Never inherit a past task's temporary quota or approval. If a future natural run has not occurred, leave one read-only follow-up rather than manufacturing a run.
+- Diagnostic and readback zero-call limits do not prohibit separately authorized generation. Never inherit a past task's temporary quota or approval. If a future natural run has not occurred, report it as unobserved; arrange a bounded read-only follow-up only when requested, without manufacturing a run or starting ongoing monitoring.
 
 ### Data runs
 
@@ -88,6 +105,12 @@ the failure is being reproduced, or the risk of the new operation requires it.
   same commit and relevant inputs instead of repeating it without cause.
 - Add a real browser check when page behavior or the data-to-page connection
   changed; documentation-only and backend-only changes do not inherit it.
+
+### Documentation and read-only work
+
+- Check the affected content, commands, links and diff. Do not automatically
+  start services, run pipelines/builds/full suites, create a PR or deploy.
+  Existing required checks still apply when a PR or release is actually in scope.
 
 ### High-risk changes
 
@@ -107,7 +130,10 @@ new task unless the current request explicitly adopts them. A failed Discover
 Profile is normally a per-project result, not a product-wide blocker, and new
 trending work does not depend on repairing every historical Profile.
 
-## Discover Follow-ups (Non-blocking)
+## Retained Discover Follow-ups (Non-blocking)
+
+These are historical compatibility items, not an active Rardar work queue;
+the current product scope keeps dedicated Discover work paused.
 
 - `backend/app/integrations/rardar/shadow_cohort.py::choose_cohort` and the
   legacy `shadow_review.py` artifact still hard-code a 16-project research

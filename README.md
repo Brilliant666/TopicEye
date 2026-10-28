@@ -169,12 +169,17 @@ Full config in [backend/app/services/scoring_engine.py](backend/app/services/sco
 
 ## Quick start
 
-### Rardar local product MVP (Windows)
+### Rardar product mode
+
+This repository contains the current Rardar product. Start with the
+[production and local-development boundary](#rardar-production-and-local-development)
+to select the right execution environment; the older local-MVP commands below
+are retained compatibility references, not the current production runbook.
 
 **Current development direction (RARDAR-REFOCUS-01):** Today combines GitHub
 Trending and Trendshift's own daily repository lists; `/historical-hot` keeps
 traceable historical appearances and saved project readings; `/find` remains
-requirement-first with interactive model priority. In this branch, Rardar's
+requirement-first with interactive model priority. In Rardar mode,
 News/Discover collection and enhancement entries are paused, and candidate-pool
 and watchlist pages are retired. Data/shared materials remain. This does not
 disable those capabilities in the independent TopicEye profile.
@@ -232,8 +237,8 @@ startup catch-up disabled. See the [daily refresh record](docs/iterations/2026-0
 
 The following earlier local-MVP instructions remain historical compatibility
 reference. Their News/Discover commands are deliberately rejected in the refocused
-Rardar mode; they are not daily setup steps for this direction. This PR does not
-switch the running local version or deploy cloud services.
+Rardar mode; they are not daily setup steps or instructions to switch the
+current Runtime or deploy cloud services.
 
 Rardar reuses the existing TopicEye PostgreSQL cluster and the enabled
 `routing_group=rardar` model; it never creates a replacement database or
@@ -613,6 +618,14 @@ the backend suite against a throwaway `postgres:16-alpine` container on port
 for every task.
 
 ## Rardar production and local development
+
+This section defines the Rardar ownership boundary. `DEPLOYMENT.md` and
+`deploy/README.md` describe generic TopicEye deployments, not the managed Rardar
+promotion procedure. Use the existing repository-external
+`RARDAR-SERVER-PROMOTE-01` Runtime records for that deployment, binding the actual
+code/image, execution identity, environment and data root. A record or example
+command is not permission to connect, migrate, publish or spend. The separate
+legacy `Brilliant666/rardar` Vinext/D1/systemd runbook is not interchangeable.
 
 The server owns production schedules, saved results and the shared production
 budget. Local `scripts/rardar-local.ps1 start` / `restart` and `preview-start`
